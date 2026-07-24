@@ -1,16 +1,32 @@
-import type { PublicMorningBrief } from '@/lib/day-plan/brief';
+'use client';
+
+import type { MorningBriefGeneration, PublicMorningBrief } from '@/lib/day-plan/brief';
+import BriefProgress from './BriefProgress';
 
 export default function ArrivalStepBrief({
   recap,
   narrative,
   watchItems,
   briefWriting,
+  briefGeneration,
+  hasBriefContent,
+  onForceBrief,
+  forcingBrief,
 }: {
   recap?: string;
   narrative: string;
   watchItems: PublicMorningBrief['watchItems'];
   briefWriting: boolean;
+  briefGeneration?: MorningBriefGeneration;
+  hasBriefContent: boolean;
+  onForceBrief?: () => void;
+  forcingBrief?: boolean;
 }) {
+  // Nothing written and nothing on its way: a failed run, or a morning the cron
+  // never fired. Either way he is staring at a brief-shaped hole, so give him a
+  // way out rather than silence.
+  const stalled = !hasBriefContent && !briefWriting;
+
   return (
     <section className="mx-auto w-full max-w-[85rem] space-y-8 px-6 py-8 sm:px-10" aria-label="The brief">
       <div className="space-y-6">
@@ -29,18 +45,24 @@ export default function ArrivalStepBrief({
         <p className="text-pretty text-base leading-relaxed text-foreground sm:text-lg">{narrative}</p>
 
         {briefWriting && (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
-            <span className="inline-flex items-center gap-1" aria-hidden="true">
-              {[0, 1, 2].map((dot) => (
-                <span
-                  key={dot}
-                  className="size-1.5 rounded-full bg-current opacity-35 motion-safe:animate-pulse"
-                  style={{ animationDelay: `${dot * 180}ms` }}
-                />
-              ))}
-            </span>
-            Your brief is being written…
-          </p>
+          <BriefProgress
+            startedAt={briefGeneration?.startedAt}
+            estimateSeconds={briefGeneration?.estimateSeconds}
+          />
+        )}
+
+        {stalled && onForceBrief && (
+          <button
+            type="button"
+            className="text-sm text-muted-foreground underline-offset-4 hover:underline disabled:cursor-default disabled:no-underline disabled:opacity-60"
+            onClick={onForceBrief}
+            // The round trip can take a beat, and the optimistic progress state
+            // only lands after it. Without this, an impatient second tap fires a
+            // second request before the first has said anything.
+            disabled={forcingBrief}
+          >
+            {forcingBrief ? 'Starting…' : 'Write my brief now'}
+          </button>
         )}
 
         {watchItems.length > 0 && (

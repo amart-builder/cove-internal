@@ -8,6 +8,7 @@ import {
   configureDayPlanExecution,
   DayPlanApiConflict,
   ensureDayPlan,
+  forceMorningBrief,
   getDayPlanExecutionState,
   getDayPlanState,
   kickoffDayPlanItem,
@@ -132,6 +133,9 @@ export default function useDayRitual({
   const [plan, setPlan] = useState<DayPlan>();
   const [morningBrief, setMorningBrief] = useState<PublicMorningBrief>();
   const [briefGeneration, setBriefGeneration] = useState<MorningBriefGeneration>();
+  // In flight for the "write it anyway" tap, so the button can refuse a second
+  // press before the first round trip answers.
+  const [forcingBrief, setForcingBrief] = useState(false);
   // The arrival's no-hot-swap gate: a late brief may swap into a pristine arrival,
   // but the first real interaction freezes it. The ref guards the sync setter; the
   // state drives the polling effect.
@@ -1110,6 +1114,37 @@ export default function useDayRitual({
     }
   }, [morningBrief]);
 
+  // "Write it anyway." Queues a brief the gate is withholding, or re-runs one
+  // after a failure. The optimistic 'queued' means the progress UI appears on the
+  // tap instead of up to 15 seconds later when the poll catches up; the poll then
+  // replaces it with the real row.
+  const forceBrief = useCallback(async () => {
+    const current = planRef.current;
+    if (!current) return;
+    setForcingBrief(true);
+    setBriefGeneration({ state: 'queued' });
+    try {
+      const result = await forceMorningBrief(current.localDate);
+      // Unconditional, including undefined: the server declining to start one
+      // (it attached an existing brief, or the other machine is already writing)
+      // must clear the optimistic 'queued' rather than leave a progress bar
+      // counting down against nothing.
+      setBriefGeneration(result.briefGeneration);
+      // The server attached a brief that was already written but held out by the
+      // no-hot-swap guard. The late-brief poll is already closed by then (it
+      // stops at the first interaction), so this refetch is the only thing that
+      // puts the brief on screen.
+      if (result.attached) await refreshPlan().catch(() => undefined);
+    } catch (nextError) {
+      setBriefGeneration(undefined);
+      setError(
+        nextError instanceof Error ? nextError.message : "Forge couldn't start the brief.",
+      );
+    } finally {
+      setForcingBrief(false);
+    }
+  }, [refreshPlan]);
+
   const acknowledgeReconciliation = useCallback(async (reconciliationId: string) => {
     await acknowledgeDayPlanReconciliation(reconciliationId);
     setPendingReconciliations((current) =>
@@ -1126,6 +1161,8 @@ export default function useDayRitual({
     plan,
     morningBrief,
     briefGeneration,
+    forceBrief,
+    forcingBrief,
     latestSnapshot,
     pendingReconciliations,
     pendingTaskMutations,

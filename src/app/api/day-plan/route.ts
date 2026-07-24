@@ -34,9 +34,12 @@ import {
   maybeQueueMorningBrief,
   withQueuedAttemptStatus,
 } from "@/lib/day-plan/brief-triggers";
+import { morningBriefModelConfig } from "@/lib/claude-execution/brief-commands";
+import { estimateBriefSeconds } from "@/lib/day-plan/presentation";
 import {
   liveRemoteBriefAttempt,
   scanAndImportBriefRelay,
+  writeDayClosureRelay,
   writeSettlementRelay,
   writeSourceCheckpoint,
 } from "@/lib/day-plan/brief-relay";
@@ -121,6 +124,7 @@ type ParsedPost =
       state: MorningBriefSalesActionState;
       editedText?: string;
     }
+  | { action: "brief_force"; localDate: string }
   | { action: DayPlanMutationAction; input: DayPlanMutationInput };
 
 function recordValue(value: unknown, name: string): Record<string, unknown> {
@@ -413,6 +417,9 @@ export function parseDayPlanPostBody(value: unknown): ParsedPost {
       mutationId: mutationIdValue(body.mutationId),
     };
   }
+  if (action === "brief_force") {
+    return { action, localDate: localDateValue(body.localDate) };
+  }
   if (action === "brief_action") {
     const state = stringValue(body.state, "state", { required: true, max: 20 });
     if (state !== "approved" && state !== "edited" && state !== "skipped") {
@@ -554,12 +561,18 @@ function readModelBriefGeneration(
     // A live generation on the other machine keeps the arrival in-progress until
     // its artifact syncs in and is imported. Fail-open: no status = no attempt.
     const remoteAttempt = liveRemoteBriefAttempt({ targetLocalDate: plan.localDate });
-    return selectMorningBriefGeneration(
+    const generation = selectMorningBriefGeneration(
       store.listMorningBriefs(plan.localDate),
       plan.localDate,
       new Date(),
       { remoteAttempt: remoteAttempt ? { startedAt: remoteAttempt.startedAt } : undefined },
     );
+    // Only a live run needs an estimate, and only a live run pays for the query.
+    if (generation.state !== "queued" && generation.state !== "running") return generation;
+    return {
+      ...generation,
+      estimateSeconds: estimateBriefSeconds(store.recentBriefDurationsSeconds()),
+    };
   } catch {
     return undefined;
   }
@@ -691,6 +704,49 @@ export async function POST(request: NextRequest) {
         states: store.listMorningBriefSalesActionStates(parsed.briefId),
       });
     }
+    if (parsed.action === "brief_force") {
+      // "Brief me anyway": the one path that writes a brief past the gate. It is
+      // loopback-only for the same reason brief content is.
+      if (currentDayPlanAccessMode() !== "loopback") {
+        return NextResponse.json(
+          { error: "Morning brief actions are only available on this machine." },
+          { status: 403 },
+        );
+      }
+      // Import a peer artifact BEFORE deciding anything. Without this, a brief
+      // the Mini already finished and synced to disk is invisible here and the
+      // tap buys a second generation of a brief we own.
+      scanAndImportBriefRelay({ store, targetLocalDate: parsed.localDate });
+      // Idempotent by design, because this button is the one a frustrated person
+      // taps twice. A finished brief already exists, or this machine has a live
+      // row, or the peer is mid-generation: in all three cases the answer is the
+      // state we already have, not a second paid generation.
+      const alreadyDone = store.latestEligibleMorningBrief(parsed.localDate);
+      const peerIsWriting = Boolean(
+        liveRemoteBriefAttempt({ targetLocalDate: parsed.localDate }),
+      );
+      // The brief can exist and still be invisible: one that finishes after he
+      // has touched the arrival is held out by the no-hot-swap guard forever.
+      // That is exactly the state this button is pressed in, so pressing it
+      // attaches what we already have instead of doing nothing at all.
+      const attached = alreadyDone
+        ? store.forceAttachMorningBrief(parsed.localDate, alreadyDone.id)
+        : false;
+      if (!alreadyDone && !peerIsWriting) {
+        // enqueueMorningBrief itself returns the live row when one exists, so a
+        // local in-flight generation is never duplicated either.
+        const relayStore = withQueuedAttemptStatus(store);
+        relayStore.enqueueMorningBrief(parsed.localDate, morningBriefModelConfig());
+      }
+      return NextResponse.json({
+        attached,
+        briefGeneration: readModelBriefGeneration(
+          store,
+          { localDate: parsed.localDate },
+          currentDayPlanAccessMode(),
+        ),
+      });
+    }
     if (parsed.action === "arrival_interact") {
       // Durable first-interaction marker: freezes the arrival against a late
       // brief attach. Idempotent on the mutation id; never bumps the version.
@@ -742,6 +798,13 @@ export async function POST(request: NextRequest) {
     if (parsed.action === "settlement_commit" || parsed.action === "reconciliation_applied") {
       writeSettlementRelay({ store });
       if (process.env.FORGE_BRIEF_REQUIRE_SOURCE_CHECKPOINT !== "1") {
+        // Closing a day is the moment the closure fact changes. Publishing it
+        // here as well as on the worker's 5-minute cadence means the peer's next
+        // scheduled run sees the close immediately rather than up to 5 minutes
+        // late. Role-gated with the writes below for one reason: day_plans is
+        // per-machine, so a second publisher speaks about a different day than
+        // the one the gate is meant to describe. One ritual machine, one voice.
+        writeDayClosureRelay({ store });
         writeSourceCheckpoint({
           sources: {
             goals: defaultGoalsPath(),

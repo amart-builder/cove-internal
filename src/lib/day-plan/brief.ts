@@ -697,6 +697,10 @@ export type MorningBriefGenerationState =
 export type MorningBriefGeneration = {
   state: MorningBriefGenerationState;
   startedAt?: string;
+  // How long this run is expected to take, from recent history. Attached by the
+  // read path (which can reach the store), never by the pure selector below, and
+  // only while a run is actually live. Drives the arrival's progress bar.
+  estimateSeconds?: number;
 };
 
 // How recently a failed generation is still worth reporting. Past this a stale

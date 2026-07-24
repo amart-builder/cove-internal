@@ -58,6 +58,22 @@ export function withQueuedAttemptStatus(
   };
 }
 
+// The settlement triggers enqueue UNCONDITIONALLY: they are never gated on the
+// previous day being closed, and that asymmetry is deliberate. Gating them
+// deadlocks. Picture an old plan he is never going to close sitting behind a
+// day he settles normally: if closing a day could itself be blocked by that
+// older day, no brief would ever be produced again. Closing a day always earns
+// a brief.
+function enqueueAfterSettlement(
+  store: MorningBriefTriggerStore,
+  settledLocalDate: string,
+  timezone: string,
+  now: Date,
+): void {
+  const target = nextBriefTargetLocalDate(settledLocalDate, now, timezone);
+  store.enqueueMorningBrief(target, morningBriefModelConfig());
+}
+
 // Queues Morning Brief generation on the spec's triggers, always fail-open:
 // brief machinery must never block or delay the ritual response.
 // - After Day Settlement reconciliation completes for THIS settlement. A
@@ -95,10 +111,7 @@ export function maybeQueueMorningBrief(
       ) {
         return;
       }
-      store.enqueueMorningBrief(
-        nextBriefTargetLocalDate(plan.localDate, now, plan.timezone),
-        morningBriefModelConfig(),
-      );
+      enqueueAfterSettlement(store, plan.localDate, plan.timezone, now);
       return;
     }
     if (action === "reconciliation_applied") {
@@ -118,10 +131,7 @@ export function maybeQueueMorningBrief(
       }
       const plan = store.getPlan(reconciliation.dayPlanId);
       if (!plan) return;
-      store.enqueueMorningBrief(
-        nextBriefTargetLocalDate(plan.localDate, now, plan.timezone),
-        morningBriefModelConfig(),
-      );
+      enqueueAfterSettlement(store, plan.localDate, plan.timezone, now);
       return;
     }
     if (action === "ensure" || action === "arrival_open") {
@@ -131,6 +141,13 @@ export function maybeQueueMorningBrief(
       // settlement, whose reconciliation trigger targets the right morning.
       if (plan.localDate !== localDateInTimezone(now, plan.timezone)) return;
       if (store.latestEligibleMorningBrief(plan.localDate)) return;
+      // No closure gate here, and none is needed: `day_plans.open_slot` is
+      // UNIQUE, so at most one plan is ever unsettled, and ensureDayPlan hands
+      // back that open plan whatever date it is asked for. A plan for TODAY can
+      // therefore only exist once every earlier day is closed, which the check
+      // three lines above already relies on. The blind-backfill case this path
+      // was suspected of is unrepresentable in the schema.
+      //
       // Backfill waits while the other machine is mid-generation for this date.
       if (options.isRemoteAttemptLive?.(plan.localDate)) return;
       store.enqueueMorningBrief(plan.localDate, morningBriefModelConfig());

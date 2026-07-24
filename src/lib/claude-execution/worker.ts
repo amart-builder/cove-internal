@@ -17,6 +17,7 @@ import {
   MORNING_BRIEF_SCHEMA_VERSION,
   type MorningBriefArtifact,
 } from "../day-plan/brief";
+import { evaluateScheduledBriefGate } from "../day-plan/brief-gate";
 import {
   collectMorningBriefSources,
   defaultGoalsPath,
@@ -35,6 +36,7 @@ import {
   sweepBriefRelayOutbox,
   verifySourceCheckpoint,
   writeBriefAttemptStatus,
+  writeDayClosureRelay,
   writeSettlementRelay,
   writeSourceCheckpoint,
 } from "../day-plan/brief-relay";
@@ -1011,6 +1013,24 @@ export async function runOneMorningBrief(
     (options.briefTimeoutMs ?? morningBriefModelConfig().timeoutMs) + 5 * 60 * 1000,
   );
   options.store.interruptStaleMorningBriefs(cutoff(clock(), staleAfterMs));
+  // Gating the enqueue is not enough on its own. A row queued while the relay
+  // still said "closed" (or before any signal existed) can still be sitting in
+  // the queue once the day goes unclosed, and draining it would write exactly
+  // the blind brief the gate exists to prevent.
+  //
+  // Only the scheduled lane asks. The ritual machine's queue must always drain:
+  // the brief it holds is the one settlement itself just requested, and gating
+  // that would deadlock the morning, since closing the day is what would unblock
+  // it. Leaving the row queued rather than failing it means the moment he does
+  // close the day, this same loop writes the brief he was owed.
+  if (options.relay?.requireSourceCheckpoint) {
+    const gate = evaluateScheduledBriefGate({
+      targetLocalDate: resolveBriefTargetDate(options.store, clock()),
+      dataDir: options.relay.dataDir,
+      now: clock(),
+    });
+    if (gate.blocked) return false;
+  }
   const claimed = options.store.claimNextMorningBrief();
   if (!claimed) return false;
   const targetTimezone = resolveBriefTimezone(options.store);
@@ -1220,6 +1240,12 @@ export async function runOneMorningBrief(
       exportBriefArtifact(completed, { dataDir: relay.dataDir, host: relayHost });
       if (!relay.requireSourceCheckpoint) {
         writeSettlementRelay({ store: options.store, now: clock(), dataDir: relay.dataDir });
+        writeDayClosureRelay({
+          store: options.store,
+          now: clock(),
+          dataDir: relay.dataDir,
+          host: relayHost,
+        });
         writeSourceCheckpoint({
           sources: relayCheckpointSources(relay),
           now: clock(),
@@ -1263,6 +1289,31 @@ export function enqueueDueMorningBrief(
     if (remote) return undefined;
   }
   if (store.latestEligibleMorningBrief(target)) return undefined;
+  // The scheduled 7:30 generation is the one that caused the original bug: it
+  // fired off the calendar alone, so on any morning the previous day was never
+  // closed it wrote a brief that could not see that day at all and said so
+  // nowhere. Now it simply does not run. The arrival already routes an unclosed
+  // day into Settlement before it will plan today, and committing that
+  // settlement enqueues the brief through the settlement trigger.
+  //
+  // This deliberately does NOT ask the local store: this lane runs on the Mini,
+  // whose day_plans is stale by design, so a local answer would be about the
+  // wrong machine. It reads the closure fact the ritual machine publishes, and
+  // treats no signal as no opinion.
+  const gate = evaluateScheduledBriefGate({
+    targetLocalDate: target,
+    dataDir: options.relay?.dataDir,
+    now,
+  });
+  if (gate.blocked) {
+    // The one place this decision is visible. Without it a missing brief looks
+    // identical to a crashed worker.
+    console.info("Morning brief held: the previous workday is still open.", {
+      targetLocalDate: target,
+      unclosedLocalDate: gate.unclosedLocalDate,
+    });
+    return undefined;
+  }
   const enqueued = store.enqueueMorningBrief(target, morningBriefModelConfig());
   // Announce the queued attempt immediately (not first at claim), closing the
   // enqueue→claim window in which the peer could start a duplicate generation.
@@ -1318,6 +1369,14 @@ export async function watchMorningBriefQueue(
           host: relay.host,
         });
         writeSettlementRelay({ store: options.store, now: clock(), dataDir: relay.dataDir });
+        // The closure fact the peer's 7:30 cron gates on. This loop is the only
+        // thing that keeps it current, so it publishes on the same cadence.
+        writeDayClosureRelay({
+          store: options.store,
+          now: clock(),
+          dataDir: relay.dataDir,
+          host: relay.host,
+        });
         writeSourceCheckpoint({
           sources: relayCheckpointSources(relay),
           now: clock(),

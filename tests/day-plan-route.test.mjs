@@ -632,3 +632,170 @@ test('unset and empty day-plan access mode default to loopback', () => {
     else process.env.FORGE_DAY_PLAN_ACCESS_MODE = previous;
   }
 });
+
+// ---------------------------------------------------------------------------
+// The brief gate over the wire: the read model that blocks, and the one action
+// that writes past it.
+// ---------------------------------------------------------------------------
+
+function candidateFor(localDate) {
+  return buildDayPlanCandidates({
+    localDate,
+    timezone: 'America/Los_Angeles',
+    tasks: [
+      {
+        id: `task-${localDate}`,
+        title: 'Finish the proposal',
+        priority: 'high',
+        position: 0,
+        column: 'today',
+        status: 'open',
+        updatedAt: `${localDate}T15:00:00.000Z`,
+        refreshedAt: `${localDate}T16:00:00.000Z`,
+      },
+    ],
+  })[0];
+}
+
+function gateFixture(t) {
+  const dir = path.join(os.tmpdir(), `forge-route-gate-${process.pid}-${Date.now()}-${Math.random()}`);
+  mkdirSync(dir, { recursive: true });
+  const store = createDayPlanStore({ dbPath: path.join(dir, 'forge.db') });
+  const globalRef = globalThis;
+  const previousStore = globalRef.__forgeDayPlanStore;
+  const previousEnv = {
+    access: process.env.FORGE_DAY_PLAN_ACCESS_MODE,
+    token: process.env.FORGE_DAY_PLAN_REMOTE_TOKEN,
+    hosts: process.env.FORGE_ALLOWED_HOSTS,
+  };
+  globalRef.__forgeDayPlanStore = store;
+  process.env.FORGE_DAY_PLAN_ACCESS_MODE = 'loopback';
+  t.after(() => {
+    if (previousStore === undefined) delete globalRef.__forgeDayPlanStore;
+    else globalRef.__forgeDayPlanStore = previousStore;
+    for (const [key, value] of [
+      ['FORGE_DAY_PLAN_ACCESS_MODE', previousEnv.access],
+      ['FORGE_DAY_PLAN_REMOTE_TOKEN', previousEnv.token],
+      ['FORGE_ALLOWED_HOSTS', previousEnv.hosts],
+    ]) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // Yesterday: started and never closed. Today: a fresh plan with no brief.
+  let yesterday = store.ensureDayPlan({
+    localDate: '2026-07-09',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:2026-07-09',
+    candidates: [candidateFor('2026-07-09')],
+  }).plan;
+  for (const action of ['arrival_open', 'start_day']) {
+    yesterday = store.mutateDayPlan({
+      planId: yesterday.id,
+      mutationId: `${action}:2026-07-09`,
+      expectedVersion: yesterday.version,
+      action,
+    }).plan;
+  }
+  const today = store.ensureDayPlan({
+    localDate: '2026-07-10',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:2026-07-10',
+    candidates: [candidateFor('2026-07-10')],
+  }).plan;
+  return { store, yesterday, today };
+}
+
+const LOOPBACK_HEADERS = { host: 'localhost:3200', 'x-forwarded-for': '127.0.0.1' };
+
+function loopbackGet() {
+  return GET(new NextRequest('http://localhost:3200/api/day-plan', { headers: LOOPBACK_HEADERS }));
+}
+
+async function loopbackPost(body) {
+  const token = (await (await loopbackGet()).json()).csrfToken;
+  return POST(new NextRequest('http://localhost:3200/api/day-plan', {
+    method: 'POST',
+    headers: {
+      host: 'localhost:3200',
+      origin: 'http://localhost:3200',
+      'content-type': 'application/json',
+      'x-forge-csrf': token,
+    },
+    body: JSON.stringify(body),
+  }));
+}
+
+test('an unclosed day keeps the open slot, so the read model never jumps ahead of it', async (t) => {
+  const { store, yesterday } = gateFixture(t);
+  // This is why the arrival needs no gate notice of its own: while a day is
+  // unclosed it IS the current plan, and the client already force-routes it into
+  // settlement. There is no state where today's arrival renders over an open
+  // yesterday.
+  const body = await (await loopbackGet()).json();
+  assert.equal(body.currentPlan.localDate, '2026-07-09');
+  assert.equal(body.currentPlan.id, yesterday.id);
+
+  let plan = store.getPlan(yesterday.id);
+  plan = store.mutateDayPlan({ planId: plan.id, mutationId: 'ss:1', expectedVersion: plan.version, action: 'settlement_start' }).plan;
+  plan = store.mutateDayPlan({ planId: plan.id, mutationId: 'sd:1', expectedVersion: plan.version, action: 'settlement_decide', itemId: plan.items[0].id, disposition: 'carry' }).plan;
+  store.mutateDayPlan({ planId: plan.id, mutationId: 'sc:1', expectedVersion: plan.version, action: 'settlement_commit', completedHumanTaskIds: [] });
+  // Only once it is settled does the slot free up for the next day.
+  const cleared = await (await loopbackGet()).json();
+  assert.equal(cleared.currentPlan, undefined);
+});
+
+test('brief me anyway queues one blind brief, and a double tap never starts a second', async (t) => {
+  const { store } = gateFixture(t);
+  const first = await loopbackPost({ action: 'brief_force', localDate: '2026-07-10' });
+  assert.equal(first.status, 200);
+  assert.equal((await first.json()).briefGeneration.state, 'queued');
+  assert.equal(store.listMorningBriefs('2026-07-10').length, 1);
+
+  // This is the button a frustrated person taps twice. Every extra tap costs a
+  // paid generation if it is not idempotent.
+  const second = await loopbackPost({ action: 'brief_force', localDate: '2026-07-10' });
+  assert.equal(second.status, 200);
+  assert.equal(store.listMorningBriefs('2026-07-10').length, 1);
+});
+
+test('brief me anyway never buys a second brief once one is already written', async (t) => {
+  const { store } = gateFixture(t);
+  const queued = store.enqueueMorningBrief('2026-07-10', {
+    modelAlias: 'sonnet',
+    effort: 'medium',
+    budgetUsd: 1,
+  });
+  const claimed = store.claimNextMorningBrief();
+  store.completeMorningBrief(claimed.id, JSON.stringify({ lensNarrative: 'done' }));
+
+  const forced = await loopbackPost({ action: 'brief_force', localDate: '2026-07-10' });
+  assert.equal(forced.status, 200);
+  const briefs = store.listMorningBriefs('2026-07-10');
+  assert.equal(briefs.length, 1);
+  assert.equal(briefs[0].id, queued.brief.id);
+});
+
+test('forcing a brief is loopback-only, like every other brief surface', async (t) => {
+  const { store } = gateFixture(t);
+  const token = (await (await loopbackGet()).json()).csrfToken;
+  process.env.FORGE_DAY_PLAN_ACCESS_MODE = 'session';
+  process.env.FORGE_DAY_PLAN_REMOTE_TOKEN = 'secret-value';
+  process.env.FORGE_ALLOWED_HOSTS = 'forge.example.test';
+  const remote = await POST(new NextRequest('https://forge.example.test/api/day-plan', {
+    method: 'POST',
+    headers: {
+      host: 'forge.example.test',
+      origin: 'https://forge.example.test',
+      'content-type': 'application/json',
+      'x-forge-csrf': token,
+      'x-forge-day-plan-session': 'secret-value',
+    },
+    body: JSON.stringify({ action: 'brief_force', localDate: '2026-07-10' }),
+  }));
+  assert.equal(remote.status, 403);
+  assert.equal(store.listMorningBriefs('2026-07-10').length, 0);
+});

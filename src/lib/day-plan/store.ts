@@ -690,6 +690,12 @@ function localDateInTimezone(value: string, timezone: string): string | undefine
 
 export type DayPlanStore = ReturnType<typeof createDayPlanStore>;
 
+// What this machine knows about whether a workday is still open here.
+export type DayClosureFacts = {
+  openLocalDate: string | null;
+  latestLocalDate: string | null;
+};
+
 export function createDayPlanStore(options: {
   dbPath: string;
   now?: Clock;
@@ -845,9 +851,11 @@ export function createDayPlanStore(options: {
   if (!dayPlanColumns.has("arrival_interacted_at")) {
     db.exec("ALTER TABLE day_plans ADD COLUMN arrival_interacted_at TEXT");
   }
-
   const selectPlan = db.prepare("SELECT * FROM day_plans WHERE id = ?");
   const selectOpenPlan = db.prepare("SELECT * FROM day_plans WHERE open_slot = 1 LIMIT 1");
+  const selectNewestPlanDate = db.prepare(
+    "SELECT local_date FROM day_plans ORDER BY local_date DESC LIMIT 1",
+  );
   const selectDatePlan = db.prepare("SELECT * FROM day_plans WHERE local_date = ? LIMIT 1");
   const selectEvent = db.prepare("SELECT * FROM day_plan_events WHERE id = ?");
   const selectSnapshot = db.prepare("SELECT * FROM day_snapshots WHERE day_plan_id = ?");
@@ -910,6 +918,20 @@ export function createDayPlanStore(options: {
   function getPlanForDate(localDate: string): DayPlan | undefined {
     const row = selectDatePlan.get(localDate) as DayPlanRow | undefined;
     return row ? planFromRow(row) : undefined;
+  }
+
+
+  // The two facts a peer machine needs to know whether a day is still open here.
+  // openLocalDate is the single unsettled plan (open_slot is UNIQUE, so there is
+  // never more than one); latestLocalDate lets a reader tell a current store from
+  // a stale one before trusting either answer.
+  function dayClosureFacts(): DayClosureFacts {
+    const open = selectOpenPlan.get() as DayPlanRow | undefined;
+    const newest = selectNewestPlanDate.get() as { local_date: string } | undefined;
+    return {
+      openLocalDate: open?.local_date ?? null,
+      latestLocalDate: newest?.local_date ?? null,
+    };
   }
 
   function getSnapshot(planId: string): DaySnapshot | undefined {
@@ -1880,6 +1902,11 @@ export function createDayPlanStore(options: {
       .all(targetLocalDate) as MorningBriefRow[]).map(morningBriefFromRow);
   }
 
+  // Newest by REQUEST time, which is the only correct ordering for deciding
+  // which of several succeeded briefs wins: a brief requested at 11am saw more
+  // of the world than one requested at 7:30am, no matter which finished first.
+  // Finish-time ordering used to live here, and it let a slow older generation
+  // land after a fresher one and be picked as "latest".
   function latestEligibleMorningBrief(
     targetLocalDate: string,
     versions: { promptVersion: number; schemaVersion: number } = {
@@ -1892,7 +1919,7 @@ export function createDayPlanStore(options: {
         `SELECT * FROM day_plan_briefs
          WHERE target_local_date = ? AND status = 'succeeded'
            AND prompt_version = ? AND schema_version = ? AND brief_json IS NOT NULL
-         ORDER BY COALESCE(finished_at, created_at) DESC, created_at DESC, id DESC
+         ORDER BY created_at DESC, id DESC
          LIMIT 1`,
       )
       .get(targetLocalDate, versions.promptVersion, versions.schemaVersion) as
@@ -1934,6 +1961,28 @@ export function createDayPlanStore(options: {
       );
       return { brief: getMorningBrief(id)!, created: true };
     });
+  }
+
+  // Observed run times of recent successful briefs, newest first, for the
+  // arrival progress estimate. Only rows with both timestamps count.
+  function recentBriefDurationsSeconds(limit = 10): number[] {
+    const capped = Math.max(1, Math.min(50, Math.floor(limit)));
+    const rows = db
+      .prepare(
+        `SELECT started_at, finished_at FROM day_plan_briefs
+         WHERE status = 'succeeded' AND started_at IS NOT NULL AND finished_at IS NOT NULL
+         ORDER BY created_at DESC, id DESC
+         LIMIT ?`,
+      )
+      .all(capped) as Array<{ started_at: string; finished_at: string }>;
+    return rows
+      .map((row) => {
+        const started = Date.parse(row.started_at);
+        const finished = Date.parse(row.finished_at);
+        if (!Number.isFinite(started) || !Number.isFinite(finished)) return NaN;
+        return (finished - started) / 1000;
+      })
+      .filter((seconds) => Number.isFinite(seconds) && seconds > 0);
   }
 
   function claimNextMorningBrief(): MorningBriefArtifact | undefined {
@@ -2148,7 +2197,7 @@ export function createDayPlanStore(options: {
             `UPDATE day_plan_briefs
              SET status = 'succeeded', input_hash = ?, prompt_version = ?, schema_version = ?,
                  source_manifest_json = ?, model_alias = ?, effort = ?, budget_usd = ?,
-                 brief_json = ?, error_code = NULL,
+                 brief_json = ?, error_code = NULL, created_at = ?,
                  started_at = COALESCE(started_at, ?), finished_at = ?, updated_at = ?
              WHERE id = ? AND status IN ('queued','running')`,
           )
@@ -2161,6 +2210,11 @@ export function createDayPlanStore(options: {
             artifact.effort,
             artifact.budgetUsd,
             artifact.briefJson,
+            // The adopted row now carries the artifact's OWN request time, not
+            // the local placeholder's. Brief selection orders by created_at, so
+            // keeping the local time would let an imported 7:30 brief pose as
+            // the 8:05 request that adopted it and outrank a genuinely newer one.
+            artifact.createdAt,
             artifact.startedAt ?? null,
             importedFinishedAt,
             updatedAt,
@@ -2468,15 +2522,43 @@ export function createDayPlanStore(options: {
       let briefArtifact: MorningBriefArtifact | undefined;
       let briefContent: ReturnType<typeof morningBriefFromArtifact>;
       try {
-        briefArtifact = existing.briefId
-          ? getMorningBrief(existing.briefId)
-          : latestEligibleMorningBrief(existing.localDate);
-        briefContent = morningBriefFromArtifact(briefArtifact);
+        if (existing.briefId) {
+          // A plan that already consumed a brief still upgrades to a strictly
+          // newer one for the same day: settling last night regenerates the
+          // brief, and without this the better artifact is written, paid for,
+          // and orphaned. Ordering is by request time, never finish time, so a
+          // slow older generation can never clobber a fresher one. The
+          // no-hot-swap guard above still applies: once he has touched the
+          // arrival, nothing swaps underneath him.
+          const current = getMorningBrief(existing.briefId);
+          const currentContent = morningBriefFromArtifact(current);
+          const newest = latestEligibleMorningBrief(existing.localDate);
+          const supersedes = Boolean(
+            newest &&
+              newest.id !== existing.briefId &&
+              (!current || newest.createdAt > current.createdAt),
+          );
+          // Only swap to a replacement that actually parses; a newer artifact
+          // we cannot read is worse than the readable one already attached.
+          const newestContent = supersedes ? morningBriefFromArtifact(newest) : undefined;
+          if (newest && newestContent) {
+            briefArtifact = newest;
+            briefContent = newestContent;
+          } else {
+            briefArtifact = current;
+            briefContent = currentContent;
+          }
+        } else {
+          briefArtifact = latestEligibleMorningBrief(existing.localDate);
+          briefContent = morningBriefFromArtifact(briefArtifact);
+        }
       } catch {
         briefArtifact = undefined;
         briefContent = undefined;
       }
-      const attachesBrief = Boolean(!existing.briefId && briefArtifact && briefContent);
+      const attachesBrief = Boolean(
+        briefArtifact && briefContent && briefArtifact.id !== existing.briefId,
+      );
       const healsItems = existing.items.length === 0;
       if (!healsItems && !attachesBrief) return undefined;
 
@@ -2527,6 +2609,29 @@ export function createDayPlanStore(options: {
        SET arrival_interacted_at = COALESCE(arrival_interacted_at, ?)
        WHERE id = ? AND plan_state = 'proposed' AND arrival_state IN ('due','opened')`,
     ).run(at, planId);
+  }
+
+  // The one deliberate override of the no-hot-swap rule, and only because the
+  // user asked for it out loud by tapping "Write my brief now". A brief that
+  // finishes after he has already touched the arrival can never attach on its
+  // own, which used to leave that button a permanent no-op: the brief existed,
+  // it was paid for, and there was no way to see it.
+  //
+  // It attaches the artifact and nothing else. Items keep their decisions and
+  // the version does not move, so his in-flight work is untouched and his next
+  // mutation cannot 409 because of this. He gets the narrative; he does not get
+  // his choices rewritten underneath him.
+  function forceAttachMorningBrief(localDate: string, briefId: string): boolean {
+    return immediate(() => {
+      const plan = getPlanForDate(localDate);
+      if (!plan || plan.briefId === briefId) return false;
+      if (plan.state === "settled" || plan.state === "abandoned") return false;
+      if (!morningBriefFromArtifact(getMorningBrief(briefId))) return false;
+      const changed = db
+        .prepare("UPDATE day_plans SET brief_id = ?, updated_at = ? WHERE id = ?")
+        .run(briefId, now().toISOString(), plan.id).changes;
+      return changed > 0;
+    });
   }
 
   // The explicit, idempotent interaction marker the client fires on first
@@ -3366,6 +3471,7 @@ export function createDayPlanStore(options: {
   return {
     ensureDayPlan,
     markArrivalInteraction,
+    forceAttachMorningBrief,
     mutateDayPlan,
     applyAssistantOperations,
     getAssistantTurn,
@@ -3398,6 +3504,7 @@ export function createDayPlanStore(options: {
     withSettlementEvidence,
     getPlan,
     getPlanForDate,
+    dayClosureFacts,
     getSnapshot,
     listEvents,
     listPendingReconciliations,
@@ -3412,6 +3519,7 @@ export function createDayPlanStore(options: {
     getMorningBrief,
     listMorningBriefs,
     latestEligibleMorningBrief,
+    recentBriefDurationsSeconds,
     enqueueMorningBrief,
     claimNextMorningBrief,
     recordMorningBriefInputs,

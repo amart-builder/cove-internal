@@ -409,6 +409,74 @@ export function staleSettlementNotice(
   return `${label} was never closed. Settle it before today's plan begins.`;
 }
 
+// Fallback when there is not enough history to estimate from. Roughly the
+// observed typical run; only used until three real runs exist.
+export const DEFAULT_BRIEF_ESTIMATE_SECONDS = 150;
+
+// How long to tell him the brief will take, from how long recent briefs
+// actually took. Deliberately the MEDIAN, not the mean: real runs cluster
+// tightly (75-183s across a fortnight) with occasional 7-11 minute outliers,
+// and averaging lets one bad night misreport every normal morning after it.
+export function estimateBriefSeconds(durationsSeconds: readonly number[]): number {
+  const usable = durationsSeconds
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((a, b) => a - b);
+  if (usable.length < 3) return DEFAULT_BRIEF_ESTIMATE_SECONDS;
+  const middle = Math.floor(usable.length / 2);
+  const median =
+    usable.length % 2 === 0
+      ? (usable[middle - 1] + usable[middle]) / 2
+      : usable[middle];
+  return Math.round(median);
+}
+
+// Progress for the arrival's generating state. Two honesty rules: the bar never
+// reaches full while the brief is still being written (a bar that sits at 100%
+// reads as broken or as a lie), and once it runs past the estimate it stops
+// pretending to know, handing the UI an overrun flag to render instead.
+export function briefProgress(
+  elapsedSeconds: number,
+  estimateSeconds: number,
+): { fraction: number; overrun: boolean } {
+  const { elapsed, estimate } = sanitizeBriefTiming(elapsedSeconds, estimateSeconds);
+  if (elapsed >= estimate) return { fraction: 0.95, overrun: true };
+  return { fraction: Math.min(0.95, elapsed / estimate), overrun: false };
+}
+
+// Both progress readouts take numbers that come from timestamps parsed at
+// runtime, so a missing or malformed one must degrade to the default estimate
+// rather than render "About NaN minutes left."
+function sanitizeBriefTiming(
+  elapsedSeconds: number,
+  estimateSeconds: number,
+): { elapsed: number; estimate: number } {
+  return {
+    elapsed: Number.isFinite(elapsedSeconds) ? Math.max(0, elapsedSeconds) : 0,
+    estimate:
+      Number.isFinite(estimateSeconds) && estimateSeconds > 0
+        ? estimateSeconds
+        : DEFAULT_BRIEF_ESTIMATE_SECONDS,
+  };
+}
+
+// The "go get a coffee" line. Rounded up to the half minute so it reads as an
+// estimate rather than a countdown, and it never claims seconds precision it
+// does not have.
+export function briefRemainingLabel(
+  elapsedSeconds: number,
+  estimateSeconds: number,
+): string {
+  const { overrun } = briefProgress(elapsedSeconds, estimateSeconds);
+  if (overrun) return 'Taking longer than usual. Still working.';
+  const { elapsed, estimate } = sanitizeBriefTiming(elapsedSeconds, estimateSeconds);
+  const remaining = Math.max(0, estimate - elapsed);
+  if (remaining <= 20) return 'Almost done.';
+  const minutes = Math.round(remaining / 30) / 2;
+  if (minutes <= 1) return 'About a minute left.';
+  return `About ${minutes} minutes left.`;
+}
+
+
 // Pure gate for polling the day-plan read model to pick up a brief that finishes
 // generating after the arrival opened. Poll only while the arrival view is open,
 // the document is visible, the user has not interacted (the no-hot-swap rule: a

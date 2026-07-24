@@ -75,6 +75,8 @@ interface MorningArrivalProps {
   onBypass: () => void | Promise<void>;
   onStartDay: () => void | Promise<void>;
   onAddWhatChanged?: () => void;
+  onForceBrief?: () => void;
+  forcingBrief?: boolean;
   onOpenAllWork?: () => void;
 }
 
@@ -121,6 +123,8 @@ export default function MorningArrival({
   onBypass,
   onStartDay,
   onAddWhatChanged,
+  onForceBrief,
+  forcingBrief,
   onOpenAllWork,
 }: MorningArrivalProps) {
   const { setPageContext, busy: buddyBusy } = useBuddy();
@@ -292,6 +296,10 @@ export default function MorningArrival({
               narrative={brief?.lensNarrative ?? recommendation}
               watchItems={brief?.watchItems ?? []}
               briefWriting={briefWriting}
+              briefGeneration={briefGeneration}
+              hasBriefContent={Boolean(brief)}
+              onForceBrief={onForceBrief}
+              forcingBrief={forcingBrief}
             />
           ) : step === 'priorities' ? (
             <ArrivalStepPriorities

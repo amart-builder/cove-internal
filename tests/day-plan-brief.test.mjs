@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -28,6 +28,7 @@ import {
 } from '../src/lib/day-plan/brief-sources.ts';
 import { maybeQueueMorningBrief } from '../src/lib/day-plan/brief-triggers.ts';
 import { morningBriefSyncDecision } from '../src/lib/day-plan/brief-view.ts';
+import { writeDayClosureRelay, writeSourceCheckpoint } from '../src/lib/day-plan/brief-relay.ts';
 import { publicDayPlan } from '../src/lib/day-plan/public-execution.ts';
 import {
   buildMorningBriefCommand,
@@ -915,6 +916,69 @@ test('ensure consumes a valid brief: ranking, rationale, and owner overlay with 
   assert.equal(plan.items.some((item) => item.title === 'Prep the Fonte call kit'), false);
 });
 
+test('the force button attaches a brief the no-hot-swap guard is holding back', (t) => {
+  const { store } = briefFixture(t);
+  const { brief } = validateMorningBrief(WIRE_BRIEF);
+  const plan = store.ensureDayPlan({
+    localDate: '2026-07-14',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:force-attach',
+    candidates: candidatePool(),
+  }).plan;
+  assert.equal(plan.briefId, undefined);
+
+  // He touches the arrival, which permanently closes the automatic attach
+  // window. Then the brief he paid for finally lands.
+  store.markArrivalInteraction(plan.id, 'interact:1');
+  const artifact = succeededArtifact(store, JSON.stringify(brief));
+
+  assert.equal(store.forceAttachMorningBrief('2026-07-14', artifact.id), true);
+  const attached = store.getPlan(plan.id);
+  assert.equal(attached.briefId, artifact.id);
+  // Content only. His decisions and the version he holds are untouched, so the
+  // next mutation he makes cannot 409 because of this.
+  assert.equal(attached.version, plan.version);
+  assert.deepEqual(
+    attached.items.map((item) => [item.taskId, item.decision]),
+    plan.items.map((item) => [item.taskId, item.decision]),
+  );
+
+  // Idempotent, and never re-attaches over a closed day.
+  assert.equal(store.forceAttachMorningBrief('2026-07-14', artifact.id), false);
+  assert.equal(store.forceAttachMorningBrief('2026-07-15', artifact.id), false);
+});
+
+test('an adopted artifact carries its own request time, not the placeholder it landed in', (t) => {
+  const { store, setNow } = briefFixture(t);
+  const { brief } = validateMorningBrief(WIRE_BRIEF);
+  const source = succeededArtifact(store, JSON.stringify(brief));
+  const peer = {
+    ...store.getMorningBrief(source.id),
+    id: 'peer-0730',
+    inputHash: 'peer-hash',
+    createdAt: '2026-07-14T07:30:00.000Z',
+    startedAt: '2026-07-14T07:30:10.000Z',
+    finishedAt: '2026-07-14T07:32:00.000Z',
+  };
+
+  // The local placeholder is requested at 08:05 and adopts a brief the peer
+  // machine actually wrote at 07:30. Keeping the local request time would let
+  // that brief pose as newer than it is everywhere ordering is by created_at.
+  setNow('2026-07-14T08:05:00.000Z');
+  const placeholder = store.enqueueMorningBrief('2026-07-14', {
+    modelAlias: 'opus',
+    effort: 'high',
+    budgetUsd: 1.5,
+  }).brief;
+  assert.equal(placeholder.createdAt, '2026-07-14T08:05:00.000Z');
+
+  assert.deepEqual(store.importMorningBrief(peer), { imported: true, adopted: true });
+  const adopted = store.getMorningBrief(placeholder.id);
+  assert.equal(adopted.status, 'succeeded');
+  assert.equal(adopted.createdAt, '2026-07-14T07:30:00.000Z');
+  assert.equal(adopted.finishedAt, '2026-07-14T07:32:00.000Z');
+});
+
 test('ensure fails open to the deterministic proposal on a corrupt or absent brief', (t) => {
   const { store } = briefFixture(t);
   succeededArtifact(store, 'this is not json');
@@ -1143,6 +1207,59 @@ test('the preferred Codex writer retries invalid JSON once and records its prove
     '-m', 'gpt-5.6-sol', '-c', 'model_reasoning_effort=high',
     '--output-last-message',
   ]);
+});
+
+test('the scheduled lane will not drain a row that was queued before the day went open', async (t) => {
+  const { dir, store } = briefFixture(t);
+  const claude = fakeClaude(dir, JSON.stringify(WIRE_BRIEF));
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'forge-drain-gate-'));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  const now = new Date(CLOCK);
+
+  // Queued while the relay said nothing, then the ritual machine publishes an
+  // open previous day. Gating only the enqueue would still let this row through.
+  store.enqueueMorningBrief('2026-07-14', { modelAlias: 'opus', effort: 'high', budgetUsd: 1.5 });
+  writeDayClosureRelay({
+    store: { dayClosureFacts: () => ({ latestLocalDate: '2026-07-13', openLocalDate: '2026-07-13' }) },
+    dataDir,
+    now,
+  });
+
+  // The gate under test only runs on a machine that requires the source
+  // checkpoint, so the checkpoint has to be genuinely satisfied. Point the four
+  // source files at this temp dir and publish a checkpoint over them, otherwise
+  // the run fails on source_checkpoint_missing and proves nothing either way.
+  const checkpointSources = {
+    goals: path.join(dataDir, 'goals.md'),
+    operator_profile: path.join(dataDir, 'operator.md'),
+    leadup: path.join(dataDir, 'leadup.md'),
+    sprint_memo: path.join(dataDir, 'sprint.md'),
+  };
+  for (const filePath of Object.values(checkpointSources)) writeFileSync(filePath, path.basename(filePath));
+  assert.equal(writeSourceCheckpoint({ sources: checkpointSources, dataDir, now }), true);
+
+  const options = briefWorkerOptions(dir, store, claude.executable, async () => collectedSources());
+  options.relay = {
+    dataDir,
+    requireSourceCheckpoint: true,
+    goalsPath: checkpointSources.goals,
+    operatorProfilePath: checkpointSources.operator_profile,
+    leadupPath: checkpointSources.leadup,
+    sprintMemoPath: checkpointSources.sprint_memo,
+  };
+  assert.equal(await runOneMorningBrief(options), false);
+  assert.equal(store.latestEligibleMorningBrief('2026-07-14'), undefined);
+  // Held, not failed: the row is still there for the moment he closes the day.
+  assert.equal(store.listMorningBriefs('2026-07-14')[0].status, 'queued');
+
+  // The ritual machine closes the day, and the same loop writes the brief.
+  assert.equal(writeDayClosureRelay({
+    store: { dayClosureFacts: () => ({ latestLocalDate: '2026-07-14', openLocalDate: null }) },
+    dataDir,
+    now,
+  }), true);
+  assert.equal(await runOneMorningBrief(options), true);
+  assert.ok(store.latestEligibleMorningBrief('2026-07-14'));
 });
 
 test('a nonzero Codex exit falls back to the existing Claude writer', async (t) => {
@@ -1410,31 +1527,66 @@ function dueStore({ plan, snapshot, eligible } = {}) {
   };
 }
 
-test('the scheduled lane resolves timezone as plan, then snapshot, then system, and skips when covered', () => {
+test('the scheduled lane resolves timezone as plan, then snapshot, then system, and skips when covered', (t) => {
+  // An empty relay dir, always. Without it the lane resolves the repo's real
+  // data/settlement-relay/closure.json and this test's outcome depends on
+  // whether the developer running it happens to have closed yesterday.
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'forge-due-lane-'));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  const relay = { relay: { dataDir } };
+
   // 16:00 UTC Jul 14 is already Jul 15 in Tokyo but still Jul 14 in LA.
   const now = new Date('2026-07-14T16:00:00.000Z');
   const withPlan = dueStore({ plan: { timezone: 'Asia/Tokyo' }, snapshot: { timezone: 'America/Los_Angeles' } });
-  enqueueDueMorningBrief(withPlan, now);
+  enqueueDueMorningBrief(withPlan, now, relay);
   assert.deepEqual(withPlan.enqueued, ['2026-07-15']);
 
   const withSnapshot = dueStore({ snapshot: { timezone: 'America/Los_Angeles' } });
-  enqueueDueMorningBrief(withSnapshot, now);
+  enqueueDueMorningBrief(withSnapshot, now, relay);
   assert.deepEqual(withSnapshot.enqueued, ['2026-07-14']);
 
   const systemOnly = dueStore();
-  enqueueDueMorningBrief(systemOnly, now);
+  enqueueDueMorningBrief(systemOnly, now, relay);
   const systemZone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC';
   assert.deepEqual(systemOnly.enqueued, [localDateInTimezone(now, systemZone)]);
 
   // A junk timezone falls back to UTC instead of crashing the lane.
   const junk = dueStore({ plan: { timezone: 'Not/AZone' } });
-  enqueueDueMorningBrief(junk, now);
+  enqueueDueMorningBrief(junk, now, relay);
   assert.deepEqual(junk.enqueued, ['2026-07-14']);
 
   // An eligible artifact for the target means a clean skip.
   const covered = dueStore({ plan: { timezone: 'Asia/Tokyo' }, eligible: { id: 'existing' } });
-  assert.equal(enqueueDueMorningBrief(covered, now), undefined);
+  assert.equal(enqueueDueMorningBrief(covered, now, relay), undefined);
   assert.deepEqual(covered.enqueued, []);
+});
+
+test('the scheduled lane holds the brief when the ritual machine says yesterday is open', (t) => {
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'forge-due-gate-'));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  const now = new Date('2026-07-14T16:00:00.000Z');
+
+  // The ritual machine publishes: its newest plan is Jul 13 and still open.
+  // (open_slot is UNIQUE, so the open plan is always the newest one; the reader
+  // rejects any file that claims otherwise.)
+  writeDayClosureRelay({
+    store: { dayClosureFacts: () => ({ latestLocalDate: '2026-07-13', openLocalDate: '2026-07-13' }) },
+    dataDir,
+    now,
+  });
+  const blocked = dueStore({ plan: { timezone: 'America/Los_Angeles' } });
+  assert.equal(enqueueDueMorningBrief(blocked, now, { relay: { dataDir } }), undefined);
+  assert.deepEqual(blocked.enqueued, []);
+
+  // Close it, and the same lane queues normally.
+  writeDayClosureRelay({
+    store: { dayClosureFacts: () => ({ latestLocalDate: '2026-07-14', openLocalDate: null }) },
+    dataDir,
+    now,
+  });
+  const allowed = dueStore({ plan: { timezone: 'America/Los_Angeles' } });
+  enqueueDueMorningBrief(allowed, now, { relay: { dataDir } });
+  assert.deepEqual(allowed.enqueued, ['2026-07-14']);
 });
 
 // ---------------------------------------------------------------------------

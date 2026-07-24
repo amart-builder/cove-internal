@@ -461,11 +461,11 @@ test('the outbox sweep exports succeeded rows missing a relay file and is idempo
 // Creates a pristine plan BEFORE any brief exists, then seeds a succeeded brief
 // for the same date so a subsequent ensure exercises the late-attach path.
 function planThenBrief(t) {
-  const { store, dir } = fixture(t);
+  const { store, dir, setNow } = fixture(t);
   const plan = store.ensureDayPlan({ localDate: DATE, timezone: TZ, mutationId: 'ensure:1', candidates: candidatePool() }).plan;
   assert.equal(plan.briefId, undefined);
   const artifact = succeededArtifact(store, briefJson());
-  return { store, dir, plan, artifact };
+  return { store, dir, plan, artifact, setNow };
 }
 
 test('late-attach overlays a brief onto a pristine arrival and bumps the version once', (t) => {
@@ -1203,4 +1203,61 @@ test('the attach gate matrix: visibility, candidates, plan state, and arrival st
   assert.equal(shouldAttemptLateBriefAttach({ ...base, alreadyAttempted: true }), false);
   assert.equal(shouldAttemptLateBriefAttach({ ...base, hasConsumedBrief: true }), false);
   assert.equal(shouldAttemptLateBriefAttach({ ...base, arrivalInteractedAt: CLOCK }), false);
+});
+
+// ---------------------------------------------------------------------------
+// Orphan upgrade: a better brief written after the arrival was built.
+// ---------------------------------------------------------------------------
+
+test('a plan upgrades to a strictly newer brief instead of orphaning it', (t) => {
+  const { store, setNow } = planThenBrief(t);
+  const first = store.ensureDayPlan({ localDate: DATE, timezone: TZ, mutationId: 'ensure:2', candidates: candidatePool() }).plan;
+  assert.ok(first.briefId);
+
+  // He settles last night at 11pm and the regenerated brief lands afterwards.
+  // Without the upgrade this artifact is written, paid for, and never read.
+  setNow('2026-07-14T15:00:00.000Z');
+  const better = succeededArtifact(store, briefJson(), { inputHash: 'after-settlement' });
+  const upgraded = store.ensureDayPlan({ localDate: DATE, timezone: TZ, mutationId: 'ensure:3', candidates: candidatePool() }).plan;
+  assert.equal(upgraded.briefId, better.id);
+  assert.equal(upgraded.version, first.version + 1);
+  assert.ok(store.listEvents(upgraded.id).some((event) => event.eventType === 'brief_attach'));
+});
+
+test('an older brief that finishes last never clobbers the newer one', (t) => {
+  const { store, setNow } = planThenBrief(t);
+  setNow('2026-07-14T15:00:00.000Z');
+  const newest = succeededArtifact(store, briefJson(), { inputHash: 'newest-request' });
+  const attached = store.ensureDayPlan({ localDate: DATE, timezone: TZ, mutationId: 'ensure:2', candidates: candidatePool() }).plan;
+  assert.equal(attached.briefId, newest.id);
+
+  // A generation requested at 7:30am that only finished at 4pm. It saw less of
+  // the world than the 11am request, so finish order is the wrong ordering and
+  // selection must go by request time.
+  store.importMorningBrief(makeArtifact({
+    id: 'slow-old-run',
+    inputHash: 'earliest-request',
+    createdAt: '2026-07-14T12:00:00.000Z',
+    startedAt: '2026-07-14T12:30:00.000Z',
+    finishedAt: '2026-07-14T16:00:00.000Z',
+  }));
+  assert.equal(
+    store.latestEligibleMorningBrief(DATE).id,
+    newest.id,
+    'selection is by request time; finish-time ordering would pick the stale one',
+  );
+
+  const after = store.ensureDayPlan({ localDate: DATE, timezone: TZ, mutationId: 'ensure:3', candidates: candidatePool() }).plan;
+  assert.equal(after.briefId, newest.id);
+  assert.equal(after.version, attached.version, 'nothing changed, so nothing bumped');
+});
+
+test('the no-hot-swap rule outranks the upgrade: a touched arrival never changes underneath him', (t) => {
+  const { store, setNow } = planThenBrief(t);
+  const first = store.ensureDayPlan({ localDate: DATE, timezone: TZ, mutationId: 'ensure:2', candidates: candidatePool() }).plan;
+  store.markArrivalInteraction(first.id, 'interact:1');
+  setNow('2026-07-14T15:00:00.000Z');
+  succeededArtifact(store, briefJson(), { inputHash: 'too-late' });
+  const after = store.ensureDayPlan({ localDate: DATE, timezone: TZ, mutationId: 'ensure:3', candidates: candidatePool() }).plan;
+  assert.equal(after.briefId, first.briefId);
 });

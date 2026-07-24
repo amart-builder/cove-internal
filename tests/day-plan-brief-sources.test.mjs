@@ -685,3 +685,22 @@ test('real source ids overwrite coverage fallbacks, while failed fetches remain 
   assert.equal(failedCoverage.calendar, 'missing');
   assert.equal(failedCoverage.crm_last_touch, 'missing');
 });
+
+test('a tight budget drops the lowest-ranked sources and keeps the highest intact', () => {
+  // Trimming runs from the highest priority number down, so what he set as his
+  // goals survives a budget that erases last night's settlement recap.
+  const sources = [
+    { id: 'goals', label: 'GOALS', required: true, maxChars: 9000, priority: 1, content: 'A'.repeat(300) },
+    { id: 'settlement_summary', label: 'RECENT_SETTLEMENTS', required: false, maxChars: 4000, priority: 8, content: 'B'.repeat(3000) },
+    { id: 'leadup', label: 'LEADUP', required: false, maxChars: 9000, priority: 3, content: 'C'.repeat(3000) },
+  ];
+  const assembled = assembleMorningBriefContext(sources, { now: NOW, totalMaxChars: 3200 });
+  const report = (id) => assembled.manifest.sources.find((source) => source.id === id);
+  assert.equal(report('goals').chars, 300);
+  assert.equal(report('goals').trimmed, false);
+  assert.equal(report('settlement_summary').chars, 0);
+  assert.equal(
+    assembled.sections.find((section) => section.id === 'goals').text,
+    'A'.repeat(300),
+  );
+});

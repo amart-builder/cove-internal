@@ -2430,6 +2430,8 @@ function TodayExperience({
                 recommendation={recommendation}
                 brief={dayRitual.morningBrief}
                 briefGeneration={dayRitual.briefGeneration}
+                onForceBrief={() => void dayRitual.forceBrief()}
+                forcingBrief={dayRitual.forcingBrief}
                 recap={morningRecap}
                 freshnessLabel={planEvidenceRefreshedAt
                   ? `Evidence refreshed ${new Date(planEvidenceRefreshedAt).toLocaleTimeString([], {

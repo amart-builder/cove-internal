@@ -176,6 +176,20 @@ export function markMorningBriefSalesAction(input: {
   });
 }
 
+// "Brief me anyway": the manual override on the closure gate. It queues a brief
+// the gate is withholding, or attaches one that was already written but held
+// back from the arrival, or does nothing when a generation is already running
+// here or on the other machine. `attached` means the plan just consumed a brief
+// and the caller should refetch.
+export function forceMorningBrief(
+  localDate: string,
+): Promise<{ briefGeneration?: MorningBriefGeneration; attached?: boolean }> {
+  return postDayPlan<{ briefGeneration?: MorningBriefGeneration; attached?: boolean }>({
+    action: "brief_force",
+    localDate,
+  });
+}
+
 export function configureDayPlanExecution(
   input: ConfigureDayPlanExecutionInput,
 ): Promise<DayPlanExecutionConfigResult> {

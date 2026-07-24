@@ -886,6 +886,158 @@ export function readSettlementRelay(options: {
 }
 
 // ---------------------------------------------------------------------------
+// Day-closure relay: the machine Alex actually runs the ritual on publishes
+// whether a workday is still open. Every other machine gates on this file rather
+// than on its own day_plans, which is machine-private and stale by design.
+// ---------------------------------------------------------------------------
+
+// A closure fact older than this says nothing about today. Matches the source
+// checkpoint window: a MacBook asleep overnight is still inside it, one away for
+// a full day is not.
+export const CLOSURE_RELAY_MAX_AGE_MS = 26 * 60 * 60 * 1000;
+
+type DayClosureRelayFile = {
+  relay_version: number;
+  written_at: string;
+  origin_host: string;
+  open_local_date: string | null;
+  latest_local_date: string | null;
+};
+
+export type DayClosureRelay = {
+  openLocalDate: string | null;
+  latestLocalDate: string | null;
+  originHost: string;
+  writtenAt: string;
+};
+
+function closureRelayPath(dataDir?: string): string {
+  return path.join(forgeDataDir(dataDir), "settlement-relay", "closure.json");
+}
+
+const LOCAL_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// The shape check alone accepts 2026-02-31, and a date that never existed still
+// compares as "before" a real one, which is enough to hold the brief for a full
+// day. Round-tripping through UTC is the cheap way to demand a real calendar day.
+function isRealLocalDate(value: string): boolean {
+  if (!LOCAL_DATE_RE.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+// Publishes this machine's closure facts (overwrite allowed). Monotonic by day:
+// a store whose newest plan predates the published one is behind, so it declines
+// to speak. That is what stops a peer with a stale database from overwriting the
+// authoritative answer and silently switching the gate off (or on).
+export function writeDayClosureRelay(options: {
+  store: Pick<DayPlanStore, "dayClosureFacts">;
+  now?: Date;
+  dataDir?: string;
+  host?: string;
+  log?: (message: string) => void;
+}): boolean {
+  try {
+    const facts = options.store.dayClosureFacts();
+    if (!facts.latestLocalDate) return false;
+    const published = readDayClosureRelay({
+      dataDir: options.dataDir,
+      now: options.now,
+      requireFresh: false,
+    });
+    if (
+      published?.latestLocalDate &&
+      published.latestLocalDate > facts.latestLocalDate
+    ) {
+      logLine(
+        options.log,
+        `closure-relay declined: local newest ${facts.latestLocalDate} is behind published ${published.latestLocalDate}`,
+      );
+      return false;
+    }
+    // Within the same day, closure only moves one way. A store that still shows
+    // the day open after it has been published closed is behind, not newer, and
+    // letting it speak would re-block a gate nobody can then unblock: the close
+    // already happened, so no further close event is coming to fix it.
+    if (
+      published?.latestLocalDate === facts.latestLocalDate &&
+      published.openLocalDate === null &&
+      facts.openLocalDate !== null
+    ) {
+      logLine(
+        options.log,
+        `closure-relay declined: ${facts.latestLocalDate} is already published closed`,
+      );
+      return false;
+    }
+    const file: DayClosureRelayFile = {
+      relay_version: BRIEF_RELAY_VERSION,
+      written_at: (options.now ?? new Date()).toISOString(),
+      origin_host: options.host ?? originHost(),
+      open_local_date: facts.openLocalDate,
+      latest_local_date: facts.latestLocalDate,
+    };
+    return atomicWrite(closureRelayPath(options.dataDir), JSON.stringify(file), {
+      writeOnce: false,
+      log: options.log,
+    });
+  } catch (error) {
+    logLine(
+      options.log,
+      `closure-relay write failed: ${error instanceof Error ? error.message : "unknown"}`,
+    );
+    return false;
+  }
+}
+
+// Reads the published closure facts. Returns undefined for anything missing,
+// oversize, foreign-versioned, malformed, future-stamped, or (unless the caller
+// opts out) older than the freshness window. Undefined always means "no opinion",
+// never "blocked" — a machine that cannot read this file must still be able to
+// write a brief, or a peer going offline would silently end the morning brief.
+export function readDayClosureRelay(
+  options: {
+    dataDir?: string;
+    now?: Date;
+    requireFresh?: boolean;
+  } = {},
+): DayClosureRelay | undefined {
+  try {
+    const filePath = closureRelayPath(options.dataDir);
+    if (!existsSync(filePath)) return undefined;
+    if (statSync(filePath).size > MAX_RELAY_FILE_BYTES) return undefined;
+    const parsed = JSON.parse(readFileSync(filePath, "utf8")) as Record<string, unknown>;
+    if (parsed.relay_version !== BRIEF_RELAY_VERSION) return undefined;
+    if (!isNonEmptyString(parsed.origin_host) || !HOST_RE.test(parsed.origin_host)) {
+      return undefined;
+    }
+    const writtenMs = strictIsoMs(parsed.written_at);
+    const nowMs = (options.now ?? new Date()).getTime();
+    if (writtenMs === undefined || writtenMs > nowMs + MAX_FUTURE_SKEW_MS) return undefined;
+    if (options.requireFresh !== false && nowMs - writtenMs > CLOSURE_RELAY_MAX_AGE_MS) {
+      return undefined;
+    }
+    const open = parsed.open_local_date;
+    const latest = parsed.latest_local_date;
+    // A writer with no plans at all never publishes, so a null latest date is a
+    // corrupt file rather than a real state. And the open day, when there is
+    // one, is always the newest one: open_slot is UNIQUE, so a shape claiming
+    // otherwise did not come from dayClosureFacts. Rejecting both is free,
+    // because rejecting means "no opinion", which can only unblock a brief.
+    if (typeof latest !== "string" || !isRealLocalDate(latest)) return undefined;
+    if (open !== null && (typeof open !== "string" || open !== latest)) return undefined;
+    return {
+      openLocalDate: open as string | null,
+      latestLocalDate: latest as string | null,
+      originHost: parsed.origin_host,
+      writtenAt: parsed.written_at as string,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Source checkpoint: the MBP publishes the identity of its authoritative source
 // files; the Mini refuses to generate off synced copies that do not match.
 // ---------------------------------------------------------------------------
