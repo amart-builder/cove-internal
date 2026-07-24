@@ -272,7 +272,7 @@ test('execution command preserves safety flags and the autonomous prompt snapsho
   assert.equal(command.args[command.args.indexOf('--tools') + 1], 'Read,Glob,Grep,Edit,Write');
   assert.ok(command.args.includes('--safe-mode'));
   assert.equal(command.args[command.args.indexOf('--max-budget-usd') + 1], '1.5');
-  assert.equal(command.args[command.args.indexOf('--model') + 1], 'opus');
+  assert.equal(command.args[command.args.indexOf('--model') + 1], 'claude-opus-5');
   assert.ok(!command.args.includes('--dangerously-skip-permissions'));
   assert.ok(!command.args.includes('--bg'));
   assert.equal(command.args[command.args.indexOf('--effort') + 1], 'high');

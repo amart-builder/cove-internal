@@ -237,7 +237,7 @@ test('dump prompt and validator enforce the bounded grounded contract', () => {
   assert.deepEqual(command.args, [
     '-p', '--no-session-persistence', '--permission-mode', 'plan', '--tools', '',
     '--strict-mcp-config', '--mcp-config', '/fake/empty.json',
-    '--model', 'opus', '--effort', 'high', '--output-format', 'json',
+    '--model', 'claude-opus-5', '--effort', 'high', '--output-format', 'json',
     '--json-schema', DAY_DUMP_JSON_SCHEMA, '--max-budget-usd', '1.5',
   ]);
   assert.deepEqual(validateDayDump(VALID_WIRE, RAW_DUMP), { ...VALID_WIRE, resolutions: [] });

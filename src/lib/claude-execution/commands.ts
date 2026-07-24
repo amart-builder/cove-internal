@@ -10,11 +10,22 @@ export type ClaudeCommand = {
   stdin: string;
 };
 
+// Stored aliases are stable (the run and brief tables are keyed on them), but
+// what each one *runs* has to be pinned. The bare "opus" alias resolves to
+// whatever the CLI currently calls Opus, which was still claude-opus-4-8 on
+// 2026-07-24 while Opus 5 was out: every morning brief was quietly written by
+// the older model. Name the model, never take the CLI's default.
 const CLAUDE_MODELS: Record<DayPlanExecutionRun["modelAlias"], string> = {
   sonnet: "sonnet",
-  opus: "opus",
+  opus: "claude-opus-5",
   fable: "claude-fable-5",
 };
+
+// The brief lane's model is env-overridable, so an unknown value passes
+// through untouched and only the known aliases get resolved.
+export function resolveClaudeModel(alias: string): string {
+  return CLAUDE_MODELS[alias as DayPlanExecutionRun["modelAlias"]] ?? alias;
+}
 
 function executionSystemPrompt(): string {
   return [

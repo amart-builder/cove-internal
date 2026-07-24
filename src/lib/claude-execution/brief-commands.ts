@@ -6,7 +6,7 @@ import {
   type MorningBriefSourceManifest,
 } from "../day-plan/brief";
 import type { ClaudeCommand } from "./commands";
-import { parseStructuredClaudeOutput } from "./commands";
+import { parseStructuredClaudeOutput, resolveClaudeModel } from "./commands";
 
 const V4_MANDATE_FALLBACK = [
   "You are Forge's Morning Brief: the chief-of-staff pass over Alex's day.",
@@ -260,7 +260,7 @@ export function buildMorningBriefCommand(input: {
       "--mcp-config",
       input.emptyMcpConfigPath,
       "--model",
-      input.modelAlias,
+      resolveClaudeModel(input.modelAlias),
       "--effort",
       input.effort,
       "--output-format",

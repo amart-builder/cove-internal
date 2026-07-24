@@ -1,6 +1,6 @@
 import type { CommitmentKind } from "../data/types";
 import type { ClaudeCommand } from "./commands";
-import { parseStructuredClaudeOutput } from "./commands";
+import { parseStructuredClaudeOutput, resolveClaudeModel } from "./commands";
 
 const DUMP_TIMEZONE = "America/Los_Angeles";
 const KINDS = new Set<CommitmentKind>([
@@ -200,7 +200,7 @@ export function buildDayDumpCommand(input: {
       "--mcp-config",
       input.emptyMcpConfigPath,
       "--model",
-      input.modelAlias,
+      resolveClaudeModel(input.modelAlias),
       "--effort",
       input.effort,
       "--output-format",

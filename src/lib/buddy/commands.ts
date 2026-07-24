@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import type { ClaudeCommand } from "../claude-execution/commands";
+import { resolveClaudeModel } from "../claude-execution/commands";
 
 export const BUDDY_REPO_ROOT = process.cwd();
 export const BUDDY_HOME = path.join(BUDDY_REPO_ROOT, "buddy");
@@ -43,7 +44,7 @@ export function buildBuddyTurnCommand(input: {
     cwd: BUDDY_HOME,
     args: [
       "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose",
-      "--model", input.model, "--effort", input.effort, "--name", "Forge Buddy",
+      "--model", resolveClaudeModel(input.model), "--effort", input.effort, "--name", "Forge Buddy",
       "--tools", "Read,Grep,Glob,Bash",
       "--allowedTools", BUDDY_DATA_ALLOWED_TOOL, BUDDY_DATA_CD_ALLOWED_TOOL,
       "--permission-mode", "dontAsk", "--strict-mcp-config",

@@ -1157,7 +1157,7 @@ test('the brief command is the exact bounded toolless invocation', () => {
   assert.deepEqual(command.args, [
     '-p', '--no-session-persistence', '--permission-mode', 'plan', '--tools', '',
     '--strict-mcp-config', '--mcp-config', '/fake/empty.json',
-    '--model', 'opus', '--effort', 'high', '--output-format', 'json',
+    '--model', 'claude-opus-5', '--effort', 'high', '--output-format', 'json',
     '--json-schema', MORNING_BRIEF_JSON_SCHEMA, '--max-budget-usd', '1.5',
   ]);
   assert.equal(command.stdin, [

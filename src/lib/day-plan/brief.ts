@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { resolveClaudeModel } from "../claude-execution/commands";
 import type {
   DayPlanItemBriefAnnotation,
   DayPlanOwner,
@@ -197,7 +198,11 @@ export function morningBriefInputHash(
     target: [envelope.targetLocalDate, envelope.targetTimezone],
     model: [
       envelope.writer ?? "claude",
-      envelope.modelAlias,
+      // The resolved model, not the alias. "opus" meant claude-opus-4-8 and
+      // now means claude-opus-5; hashing the alias would leave yesterday's
+      // artifact eligible and he would keep reading a brief the old model
+      // wrote while thinking he had switched.
+      resolveClaudeModel(envelope.modelAlias),
       envelope.effort,
       envelope.budgetUsd,
     ],
