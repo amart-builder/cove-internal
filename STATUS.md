@@ -18,8 +18,8 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-07-20T19:20:14-0700
-- **task:** in-progress settlement disposition
+- **since:** 2026-07-24T12:35:06-0700
+- **task:** Gate morning brief on closing the previous day
 <!-- END active-session -->
 
 ---
@@ -56,6 +56,16 @@ Standing rule (Alex, 2026-07-17): before saying "I can't see that" or asking him
 Explicitly rejected: always-running general agent, autonomous external sends, custom voice stack, constant day resequencing, implicit permission learning, pre-opened idle Claude sessions. Email triage stays OFF until Alex explicitly re-enables. 14-day pilot metrics gate each autonomy expansion (≥60-70% of overnight artifacts genuinely used, else Alex seeds the queue explicitly).
 
 ## Current State
+
+### 2026-07-24 Morning brief gated on closing the previous day (working tree)
+
+- Problem Alex hit: he skipped End My Day, and the 7:30 brief wrote itself off sources that literally cannot see an unsettled yesterday (`day_snapshots` rows only exist after `settlement_commit`). The brief was not slightly worse, it was a confident guess.
+- The gate is cross-machine only, and it fail-opens. The ritual machine (MBP) publishes `data/settlement-relay/closure.json` with `latest_local_date` + `open_local_date`; the brief machine (Mini) reads it and holds. No closure file, stale file (>26h), or malformed file means no opinion, so the brief always runs. A same-machine gate reading `day_plans` was designed, built, reviewed, and then deleted: `day_plans.open_slot` is UNIQUE and `ensureDayPlan` returns the open plan whatever date it is asked for, so a plan dated today cannot exist while an earlier day is open. The gate would have read as protection and provided none.
+- Gated in two places, both pre-claim: the 7:30 cron enqueue (`enqueueDueMorningBrief`) and the drain loop in `runOneMorningBrief`. A blocked row stays `queued`, never `failed`, so the moment he closes the day the same loop writes the brief he was owed. The settlement path is deliberately never gated: gating the brief settlement itself just requested would deadlock the morning.
+- Skip button: "Write my brief now" in the arrival brief step (`POST /api/day-plan` action `force-brief`). It bypasses the gate, and if a brief already exists that the no-hot-swap guard is holding back, it attaches that one content-only (no version bump) instead of starting a second run. Disabled while the round trip is in flight.
+- Progress bar: `BriefProgress.tsx` counts against the measured median (n=15: min 75s, max 666s, avg 186s, median ~132s) so he can see whether he has time for a coffee. Live region is scoped to the queued→writing sentence only; the countdown would talk over a screen reader.
+- Bug fixed along the way: an adopted brief artifact was inheriting the placeholder row's `created_at`, which made an old brief look freshly requested.
+- Verified: `npx tsc --noEmit` clean, 363/363 tests (new coverage for the gate, the force attach, the drain hold, and the relay-reader validation), plus fresh-context Codex and Opus reviews. Known and not fixed: the cross-machine force/cron race (both machines can start a brief in the same window) is a pre-existing pattern, not new here.
 
 ### 2026-07-20 Progress settlement disposition for multi-day work (shipped)
 
