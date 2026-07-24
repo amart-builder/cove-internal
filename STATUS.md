@@ -57,6 +57,16 @@ Explicitly rejected: always-running general agent, autonomous external sends, cu
 
 ## Current State
 
+### 2026-07-24 The evening brain dump never reached the morning brief (shipped, prompt v12)
+
+- Alex asked whether his end-of-day dump carried into the arrival he was reading. It did not. All 13 items became commitments correctly, but the brief still framed his day around the Main Street AI / HVAC thesis he had just abandoned, and the luxury-hotel guest agent he called a new top-three priority appeared nowhere.
+- **The brief read 11 sources and `day_dump` was not one of them.** Now the first section at priority 0, ahead of GOALS and the sprint memo. Those are hand-written and go stale between edits (GOALS was 6 days old, the sprint memo 12 and flagged stale, neither mentioning hotels); the dump cannot be. The prompt says the dump wins any disagreement about priorities and must offer to write down anything genuinely new rather than silently planning around a priority his files don't know.
+- **The ledger was cut newest-first.** `commitmentDate` returned `POSITIVE_INFINITY` for undated items, everything a dump creates is undated, so all 13 sorted to the very end and were exactly what the 4500-char cap removed. Now `MAX_SAFE_INTEGER` (`Infinity - Infinity` is NaN, which silently skipped the tiebreaker) plus a `created_at` tiebreaker, cap raised to 9000.
+- **`day_dumps` is machine-private and the 7:30 job runs on the Mini, which had zero dumps.** New dump relay on the settlement-relay pattern: the dump lane publishes on completion, any machine reads, dropped past 60h.
+- Total budget 48k -> 60k. At 48k the additions saturated it exactly and displaced two thirds of `memory_decisions`, the same silent loss this change exists to stop.
+- **Gotcha, and it shipped once before being caught:** `writeDumpRelay` without a `dataDir` resolves to the ambient `FORGE_DB_PATH`/cwd, so `npm test` overwrote the live relay file in `data/` with fixture text, which then synced to the Mini. Any relay write from a worker lane must take its `dataDir` from `options.relay`. Verified on the Mini after the fix: `day_dump` 7978 chars carrying the hotel material, commitments 7365 with the hotel item, nothing trimmed but goals at its own source cap.
+- Open, needs Alex: GOALS.md still has no hotel bet and five mentions of Main Street / HVAC / home services. The dump itself made "update goals.md and claude.md" a commitment.
+
 ### 2026-07-24 Every Claude lane was silently on Opus 4.8, not Opus 5 (shipped)
 
 - Alex asked to confirm the brief runs Opus 5 on high. It did not. `--model opus` is an alias the CLI resolves to whatever it currently calls Opus, and on 2026-07-24 that was `claude-opus-4-8`, verified directly: `claude --model opus --output-format json` reported `modelUsage: ['claude-opus-4-8']`. Every morning brief had been written by the older model. He was right that the model was wrong, just not in the way he thought (never Sol, but never Opus 5 either).
