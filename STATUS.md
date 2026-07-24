@@ -18,8 +18,8 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-07-24T13:37:04-0700
-- **task:** Morning brief voice + arrival visual pass
+- **since:** 2026-07-24T14:11:10-0700
+- **task:** Pin brief + execution lanes to Opus 5
 <!-- END active-session -->
 
 ---
@@ -56,6 +56,15 @@ Standing rule (Alex, 2026-07-17): before saying "I can't see that" or asking him
 Explicitly rejected: always-running general agent, autonomous external sends, custom voice stack, constant day resequencing, implicit permission learning, pre-opened idle Claude sessions. Email triage stays OFF until Alex explicitly re-enables. 14-day pilot metrics gate each autonomy expansion (≥60-70% of overnight artifacts genuinely used, else Alex seeds the queue explicitly).
 
 ## Current State
+
+### 2026-07-24 Every Claude lane was silently on Opus 4.8, not Opus 5 (shipped)
+
+- Alex asked to confirm the brief runs Opus 5 on high. It did not. `--model opus` is an alias the CLI resolves to whatever it currently calls Opus, and on 2026-07-24 that was `claude-opus-4-8`, verified directly: `claude --model opus --output-format json` reported `modelUsage: ['claude-opus-4-8']`. Every morning brief had been written by the older model. He was right that the model was wrong, just not in the way he thought (never Sol, but never Opus 5 either).
+- Four lanes passed the bare alias to the CLI: morning brief, day dump, execution runs, and the buddy. All four were on 4.8.
+- Fix keeps stored aliases stable (the run table has a CHECK constraint on `('sonnet','opus','fable')`, and artifacts are keyed on the alias) and pins what the alias *runs*: `CLAUDE_MODELS.opus = "claude-opus-5"`, plus an exported `resolveClaudeModel()` that every lane now calls when building `--model`. Unknown values (the `FORGE_BRIEF_MODEL` env override) pass through untouched.
+- The envelope input hash now hashes the **resolved** model, not the alias. Without that, changing what "opus" means leaves yesterday's artifact hash-identical and eligible, so he keeps reading a brief the old model wrote while believing he switched.
+- Known limit, deliberate: artifact *eligibility* is still gated on prompt/schema version only, so a model swap alone does not regenerate an already-generated day. The hash change means the next real generation produces a new artifact instead of deduping onto the old one. To force a same-day swap, bump the prompt version.
+- **Never let a model alias reach the CLI.** Aliases drift silently and nothing fails loudly when they do. The command tests pin the exact spawned model string, which is what caught this.
 
 ### 2026-07-24 Brief voice and arrival facelift: headline plus paragraphs (shipped on MBP)
 
