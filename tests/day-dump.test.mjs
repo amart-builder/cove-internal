@@ -12,6 +12,7 @@ import {
   validateDayDump,
 } from '../src/lib/claude-execution/dump-commands.ts';
 import { runOneDayDump } from '../src/lib/claude-execution/worker.ts';
+import { readDumpRelay } from '../src/lib/day-plan/brief-relay.ts';
 
 const CLOCK = '2026-07-18T02:00:00.000Z';
 const RAW_DUMP = 'I promised Maya I would send the deck Tuesday. Idea: make a client FAQ.';
@@ -165,6 +166,10 @@ function workerOptions(dir, store, overrides = {}) {
     dumpTimeoutMs: 5_000,
     dumpFetchTimeoutMs: 5_000,
     webBaseUrl: 'http://forge.test',
+    // Scopes the dump relay write to the fixture. Without it the write falls
+    // back to the ambient data dir and the suite overwrites the real relay
+    // file in data/, which is exactly what happened the first time.
+    relay: { dataDir: dir },
     ...overrides,
   };
 }
@@ -323,6 +328,13 @@ test('Codex retries one invalid extraction, inserts grounded commitments, and st
 
   const dump = store.listDayDumps()[0];
   assert.equal(dump.status, 'succeeded');
+
+  // A succeeded dump publishes the relay, which is the only way the dump
+  // reaches the machine that writes the 7:30 brief.
+  const relayed = readDumpRelay({ dataDir: dir, now: new Date(CLOCK) });
+  assert.equal(relayed.content, dump.rawText.trim());
+  assert.equal(relayed.targetLocalDate, dump.targetLocalDate);
+
   const receipt = JSON.parse(dump.resultJson);
   assert.deepEqual(receipt.counts, {
     extracted: 2,

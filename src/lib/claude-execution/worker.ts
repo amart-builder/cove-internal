@@ -546,6 +546,10 @@ export type DayDumpWorkerOptions = ClaudeWorkerOptions & {
   webBaseUrl?: string;
   fetchImpl?: typeof fetch;
   dumpFetchTimeoutMs?: number;
+  // The dump lane publishes the dump relay, so it needs the same scoped data
+  // directory the brief lane uses. Without it the write falls back to the
+  // ambient FORGE_DB_PATH/cwd and a test run overwrites the real relay file.
+  relay?: BriefRelayOptions;
 };
 
 export function configuredDayDumpWriter(
@@ -951,9 +955,7 @@ export async function runOneDayDump(
       options.store.completeDayDump(claimed.id, receipt);
       // day_dumps is machine-private, and the morning brief runs on the Mini.
       // Publish the dump so tomorrow's brief can read what he actually said.
-      // No dataDir: forgeDataDir() resolves to dirname(FORGE_DB_PATH), which is
-      // the same directory the worker entry passes as relay.dataDir.
-      writeDumpRelay({ store: options.store, now: clock() });
+      writeDumpRelay({ store: options.store, now: clock(), dataDir: options.relay?.dataDir });
     }
   } catch (error) {
     failDump(error instanceof Error ? error.message : "dump_failed");
