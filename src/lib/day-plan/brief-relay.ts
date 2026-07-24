@@ -886,6 +886,96 @@ export function readSettlementRelay(options: {
 }
 
 // ---------------------------------------------------------------------------
+// Day-dump relay: Alex types his evening brain dump on whichever machine he is
+// sitting at, but the 7:30 brief runs on the Mini, whose day_dumps table is
+// machine-private and therefore empty. Without this the freshest and most
+// decision-relevant thing he produces never reaches the brief that frames his
+// day. Same shape as the settlement relay: the writer publishes, every machine
+// reads.
+// ---------------------------------------------------------------------------
+
+// A dump older than this belongs to a day already worked through. Two nights
+// covers a Friday dump read on Monday morning; beyond that it is history.
+export const DUMP_RELAY_MAX_AGE_MS = 60 * 60 * 60 * 1000;
+
+function dumpRelayPath(dataDir?: string): string {
+  return path.join(forgeDataDir(dataDir), "dump-relay", "latest.json");
+}
+
+export type RelayDayDump = { content: string; asOf: string; targetLocalDate: string };
+
+export function writeDumpRelay(options: {
+  store: Pick<DayPlanStore, "listDayDumps">;
+  now?: Date;
+  dataDir?: string;
+  log?: (message: string) => void;
+}): boolean {
+  try {
+    const succeeded = options.store
+      .listDayDumps()
+      .filter((dump) => dump.status === "succeeded" && dump.rawText.trim());
+    const newest = succeeded[succeeded.length - 1];
+    if (!newest) return false;
+    const file = {
+      relay_version: BRIEF_RELAY_VERSION,
+      content: newest.rawText.trim(),
+      as_of: newest.createdAt,
+      target_local_date: newest.targetLocalDate,
+      dump_id: newest.id,
+      origin_host: originHost(),
+      written_at: (options.now ?? new Date()).toISOString(),
+    };
+    return atomicWrite(dumpRelayPath(options.dataDir), JSON.stringify(file), {
+      writeOnce: false,
+      log: options.log,
+    });
+  } catch (error) {
+    logLine(
+      options.log,
+      `dump-relay write failed: ${error instanceof Error ? error.message : "unknown"}`,
+    );
+    return false;
+  }
+}
+
+// Strict on the way in, same as the settlement reader: every timestamp is
+// validated and a defective file returns undefined so the collector records the
+// source missing rather than shipping a stale dump forever.
+export function readDumpRelay(options: {
+  dataDir?: string;
+  now?: Date;
+} = {}): RelayDayDump | undefined {
+  try {
+    const filePath = dumpRelayPath(options.dataDir);
+    if (!existsSync(filePath)) return undefined;
+    if (statSync(filePath).size > MAX_RELAY_FILE_BYTES) return undefined;
+    const parsed = JSON.parse(readFileSync(filePath, "utf8")) as Record<string, unknown>;
+    if (parsed.relay_version !== BRIEF_RELAY_VERSION) return undefined;
+    if (!isNonEmptyString(parsed.content)) return undefined;
+    if (!isNonEmptyString(parsed.target_local_date)) return undefined;
+    const asOfMs = strictIsoMs(parsed.as_of);
+    const writtenMs = strictIsoMs(parsed.written_at);
+    const nowMs = (options.now ?? new Date()).getTime();
+    if (
+      asOfMs === undefined ||
+      writtenMs === undefined ||
+      asOfMs > nowMs + MAX_FUTURE_SKEW_MS ||
+      writtenMs > nowMs + MAX_FUTURE_SKEW_MS ||
+      nowMs - asOfMs > DUMP_RELAY_MAX_AGE_MS
+    ) {
+      return undefined;
+    }
+    return {
+      content: parsed.content,
+      asOf: parsed.as_of as string,
+      targetLocalDate: parsed.target_local_date,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Day-closure relay: the machine Alex actually runs the ritual on publishes
 // whether a workday is still open. Every other machine gates on this file rather
 // than on its own day_plans, which is machine-private and stale by design.

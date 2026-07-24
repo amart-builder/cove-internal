@@ -15,7 +15,7 @@ import type {
 // v8: settlement progress, explicit next steps, and carried streaks guide continuity.
 // v9: headline plus real paragraphs, and the label tics ("Quick re-anchor:") the
 //     v8 worked example was teaching the model to write are gone.
-export const MORNING_BRIEF_PROMPT_VERSION = 11;
+export const MORNING_BRIEF_PROMPT_VERSION = 12;
 export const MORNING_BRIEF_SCHEMA_VERSION = 3;
 
 export type MorningBriefStatus = "queued" | "running" | "succeeded" | "failed";
@@ -170,7 +170,11 @@ export type AssembledBriefContext = {
   missingRequired: string[];
 };
 
-export const MORNING_BRIEF_TOTAL_MAX_CHARS = 48_000;
+// Raised from 48k when the brain dump became a source. At 48k the budget sat
+// exactly full and the dump displaced the tail of memory_decisions, which is
+// the failure this whole change exists to stop. ~15k input tokens, a rounding
+// error against the $1.50 brief budget.
+export const MORNING_BRIEF_TOTAL_MAX_CHARS = 60_000;
 
 // Everything that shapes the generated brief participates in the input hash:
 // the exact bounded sections as sent to the selected writer (not the untrimmed source

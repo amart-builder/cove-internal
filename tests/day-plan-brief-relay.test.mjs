@@ -16,11 +16,13 @@ import {
   exportBriefArtifact,
   liveRemoteBriefAttempt,
   parseRelayFile,
+  readDumpRelay,
   readSettlementRelay,
   scanAndImportBriefRelay,
   sweepBriefRelayOutbox,
   verifySourceCheckpoint,
   writeBriefAttemptStatus,
+  writeDumpRelay,
   writeSourceCheckpoint,
 } from '../src/lib/day-plan/brief-relay.ts';
 import {
@@ -361,6 +363,66 @@ test('the settlement relay round-trips and the collector falls back to it with f
   assert.equal(settlement.content, '- 2026-07-13: completed=2 unresolved=none');
   assert.equal(settlement.asOf, '2026-07-10T09:00:00.000Z');
   assert.equal(settlement.required, true);
+});
+
+// The dump is typed on the MBP and the 7:30 brief runs on the Mini, whose
+// day_dumps table is machine-private and empty. Without the relay the freshest
+// statement of direction Alex makes never reaches the brief that frames his day.
+test('the dump relay carries last night’s brain dump to a machine with no local dumps', async (t) => {
+  const { dir } = fixture(t);
+  const dumpStore = {
+    listDayDumps: () => [
+      { id: 'old', targetLocalDate: '2026-07-11', rawText: 'older dump', status: 'succeeded', createdAt: '2026-07-12T02:00:00.000Z' },
+      { id: 'new', targetLocalDate: '2026-07-13', rawText: 'The hotel guest agent is now a top three priority.', status: 'succeeded', createdAt: '2026-07-14T02:00:00.000Z' },
+      { id: 'bad', targetLocalDate: '2026-07-13', rawText: 'failed run', status: 'failed', createdAt: '2026-07-14T03:00:00.000Z' },
+    ],
+  };
+  assert.equal(writeDumpRelay({ store: dumpStore, dataDir: dir, now: new Date(CLOCK) }), true);
+
+  // Newest succeeded wins; the failed run is never published.
+  const relayed = readDumpRelay({ dataDir: dir, now: new Date(CLOCK) });
+  assert.equal(relayed.content, 'The hotel guest agent is now a top three priority.');
+  assert.equal(relayed.asOf, '2026-07-14T02:00:00.000Z');
+  assert.equal(relayed.targetLocalDate, '2026-07-13');
+
+  // A store with no listDayDumps at all stands in for the Mini.
+  const collected = await collectMorningBriefSources({
+    store: { listRecentSnapshots: () => [] },
+    dataDir: dir,
+    now: new Date(CLOCK),
+    goalsPath: path.join(dir, 'missing-goals.md'),
+    sprintMemoPath: path.join(dir, 'missing-memo.md'),
+    fetchImpl: async () => ({ ok: true, json: async () => [] }),
+  });
+  const dump = collected.sources.find((source) => source.id === 'day_dump');
+  assert.equal(dump.content, 'The hotel guest agent is now a top three priority.');
+  // Priority 0: it outranks the hand-written goals and sprint memo, which is
+  // the whole point. Anything above 0 lets a stale file win a disagreement.
+  assert.equal(dump.priority, 0);
+  assert.equal(collected.sources[0].id, 'day_dump');
+});
+
+test('a brain dump older than the relay window is dropped rather than presented as current', async (t) => {
+  const { dir } = fixture(t);
+  const stale = {
+    listDayDumps: () => [
+      { id: 'stale', targetLocalDate: '2026-07-01', rawText: 'last week', status: 'succeeded', createdAt: '2026-07-02T02:00:00.000Z' },
+    ],
+  };
+  assert.equal(writeDumpRelay({ store: stale, dataDir: dir, now: new Date(CLOCK) }), true);
+  assert.equal(readDumpRelay({ dataDir: dir, now: new Date(CLOCK) }), undefined);
+
+  const collected = await collectMorningBriefSources({
+    store: { listRecentSnapshots: () => [] },
+    dataDir: dir,
+    now: new Date(CLOCK),
+    goalsPath: path.join(dir, 'missing-goals.md'),
+    sprintMemoPath: path.join(dir, 'missing-memo.md'),
+    fetchImpl: async () => ({ ok: true, json: async () => [] }),
+  });
+  const dump = collected.sources.find((source) => source.id === 'day_dump');
+  assert.equal(dump.content, undefined);
+  assert.equal(dump.note, 'day_dump_unavailable');
 });
 
 test('an empty local store with no relay records the settlement source as missing', async (t) => {

@@ -442,7 +442,7 @@ test('computed commitments source exposes open loops, clarification, and factual
   const source = collected.sources.find((entry) => entry.id === 'commitments');
   assert.equal(source.label, 'OPEN_COMMITMENTS_AND_GAPS');
   assert.equal(source.required, false);
-  assert.equal(source.maxChars, 4500);
+  assert.equal(source.maxChars, 9000);
   assert.equal(source.priority, 5);
   assert.equal(source.freshness, 'current');
   assert.match(source.content, /FOLLOW_UP:\n- Send Maya the proposal \| counterparty=Maya/);
@@ -648,6 +648,7 @@ test('real source ids overwrite coverage fallbacks, while failed fetches remain 
   assert.deepEqual(
     included.sources.map((source) => [source.id, source.priority]),
     [
+      ['day_dump', 0],
       ['goals', 1],
       ['operator_profile', 2],
       ['leadup', 3],

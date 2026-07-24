@@ -4,7 +4,7 @@ import path from "node:path";
 import type { Commitment, CommitmentKind } from "../data/types";
 import type { DayPlanStore } from "./store";
 import { localDateInTimezone, type BriefSourceInput } from "./brief";
-import { buildSettlementSummary, readSettlementRelay } from "./brief-relay";
+import { buildSettlementSummary, readDumpRelay, readSettlementRelay } from "./brief-relay";
 import { contentQuotaGap, followUpsDue, staleOpenItems } from "./gap-detectors";
 
 const EXTERNAL_FETCH_TIMEOUT_MS = 10_000;
@@ -270,7 +270,19 @@ function commitmentDate(commitment: Commitment): number {
   const values = [commitment.due_at, commitment.review_at]
     .map((value) => value ? Date.parse(value) : Number.NaN)
     .filter(Number.isFinite);
-  return values.length > 0 ? Math.min(...values) : Number.POSITIVE_INFINITY;
+  // Undated items still sort behind dated ones, but MAX_SAFE_INTEGER instead of
+  // Infinity keeps the subtraction finite so the recency tiebreaker below runs.
+  // Infinity - Infinity is NaN, which would silently skip it.
+  return values.length > 0 ? Math.min(...values) : Number.MAX_SAFE_INTEGER;
+}
+
+// Tiebreaker for items sharing a date, and the only ordering undated items get.
+// Everything a brain dump creates lands undated, so without this the newest
+// commitments pile up at the end of the section and are exactly what the
+// character cap removes first. Newest survives.
+function commitmentRecency(commitment: Commitment): number {
+  const created = Date.parse(commitment.created_at);
+  return Number.isFinite(created) ? created : 0;
 }
 
 function commitmentLine(
@@ -319,7 +331,9 @@ async function commitmentsSource(input: {
     id: "commitments",
     label: "OPEN_COMMITMENTS_AND_GAPS",
     required: false,
-    maxChars: 4500,
+    // 4500 fit roughly a dozen items. One evening brain dump can add thirteen
+    // at once, and the overflow was silently dropping the newest of them.
+    maxChars: 9000,
     priority: 5,
     freshness: "current",
   };
@@ -346,7 +360,10 @@ async function commitmentsSource(input: {
     const commitments = (openResult.status === "fulfilled" ? openResult.value : [])
       .map(commitmentRow)
       .filter((row): row is Commitment => Boolean(row))
-      .sort((left, right) => commitmentDate(left) - commitmentDate(right) || left.id.localeCompare(right.id));
+      .sort((left, right) =>
+        commitmentDate(left) - commitmentDate(right) ||
+        commitmentRecency(right) - commitmentRecency(left) ||
+        left.id.localeCompare(right.id));
     const nowEpoch = input.now.getTime();
     const evidenceById = new Map(
       commitments.map((commitment) => [commitment.id, commitmentEvidence(commitment.evidence)]),
@@ -1023,7 +1040,60 @@ export async function collectMorningBriefSources(
     now,
   });
 
+  // Last night's brain dump, in Alex's own words, and the first thing the brief
+  // reads. Priority 0 because it is the only source that can be hours old:
+  // GOALS and the sprint memo are written by hand and go stale between edits,
+  // so when he changes direction at night the dump is the only place the brief
+  // can learn it. Local store first, then the relay, same as settlements, since
+  // dumps are typed on the MBP and the 7:30 brief runs on the Mini. Extraction
+  // already reached the commitment ledger; what this adds is the reasoning
+  // around it, which no extraction preserves.
+  let dumpContent: string | undefined;
+  let dumpAsOf: string | undefined;
+  try {
+    const succeeded = options.store
+      .listDayDumps()
+      .filter((dump) => dump.status === "succeeded" && dump.rawText.trim());
+    const newest = succeeded[succeeded.length - 1];
+    if (newest) {
+      dumpContent = newest.rawText.trim();
+      dumpAsOf = newest.createdAt;
+    }
+  } catch {
+    // Fall through to the relay.
+  }
+  const relayDump = readDumpRelay({ dataDir: options.dataDir, now });
+  if (relayDump) {
+    const relayMs = Date.parse(relayDump.asOf);
+    const localMs = dumpContent && dumpAsOf ? Date.parse(dumpAsOf) : NaN;
+    if (!dumpContent || !Number.isFinite(localMs) || relayMs > localMs) {
+      dumpContent = relayDump.content;
+      dumpAsOf = relayDump.asOf;
+    }
+  }
+
   const sources: BriefSourceInput[] = [
+    dumpContent
+      ? {
+          id: "day_dump",
+          label: "LAST_NIGHT_BRAIN_DUMP",
+          required: false,
+          maxChars: 12_000,
+          priority: 0,
+          content: dumpContent,
+          asOf: dumpAsOf,
+          // A dump two nights old is still the freshest statement of direction
+          // he has made; older than that and it describes a finished week.
+          freshnessThresholdHours: staleThresholdHours("day_dump", 60),
+        }
+      : {
+          id: "day_dump",
+          label: "LAST_NIGHT_BRAIN_DUMP",
+          required: false,
+          maxChars: 12_000,
+          priority: 0,
+          note: "day_dump_unavailable",
+        },
     fileSource("goals", "GOALS", options.goalsPath ?? defaultGoalsPath(), {
       required: true,
       maxChars: 9000,

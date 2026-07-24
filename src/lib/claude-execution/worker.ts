@@ -37,6 +37,7 @@ import {
   verifySourceCheckpoint,
   writeBriefAttemptStatus,
   writeDayClosureRelay,
+  writeDumpRelay,
   writeSettlementRelay,
   writeSourceCheckpoint,
 } from "../day-plan/brief-relay";
@@ -948,6 +949,11 @@ export async function runOneDayDump(
       failDump("commitment_insert_failed", receipt);
     } else {
       options.store.completeDayDump(claimed.id, receipt);
+      // day_dumps is machine-private, and the morning brief runs on the Mini.
+      // Publish the dump so tomorrow's brief can read what he actually said.
+      // No dataDir: forgeDataDir() resolves to dirname(FORGE_DB_PATH), which is
+      // the same directory the worker entry passes as relay.dataDir.
+      writeDumpRelay({ store: options.store, now: clock() });
     }
   } catch (error) {
     failDump(error instanceof Error ? error.message : "dump_failed");
