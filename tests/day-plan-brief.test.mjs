@@ -1123,7 +1123,7 @@ test('ensure keeps at most three items from a larger deterministic pool', (t) =>
 // ---------------------------------------------------------------------------
 
 test('the brief command is the exact bounded toolless invocation', () => {
-  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 10);
+  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 11);
   const repoCwd = process.cwd();
   const ownerPrompt = readFileSync(path.join(repoCwd, 'prompts', 'chief-of-staff.md'), 'utf8').trimEnd();
   assert.ok(ownerPrompt.includes(
@@ -1173,7 +1173,7 @@ test('the brief command is the exact bounded toolless invocation', () => {
     'Every evidence_refs entry must name a source from SOURCE_MANIFEST, as source or source:detail (for example sprint_memo:gio). Forge drops any watch_item or sales_action whose refs cite anything else.',
     'existing_task_candidates: at most 3, ranked, and task_id must come from an OPEN_TASKS row marked candidate_ok. Rows without candidate_ok are context only, never candidates. Never invent tasks there.',
     'suggested_additions is a separate approval inbox for genuinely new work. Nothing in it is created automatically.',
-    'watch_items are the never-drop checks: stale leads over 3 days, promised follow-ups, invoices, call prep, the Friday scoreboard. At most five, ranked by what actually costs him something if it slips today; a long list reads as noise and he stops reading it. Each evidence value must be one finished human sentence with no source citations. Keep last_seen_state and evidence_refs grounded for storage, but never write citation language into the sentence.',
+    'watch_items are the never-drop checks: stale leads over 3 days, promised follow-ups, invoices, call prep, the Friday scoreboard. At most five, ranked by what actually costs him something if nobody touches it today; a long list reads as noise and he stops reading it. Each evidence value must be one finished human sentence with no source citations. Keep last_seen_state and evidence_refs grounded for storage, but never write citation language into the sentence.',
     "sales_actions run the day's sales cadence with approval_required always true. Without last-touch evidence use draft_kind beats_only or blocked, never a confident full draft. Messages to close friends are always beats_only by standing rule.",
     'Do not invent facts, deadlines, contacts, or commitments. Do not use em dashes anywhere.',
     `JSON_SCHEMA=${MORNING_BRIEF_JSON_SCHEMA}`,
@@ -1376,7 +1376,7 @@ test('the brief worker validates, filters unknown tasks, and stores the artifact
     '-p', '--no-session-persistence', '--permission-mode', 'plan', '--tools', '',
     '--strict-mcp-config', '--mcp-config',
   ]);
-  assert.match(captured.input, /^# The morning brief: chief of staff mandate \(v10\)/);
+  assert.match(captured.input, /^# The morning brief: chief of staff mandate \(v11\)/);
   assert.match(captured.input, /\n\/forge-morning-brief\n/);
   // Empty queue afterwards.
   assert.equal(

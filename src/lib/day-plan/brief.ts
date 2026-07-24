@@ -15,7 +15,7 @@ import type {
 // v8: settlement progress, explicit next steps, and carried streaks guide continuity.
 // v9: headline plus real paragraphs, and the label tics ("Quick re-anchor:") the
 //     v8 worked example was teaching the model to write are gone.
-export const MORNING_BRIEF_PROMPT_VERSION = 10;
+export const MORNING_BRIEF_PROMPT_VERSION = 11;
 export const MORNING_BRIEF_SCHEMA_VERSION = 3;
 
 export type MorningBriefStatus = "queued" | "running" | "succeeded" | "failed";
