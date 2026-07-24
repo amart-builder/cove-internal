@@ -16,10 +16,10 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** none
-- **device:** —
-- **since:** —
-- **task:** —
+- **system:** cowork
+- **device:** Alexanders-MacBook-Pro-2
+- **since:** 2026-07-24T13:37:04-0700
+- **task:** Morning brief voice + arrival visual pass
 <!-- END active-session -->
 
 ---
@@ -56,6 +56,21 @@ Standing rule (Alex, 2026-07-17): before saying "I can't see that" or asking him
 Explicitly rejected: always-running general agent, autonomous external sends, custom voice stack, constant day resequencing, implicit permission learning, pre-opened idle Claude sessions. Email triage stays OFF until Alex explicitly re-enables. 14-day pilot metrics gate each autonomy expansion (≥60-70% of overnight artifacts genuinely used, else Alex seeds the queue explicitly).
 
 ## Current State
+
+### 2026-07-24 Brief voice and arrival facelift: headline plus paragraphs (shipped on MBP)
+
+- Two complaints from Alex, one diagnosis each. The wall of text was **a rendering bug, not a writing problem**: the stored narrative already had six paragraphs (1,314 chars, 10 newlines) and `ArrivalStepBrief` rendered the whole thing into a single `<p>`, where HTML collapses the breaks. The robotic voice was **authored by our own prompt**: `chief-of-staff.md` v8 line 23 prescribed "Quick re-anchor:" and the worked example demonstrated it, and models copy the example far harder than the rules above it.
+- He asked to switch the writer from GPT-5.6 Sol to Opus 5 medium. The database said otherwise: the last six briefs all ran `opus high`, and both of today's had `writer = claude`. Switching to medium would have lowered effort and fixed nothing. The model was never the problem, so it did not change.
+- Schema 3 / prompt v9. The brief now returns `headline` (one plain sentence, the day's decisive move) plus `narrative_paragraphs` (2 to 4). `lensNarrative` survives as a derived field (headline + paragraphs joined on blank lines) because exports, the date guard, and the deterministic fallback all speak in one flat string. **Strict at generation, lenient at parse**: the wire schema forces the new shape, but a stray old-shape answer still parses through `splitNarrativeParagraphs` rather than costing him a morning.
+- The double throat-clear is gone. `brief-commands.ts` used to force `Today is <date>.` as the first sentence, `normalizeMorningBriefNarrativeDate` prepended it *again*, and the prompt then added "Good morning, Alex. Quick re-anchor:", so the first 40 words carried no information. The normalizer now **strips** a leading date claim instead of prepending one, and only warns when the removed claim disagreed with the target date. The date lives in the arrival header, once, as a blue kicker.
+- v9 prompt bans labels outright ("Quick re-anchor:", "The honest read:", "On the lighter side:", "Bottom line:", and the rest), bans opening with a greeting or the date, and replaces the worked example with one in the target voice and the new shape. The banned list came from Alex's own quotes and the v8 example, which contained three of them.
+- Visual pass reuses the existing `--current-*` water palette rather than inventing a second blue: `.arrival-brief-kicker` (blue dateline), `.arrival-brief-recap` (tinted card, left rule), `.arrival-brief-headline` (large, title ink), `.arrival-brief-lead`, `.arrival-brief-watch` (tinted card with blue dots). Light and dark follow the app for free.
+- The chrome copy Alex flagged ("A quiet read on what changed, what matters, and what Forge is watching for you") is deleted. The brief step's description slot holds the date instead.
+- Bumping both versions makes existing artifacts ineligible, which is the intended cost: the next brief is written under the new prompt.
+- Prompt v10 followed immediately, from reading the live v9 result: it shipped **eight** watch items, which printed under the brief as more text than the brief itself. That was the same wall Alex complained about, relocated. `watch_items` maxItems is now 5, and the prompt and skill both say to rank by what actually costs him money, a client, or a deadline if it slips today. Watching everything is the same as watching nothing.
+- Live-accepted on the MBP: v10 artifact `a454082f`, three paragraphs, five ranked watch items, zero label tics, no greeting, no date claim. Verified in both light and dark. 365 tests pass.
+- **Operational gotcha, cost an hour:** `com.forge.claude-worker` is long-running and holds compiled modules in memory, so a rebuilt brief prompt keeps producing artifacts stamped with the *old* versions until you `launchctl kickstart -k gui/501/com.forge.claude-worker`. Kick both the web service and the worker after any brief change.
+- **Second gotcha:** a plan pins `brief_id` once and never hot-swaps (deliberate, so an arrival he is reading cannot change under him). A newly generated artifact will not appear on an already-pinned plan. To see a fresh brief on the current day, null `day_plans.brief_id` and let the client's attach-only ensure pick up the newest eligible artifact.
 
 ### 2026-07-24 Morning brief gated on closing the previous day (working tree)
 
@@ -437,6 +452,7 @@ Note: `data/forge-email.json`, `forge-email-state.json`, `forge-reminders.json` 
 - [ ] Review/send the Jacob cleanup economics reply.
 
 ### Next
+- [ ] **Model registry with a morning check (Alex, 2026-07-24).** Forge hard-codes the model on every Claude/Codex session it opens (`morningBriefModelConfig`, `src/lib/buddy/router.ts`, `buildExecutionCommand`). Replace the hard-codes with one registry, have the morning lane check what Claude and Codex actually offer that day, fold anything new into the routing table, and tell him in the brief in one line ("Opus 5 shipped, so new Claude sessions use it now"). Detection has to be evidence-based (query the CLIs, never a guess), and a new model should only be adopted where its tier is a like-for-like replacement.
 - [ ] Decide whether to re-enable Forge email triage after Alex confirms Gmail ingestion is allowed.
 - [ ] Add a daily Forge review rhythm: morning priorities, midday check, end-of-day cleanup.
 - [ ] Make the stale backlog smaller than 10 active open tasks.
