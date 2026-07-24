@@ -21,6 +21,7 @@ import type {
   DayPlanOwner as DayOwner,
 } from '@/lib/day-plan/types';
 import {
+  arrivalDateLabel,
   morningArrivalGreeting,
   resolveArrivalEscape,
   selectEssentialItems,
@@ -85,8 +86,12 @@ const STEP_TITLES: Record<Exclude<ArrivalStep, 'brief'>, string> = {
   extras: 'Anything else?',
 };
 
+// The brief step has no description sentence: it gets the date instead. A line
+// explaining what a brief is reads as chrome written by a machine, and the brief
+// itself is under standing orders never to state the date, so this is the one
+// place it appears.
 const STEP_DESCRIPTIONS: Record<ArrivalStep, string> = {
-  brief: 'A quiet read on what changed, what matters, and what Forge is watching for you.',
+  brief: '',
   priorities: 'Drag three outcomes into priority order, then choose who owns each one. Items you give to Claude start planning when you begin your day.',
   extras: 'Review the optional details, make any final refinements, and begin your day.',
 };
@@ -267,8 +272,15 @@ export default function MorningArrival({
                   ? morningArrivalGreeting(new Date(), plan.timezone)
                   : STEP_TITLES[step]}
               </h1>
-              <p id={descriptionId} className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                {STEP_DESCRIPTIONS[step]}
+              <p
+                id={descriptionId}
+                className={
+                  step === 'brief'
+                    ? 'arrival-brief-kicker mt-2.5'
+                    : 'mt-2 text-sm leading-relaxed text-muted-foreground'
+                }
+              >
+                {step === 'brief' ? arrivalDateLabel(plan.localDate) : STEP_DESCRIPTIONS[step]}
               </p>
               {freshnessLabel && <p className="mt-2 text-xs text-muted-foreground">{freshnessLabel}</p>}
             </div>
@@ -293,7 +305,11 @@ export default function MorningArrival({
           {step === 'brief' ? (
             <ArrivalStepBrief
               recap={recap}
-              narrative={brief?.lensNarrative ?? recommendation}
+              headline={brief?.headline}
+              // No brief yet means the deterministic recommendation stands in,
+              // and it is one sentence, so it becomes the headline rather than
+              // an orphan paragraph under an empty heading.
+              paragraphs={brief?.narrativeParagraphs ?? (recommendation ? [recommendation] : [])}
               watchItems={brief?.watchItems ?? []}
               briefWriting={briefWriting}
               briefGeneration={briefGeneration}

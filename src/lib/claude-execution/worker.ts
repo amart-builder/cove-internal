@@ -11,7 +11,7 @@ import {
   assembleMorningBriefContext,
   localDateInTimezone,
   morningBriefInputHash,
-  normalizeMorningBriefNarrativeDate,
+  stripMorningBriefDateClaim,
   validateMorningBrief,
   MORNING_BRIEF_PROMPT_VERSION,
   MORNING_BRIEF_SCHEMA_VERSION,
@@ -1212,12 +1212,12 @@ export async function runOneMorningBrief(
       }
       validated = validateOutput(result.stdout);
     }
-    const datedNarrative = normalizeMorningBriefNarrativeDate(
-      validated.brief.lensNarrative,
+    const dated = stripMorningBriefDateClaim(
+      validated.brief,
       claimed.targetLocalDate,
       targetTimezone,
     );
-    if (datedNarrative.contradicted) {
+    if (dated.contradicted) {
       console.warn("Morning brief narrative date contradicted target; corrected before storage.", {
         briefId: claimed.id,
         targetLocalDate: claimed.targetLocalDate,
@@ -1226,11 +1226,7 @@ export async function runOneMorningBrief(
     }
     const completed = options.store.completeMorningBrief(
       claimed.id,
-      JSON.stringify({
-        ...validated.brief,
-        lensNarrative: datedNarrative.narrative,
-        writer,
-      }),
+      JSON.stringify({ ...dated.brief, writer }),
     );
     console.info("Morning brief generated.", { briefId: claimed.id, writer });
     // Publish the immutable artifact to the relay so the other machine imports

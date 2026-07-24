@@ -5,7 +5,8 @@ import BriefProgress from './BriefProgress';
 
 export default function ArrivalStepBrief({
   recap,
-  narrative,
+  headline,
+  paragraphs,
   watchItems,
   briefWriting,
   briefGeneration,
@@ -14,7 +15,8 @@ export default function ArrivalStepBrief({
   forcingBrief,
 }: {
   recap?: string;
-  narrative: string;
+  headline?: string;
+  paragraphs: string[];
   watchItems: PublicMorningBrief['watchItems'];
   briefWriting: boolean;
   briefGeneration?: MorningBriefGeneration;
@@ -26,23 +28,40 @@ export default function ArrivalStepBrief({
   // never fired. Either way he is staring at a brief-shaped hole, so give him a
   // way out rather than silence.
   const stalled = !hasBriefContent && !briefWriting;
+  // Old briefs and the deterministic fallback have no headline, so the first
+  // paragraph is promoted into that slot. Without this they would render as a
+  // body with nothing above it and lose the whole point of the hierarchy.
+  const leadHeadline = headline ?? paragraphs[0];
+  const body = headline ? paragraphs : paragraphs.slice(1);
 
   return (
-    <section className="mx-auto w-full max-w-[85rem] space-y-8 px-6 py-8 sm:px-10" aria-label="The brief">
-      <div className="space-y-6">
-        <div>
-          <h2 className="text-sm font-semibold text-foreground">Your morning brief</h2>
-          {recap && (
-            <div className="mt-6 space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                Since the last close
-              </p>
-              <p className="text-pretty text-base leading-relaxed text-foreground sm:text-lg">{recap}</p>
-            </div>
-          )}
-        </div>
+    <section className="mx-auto w-full max-w-[85rem] space-y-9 px-6 py-8 sm:px-10" aria-label="The brief">
+      <div className="mx-auto w-full max-w-[70ch] space-y-7">
+        {leadHeadline && <h2 className="arrival-brief-headline text-balance">{leadHeadline}</h2>}
 
-        <p className="text-pretty text-base leading-relaxed text-foreground sm:text-lg">{narrative}</p>
+        {recap && (
+          <div className="arrival-brief-recap space-y-1">
+            <p className="arrival-brief-kicker">Since the last close</p>
+            <p className="text-pretty text-[0.95rem] leading-relaxed text-foreground">{recap}</p>
+          </div>
+        )}
+
+        {body.length > 0 && (
+          <div className="space-y-4">
+            {body.map((paragraph, index) => (
+              <p
+                key={index}
+                className={
+                  index === 0
+                    ? 'arrival-brief-lead text-pretty'
+                    : 'text-pretty text-base leading-relaxed text-foreground'
+                }
+              >
+                {paragraph}
+              </p>
+            ))}
+          </div>
+        )}
 
         {briefWriting && (
           <BriefProgress
@@ -66,12 +85,15 @@ export default function ArrivalStepBrief({
         )}
 
         {watchItems.length > 0 && (
-          <div className="space-y-4 border-t border-border/60 pt-6" aria-label="Watching for you">
-            <h2 className="text-sm font-semibold text-foreground">Watching for you</h2>
+          <div className="arrival-brief-watch space-y-3" aria-label="Watching for you">
+            <h2 className="arrival-brief-kicker">Watching for you</h2>
             {watchItems.map((watch, index) => (
-              <p key={index} className="text-pretty text-sm leading-relaxed text-muted-foreground">
-                <span className="font-medium text-foreground">{watch.label}.</span>{' '}
-                {watch.evidence}
+              <p key={index} className="flex gap-2.5 text-pretty text-sm leading-relaxed text-muted-foreground">
+                <span className="arrival-brief-watch-dot mt-[0.5rem] shrink-0" aria-hidden="true" />
+                <span>
+                  <span className="font-medium text-foreground">{watch.label}.</span>{' '}
+                  {watch.evidence}
+                </span>
               </p>
             ))}
           </div>

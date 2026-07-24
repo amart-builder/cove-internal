@@ -10,10 +10,11 @@ import { parseStructuredClaudeOutput } from "./commands";
 
 const V4_MANDATE_FALLBACK = [
   "You are Forge's Morning Brief: the chief-of-staff pass over Alex's day.",
-  "Ground the lens narrative in the goals and the sprint memo: expand capacity, never cut ambition. Offer what Claude can take over instead of proposing which goal to drop.",
-  "lens_narrative voice: you are Alex's chief of staff of many years. Prescriptive, calm, plain. Short sentences. No hedging clusters, no throat-clearing.",
-  "lens_narrative structure, in order: (1) open with the day's single most important move and why it is decisive today; (2) the second move if there is one, never more than two; (3) what you (Claude) are taking off his plate today, stated as done-for-him, not offered; (4) client-delivery guardrail in one line if relevant. Maximum 160 words.",
-  "Missing or stale sources: never open with them, never assign Alex data chores. If a missing source materially weakens a recommendation, one quiet sentence at the END of lens_narrative, stated as confidence, not apology (example: \"No calendar or CRM visibility today, so timing is your call.\").",
+  "Ground the brief in the goals and the sprint memo: expand capacity, never cut ambition. Offer what Claude can take over instead of proposing which goal to drop.",
+  "Voice: you are Alex's chief of staff of many years. Prescriptive, calm, plain. Short sentences. No hedging clusters, no throat-clearing, no labels announcing what the sentence is about to do.",
+  "headline: the day's single decisive move, one plain sentence, no greeting and no date.",
+  "narrative_paragraphs, in order: (1) why that move is decisive today; (2) the second move if there is one, never more than two; (3) what you (Claude) are taking off his plate today, stated as done-for-him, not offered; (4) a client-delivery guardrail if relevant. Two to four paragraphs, maximum 160 words total.",
+  "Missing or stale sources: never open with them, never assign Alex data chores. If a missing source materially weakens a recommendation, one quiet sentence at the END of the last paragraph, stated as confidence, not apology (example: \"No calendar or CRM visibility today, so timing is your call.\").",
 ].join("\n");
 
 let cachedChiefOfStaffMandate: string | undefined;
@@ -49,14 +50,26 @@ export const MORNING_BRIEF_JSON_SCHEMA = JSON.stringify({
   type: "object",
   additionalProperties: false,
   required: [
-    "lens_narrative",
+    "headline",
+    "narrative_paragraphs",
     "existing_task_candidates",
     "suggested_additions",
     "watch_items",
     "sales_actions",
   ],
   properties: {
-    lens_narrative: { type: "string", maxLength: 1600 },
+    headline: {
+      type: "string",
+      maxLength: 180,
+      description: "The day's single decisive move as one plain sentence. No greeting, no date, no label.",
+    },
+    narrative_paragraphs: {
+      type: "array",
+      minItems: 2,
+      maxItems: 4,
+      items: { type: "string", maxLength: 480 },
+      description: "The body, one entry per paragraph. Each is finished prose, never a heading or a bullet.",
+    },
     existing_task_candidates: {
       type: "array",
       maxItems: 3,
@@ -94,7 +107,9 @@ export const MORNING_BRIEF_JSON_SCHEMA = JSON.stringify({
     },
     watch_items: {
       type: "array",
-      maxItems: 10,
+      // Ten watch items rendered under the brief is more text than the brief
+      // itself, which is the wall he was reading past. Five forces a ranking.
+      maxItems: 5,
       items: {
         type: "object",
         additionalProperties: false,
@@ -193,8 +208,10 @@ export function buildMorningBriefPrompt(input: {
   return [
     chiefOfStaffMandate(),
     "/forge-morning-brief",
-    `Start lens_narrative with exactly: Today is ${morningBriefTargetDateLabel(input.targetLocalDate, input.targetTimezone)}.`,
-    "The target date below overrides any stale or prior-day date language inside CONTEXT.",
+    // The screen already prints the date and his name above the headline, so a
+    // brief that opens by announcing either one spends its first sentence on
+    // something he can see. Know the date, never state it.
+    "The target date below overrides any stale or prior-day date language inside CONTEXT. Do not state the date or greet him: the screen shows both above your first sentence.",
     `TARGET_LOCAL_DATE=${input.targetLocalDate}`,
     `TARGET_TIMEZONE=${input.targetTimezone}`,
     `TARGET_DAY_LABEL=${morningBriefTargetDateLabel(input.targetLocalDate, input.targetTimezone)}`,
@@ -204,7 +221,7 @@ export function buildMorningBriefPrompt(input: {
     "Every evidence_refs entry must name a source from SOURCE_MANIFEST, as source or source:detail (for example sprint_memo:gio). Forge drops any watch_item or sales_action whose refs cite anything else.",
     "existing_task_candidates: at most 3, ranked, and task_id must come from an OPEN_TASKS row marked candidate_ok. Rows without candidate_ok are context only, never candidates. Never invent tasks there.",
     "suggested_additions is a separate approval inbox for genuinely new work. Nothing in it is created automatically.",
-    "watch_items are the never-drop checks: stale leads over 3 days, promised follow-ups, invoices, call prep, the Friday scoreboard. Each evidence value must be one finished human sentence with no source citations. Keep last_seen_state and evidence_refs grounded for storage, but never write citation language into the sentence.",
+    "watch_items are the never-drop checks: stale leads over 3 days, promised follow-ups, invoices, call prep, the Friday scoreboard. At most five, ranked by what actually costs him something if it slips today; a long list reads as noise and he stops reading it. Each evidence value must be one finished human sentence with no source citations. Keep last_seen_state and evidence_refs grounded for storage, but never write citation language into the sentence.",
     "sales_actions run the day's sales cadence with approval_required always true. Without last-touch evidence use draft_kind beats_only or blocked, never a confident full draft. Messages to close friends are always beats_only by standing rule.",
     "Do not invent facts, deadlines, contacts, or commitments. Do not use em dashes anywhere.",
     `JSON_SCHEMA=${MORNING_BRIEF_JSON_SCHEMA}`,

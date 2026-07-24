@@ -1605,6 +1605,64 @@ input, textarea, select {
   }
 }
 
+/* The brief step. Everything here exists to break one long read into pieces the
+   eye can land on: a blue date kicker, one large headline, real paragraphs, and
+   tinted cards for the overnight recap and the watch list. Colors come from the
+   existing --current-* water palette, so light and dark follow the app for free
+   instead of introducing a second blue nobody maintains. */
+.arrival-brief-kicker {
+  color: var(--current-kicker);
+  font-size: 11px;
+  font-weight: 620;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.arrival-brief-recap {
+  border-left: 2px solid color-mix(in srgb, var(--current-kicker) 44%, transparent);
+  border-radius: 0 12px 12px 0;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--current-water-blue) 34%, transparent),
+    transparent 88%
+  );
+  padding: 13px 18px;
+}
+
+.arrival-brief-headline {
+  color: var(--current-title-ink);
+  font-size: clamp(1.3rem, 2.4vw, 1.75rem);
+  font-weight: 500;
+  letter-spacing: -.03em;
+  line-height: 1.24;
+  text-wrap: pretty;
+}
+
+/* The lead paragraph carries the reasoning behind the headline, so it reads one
+   step above the rest instead of dissolving into the block. */
+.arrival-brief-lead {
+  color: var(--foreground);
+  font-size: 1.0625rem;
+  line-height: 1.62;
+}
+
+.arrival-brief-watch {
+  border: 1px solid color-mix(in srgb, var(--current-line-cool) 76%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--current-water-blue) 15%, transparent);
+  padding: 18px 20px;
+}
+
+/* A dot rather than a bullet list: these are glances, not tasks to work down. */
+.arrival-brief-watch-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--current-kicker);
+  opacity: .72;
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-day-ritual-layer],
   .day-ritual-swap-in,

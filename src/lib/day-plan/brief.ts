@@ -12,8 +12,10 @@ import type {
 // detectors are available to the chief-of-staff writer.
 // v7: day-dump commitment resolutions and updates are visible to the writer.
 // v8: settlement progress, explicit next steps, and carried streaks guide continuity.
-export const MORNING_BRIEF_PROMPT_VERSION = 8;
-export const MORNING_BRIEF_SCHEMA_VERSION = 2;
+// v9: headline plus real paragraphs, and the label tics ("Quick re-anchor:") the
+//     v8 worked example was teaching the model to write are gone.
+export const MORNING_BRIEF_PROMPT_VERSION = 10;
+export const MORNING_BRIEF_SCHEMA_VERSION = 3;
 
 export type MorningBriefStatus = "queued" | "running" | "succeeded" | "failed";
 
@@ -51,6 +53,15 @@ export type MorningBriefSalesAction = {
 };
 
 export type MorningBrief = {
+  // The day's single decisive move, as one plain sentence. Optional because
+  // artifacts written before schema 3 have only the flat narrative.
+  headline?: string;
+  // The body, already broken where the writer meant it to break. The UI renders
+  // one paragraph per entry; a single 1,600-character string rendered into one
+  // <p> was the entire reason the brief read as a wall.
+  narrativeParagraphs: string[];
+  // Derived from headline + paragraphs, kept because exports, the date guard,
+  // and the deterministic fallback all speak in one flat string.
   lensNarrative: string;
   existingTaskCandidates: MorningBriefTaskCandidate[];
   suggestedAdditions: MorningBriefSuggestedAddition[];
@@ -222,23 +233,66 @@ export function morningBriefTargetDateLabel(
   }).format(date);
 }
 
+// The brief must never assert the wrong day, but it should not announce the
+// right one either: the arrival screen prints the date above the headline, so a
+// narrative opening with "Today is Friday, July 24, 2026." spends its first
+// sentence telling him something already on screen. This strips any leading
+// date claim and reports whether the one it removed disagreed with the target,
+// which is the signal the callers actually log.
 export function normalizeMorningBriefNarrativeDate(
   narrative: string,
   targetLocalDate: string,
   targetTimezone: string,
 ): { narrative: string; contradicted: boolean } {
-  const expectedOpening = `Today is ${morningBriefTargetDateLabel(targetLocalDate, targetTimezone)}.`;
+  const expectedLabel = morningBriefTargetDateLabel(targetLocalDate, targetTimezone);
   const trimmed = narrative.trim();
-  if (trimmed.toLocaleLowerCase().startsWith(expectedOpening.toLocaleLowerCase())) {
-    return { narrative: trimmed, contradicted: false };
-  }
-  const assertedOpening = /^Today is\b[^.!?]*(?:[.!?]|$)\s*/i.exec(trimmed);
-  const remainder = assertedOpening ? trimmed.slice(assertedOpening[0].length).trimStart() : trimmed;
-  const remainderBudget = Math.max(0, 1600 - expectedOpening.length - 1);
-  const boundedRemainder = remainder.slice(0, remainderBudget).trimEnd();
+  const assertedOpening = /^Today is\b([^.!?]*)(?:[.!?]|$)\s*/i.exec(trimmed);
+  if (!assertedOpening) return { narrative: trimmed, contradicted: false };
+  const asserted = (assertedOpening[1] ?? "").trim();
   return {
-    narrative: `${expectedOpening}${boundedRemainder ? ` ${boundedRemainder}` : ""}`,
-    contradicted: Boolean(assertedOpening),
+    narrative: trimmed.slice(assertedOpening[0].length).trimStart(),
+    contradicted: asserted.toLocaleLowerCase() !== expectedLabel.toLocaleLowerCase(),
+  };
+}
+
+// Applies the date guard to every surface the writer could have opened with,
+// then rebuilds the flat narrative from the cleaned parts so the stored artifact
+// and the rendered one can never disagree.
+export function stripMorningBriefDateClaim(
+  brief: MorningBrief,
+  targetLocalDate: string,
+  targetTimezone: string,
+): { brief: MorningBrief; contradicted: boolean } {
+  const headlinePass = brief.headline
+    ? normalizeMorningBriefNarrativeDate(brief.headline, targetLocalDate, targetTimezone)
+    : undefined;
+  const paragraphs = [...brief.narrativeParagraphs];
+  let paragraphContradicted = false;
+  // First paragraph only. "Today is the day it ships" further down is prose,
+  // not an opener, and rewriting it would be vandalism.
+  if (paragraphs.length > 0) {
+    const pass = normalizeMorningBriefNarrativeDate(
+      paragraphs[0] ?? "",
+      targetLocalDate,
+      targetTimezone,
+    );
+    paragraphContradicted = pass.contradicted;
+    paragraphs[0] = pass.narrative;
+  }
+  const headline = headlinePass ? headlinePass.narrative : brief.headline;
+  const narrativeParagraphs = paragraphs.filter(Boolean);
+  const next: MorningBrief = {
+    ...brief,
+    narrativeParagraphs,
+    lensNarrative: [headline, ...narrativeParagraphs].filter(Boolean).join("\n\n"),
+  };
+  // A headline that was nothing but a date claim is now empty, and spreading
+  // brief would otherwise quietly keep the original.
+  if (headline) next.headline = headline;
+  else delete next.headline;
+  return {
+    brief: next,
+    contradicted: Boolean(headlinePass?.contradicted) || paragraphContradicted,
   };
 }
 
@@ -406,6 +460,16 @@ function briefStringArray(
   );
 }
 
+// The one place that decides where a flat narrative breaks. Blank-line splitting
+// only: a single newline inside a paragraph is the writer wrapping a line, not
+// starting a new thought.
+export function splitNarrativeParagraphs(narrative: string): string[] {
+  return narrative
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+}
+
 function briefArray(value: unknown, name: string, maxItems: number): unknown[] {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value) || value.length > maxItems) {
@@ -454,7 +518,25 @@ export function validateMorningBrief(
   const warnings: string[] = [];
   const validationNotes: string[] = [];
 
-  const lensNarrative = briefString(raw.lens_narrative, "lens_narrative", 1600);
+  // Schema 3 writes a headline plus real paragraphs; older payloads carry only
+  // the flat lens_narrative. The wire schema forces the new shape at generation
+  // time, so this leniency is only the net that keeps a stray old-shape answer
+  // (a replay, a fallback writer) from costing him his morning.
+  const headline = briefString(raw.headline, "headline", 180, { required: false });
+  const authoredParagraphs = briefStringArray(
+    raw.narrative_paragraphs,
+    "narrative_paragraphs",
+    6,
+    600,
+  );
+  const legacyNarrative = briefString(raw.lens_narrative, "lens_narrative", 1600, {
+    required: !headline && authoredParagraphs.length === 0,
+  });
+  const narrativeParagraphs =
+    authoredParagraphs.length > 0
+      ? authoredParagraphs
+      : splitNarrativeParagraphs(legacyNarrative);
+  const lensNarrative = [headline, ...narrativeParagraphs].filter(Boolean).join("\n\n");
 
   const seenTasks = new Set<string>();
   const existingTaskCandidates: MorningBriefTaskCandidate[] = [];
@@ -594,6 +676,8 @@ export function validateMorningBrief(
 
   return {
     brief: {
+      ...(headline ? { headline } : {}),
+      narrativeParagraphs,
       lensNarrative,
       existingTaskCandidates,
       suggestedAdditions,
@@ -921,7 +1005,19 @@ export function morningBriefFromArtifact(
         approvalRequired: true,
       });
     }
+    // Artifacts written before schema 3 have neither field. Splitting the flat
+    // narrative gives them the same paragraph rendering as a new brief, so an
+    // old brief still reads correctly instead of collapsing into a block.
+    const headline = storedString(parsed.headline) ? (parsed.headline as string) : undefined;
+    const storedParagraphs = storedStringArray(parsed.narrativeParagraphs)
+      ? (parsed.narrativeParagraphs as string[])
+      : undefined;
     return {
+      ...(headline ? { headline } : {}),
+      narrativeParagraphs:
+        storedParagraphs && storedParagraphs.length > 0
+          ? storedParagraphs
+          : splitNarrativeParagraphs(parsed.lensNarrative),
       lensNarrative: parsed.lensNarrative,
       existingTaskCandidates: candidates,
       suggestedAdditions: additions,
@@ -989,6 +1085,8 @@ export type PublicMorningBrief = {
   id: string;
   targetLocalDate: string;
   generatedAt: string;
+  headline?: string;
+  narrativeParagraphs: string[];
   lensNarrative: string;
   watchItems: MorningBriefWatchItem[];
   suggestedAdditions: MorningBriefSuggestedAddition[];
@@ -1016,6 +1114,8 @@ export function publicMorningBrief(
     id: artifact.id,
     targetLocalDate: artifact.targetLocalDate,
     generatedAt: artifact.finishedAt ?? artifact.updatedAt,
+    ...(brief.headline ? { headline: brief.headline } : {}),
+    narrativeParagraphs: brief.narrativeParagraphs,
     lensNarrative: brief.lensNarrative,
     watchItems: brief.watchItems,
     suggestedAdditions: brief.suggestedAdditions,

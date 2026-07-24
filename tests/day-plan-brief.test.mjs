@@ -17,6 +17,8 @@ import {
   selectEligibleMorningBrief,
   selectMorningBriefGeneration,
   settlementReconciliationComplete,
+  splitNarrativeParagraphs,
+  stripMorningBriefDateClaim,
   validateMorningBrief,
   MORNING_BRIEF_FAILED_WINDOW_HOURS,
   MORNING_BRIEF_PROMPT_VERSION,
@@ -53,7 +55,11 @@ const VERSIONS = {
 };
 
 const WIRE_BRIEF = {
-  lens_narrative: 'Protect client delivery first, then push the Jarvis Pro funnel.',
+  headline: 'Protect client delivery first, then push the Jarvis Pro funnel.',
+  narrative_paragraphs: [
+    'The client blocks are the only work today with a date attached to it.',
+    'Once those land, the referral asks are the one move that grows the funnel.',
+  ],
   existing_task_candidates: [
     {
       task_id: 'task-c',
@@ -420,21 +426,28 @@ test('the generation-envelope hash is stable, order-independent, and sensitive t
   }
 });
 
-test('brief narrative date normalization replaces a contradictory opening', () => {
+test('a date claim is stripped from the brief, and a wrong one is reported', () => {
   assert.equal(
     morningBriefTargetDateLabel('2026-07-16', 'America/Los_Angeles'),
     'Thursday, July 16, 2026',
   );
+  // The screen prints the date above the headline, so the brief never states it.
+  // A stated one comes out either way; only a wrong one is worth a warning.
   assert.deepEqual(
     normalizeMorningBriefNarrativeDate(
       'Today is Wednesday, Jul 15. Protect client delivery first.',
       '2026-07-16',
       'America/Los_Angeles',
     ),
-    {
-      narrative: 'Today is Thursday, July 16, 2026. Protect client delivery first.',
-      contradicted: true,
-    },
+    { narrative: 'Protect client delivery first.', contradicted: true },
+  );
+  assert.deepEqual(
+    normalizeMorningBriefNarrativeDate(
+      'Today is Thursday, July 16, 2026. Protect client delivery first.',
+      '2026-07-16',
+      'America/Los_Angeles',
+    ),
+    { narrative: 'Protect client delivery first.', contradicted: false },
   );
   assert.deepEqual(
     normalizeMorningBriefNarrativeDate(
@@ -442,23 +455,58 @@ test('brief narrative date normalization replaces a contradictory opening', () =
       '2026-07-16',
       'America/Los_Angeles',
     ),
-    {
-      narrative: 'Today is Thursday, July 16, 2026. Protect client delivery first.',
-      contradicted: false,
-    },
+    { narrative: 'Protect client delivery first.', contradicted: false },
   );
-  const fullLengthNarrative = `${'x'.repeat(1596)}TAIL`;
-  const bounded = normalizeMorningBriefNarrativeDate(
-    fullLengthNarrative,
+
+  const stripped = stripMorningBriefDateClaim(
+    {
+      headline: 'Today is Wednesday, Jul 15. Lock the session with Brian.',
+      narrativeParagraphs: ['Today is Sunday. The window closes Sunday.', 'Today is the day it ships.'],
+      lensNarrative: 'ignored, recomputed',
+      existingTaskCandidates: [],
+      suggestedAdditions: [],
+      watchItems: [],
+      salesActions: [],
+    },
     '2026-07-16',
     'America/Los_Angeles',
-  ).narrative;
-  const expectedOpening = 'Today is Thursday, July 16, 2026.';
-  assert.equal(
-    bounded,
-    `${expectedOpening} ${fullLengthNarrative.slice(0, 1600 - expectedOpening.length - 1)}`,
   );
-  assert.equal(bounded.length, 1600);
+  assert.equal(stripped.contradicted, true);
+  assert.equal(stripped.brief.headline, 'Lock the session with Brian.');
+  // Only the first paragraph is an opener. "Today is the day it ships" further
+  // down is prose, and rewriting it would be vandalism.
+  assert.deepEqual(stripped.brief.narrativeParagraphs, [
+    'The window closes Sunday.',
+    'Today is the day it ships.',
+  ]);
+  assert.equal(
+    stripped.brief.lensNarrative,
+    'Lock the session with Brian.\n\nThe window closes Sunday.\n\nToday is the day it ships.',
+  );
+});
+
+test('a flat narrative splits on blank lines, never on wrapped ones', () => {
+  assert.deepEqual(
+    splitNarrativeParagraphs('First thought.\nStill the first.\n\n  Second thought.  \n\n\nThird.\n'),
+    ['First thought.\nStill the first.', 'Second thought.', 'Third.'],
+  );
+  assert.deepEqual(splitNarrativeParagraphs('   '), []);
+});
+
+test('an old-shape payload still yields paragraphs instead of one block', () => {
+  // The wire schema forces headline plus paragraphs, so this only covers a stray
+  // old-shape answer (a replay, a fallback writer). It must never cost a morning.
+  const { brief } = validateMorningBrief({
+    ...WIRE_BRIEF,
+    headline: undefined,
+    narrative_paragraphs: undefined,
+    lens_narrative: 'Protect client delivery first.\n\nThen push the funnel.',
+  });
+  assert.equal(brief.headline, undefined);
+  assert.deepEqual(brief.narrativeParagraphs, [
+    'Protect client delivery first.',
+    'Then push the funnel.',
+  ]);
 });
 
 // ---------------------------------------------------------------------------
@@ -476,7 +524,14 @@ test('validation accepts the contract, normalizes it, and filters unknown tasks 
     },
     { knownTaskIds: new Set(['task-a', 'task-c']) },
   );
-  assert.equal(brief.lensNarrative, WIRE_BRIEF.lens_narrative);
+  assert.equal(brief.headline, WIRE_BRIEF.headline);
+  assert.deepEqual(brief.narrativeParagraphs, WIRE_BRIEF.narrative_paragraphs);
+  // The flat narrative is derived, never authored: exports, the date guard, and
+  // the deterministic fallback all still speak in one string.
+  assert.equal(
+    brief.lensNarrative,
+    [WIRE_BRIEF.headline, ...WIRE_BRIEF.narrative_paragraphs].join('\n\n'),
+  );
   assert.deepEqual(brief.existingTaskCandidates.map((candidate) => candidate.taskId), ['task-c', 'task-a']);
   assert.deepEqual(warnings, ['unknown_task:task-ghost']);
   assert.equal(brief.salesActions[0].approvalRequired, true);
@@ -498,7 +553,12 @@ test('sales actions enforce draft kinds and the always-true approval gate', () =
     }),
     /sales_0_approval_required/,
   );
-  assert.throws(() => validateMorningBrief({ ...WIRE_BRIEF, lens_narrative: '' }), /lens_narrative_required/);
+  // A brief with no prose at all in any shape is the one narrative failure left:
+  // the validator accepts either the schema-3 fields or a legacy flat narrative.
+  assert.throws(
+    () => validateMorningBrief({ ...WIRE_BRIEF, headline: '', narrative_paragraphs: [] }),
+    /lens_narrative_required/,
+  );
   assert.throws(
     () => validateMorningBrief({ ...WIRE_BRIEF, existing_task_candidates: Array(4).fill(WIRE_BRIEF.existing_task_candidates[0]) }),
     /existing_task_candidates_bounds/,
@@ -1063,7 +1123,7 @@ test('ensure keeps at most three items from a larger deterministic pool', (t) =>
 // ---------------------------------------------------------------------------
 
 test('the brief command is the exact bounded toolless invocation', () => {
-  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 8);
+  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 10);
   const repoCwd = process.cwd();
   const ownerPrompt = readFileSync(path.join(repoCwd, 'prompts', 'chief-of-staff.md'), 'utf8').trimEnd();
   assert.ok(ownerPrompt.includes(
@@ -1103,8 +1163,7 @@ test('the brief command is the exact bounded toolless invocation', () => {
   assert.equal(command.stdin, [
     chiefOfStaffMandate(),
     '/forge-morning-brief',
-    'Start lens_narrative with exactly: Today is Tuesday, July 14, 2026.',
-    'The target date below overrides any stale or prior-day date language inside CONTEXT.',
+    'The target date below overrides any stale or prior-day date language inside CONTEXT. Do not state the date or greet him: the screen shows both above your first sentence.',
     'TARGET_LOCAL_DATE=2026-07-14',
     'TARGET_TIMEZONE=America/Los_Angeles',
     'TARGET_DAY_LABEL=Tuesday, July 14, 2026',
@@ -1114,7 +1173,7 @@ test('the brief command is the exact bounded toolless invocation', () => {
     'Every evidence_refs entry must name a source from SOURCE_MANIFEST, as source or source:detail (for example sprint_memo:gio). Forge drops any watch_item or sales_action whose refs cite anything else.',
     'existing_task_candidates: at most 3, ranked, and task_id must come from an OPEN_TASKS row marked candidate_ok. Rows without candidate_ok are context only, never candidates. Never invent tasks there.',
     'suggested_additions is a separate approval inbox for genuinely new work. Nothing in it is created automatically.',
-    'watch_items are the never-drop checks: stale leads over 3 days, promised follow-ups, invoices, call prep, the Friday scoreboard. Each evidence value must be one finished human sentence with no source citations. Keep last_seen_state and evidence_refs grounded for storage, but never write citation language into the sentence.',
+    'watch_items are the never-drop checks: stale leads over 3 days, promised follow-ups, invoices, call prep, the Friday scoreboard. At most five, ranked by what actually costs him something if it slips today; a long list reads as noise and he stops reading it. Each evidence value must be one finished human sentence with no source citations. Keep last_seen_state and evidence_refs grounded for storage, but never write citation language into the sentence.',
     "sales_actions run the day's sales cadence with approval_required always true. Without last-touch evidence use draft_kind beats_only or blocked, never a confident full draft. Messages to close friends are always beats_only by standing rule.",
     'Do not invent facts, deadlines, contacts, or commitments. Do not use em dashes anywhere.',
     `JSON_SCHEMA=${MORNING_BRIEF_JSON_SCHEMA}`,
@@ -1282,7 +1341,10 @@ test('the brief worker validates, filters unknown tasks, and stores the artifact
   const { dir, store } = briefFixture(t);
   const wire = {
     ...WIRE_BRIEF,
-    lens_narrative: 'Today is Sunday, July 13, 2026. Protect client delivery first.',
+    // The prompt forbids stating the date, so a brief that states it anyway is
+    // both a voice failure and, here, a wrong one. Forge strips the claim and
+    // warns; it never lets the wrong day reach the screen.
+    headline: 'Today is Sunday, July 13, 2026. Protect client delivery first.',
     existing_task_candidates: [
       ...WIRE_BRIEF.existing_task_candidates,
       { task_id: 'task-invented', why_today: 'Made up.', suggested_owner: 'claude', what_claude_can_start: 'x' },
@@ -1302,7 +1364,8 @@ test('the brief worker validates, filters unknown tasks, and stores the artifact
   assert.equal(artifact.status, 'succeeded');
   assert.equal(artifact.writer, 'claude');
   const brief = morningBriefFromArtifact(artifact);
-  assert.match(brief.lensNarrative, /^Today is Tuesday, July 14, 2026\./);
+  assert.equal(brief.headline, 'Protect client delivery first.');
+  assert.equal(brief.lensNarrative.includes('Today is'), false);
   assert.equal(warnings.length, 1);
   assert.match(warnings[0][0], /date contradicted target/);
   assert.deepEqual(brief.existingTaskCandidates.map((candidate) => candidate.taskId), ['task-c', 'task-a']);
@@ -1313,7 +1376,7 @@ test('the brief worker validates, filters unknown tasks, and stores the artifact
     '-p', '--no-session-persistence', '--permission-mode', 'plan', '--tools', '',
     '--strict-mcp-config', '--mcp-config',
   ]);
-  assert.match(captured.input, /^# The morning brief: chief of staff mandate \(v8\)/);
+  assert.match(captured.input, /^# The morning brief: chief of staff mandate \(v10\)/);
   assert.match(captured.input, /\n\/forge-morning-brief\n/);
   // Empty queue afterwards.
   assert.equal(

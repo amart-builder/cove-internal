@@ -8,7 +8,7 @@ The Morning Arrival used to be a deterministic ranking of yesterday's leftover t
    - Required: `~/Atlas/brain/GOALS.md`, the sprint memo (`FORGE_BRIEF_SPRINT_MEMO_PATH`), a fresh open-task snapshot via `/api/forge-rest` (default base `http://127.0.0.1:3200`, override `FORGE_BRIEF_WEB_BASE`), recent settlement/completion summary.
    - Optional (timeout-bounded, degrade to last-known + age label, never a validity prerequisite): latest email-brief card, jarvis-memory decisions.
    - Missing-by-design v1: calendar, CRM last-touch. The manifest says so, and the prompt forbids implying they were checked; sales actions without last-touch evidence must be `beats_only` or `blocked`.
-2. **Generation** (`src/lib/claude-execution/brief-commands.ts`, worker brief lane) — toolless headless session: `-p --no-session-persistence --tools "" --strict-mcp-config`, own config (default opus / high / $1.50 budget), strict JSON schema output, Claude never writes storage. Context values are injected as JSON string literals with a SOURCE_MANIFEST section. The prompt receives the target local date, plan timezone, and canonical weekday/date label; Forge corrects a contradictory narrative opening before storage. PROMPT_VERSION / SCHEMA_VERSION = 4 / 2.
+2. **Generation** (`src/lib/claude-execution/brief-commands.ts`, worker brief lane) — toolless headless session: `-p --no-session-persistence --tools "" --strict-mcp-config`, own config (default opus / high / $1.50 budget), strict JSON schema output, Claude never writes storage. Context values are injected as JSON string literals with a SOURCE_MANIFEST section. The prompt receives the target local date, plan timezone, and canonical weekday/date label; Forge corrects a contradictory narrative opening before storage. PROMPT_VERSION / SCHEMA_VERSION = 10 / 3.
 3. **Storage** (`src/lib/day-plan/brief.ts`, table `day_plan_briefs`) — immutable artifacts, unique on (target_local_date, input_hash, prompt_version, schema_version). The input hash is a canonical generation envelope: the exact bounded sections plus target date and timezone, versions, model alias, effort, budget. Selection picks the newest eligible artifact; a late-finishing older generation never clobbers a newer one. Sales-action approve/edit/skip state lives separately in `day_plan_brief_action_states`.
 4. **Triggers** (`src/lib/day-plan/brief-triggers.ts`) — three, all deduped by the envelope hash and replay-guarded (a replayed settlement/reconciliation result returns early):
    - after Day Settlement **reconciliation** completes (scoped to the current snapshot's pending rows, never global);
@@ -18,10 +18,12 @@ The Morning Arrival used to be a deterministic ranking of yesterday's leftover t
 
 ## Output contract (strict, validated deep — nested corruption falls back, never 500s)
 
-- `lensNarrative` — the chief-of-staff paragraph, grounded in goals + progress, honest about coverage gaps.
+- `headline` — the day's single decisive move in one plain sentence. No greeting, no date: the arrival screen prints the date above it, and `stripMorningBriefDateClaim` removes any date claim the writer opens with (warning only when the removed one disagreed with the target).
+- `narrativeParagraphs` — the body, two to four paragraphs, rendered one `<p>` each. This is the field that keeps the brief from reading as a wall of text.
+- `lensNarrative` — derived, never authored: `headline` plus the paragraphs joined on blank lines. Exports, the date guard, and the deterministic fallback all still speak in one flat string. Pre-schema-3 artifacts carry only this field and are split back into paragraphs on read (`splitNarrativeParagraphs`).
 - `existingTaskCandidates` (max 3) — `{taskId, whyToday, suggestedOwner, whatClaudeCanStart, evidenceRefs}`; evidence refs validated against collected source ids.
 - `suggestedAdditions` — separate approval inbox; never become candidates, never auto-created.
-- `watchItems` — never-drop checks with evidence.
+- `watchItems` — never-drop checks with evidence, capped at 5 and ranked by consequence. These print directly under the brief, so an unbounded list is a longer read than the brief itself and gets skimmed past.
 - `salesActions` — `{contact, channel, evidenceRefs, draftKind: full|beats_only|pointer|blocked, draftOrBeats, approvalRequired: true}`. Close-friend messages are beats_only by standing rule. Nothing ever auto-sends.
 
 ## Invariants

@@ -55,6 +55,23 @@ export function morningArrivalGreeting(date: Date, timezone: string): string {
   return 'Good evening.';
 }
 
+// The date the arrival screen prints above the brief. The brief itself is under
+// standing orders never to state the date, so this is the only place it appears
+// and it has to be right. localDate is already the calendar date in timezone, so
+// it is formatted as UTC: converting it to an instant first could shift the day.
+export function arrivalDateLabel(localDate: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(localDate);
+  // Chrome-side formatting is not worth a thrown render. A malformed local date
+  // means the header quietly says nothing rather than blanking the whole step.
+  if (!match) return '';
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))));
+}
+
 export function shortArrivalSummary(value: string | undefined, title?: string): string | undefined {
   const cleaned = value?.replace(/\s+/g, ' ').trim();
   if (!cleaned || cleaned.toLocaleLowerCase() === title?.trim().toLocaleLowerCase()) {

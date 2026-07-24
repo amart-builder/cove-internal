@@ -25,7 +25,7 @@ import type {
 import { isClaudeWorkerAvailable } from "@/lib/claude-execution/trigger";
 import {
   morningBriefFromArtifact,
-  normalizeMorningBriefNarrativeDate,
+  stripMorningBriefDateClaim,
   publicMorningBrief,
   selectMorningBriefGeneration,
   type MorningBriefSalesActionState,
@@ -530,14 +530,10 @@ function readModelMorningBrief(
     if (!artifact) return undefined;
     const brief = morningBriefFromArtifact(artifact);
     if (!brief) return undefined;
-    const datedNarrative = normalizeMorningBriefNarrativeDate(
-      brief.lensNarrative,
-      plan.localDate,
-      plan.timezone,
-    );
+    const dated = stripMorningBriefDateClaim(brief, plan.localDate, plan.timezone);
     return publicMorningBrief(
       artifact,
-      { ...brief, lensNarrative: datedNarrative.narrative },
+      dated.brief,
       store.listMorningBriefSalesActionStates(artifact.id),
       accessMode,
     );
