@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getRuntimeMode } from '@/lib/runtime/mode';
 import KanbanBoard from './KanbanBoard';
 import TodayView from './TodayView';
@@ -12,6 +12,17 @@ export default function TaskWorkspace() {
   const [view, setView] = useState<WorkspaceView>(
     quietCurrentAvailable ? 'today' : 'all-work',
   );
+
+  // ?view=all-work (or ?view=today) opens the workspace straight into a view,
+  // so it can be linked to instead of always landing on Today and needing a
+  // click. This page is statically rendered, so the query string does not exist
+  // until the browser has it: applying it after mount rather than in the
+  // initial state is what keeps the server and client markup identical.
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get('view');
+    if (requested === 'all-work') setView('all-work');
+    else if (requested === 'today' && quietCurrentAvailable) setView('today');
+  }, [quietCurrentAvailable]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">

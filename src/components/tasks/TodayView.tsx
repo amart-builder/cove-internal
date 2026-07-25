@@ -639,10 +639,13 @@ function TodayExperience({
   const [surfaceError, setSurfaceError] = useState<string>();
   const [settlementNote, setSettlementNote] = useState('');
   const [now, setNow] = useState(() => new Date());
-  const [ambientPaused, setAmbientPaused] = useState(() => {
-    if (typeof document === 'undefined') return false;
-    return document.hidden || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  });
+  // Must start false, matching the server, and never read document.hidden or the
+  // reduced-motion query during the first render. CurrentCanvas renders the two
+  // ambient glints conditionally on this, so a client-only true here gives the
+  // server and the browser different SVG children, and React throws out the
+  // hydration of the entire page. The effect below applies the real value on
+  // mount, so nothing is lost by deferring it one frame.
+  const [ambientPaused, setAmbientPaused] = useState(false);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(() => {
     return readLocalValue(FOCUS_KEY);
   });
