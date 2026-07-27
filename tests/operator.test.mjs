@@ -7,6 +7,7 @@ import {
   loadOperatorProfile,
   operatorName,
   operatorProfilePath,
+  operatorTimezone,
   workspaceRoot,
 } from '../src/lib/operator.ts';
 
@@ -71,4 +72,31 @@ test('workspace root uses a trimmed env override, then an existing legacy Atlas 
     homeDir: '/Users/operator',
     exists: () => false,
   }), null);
+});
+
+test('operatorTimezone prefers the env var, then the profile, then this machine', (t) => {
+  const { profilePath } = fixture(t);
+  const previousZone = process.env.FORGE_TIMEZONE;
+  t.after(() => {
+    if (previousZone === undefined) delete process.env.FORGE_TIMEZONE;
+    else process.env.FORGE_TIMEZONE = previousZone;
+  });
+
+  delete process.env.FORGE_TIMEZONE;
+  writeFileSync(profilePath, JSON.stringify({ timezone: 'America/New_York' }));
+  assert.equal(operatorTimezone(), 'America/New_York');
+
+  process.env.FORGE_TIMEZONE = 'Europe/Lisbon';
+  assert.equal(operatorTimezone(), 'Europe/Lisbon');
+
+  // A garbage zone must not be handed to Intl, where it throws at format time
+  // rather than here. It falls through to the next source instead.
+  process.env.FORGE_TIMEZONE = 'Not/AZone';
+  assert.equal(operatorTimezone(), 'America/New_York');
+
+  // With no env var and no usable profile value, fall back to this machine's
+  // zone rather than a hardcoded one.
+  delete process.env.FORGE_TIMEZONE;
+  writeFileSync(profilePath, JSON.stringify({ name: 'Jamie' }));
+  assert.equal(operatorTimezone(), Intl.DateTimeFormat().resolvedOptions().timeZone);
 });

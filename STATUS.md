@@ -308,7 +308,7 @@ Local-mode CRM is live. New `src/components/crm/LocalCRMView.tsx` (two panes: se
 
 New `skills/forge-contact/SKILL.md`: natural-language capture (dedupe-first, resolve-or-create company, log activity + touch last contact, chain follow-ups into forge-task), "who is X" briefings, CSV import with confirm-the-mapping. Installer picks it up automatically (copies all skills/forge-*). SETUP.md step 7 rewritten from stub to the real client walkthrough (2-question interview, optional import, demo capture).
 
-Skipped for v1 (deliberate): meeting_notes table, CSV-import API route (Claude imports via REST), editing companies in the UI. SPEC.md's /api/contacts/* routes are stale spec, not gaps.
+Skipped for v1 (deliberate): meeting_notes table, CSV-import API route (Claude imports via REST), editing companies in the UI. The old SPEC.md's /api/contacts/* routes were stale spec, not gaps; that file was deleted on 2026-07-27.
 
 NEXT: the public repo flip (needs Alex's explicit go). After that Forge is fully productized: Tasks + Email + CRM all built and verified.
 
@@ -492,5 +492,6 @@ Note: `data/forge-email.json`, `forge-email-state.json`, `forge-reminders.json` 
 
 ## Key Docs
 - [README](README.md)
-- [SPEC](SPEC.md)
+- [SETUP](SETUP.md)
+- [Code review, 2026-07-26](docs/code-review-2026-07-26.md)
 - [Parent Astack status](../STATUS.md)

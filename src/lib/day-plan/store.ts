@@ -262,6 +262,11 @@ CREATE TABLE IF NOT EXISTS day_plans (
   next_day_note TEXT,
   confirmed_at TEXT,
   settled_at TEXT,
+  -- Also added by an ALTER below for databases created before it existed.
+  -- Declaring it here means a fresh install never runs that ALTER, so the web
+  -- app and the worker starting together on first boot cannot race each other
+  -- into a duplicate-column failure.
+  arrival_interacted_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

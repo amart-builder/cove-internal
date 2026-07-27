@@ -12,6 +12,33 @@ type RouteContext = {
 const ALLOWED_TABLES = new Set<string>(FORGE_REST_TABLES);
 const MUTATING_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 
+// PostgREST query parameters that shape the response rather than select rows.
+// Anything else is a column filter.
+const NON_FILTER_PARAMS = new Set([
+  "select",
+  "order",
+  "limit",
+  "offset",
+  "on_conflict",
+  "columns",
+]);
+
+/**
+ * True when the query names at least one row to act on.
+ *
+ * A filterless PATCH or DELETE is not an error to PostgREST, it is a whole-table
+ * operation: `DELETE /api/forge-rest/tasks` empties the board and returns 200.
+ * The local SQLite path already refuses both, but the Supabase path passes the
+ * query straight through, so the guard belongs here where every runtime and
+ * every caller (UI, worker, Buddy's CLI) goes through it.
+ */
+export function targetsSpecificRows(params: URLSearchParams): boolean {
+  for (const key of params.keys()) {
+    if (!NON_FILTER_PARAMS.has(key)) return true;
+  }
+  return false;
+}
+
 export function forgeRestMutationAccessFailure(
   request: NextRequest,
   expectedCsrfToken?: string,
@@ -71,6 +98,16 @@ async function handleRequest(
   }
   if (!MUTATING_METHODS.has(method) && !isTrustedForgeRequest(request)) {
     return new NextResponse("Untrusted request host.", { status: 403 });
+  }
+  if (
+    (method === "PATCH" || method === "DELETE") &&
+    !targetsSpecificRows(request.nextUrl.searchParams)
+  ) {
+    return new NextResponse(
+      `Refusing a ${method} with no filter: it would affect every row. ` +
+        "Name the rows, for example id=eq.<id>.",
+      { status: 400 },
+    );
   }
   const { table } = await context.params;
   const decodedTable = decodeURIComponent(table);

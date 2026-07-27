@@ -57,6 +57,32 @@ export function operatorName() {
     : "the operator";
 }
 
+function usableTimezone(value) {
+  const candidate = value?.trim();
+  if (!candidate) return undefined;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: candidate });
+    return candidate;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The operator's own timezone: FORGE_TIMEZONE, then the profile, then whatever
+ * this Mac is set to. Anything that prints a date to the operator should use
+ * this rather than a constant, or every install outside Pacific reads the wrong
+ * day back to its owner.
+ */
+export function operatorTimezone() {
+  return (
+    usableTimezone(trimmedEnv("FORGE_TIMEZONE")) ??
+    usableTimezone(loadOperatorProfile()?.timezone) ??
+    usableTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone) ??
+    "UTC"
+  );
+}
+
 export function workspaceRoot(options = {}) {
   const configured = trimmedEnv("FORGE_BUDDY_WORKSPACE_ROOT", options.env);
   if (configured) return configured;

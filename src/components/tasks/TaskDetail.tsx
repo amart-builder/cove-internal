@@ -90,6 +90,14 @@ export default function TaskDetail({
   const backdropRef = useRef<HTMLDivElement>(null);
   const mouseDownTargetRef = useRef<EventTarget | null>(null);
 
+  // Re-seed the draft fields only when a different task is opened.
+  //
+  // Depending on `task` instead of `taskId` loses the operator's typing: every
+  // board reload builds fresh task objects, so the identity changes even when
+  // nothing about this task did, and each Buddy write triggers exactly that
+  // reload through the refresh bus. Someone mid-sentence in the description
+  // would watch it revert.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     setTitle(task.title);
     setDescription(task.description ?? '');
@@ -98,7 +106,7 @@ export default function TaskDetail({
     setTagsStr(visibleTags(task.tags).join(', '));
     setColumnId(task.columnId);
     setBlocked(task.blocked);
-  }, [task]);
+  }, [taskId]);
 
   // Only close if BOTH mousedown and mouseup (click) happened on the backdrop.
   // This prevents accidental close when drag-selecting text inside the modal

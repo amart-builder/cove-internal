@@ -405,8 +405,13 @@ export function assembleMorningBriefContext(
       trims,
       totalChars: total,
     },
+    // Keyed on the final text, not on `present`. `present` records whether the
+    // source arrived, which is decided before the budget pass runs; a required
+    // source that arrived and then got trimmed to nothing would drop out of
+    // `sections` while still reporting itself as satisfied. Empty is missing,
+    // whatever emptied it.
     missingRequired: prepared
-      .filter((entry) => entry.source.required && !entry.present)
+      .filter((entry) => entry.source.required && entry.text.length === 0)
       .map((entry) => entry.source.id),
   };
 }
