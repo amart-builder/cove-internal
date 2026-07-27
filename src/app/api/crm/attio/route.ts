@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { AttioCRMRecord, AttioObjectType } from "@/lib/data/attio-crm";
+import { isTrustedForgeRequest } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -239,6 +240,12 @@ function normalizeCompanyRecord(record: AttioRecord): AttioCRMRecord {
 }
 
 export async function GET(request: NextRequest) {
+  // This returns the whole CRM, so it needs the same host gate as every other
+  // read route. Without it any web page can reach the loopback server through
+  // DNS rebinding and read the contact list as same-origin JSON.
+  if (!isTrustedForgeRequest(request)) {
+    return new NextResponse("Untrusted request host.", { status: 403 });
+  }
   if (!getAttioKey()) {
     return new NextResponse("ATTIO_API_KEY is not configured.", { status: 500 });
   }
