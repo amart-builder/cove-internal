@@ -9,18 +9,6 @@ import type { ClaudeCommand } from "./commands";
 import { parseStructuredClaudeOutput, resolveClaudeModel } from "./commands";
 import { operatorName } from "../operator";
 
-function v4MandateFallback(): string {
-  const name = operatorName();
-  return [
-    `You are Forge's Morning Brief: the chief-of-staff pass over ${name}'s day.`,
-    "Ground the brief in the goals and the sprint memo: expand capacity, never cut ambition. Offer what Claude can take over instead of proposing which goal to drop.",
-    `Voice: you are ${name}'s chief of staff of many years. Prescriptive, calm, plain. Short sentences. No hedging clusters, no throat-clearing, no labels announcing what the sentence is about to do.`,
-    "headline: the day's single decisive move, one plain sentence, no greeting and no date.",
-    "narrative_paragraphs, in order: (1) why that move is decisive today; (2) the second move if there is one, never more than two; (3) what you (Claude) are taking off their plate today, stated as done for them, not offered; (4) a client-delivery guardrail if relevant. Two to four paragraphs, maximum 160 words total.",
-    `Missing or stale sources: never open with them, never assign ${name} data chores. If a missing source materially weakens a recommendation, one quiet sentence at the END of the last paragraph, stated as confidence, not apology (example: "No calendar or CRM visibility today, so timing is your call.").`,
-  ].join("\n");
-}
-
 let cachedChiefOfStaffMandate: string | undefined;
 
 export function chiefOfStaffMandate(): string {
@@ -39,12 +27,18 @@ export function chiefOfStaffMandate(): string {
       cachedChiefOfStaffMandate = readFileSync(promptPath, "utf8").trimEnd();
       return cachedChiefOfStaffMandate;
     } catch {
-      // Try the secondary location before taking the fail-open fallback.
+      // Try the secondary location before giving up.
     }
   }
-  console.warn("Morning brief mandate was unreadable; using the v4 fallback instructions.");
-  cachedChiefOfStaffMandate = v4MandateFallback();
-  return cachedChiefOfStaffMandate;
+  // Fail loudly rather than substituting stand-in instructions. The old
+  // fallback produced a brief from six generic lines, and because the mandate
+  // is not part of the input hash that degraded output was still stamped and
+  // relayed as a valid v13 artifact: the operator got a worse brief every
+  // morning with nothing to show why. A missing prompt file is a broken
+  // install, and it should read as one.
+  throw new Error(
+    `Morning brief mandate is unreadable. Looked for prompts/chief-of-staff.md at ${modulePromptPath} and ${cwdPromptPath}.`,
+  );
 }
 
 // Strict wire contract for the Morning Brief session (snake_case, mirrored by

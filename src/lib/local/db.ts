@@ -236,6 +236,21 @@ function migrate(conn: Database.Database): void {
       (c) => c.name,
     ),
   );
+  // A database created before the current task schema keeps its old `tasks`
+  // table, because CREATE TABLE IF NOT EXISTS is a no-op against it. Nothing
+  // below adds these columns, so the REST layer would bind to an incompatible
+  // table and fail one confusing query at a time instead of at startup. Stop
+  // here with something the operator can act on.
+  const REQUIRED_TASK_COLUMNS = ["status", "due_at", "source_type", "position", "tags"];
+  const missing = REQUIRED_TASK_COLUMNS.filter((column) => !cols.has(column));
+  if (missing.length > 0) {
+    throw new Error(
+      `${dbPath()} has an incompatible tasks table (missing: ${missing.join(", ")}). ` +
+        "It predates the current schema. Stop Forge, move that file aside " +
+        "(rename it, do not delete it), and start Forge again to get a fresh board.",
+    );
+  }
+
   if (!cols.has("remind_native"))
     conn.exec("ALTER TABLE tasks ADD COLUMN remind_native INTEGER DEFAULT 1");
   if (!cols.has("remind_text"))
