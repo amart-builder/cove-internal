@@ -1,0 +1,10 @@
+{
+  "workspaces": [
+    {
+      "id": "example-project",
+      "path": "/absolute/path/to/a/clean/git/repository",
+      "autonomous_enabled": false,
+      "maximum_budget_usd": 1
+    }
+  ]
+}

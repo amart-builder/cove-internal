@@ -1,8 +1,8 @@
 {
   "agent_run_id": null,
   "provider": "gmail",
-  "account_email": "alex@edge-fund.io",
-  "summary": "Email triage processed 5 new item(s): 3 need Alex, 1 update, 1 log-only.",
+  "account_email": "operator@example.com",
+  "summary": "Email triage processed 5 new item(s): 3 need Jamie, 1 update, 1 log-only.",
   "cursor_before": null,
   "cursor_after": null,
   "emails": [
@@ -12,7 +12,7 @@
       "sender_name": "Taylor Reed",
       "sender_email": "taylor@example.com",
       "subject": "Can we move tomorrow's meeting?",
-      "full_body": "Hey Alex,\n\nCould we move tomorrow later in the day? I have a customer call that is going to run into our slot.\n\nTaylor",
+      "full_body": "Hey Jamie,\n\nCould we move tomorrow later in the day? I have a customer call that is going to run into our slot.\n\nTaylor",
       "body_excerpt": "Could we move tomorrow later in the day?",
       "summary": "Taylor wants to reschedule tomorrow's meeting.",
       "context": "Existing meeting is tomorrow.",
@@ -21,7 +21,7 @@
       "priority": 1,
       "received_at": "2026-05-04T16:00:00.000Z",
       "draft_response": "Taylor - later tomorrow works. I can do 4:00 or 4:30 if either is easier.",
-      "safety_notes": "Alex should verify his calendar before sending."
+      "safety_notes": "Jamie should verify the calendar before sending."
     },
     {
       "thread_id": "sample-thread-action-no-reply",
@@ -36,7 +36,7 @@
       "classification": "action_item",
       "recommended_action": "review",
       "action_title": "Secure the email account login",
-      "action_requirement": "Open Gmail, retrieve the password safely, store it where Alex manages credentials, and confirm the account works. No reply is needed.",
+      "action_requirement": "Open Gmail, retrieve the password safely, store it where Jamie manages credentials, and confirm the account works. No reply is needed.",
       "priority": 1,
       "received_at": "2026-05-04T16:15:00.000Z"
     },
@@ -59,11 +59,11 @@
       "message_id": "sample-message-meeting-notes",
       "sender_name": "Meeting Notes Bot",
       "sender_email": "notes@example.com",
-      "subject": "Meeting notes: Jordan Lee <> Alex Martin",
-      "full_body": "Gemini meeting notes are ready.\n\nGoogle Doc: https://docs.google.com/document/d/example-meeting-notes\n\nTopics discussed:\n- Fundraising timeline\n- Potential customer intros\n- Follow-up next week\n\nAction items:\n- Alex to send updated deck\n- Jordan to introduce two operators",
-      "body_excerpt": "Gemini meeting notes are ready for Jordan Lee and Alex Martin.",
-      "summary": "Forge filed the meeting notes to Jordan Lee's Attio record and found two possible follow-ups for Alex to review.",
-      "context": "The cron matched Jordan Lee in Attio, appended the meeting notes to that person record, and extracted follow-ups for Alex's judgment.",
+      "subject": "Meeting notes: Jordan Lee <> Jamie Operator",
+      "full_body": "Gemini meeting notes are ready.\n\nGoogle Doc: https://docs.google.com/document/d/example-meeting-notes\n\nTopics discussed:\n- Fundraising timeline\n- Potential customer intros\n- Follow-up next week\n\nAction items:\n- Jamie to send updated deck\n- Jordan to introduce two operators",
+      "body_excerpt": "Gemini meeting notes are ready for Jordan Lee and Jamie Operator.",
+      "summary": "Forge filed the meeting notes to Jordan Lee's Attio record and found two possible follow-ups for Jamie to review.",
+      "context": "The cron matched Jordan Lee in Attio, appended the meeting notes to that person record, and extracted follow-ups for Jamie's judgment.",
       "classification": "action_item",
       "recommended_action": "meeting_followups",
       "action_title": "Review Jordan Lee meeting follow-ups",
@@ -73,12 +73,12 @@
       "follow_up_tasks": [
         {
           "title": "Send Jordan the updated deck",
-          "owner": "Alex",
+          "owner": "Jamie",
           "confidence": "high"
         },
         {
           "title": "Review Jordan's operator intros once he sends names",
-          "owner": "Alex",
+          "owner": "Jamie",
           "confidence": "medium"
         }
       ],

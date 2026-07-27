@@ -26,8 +26,23 @@ test('accepts a public proxy host and protocol', () => {
       forwardedProto: 'https',
       requestProtocol: 'http:',
       allowedHosts: ['forge.example.com'],
+      trustProxy: true,
     }),
     true,
+  );
+});
+
+test('ignores forwarded host and protocol unless proxy trust is explicit', () => {
+  assert.equal(
+    isTrustedRequestOrigin({
+      origin: 'https://forge.example.com',
+      host: 'localhost:3200',
+      forwardedHost: 'forge.example.com',
+      forwardedProto: 'https',
+      requestProtocol: 'http:',
+      allowedHosts: ['forge.example.com'],
+    }),
+    false,
   );
 });
 
@@ -56,6 +71,7 @@ test('rejects cross-origin, invalid, and protocol-mismatched requests', () => {
       forwardedHost: 'forge.example.com',
       forwardedProto: 'https',
       allowedHosts: ['forge.example.com'],
+      trustProxy: true,
     }),
     false,
   );

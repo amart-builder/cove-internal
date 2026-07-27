@@ -32,6 +32,7 @@ export async function listTasks(): Promise<Task[]> {
 }
 
 export async function createTask(input: {
+  id?: string;
   column_id?: string | null;
   title: string;
   description?: string;
@@ -44,6 +45,7 @@ export async function createTask(input: {
   const rows = await forgeRest<Task[]>("tasks", {
     method: "POST",
     body: {
+      ...(input.id ? { id: input.id } : {}),
       column_id: input.column_id ?? null,
       title: input.title,
       description: input.description ?? "",

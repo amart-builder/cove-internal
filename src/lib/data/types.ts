@@ -115,3 +115,38 @@ export type EmailTriageRun = {
   summary: string | null;
   created_at: string;
 };
+
+export type CommitmentKind =
+  | "follow_up"
+  | "promise"
+  | "waiting_on"
+  | "open_decision"
+  | "overnight_request"
+  | "idea";
+
+export type CommitmentSourceKind =
+  | "brain_dump"
+  | "manual"
+  | "chat"
+  | "detector"
+  | "brief";
+
+export type Commitment = {
+  id: ForgeId;
+  kind: CommitmentKind;
+  title: string;
+  details: string | null;
+  counterparty: string | null;
+  contact_id: ForgeId | null;
+  source_kind: CommitmentSourceKind;
+  source_quote: string | null;
+  source_ref: string | null;
+  due_at: string | null;
+  review_at: string | null;
+  confidence: "high" | "medium" | "low";
+  confirmed: boolean;
+  status: "open" | "done" | "dropped" | "expired";
+  evidence: string | null;
+  created_at: string;
+  updated_at: string;
+};

@@ -1,23 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRuntimeMode } from "@/lib/runtime/mode";
 import { handleLocalRest } from "@/lib/local/db";
-import { isTrustedForgeRequest } from "@/lib/request-security";
+import { getQuietCurrentCsrfToken } from "@/lib/quiet-current/store";
+import { hasDayPlanRouteAccess, isTrustedForgeRequest } from "@/lib/request-security";
+import { FORGE_REST_TABLES } from "@/lib/data/forge-tables";
 
 type RouteContext = {
   params: Promise<{ table: string }>;
 };
 
-const ALLOWED_TABLES = new Set([
-  "companies",
-  "contact_activities",
-  "contacts",
-  "drafts",
-  "email_action_log",
-  "email_items",
-  "email_triage_runs",
-  "task_columns",
-  "tasks",
-]);
+const ALLOWED_TABLES = new Set<string>(FORGE_REST_TABLES);
+const MUTATING_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
+
+export function forgeRestMutationAccessFailure(
+  request: NextRequest,
+  expectedCsrfToken?: string,
+): "host" | "csrf" | undefined {
+  if (!hasDayPlanRouteAccess(request)) return "host";
+  if (request.headers.get("x-forge-csrf") !== (expectedCsrfToken ?? getQuietCurrentCsrfToken())) {
+    return "csrf";
+  }
+}
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -56,14 +59,23 @@ async function handleRequest(
   request: NextRequest,
   context: RouteContext
 ): Promise<NextResponse> {
-  if (!isTrustedForgeRequest(request)) {
+  const method = request.method;
+  if (MUTATING_METHODS.has(method)) {
+    const accessFailure = forgeRestMutationAccessFailure(request);
+    if (accessFailure === "host") {
+      return new NextResponse("Untrusted request host.", { status: 403 });
+    }
+    if (accessFailure === "csrf") {
+      return new NextResponse("Forge request token is missing.", { status: 403 });
+    }
+  }
+  if (!MUTATING_METHODS.has(method) && !isTrustedForgeRequest(request)) {
     return new NextResponse("Untrusted request host.", { status: 403 });
   }
   const { table } = await context.params;
   const decodedTable = decodeURIComponent(table);
   const unprefixedTable = stripKnownPrefix(decodedTable);
 
-  const method = request.method;
   const body =
     method === "GET" || method === "HEAD"
       ? undefined
@@ -142,6 +154,10 @@ export function POST(request: NextRequest, context: RouteContext) {
 }
 
 export function PATCH(request: NextRequest, context: RouteContext) {
+  return handleRequest(request, context);
+}
+
+export function PUT(request: NextRequest, context: RouteContext) {
   return handleRequest(request, context);
 }
 

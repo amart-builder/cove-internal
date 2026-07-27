@@ -17,7 +17,7 @@ Goal:
 1. Fetch recent Gmail messages for `alex@edge-fund.io`.
 2. Read enough thread context to classify each message.
 3. Write `~/.forge/runtime/email-triage-input.json` using `fixtures/email-triage.sample.json` as the schema.
-4. Run: `cd /Users/alexandermartin/Desktop/Atlas/projects/astack/forge && node scripts/run-email-triage.mjs --input ~/.forge/runtime/email-triage-input.json`
+4. Run: `cd ~/Desktop/Atlas/projects/astack/forge && node scripts/run-email-triage.mjs --input ~/.forge/runtime/email-triage-input.json`
 
 Product standard:
 - Forge should make email feel 90% handled before Alex opens the page.

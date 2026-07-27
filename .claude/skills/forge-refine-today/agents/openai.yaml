@@ -1,0 +1,4 @@
+interface:
+  display_name: "Forge Refine Today"
+  short_description: "Safely translate morning replanning into Forge task changes"
+  default_prompt: "Refine today by creating, updating, completing, assigning, and reprioritizing Forge task cards."

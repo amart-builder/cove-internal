@@ -34,7 +34,7 @@ OpenClaw is an AI agent harness that gives an LLM (Claude Opus 4.6) access to a 
 - Creates actionable triage items in Supabase with suggested responses
 - Tracks follow-ups (3+ business days, no reply)
 - Auto-cleans stale items (7+ days)
-- Full skill at: `/Users/alexandermartin/.openclaw/workspace/skills/forge-email-triage/SKILL.md`
+- Full skill at: `~/.openclaw/workspace/skills/forge-email-triage/SKILL.md`
 
 **DenchClaw (dench.com/claw)** — An existing AI CRM product that runs locally on Mac. Alex wants to use this as the design base/inspiration. Built by Merse Originals, San Francisco.
 
@@ -238,7 +238,7 @@ Heavy reliance on the agent's reasoning. The brief should NOT be a template with
 ## Technical Reference
 
 ### Alex's Forge Email Triage Skill (the reference implementation)
-Full spec: `/Users/alexandermartin/.openclaw/workspace/skills/forge-email-triage/SKILL.md`
+Full spec: `~/.openclaw/workspace/skills/forge-email-triage/SKILL.md`
 
 Key reference files in that skill:
 - `instructions/classification.md` — 3-tier routing logic

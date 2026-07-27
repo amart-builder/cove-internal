@@ -1,3 +1,5 @@
+import { getDayPlanCsrfToken } from "../data/day-plan";
+
 type QueryValue = string | number | boolean | null | undefined;
 
 type ForgeRestOptions = {
@@ -153,10 +155,12 @@ async function serverRequest<T>(
   const method = options.method ?? "GET";
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 10000);
+  const csrfToken = method === "GET" ? undefined : await getDayPlanCsrfToken();
   const response = await fetch(buildServerUrl(table, options.query), {
     method,
     headers: {
       "Content-Type": "application/json",
+      ...(csrfToken ? { "X-Forge-CSRF": csrfToken } : {}),
     },
     signal: controller.signal,
     body:

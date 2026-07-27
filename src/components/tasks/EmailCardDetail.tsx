@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { listAllEmailItems, updateEmailItem } from '@/lib/data/email';
 import type { EmailItem } from '@/lib/data/types';
+import { useDataChanged } from '@/lib/data/refresh-bus';
 
 // The interactive body of the daily "Emails: <date>" card. The forge-email skill
 // keeps email_items in sync (Gmail is the source of truth); this view renders the
@@ -64,6 +65,8 @@ export default function EmailCardDetail({ onClose }: { onClose: () => void }) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }, []);
+
+  useDataChanged(['email_items', 'drafts'], () => void load());
 
   useEffect(() => {
     void load();

@@ -35,6 +35,7 @@ import type {
   Task as SupabaseTask,
   TaskColumn as SupabaseTaskColumn,
 } from '@/lib/data/types';
+import { useDataChanged } from '@/lib/data/refresh-bus';
 import Column from './Column';
 import TaskCard from './TaskCard';
 import TaskDetail from './TaskDetail';
@@ -351,6 +352,8 @@ function SupabaseKanbanBoard() {
       setLoading(false);
     }
   }, []);
+
+  useDataChanged(['tasks', 'task_columns'], () => void reload());
 
   const ensureDefaultColumns = useCallback(async () => {
     const existingColumns = await listTaskColumns();

@@ -12,6 +12,7 @@ import {
   createContactActivity,
 } from '@/lib/data/crm';
 import type { Company, Contact, ContactActivity } from '@/lib/data/types';
+import { useDataChanged } from '@/lib/data/refresh-bus';
 
 // Local-mode CRM. Everything reads and writes through the /api/forge-rest
 // dispatcher (crm.ts), which talks to the on-machine SQLite store. No account,
@@ -89,6 +90,8 @@ export default function LocalCRMView() {
       setError(err instanceof Error ? err.message : String(err));
     }
   }, []);
+
+  useDataChanged(['contacts', 'companies'], () => void load());
 
   useEffect(() => {
     const timeout = window.setTimeout(() => void load(), 0);
@@ -715,6 +718,8 @@ function ActivityTimeline({
       setError(err instanceof Error ? err.message : String(err));
     }
   }, [contactId]);
+
+  useDataChanged(['contact_activities'], () => void load());
 
   useEffect(() => {
     void load();
