@@ -16,10 +16,10 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** cowork
-- **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-07-27T13:27:21-0700
-- **task:** never-drop-task system build
+- **system:** none
+- **device:** —
+- **since:** —
+- **task:** —
 <!-- END active-session -->
 
 ---
@@ -86,6 +86,15 @@ Standing rule (Alex, 2026-07-17): before saying "I can't see that" or asking him
 Explicitly rejected: always-running general agent, autonomous external sends, custom voice stack, constant day resequencing, implicit permission learning, pre-opened idle Claude sessions. Email triage stays OFF until Alex explicitly re-enables. 14-day pilot metrics gate each autonomy expansion (≥60-70% of overnight artifacts genuinely used, else Alex seeds the queue explicitly).
 
 ## Current State
+
+### 2026-07-27 Never-drop Phases 1+2: single intake pipe + triage protocol + project column (shipped)
+
+- `prompts/triage.md` is the canonical 6-question protocol (Alex-editable); `scripts/forge-intake.mjs` -> `src/lib/intake/run.ts` is the ONE writer of triaged tasks: record event first, one budget-capped `claude -p` structured triage (empty MCP, minimal env), deterministic task ids, dumb `needs-triage` fallback on any failure, exit 0 == durably captured. Live-probed end to end (triage quality good, replay idempotent).
+- All capture paths rewired: buddy CLI `intake` (direct task inserts blocked), day-plan assistant apply (synchronous task creation, orphan events dismissed on failure), meeting-followups, ~/.claude forge-task + forge-day skills. Email's "Emails: <date>" card is the one documented direct-REST exception (mirror, not capture).
+- `forge_tasks.project` column live (default 'Atlas', NOT NULL, 102 rows backfilled); triage assigns projects from the Atlas folder vocabulary.
+- Notifications: `remote_host` config sends iMessage via ssh on the Mini (Alex's Messages account); injection-safe quoting centralized in `src/lib/intake/notification-transport.mjs`; failed remote delivery retains the reminder receipt; meeting/email sources can never trigger an immediate text (hostile-content paging guard).
+- Two review rounds (fresh-context Opus): 4 blockers + 12 fixes found and applied; 85 tests green; day-plan add->edit->complete regression covered.
+- Next: Phase 3 meeting watcher on the Mini, Phase 4 progress tracker, Phase 5 groundwork autonomy.
 
 ### 2026-07-27 Never-drop-a-task Phase 0: durable inbound-events inbox (shipped)
 

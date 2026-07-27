@@ -221,7 +221,8 @@ title is not `Emails: <today Mon D>`, `PATCH status=done` and move it to the Don
 column (id from `GET /api/forge-rest/task_columns`). This guarantees exactly one
 open email card even if a prior run half-finished.
 
-**Find or create today's card** titled `Emails: <today Mon D>`. If none:
+**Find or create today's card** titled `Emails: <today Mon D>`. If none, `POST`
+this body directly:
 
 ```json
 { "title": "Emails: Jul 1", "description": "<built below>", "source_type": "email",
@@ -229,6 +230,9 @@ open email card even if a prior run half-finished.
   "column_id": "<Must happen today column id>",
   "remind_native": false, "remind_text": false }
 ```
+
+This rebuilt daily mirror card is the sanctioned exception to the intake-pipe
+rule: it reflects already-captured email rows and may be created directly.
 
 `remind_native:false` matters: the card is a passive mirror, so it must not trip
 the reminders cron's native "Task due" ping. This skill owns its own nudge.

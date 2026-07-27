@@ -81,7 +81,11 @@ import {
   listUnresolved,
   resolveEvent,
 } from "../intake/inbox";
-import { operatorTimezone } from "../operator";
+import {
+  createFallbackInboundTask,
+} from "../intake/task-writer";
+
+export { fallbackInboundDueAt } from "../intake/task-writer";
 
 type SpawnImpl = typeof spawn;
 type ExecutionNotifier = (input: ExecutionNotificationInput) => void | Promise<void>;
@@ -1442,107 +1446,6 @@ export async function watchDayDumpQueue(
   }
 }
 
-function addCalendarDays(localDate: string, days: number): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(localDate);
-  if (!match) throw new Error("inbound_due_date_invalid");
-  const date = new Date(
-    Date.UTC(
-      Number(match[1]),
-      Number(match[2]) - 1,
-      Number(match[3]) + days,
-      12,
-    ),
-  );
-  return date.toISOString().slice(0, 10);
-}
-
-function zoneOffset(localDate: string, timezone: string): string {
-  const atNoonUtc = new Date(`${localDate}T12:00:00.000Z`);
-  const zoneName = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    timeZoneName: "longOffset",
-  }).formatToParts(atNoonUtc).find((part) => part.type === "timeZoneName")?.value;
-  if (zoneName === "GMT") return "+00:00";
-  const match = /^GMT([+-])(\d{2}):(\d{2})$/.exec(zoneName ?? "");
-  if (!match) throw new Error("inbound_due_timezone_invalid");
-  return `${match[1]}${match[2]}:${match[3]}`;
-}
-
-export function fallbackInboundDueAt(
-  now: Date,
-  timezone = operatorTimezone(),
-): string {
-  const tomorrow = addCalendarDays(localDateInTimezone(now, timezone), 1);
-  return `${tomorrow}T09:00:00${zoneOffset(tomorrow, timezone)}`;
-}
-
-async function createFallbackInboundTask(
-  event: InboundEvent,
-  options: InboundWorkerOptions,
-): Promise<string> {
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const baseUrl = (options.webBaseUrl ?? defaultBriefWebBase()).replace(/\/$/, "");
-  const timeoutMs = options.fetchTimeoutMs ?? 10_000;
-  const existing = await fetchRows(
-    fetchImpl,
-    baseUrl,
-    "tasks",
-    timeoutMs,
-    `select=id&id=eq.${encodeURIComponent(event.id)}&limit=1`,
-  );
-  if (existing.length > 0) return event.id;
-
-  const columns = await fetchRows(
-    fetchImpl,
-    baseUrl,
-    "task_columns",
-    timeoutMs,
-    "select=id,name&order=position.asc",
-  );
-  const notStarted = columns.find((value) => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-    return (value as Record<string, unknown>).name === "Not Started";
-  }) as Record<string, unknown> | undefined;
-  if (typeof notStarted?.id !== "string") {
-    throw new Error("inbound_not_started_column_missing");
-  }
-  const csrfToken = await forgeCsrfToken(fetchImpl, baseUrl, timeoutMs);
-  const clock = options.now ?? (() => new Date());
-  const response = await fetchImpl(`${baseUrl}/api/forge-rest/tasks`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Forge-CSRF": csrfToken,
-    },
-    body: JSON.stringify({
-      id: event.id,
-      column_id: notStarted.id,
-      title: event.raw_text.slice(0, 80) || `Inbound item from ${event.source}`,
-      description:
-        `${event.raw_text}\n\nArrived via ${event.source} and needs triage.`,
-      priority: "medium",
-      due_at: fallbackInboundDueAt(clock()),
-      tags: ["needs-triage"],
-      position: 0,
-      source_type: "inbound_event",
-    }),
-    signal: AbortSignal.timeout(timeoutMs),
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    const raced = await fetchRows(
-      fetchImpl,
-      baseUrl,
-      "tasks",
-      timeoutMs,
-      `select=id&id=eq.${encodeURIComponent(event.id)}&limit=1`,
-    );
-    if (raced.length > 0) return event.id;
-    throw new Error(`forge-rest tasks ${response.status}`);
-  }
-  return event.id;
-}
-
 export async function processOneInboundEvent(
   candidate: InboundEvent,
   options: InboundWorkerOptions = {},
@@ -1559,12 +1462,16 @@ export async function processOneInboundEvent(
       return true;
     }
     let smartTriaged = false;
+    let smartTriageError: string | undefined;
     if (options.triageEvent) {
       try {
         smartTriaged = Boolean(
           await options.triageEvent(event, { taskId: event.id }),
         );
       } catch (error) {
+        smartTriageError = (
+          error instanceof Error ? error.message : "inbound_smart_triage_failed"
+        ).replace(/\s+/g, " ").slice(0, 500);
         console.error("Inbound smart triage failed; using the fallback task.", error);
       }
     }
@@ -1573,7 +1480,11 @@ export async function processOneInboundEvent(
       : await createFallbackInboundTask(event, options);
     await resolveEvent(
       event.id,
-      { state: "triaged", taskId },
+      {
+        state: "triaged",
+        taskId,
+        ...(smartTriageError ? { error: smartTriageError } : {}),
+      },
       { now: options.now },
     );
   } catch (error) {

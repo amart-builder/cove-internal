@@ -156,10 +156,21 @@ test('inbound capture is idempotent locally and preserves outage spool capture t
     false,
     'the OS releases a crashed spool lock before the next capture',
   );
+  const deterministicId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const deterministic = await recordEvent({
+    id: deterministicId,
+    source: 'day-plan',
+    sourceId: 'assistant:item-1',
+    rawText: 'Preserve the plan item identity through the spool.',
+    createdAt,
+  }, { dataDir: dir });
+  assert.equal(deterministic.event.id, deterministicId);
+  assert.equal(countSpooledEvents(dir), 3);
 
   process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'local';
-  assert.deepEqual(await drainSpoolFiles(dir), { processed: 2, remaining: 0 });
+  assert.deepEqual(await drainSpoolFiles(dir), { processed: 3, remaining: 0 });
   assert.equal(countSpooledEvents(dir), 0);
+  assert.equal((await getEvent(deterministicId)).id, deterministicId);
 
   const drained = await recordEvent({
     source: 'email',
@@ -169,6 +180,37 @@ test('inbound capture is idempotent locally and preserves outage spool capture t
   assert.equal(drained.existed, true);
   assert.equal(drained.event.created_at, createdAt);
   assert.notEqual(drained.event.id, outage.event.id);
+});
+
+test('a failed caller can dismiss its pending spool receipt without leaving a ghost task', async (t) => {
+  const dir = fixture(t);
+  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'supabase';
+  delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const input = {
+    id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    source: 'day-plan',
+    sourceId: 'assistant:failed-apply',
+    rawText: 'This item was never applied.',
+    createdAt: '2026-07-27T18:00:00.000Z',
+  };
+  const pending = await recordEvent(input, { dataDir: dir });
+  assert.equal(pending.event.spooled, true);
+  await recordEvent({
+    ...input,
+    state: 'dismissed',
+  }, { dataDir: dir });
+  assert.equal(countSpooledEvents(dir), 1);
+
+  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'local';
+  await drainSpoolFiles(dir);
+  const event = await getEvent(input.id);
+  assert.equal(event.state, 'dismissed');
+  assert.equal(
+    (await listUnresolved({ olderThanMinutes: 0 }))
+      .some((candidate) => candidate.id === input.id),
+    false,
+  );
 });
 
 test('fallback processing uses deterministic tasks and backs retries off before five failures', async (t) => {

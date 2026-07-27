@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import {
+  FORGE_BUDDY_REPO_DIR,
   main,
   parseBuddyDataArgs,
   runBuddyDataCommand,
@@ -26,6 +30,97 @@ test('buddy data CLI parses day-plan get and apply commands', () => {
     action: 'day-plan-apply',
     json: { expectedVersion: 3, operations: [{ operation: 'complete_item', itemId: 'i1' }] },
   });
+});
+
+test('buddy data CLI routes new tasks through intake and refuses raw task inserts', async () => {
+  assert.deepEqual(parseBuddyDataArgs([
+    'intake', '--text', 'Call Maya back', '--source-id', 'turn-7',
+  ]), {
+    action: 'intake',
+    input: {
+      text: 'Call Maya back',
+      source: 'buddy',
+      sourceId: 'turn-7',
+      dryRun: false,
+    },
+  });
+  assert.throws(
+    () => parseBuddyDataArgs(['insert', 'tasks', '--json', '{"title":"Bypass"}']),
+    /must use the intake subcommand/,
+  );
+  const lines = [];
+  const code = await runBuddyDataCommand(
+    parseBuddyDataArgs(['intake', '--text', 'Call Maya back']),
+    {
+      runIntake: async (input, options) => {
+        assert.equal(input.source, 'buddy');
+        assert.equal(options.webBaseUrl, 'http://127.0.0.1:3200');
+        assert.equal(options.repoDir, FORGE_BUDDY_REPO_DIR);
+        return {
+          exitCode: 0,
+          event: { source: 'buddy', source_id: 'derived' },
+          taskId: 'task-7',
+          existed: false,
+          spooled: false,
+          fallback: false,
+        };
+      },
+      write: (line) => lines.push(line),
+    },
+  );
+  assert.equal(code, 0);
+  assert.deepEqual(JSON.parse(lines[0].slice('RECEIPT '.length)), {
+    table: 'tasks',
+    action: 'insert',
+    id: 'task-7',
+    summary: 'Captured task (task-7)',
+  });
+});
+
+test('buddy dry-run resolves the repo from its script and prints a receipt from a foreign cwd', {
+  concurrency: false,
+}, async (t) => {
+  const foreign = path.join(
+    os.tmpdir(),
+    `forge-buddy-foreign-${process.pid}-${Date.now()}`,
+  );
+  mkdirSync(foreign, { recursive: true });
+  const previousCwd = process.cwd();
+  process.chdir(foreign);
+  t.after(() => {
+    process.chdir(previousCwd);
+    rmSync(foreign, { recursive: true, force: true });
+  });
+  const lines = [];
+  const code = await runBuddyDataCommand(
+    parseBuddyDataArgs([
+      'intake',
+      '--text',
+      '--review this flag-shaped task',
+      '--dry-run',
+    ]),
+    {
+      runIntake: async (input, options) => {
+        assert.equal(input.text, '--review this flag-shaped task');
+        assert.equal(options.repoDir, FORGE_BUDDY_REPO_DIR);
+        assert.notEqual(options.repoDir, process.cwd());
+        return {
+          exitCode: 0,
+          event: {
+            id: 'dry-event-1',
+            source: 'buddy',
+            source_id: 'dry-run:auto',
+          },
+          existed: false,
+          spooled: false,
+          fallback: false,
+        };
+      },
+      write: (line) => lines.push(line),
+    },
+  );
+  assert.equal(code, 0);
+  assert.deepEqual(lines, ['DRY_RUN {"event_id":"dry-event-1"}']);
 });
 
 test('buddy data CLI parses and submits a spawned-session request', async () => {

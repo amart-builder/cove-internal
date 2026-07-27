@@ -643,6 +643,7 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
             id: 'waiting-1',
             column_id: 'waiting',
             title: 'Waiting on signed scope',
+            project: 'client-delivery',
             status: 'open',
             priority: 'medium',
             tags: [],
@@ -669,7 +670,10 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
   assert.doesNotMatch(source.content, /Do not show this/);
   assert.match(source.content, /Spool lines waiting: 1\./);
   const tasks = collected.sources.find((entry) => entry.id === 'task_snapshot');
-  assert.match(tasks.content, /\[in_flight\] id=waiting-1 "Waiting on signed scope".*candidate_ok/);
+  assert.match(
+    tasks.content,
+    /\[in_flight\] id=waiting-1 "Waiting on signed scope" priority=medium project=client-delivery candidate_ok/,
+  );
 
   const warning = await collectMorningBriefSources({
     ...options,

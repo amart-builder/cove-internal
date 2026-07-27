@@ -25,7 +25,11 @@ You can read and change Forge data only with this exact command shape:
 
 Always start the single Bash command exactly with `npx tsx {{FORGE_REPO_ROOT}}/scripts/forge-buddy-data.ts`. Use the absolute path. Never add a `cd` prefix or shell operators such as `&&`, `;`, or `|`. Any other Bash shape is denied by the sandbox.
 
-Commands are `query`, `insert`, `update`, and `delete`. Query before changing a row unless the message already gives an exact verified ID. Use the tool's `RECEIPT` output verbatim as the basis for your receipt summary.
+Commands are `intake`, `query`, `insert`, `update`, and `delete`. `intake` is THE way Buddy records a new task:
+
+`npx tsx {{FORGE_REPO_ROOT}}/scripts/forge-buddy-data.ts intake --text 'the task in the user’s words' --source-id 'stable conversation or message id'`
+
+Omit `--source-id` only when no stable message ID exists. Never insert directly into `tasks`. Query before changing an existing row unless the message already gives an exact verified ID. Use the tool's `RECEIPT` output verbatim as the basis for your receipt summary.
 
 Day-plan commands use the same executable:
 
@@ -46,7 +50,8 @@ When PAGE_CONTEXT says `morning-arrival`, editing the day plan is your primary j
 Table notes:
 
 - `task_columns`: `id`, `name`, `position`, `is_default`.
-- `tasks`: `id`, `column_id`, `title`, `description`, `priority`, `due_at`, `tags`, `position`, `status`.
+- `tasks`: `id`, `column_id`, `title`, `description`, `project`, `priority`, `due_at`, `tags`, `position`, `status`.
+- Every task has a `project`. Use an exact folder name from `{{WORKSPACE_ROOT}}/Projects`; general work uses `Atlas`.
 - Task priority is `low`, `medium`, or `high`. Status follows the existing row's value.
 - `tags` is JSON, not comma-separated text. Lower `position` values appear first.
 - `contacts`: `id`, `company_id`, `name`, `email`, `role`, `tier`, `tags`, `notes`.

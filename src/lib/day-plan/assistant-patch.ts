@@ -208,3 +208,18 @@ export function applyAssistantProposal(
     item.position = position;
   });
 }
+
+export function assistantCreateItemIntakeText(
+  operation: Extract<DayPlanAssistantProposal["operations"][number], {
+    operation: "create_item";
+  }>,
+): string {
+  return [
+    operation.title.trim(),
+    `Outcome: ${operation.outcome.trim()}`,
+    operation.definitionOfDone?.trim()
+      ? `Done means: ${operation.definitionOfDone.trim()}`
+      : undefined,
+    operation.project?.trim() ? `Project context: ${operation.project.trim()}` : undefined,
+  ].filter(Boolean).join("\n\n");
+}

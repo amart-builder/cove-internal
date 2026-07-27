@@ -15,6 +15,7 @@ export type Task = {
   priority: "low" | "medium" | "high";
   due_at: string | null;
   tags: string[];
+  project?: string;
   position: number;
   status: "open" | "done" | "archived";
   source_type?: string;

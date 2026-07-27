@@ -211,6 +211,7 @@ type TaskRow = {
   title?: string;
   description?: string;
   priority?: string;
+  project?: string;
   due_at?: string | null;
   status?: string;
   updated_at?: string;
@@ -1483,6 +1484,7 @@ export async function collectMorningBriefSources(
       lines.push(
         `- [${bucket}] id=${row.id} "${title}"` +
           ` priority=${row.priority ?? "medium"}` +
+          ` project=${compactLine(row.project, 120) || "Atlas"}` +
           (candidateEligible ? " candidate_ok" : "") +
           (row.due_at ? ` due=${row.due_at}` : "") +
           (row.updated_at ? ` updated=${row.updated_at}` : "") +
