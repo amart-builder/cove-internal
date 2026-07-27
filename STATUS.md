@@ -9,7 +9,7 @@
 - **github:** PRIVATE `amart-builder/forge` (made private 2026-07-26 ahead of client installs)
 - **default_branch:** main
 - **owned_by:** shared
-- **deploy:** http://localhost:3200 on the Mac Mini; Alex's MacBook URL is http://alexander-mac-mini.taildd6a98.ts.net:3200/tasks
+- **deploy:** http://localhost:3200 on the Mac Mini, bound to 127.0.0.1 only. Reach it from any tailnet device at https://alexander-mac-mini.taildd6a98.ts.net (Tailscale Serve proxies 443 -> 127.0.0.1:3200). The old http://...:3200 URL is dead by design: port 3200 is no longer exposed to the home LAN.
 - **never_commit:** .env*, data/forge.db*, secrets, private email/task/contact exports
 - **push:** use the repo safe-push flow when this repo is clean enough to commit; never raw git push
 <!-- END repo-identity -->
@@ -24,7 +24,24 @@
 
 ---
 
-**Last updated:** 2026-07-26 (client-ready portability: prompt v13, operator profile wiring, path/name scrub, intelligent SETUP interview)
+**Last updated:** 2026-07-27 (perimeter closed, Wednesday fix pass landed on both machines at 2667180)
+
+## Perimeter + Wednesday fixes (2026-07-27)
+
+**Perimeter.** Both machines now bind Next to 127.0.0.1. The Mini is reachable only through Tailscale Serve at https://alexander-mac-mini.taildd6a98.ts.net; the old Serve config was bound to pre-rename hostnames (`alexanders-mac-mini`, `claw-test-mini`) and to a dead port 18789, which is why it always returned 000. Old config saved at `~/tailscale-serve-config.bak-20260727.json` on the Mini.
+Verified from the laptop: tailnet pages and APIs 200, forged Host 403, direct `http://100.102.6.81:3200` refused. SSH (22) and jarvis-memory (3510) untouched.
+The Mini's `.env.local` now sets `FORGE_PUBLIC_URL=https://alexander-mac-mini.taildd6a98.ts.net` (no port, because Serve terminates TLS on 443) and `FORGE_TAILSCALE_TRUSTED_HOSTS`. The dead `FORGE_TAILSCALE_ALLOWED_EMAILS` was removed; no code ever read it.
+Day-plan loopback mode accepts hosts named in `FORGE_TAILSCALE_TRUSTED_HOSTS`. Safe only because the listener is loopback-bound, so the sole route in is a Tailscale-authenticated proxy. The buddy delete-token endpoint stays strictly loopback.
+
+**Deleted (2,800 lines):** SPEC.md, PLAN.md, plans/, openclaw/. All described the retired OpenClaw design and would have misdirected Gary's install agent.
+
+**Fixed:** operator timezone resolution replacing hardcoded America/Los_Angeles in three files (new `operatorTimezone()`: FORGE_TIMEZONE > profile > machine); due dates stored at UTC midnight (local midnight showed the previous day at any UTC+ offset); `arrival_interacted_at` declared in CREATE TABLE so first boot can't race the ALTER; forge-rest refuses filterless PATCH/DELETE; TaskDetail re-seeds on `taskId` not `task` (every Buddy write was reverting in-progress typing); brief reports a required source missing when trimming empties it; `dataDir` passed to the source collector; stdin `error` listeners on both spawns (EPIPE was an uncaught exception, and in the buddy path that killed the whole Next server); buddy seed spawn pins `--tools`/`--strict-mcp-config`/`--mcp-config`/`--no-chrome`; missing chief-of-staff.md throws instead of silently substituting v4 stand-in instructions; legacy pre-Convex `tasks` table refused at startup with an actionable message.
+
+**Not a bug (checked, no change):** the CRM draft re-seed the review flagged. `ContactDetailPanel` is mounted with `key={selectedContact.id}`, so React remounts it per contact and the mount-time seeding is correct.
+
+**Still open, deliberately.** The buddy's delete confirmation is not load-bearing: the mint endpoint ignores `turnId` and never checks a pending delete exists, and the CSRF token is fetchable unauthenticated, so a prompt-injected turn can mint and consume its own delete token with no card shown. This is P1 and it ships with Buddy. Also open: orphan reaping (no pid recorded for brief/dump children), readiness assessment doing git subprocesses on a 1.5s poll, and the Convex removal.
+
+**Repo is still PRIVATE.** Alex has approved making it fully open source; the security fixes above were the precondition. Flip it before Wednesday.
 
 ## Portability build (2026-07-26, for the Gary Gersh install Wednesday)
 - Repo is PRIVATE. Rollback tag `pre-portability-2026-07-26` at 4142809.
