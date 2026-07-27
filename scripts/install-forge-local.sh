@@ -6,10 +6,9 @@
 # Safe to re-run: it replaces any previous Forge LaunchAgents.
 set -euo pipefail
 
-# --mini installs ONLY the always-on Mac Mini's 7:30 morning-brief agent (the
-# Mini generates the brief and relays it to the MBP over Syncthing). The default
-# (MBP) install no longer schedules a 7:30 brief agent at all; backfill and the
-# post-settlement trigger cover the MBP side.
+# --mini installs the always-on Mac Mini's scheduled brief, meeting watcher,
+# and progress reconciler. The default (MBP) install no longer schedules a 7:30
+# brief agent; backfill and the post-settlement trigger cover the MBP side.
 MINI=0
 for arg in "$@"; do
   case "$arg" in
@@ -96,10 +95,10 @@ fi
 
 mkdir -p "$LOG_DIR" "$LA_DIR"
 
-# --- Mini-only: install the 7:30 morning-brief agent and exit ---------------
-# The Mini already runs its own web + worker via com.atlas.forge-web; this flag
-# adds only the scheduled brief generator, which writes the relay files the MBP
-# imports. Logs go to ~/Library/Logs (TCC blocks launchd writes under ~/Desktop).
+# --- Mini-only: install scheduled brief, meeting, and progress agents -------
+# The Mini already runs its own web + worker via com.atlas.forge-web. These
+# agents add the scheduled producers whose immutable relay files the MBP reads.
+# Logs go to ~/Library/Logs (TCC blocks launchd writes under ~/Desktop).
 if [ "$MINI" = "1" ]; then
   # SAFETY GATE: the Mini agent is a second live SQLite writer on a tree that
   # Syncthing used to sync wholesale. Bootstrapping it before forge.db is
@@ -116,7 +115,7 @@ when the block was applied:
 // --- Forge machine-private runtime state (brief-relay change) ---
 // Each machine keeps its OWN forge.db now; a live SQLite file must never sync
 // (torn-write corruption). -wal/-shm are already covered by the global rules
-// above. The relay dirs (brief-relay/, settlement-relay/) and
+// above. The relay dirs (brief-relay/, settlement-relay/, progress-relay/) and
 // source-checkpoint.json are the transport and MUST keep syncing — not listed.
 projects/astack/forge/data/forge.db
 projects/astack/forge/data/claude-runs
@@ -145,6 +144,8 @@ STIGNORE_BLOCK
   # The Atlas root is three levels up from the repo (<atlas>/projects/astack/forge).
   ATLAS_ROOT="$(cd "$REPO_DIR/../../.." && pwd)"
   MINI_BRIEF_PLIST="$LA_DIR/com.forge.morning-brief.plist"
+  MINI_MEETING_PLIST="$LA_DIR/com.forge.meeting-watch.plist"
+  MINI_PROGRESS_PLIST="$LA_DIR/com.forge.progress.plist"
   cat > "$MINI_BRIEF_PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -205,10 +206,60 @@ $SUPERNOVA_PLIST_ENTRY
 </dict>
 </plist>
 EOF
+  "$NODE_REAL" - \
+    "$REPO_DIR/scripts/launchd/com.forge.meeting-watch.plist" \
+    "$MINI_MEETING_PLIST" \
+    "$REPO_DIR" \
+    "$HOME" \
+    "$ATLAS_ROOT" <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+const [source, destination, repoDir, homeDir, atlasRoot] = process.argv.slice(2);
+const template = fs.readFileSync(source, "utf8");
+const templateRepo = template.match(
+  /<string>([^<]*\/Desktop\/Atlas\/Projects\/astack\/forge)(?:\/[^<]*)?<\/string>/,
+)?.[1];
+if (!templateRepo) throw new Error(`Could not locate the repo path in ${source}`);
+const templateAtlas = path.resolve(templateRepo, "../../..");
+const templateHome = path.resolve(templateAtlas, "../..");
+const rendered = template
+  .replaceAll(templateRepo, repoDir)
+  .replaceAll(templateAtlas, atlasRoot)
+  .replaceAll(templateHome, homeDir);
+fs.writeFileSync(destination, rendered, { mode: 0o600 });
+NODE
+  "$NODE_REAL" - \
+    "$REPO_DIR/scripts/launchd/com.forge.progress.plist" \
+    "$MINI_PROGRESS_PLIST" \
+    "$REPO_DIR" \
+    "$HOME" \
+    "$ATLAS_ROOT" <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+const [source, destination, repoDir, homeDir, atlasRoot] = process.argv.slice(2);
+const template = fs.readFileSync(source, "utf8");
+const templateRepo = template.match(
+  /<string>([^<]*\/Desktop\/Atlas\/Projects\/astack\/forge)(?:\/[^<]*)?<\/string>/,
+)?.[1];
+if (!templateRepo) throw new Error(`Could not locate the repo path in ${source}`);
+const templateAtlas = path.resolve(templateRepo, "../../..");
+const templateHome = path.resolve(templateAtlas, "../..");
+const rendered = template
+  .replaceAll(templateRepo, repoDir)
+  .replaceAll(templateAtlas, atlasRoot)
+  .replaceAll(templateHome, homeDir);
+fs.writeFileSync(destination, rendered, { mode: 0o600 });
+NODE
   UID_NUM="$(id -u)"
   launchctl bootout "gui/$UID_NUM/com.forge.morning-brief" 2>/dev/null || true
+  launchctl bootout "gui/$UID_NUM/com.forge.meeting-watch" 2>/dev/null || true
+  launchctl bootout "gui/$UID_NUM/com.forge.progress" 2>/dev/null || true
   launchctl bootstrap "gui/$UID_NUM" "$MINI_BRIEF_PLIST"
+  launchctl bootstrap "gui/$UID_NUM" "$MINI_MEETING_PLIST"
+  launchctl bootstrap "gui/$UID_NUM" "$MINI_PROGRESS_PLIST"
   echo "Installed the Mini morning-brief agent (7:30 local): $MINI_BRIEF_PLIST"
+  echo "Installed the Mini meeting watcher (every 5 minutes): $MINI_MEETING_PLIST"
+  echo "Installed the Mini progress reconciler (every 30 minutes): $MINI_PROGRESS_PLIST"
   echo "Brief goals: $ATLAS_ROOT/brain/GOALS.md"
   echo "Logs: $LOG_DIR/forge-morning-brief.log"
 fi
@@ -332,6 +383,8 @@ cat > "$SERVER_PLIST" <<EOF
     <key>FORGE_BUDDY_APP_URL</key>
     <string>$BUDDY_APP_URL</string>
     <key>FORGE_CLAUDE_WORKER_AVAILABLE</key>
+    <string>1</string>
+    <key>FORGE_PROGRESS_RELAY_CONSUMER</key>
     <string>1</string>
 $SUPERNOVA_PLIST_ENTRY
     <key>FORGE_CONTENT_QUOTA_POSTS</key>
