@@ -23,6 +23,29 @@ function requiredText(value: unknown, name: string, max = 500): string {
   return value.trim();
 }
 
+/**
+ * Locate the still-open pending delete that a request claims to be acting on.
+ *
+ * This is the whole delete gate. A permanent delete is supposed to be possible
+ * only because Buddy declared the row in its turn receipts, the UI rendered a
+ * confirmation card for it, and the operator tapped Confirm. Nothing downstream
+ * can re-check that: by the time the token reaches the consume endpoint it is
+ * just a valid token. So the binding to a real, on-screen, undisposed card has
+ * to happen here, at mint time, or the card is decoration.
+ */
+function findOpenPendingDelete(turnId: string, table: string, id: string) {
+  const store = getBuddyStore();
+  const turn = store.getTurn(turnId);
+  const receipts = turn?.receipts_json
+    ? normalizeBuddyReceipts(JSON.parse(turn.receipts_json))
+    : undefined;
+  const pending = receipts?.pendingDeletes.find(
+    (item) => item.table === table && item.id === id && !item.disposition,
+  );
+  if (!turn || !receipts || !pending) throw new Error("Pending delete was not found on this turn.");
+  return { store, turn, receipts, pending };
+}
+
 function persistDisposition(input: {
   turnId: string;
   table: string;
@@ -30,15 +53,7 @@ function persistDisposition(input: {
   disposition: "confirmed" | "dismissed";
   expiresAt?: string;
 }) {
-  const store = getBuddyStore();
-  const turn = store.getTurn(input.turnId);
-  const receipts = turn?.receipts_json
-    ? normalizeBuddyReceipts(JSON.parse(turn.receipts_json))
-    : undefined;
-  const pending = receipts?.pendingDeletes.find(
-    (item) => item.table === input.table && item.id === input.id && !item.disposition,
-  );
-  if (!turn || !receipts || !pending) throw new Error("Pending delete was not found on this turn.");
+  const { store, turn, receipts, pending } = findOpenPendingDelete(input.turnId, input.table, input.id);
   pending.disposition = input.disposition;
   if (input.expiresAt) pending.expiresAt = input.expiresAt;
   store.setTurnReceipts(turn.id, JSON.stringify(receipts));
@@ -61,8 +76,13 @@ export async function POST(request: NextRequest) {
       persistDisposition({ turnId, table, id, disposition });
       return NextResponse.json({ disposition });
     }
-    const label = requiredText(body.label, "label");
-    const minted = getBuddyStore().mintPendingDelete({ table, rowId: id, label });
+    // Minting is the confirm tap. It must name the turn whose card was tapped,
+    // and that card must still be open, or no token is issued.
+    if (!turnId) throw new Error("turnId is required to confirm a delete.");
+    const { pending } = findOpenPendingDelete(turnId, table, id);
+    // The label is read back from the stored receipt, never from the request,
+    // so what gets recorded as deleted is what the operator was actually shown.
+    const minted = getBuddyStore().mintPendingDelete({ table, rowId: id, label: pending.label });
     return NextResponse.json(minted);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Delete confirmation failed." }, {
