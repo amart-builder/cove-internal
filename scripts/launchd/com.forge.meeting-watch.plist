@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.forge.meeting-watch</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/env</string>
+    <string>node</string>
+    <string>/Users/alexandermartin/Desktop/Atlas/Projects/astack/forge/scripts/forge-meeting-watch.mjs</string>
+    <string>--once</string>
+  </array>
+  <!-- Substitute every absolute repo/data path if the Mini checkout moves. -->
+  <key>WorkingDirectory</key>
+  <string>/Users/alexandermartin/Desktop/Atlas/Projects/astack/forge</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/alexandermartin</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/Users/alexandermartin/.local/bin:/usr/bin:/bin</string>
+    <key>FORGE_DATA_DIR</key>
+    <string>/Users/alexandermartin/Desktop/Atlas/Projects/astack/forge/data</string>
+  </dict>
+  <key>StartInterval</key>
+  <integer>300</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>/Users/alexandermartin/Library/Logs/forge-meeting-watch.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/alexandermartin/Library/Logs/forge-meeting-watch.log</string>
+</dict>
+</plist>

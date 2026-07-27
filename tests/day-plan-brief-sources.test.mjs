@@ -599,6 +599,20 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
     path.join(dir, 'intake', 'spool-test.jsonl'),
     `${JSON.stringify({ source: 'chat', sourceId: 'spooled', rawText: 'spooled', createdAt: NOW.toISOString() })}\n`,
   );
+  writeFileSync(
+    path.join(dir, 'intake', 'heartbeats.json'),
+    JSON.stringify({
+      meeting_watch: {
+        last_run_at: '2026-07-16T11:40:00.000Z',
+        examined: 3,
+        matched: 1,
+        processed: 1,
+        errors: 0,
+        dead_letters: 0,
+        disabled: false,
+      },
+    }),
+  );
   const inbound = [
     {
       id: 'inbound-1',
@@ -669,6 +683,10 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
   assert.match(source.content, /\[failed\] source=meeting age=2d text="Client escalation"/);
   assert.doesNotMatch(source.content, /Do not show this/);
   assert.match(source.content, /Spool lines waiting: 1\./);
+  assert.match(
+    source.content,
+    /Meeting watcher heartbeat: age=20m examined=3 matched=1 processed=1 errors=0 dead_letters=0\./,
+  );
   const tasks = collected.sources.find((entry) => entry.id === 'task_snapshot');
   assert.match(
     tasks.content,
@@ -687,6 +705,68 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
   const warningSource = warning.sources.find((entry) => entry.id === 'untriaged_inbound');
   assert.match(warningSource.content, /^WARNING: inbound inbox unavailable/);
   assert.match(warningSource.content, /Spool lines waiting: 1\./);
+
+  writeFileSync(
+    path.join(dir, 'intake', 'heartbeats.json'),
+    JSON.stringify({
+      meeting_watch: {
+        last_run_at: '2026-07-16T10:00:00.000Z',
+        examined: 0,
+        matched: 0,
+        processed: 0,
+        errors: 1,
+      },
+    }),
+  );
+  const stale = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => forgeRowsResponse(url),
+  });
+  assert.match(
+    stale.sources.find((entry) => entry.id === 'untriaged_inbound').content,
+    /WARNING: meeting watcher heartbeat is stale \(age=2h/,
+  );
+
+  writeFileSync(
+    path.join(dir, 'intake', 'heartbeats.json'),
+    JSON.stringify({
+      meeting_watch: {
+        last_run_at: NOW.toISOString(),
+        examined: 0,
+        matched: 0,
+        processed: 0,
+        errors: 0,
+        dead_letters: 2,
+        disabled: false,
+      },
+    }),
+  );
+  const deadLetters = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => forgeRowsResponse(url),
+  });
+  assert.match(
+    deadLetters.sources.find((entry) => entry.id === 'untriaged_inbound').content,
+    /WARNING: meeting watcher has 2 dead letters/,
+  );
+
+  writeFileSync(
+    path.join(dir, 'intake', 'heartbeats.json'),
+    JSON.stringify({
+      meeting_watch: {
+        last_run_at: NOW.toISOString(),
+        disabled: true,
+      },
+    }),
+  );
+  const disabled = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => forgeRowsResponse(url),
+  });
+  assert.match(
+    disabled.sources.find((entry) => entry.id === 'untriaged_inbound').content,
+    /WARNING: meeting watcher DISABLED\./,
+  );
 });
 
 test('computed commitments source exposes open loops, clarification, and factual content gaps', async (t) => {

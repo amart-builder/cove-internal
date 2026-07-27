@@ -11,6 +11,8 @@ function trimmedEnv(name, env = process.env) {
 
 export function forgeDataDir(explicit) {
   if (explicit) return explicit;
+  const configured = trimmedEnv("FORGE_DATA_DIR");
+  if (configured) return configured;
   const dbPath = trimmedEnv("FORGE_DB_PATH");
   return dbPath ? path.dirname(dbPath) : path.join(process.cwd(), "data");
 }
