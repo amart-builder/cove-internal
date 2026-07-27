@@ -916,6 +916,26 @@ test('project progress source shows yesterday and today digests and heartbeat wa
   );
 });
 
+test('a due autonomy check-in is included in collected brief sources', async (t) => {
+  const { dir, options } = fixture(t);
+  disableExternalSources(t, dir);
+  writeFileSync(path.join(dir, 'forge-autonomy.json'), JSON.stringify({
+    level: 'groundwork',
+    first_groundwork_at: '2026-07-02T12:00:00.000Z',
+    checkin_answered: false,
+    checkin_presented_count: 0,
+  }));
+  const collected = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => forgeRowsResponse(url),
+  });
+  const checkin = collected.sources.find(
+    (source) => source.id === 'autonomy_checkin',
+  );
+  assert.equal(checkin.label, 'AUTONOMY_CHECK_IN');
+  assert.match(checkin.content, /Groundwork has been running for two weeks/);
+});
+
 test('project progress falls back to the immutable Mini digest relay', async (t) => {
   const { dir, options } = fixture(t);
   disableExternalSources(t, dir);

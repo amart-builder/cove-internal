@@ -42,6 +42,10 @@ Forge supports `create_task`, `returned_work`, and `observed_progress`. Returned
 
 Tasks carried by Jarvis use the `jarvis-held` tag. Jarvis may work only on tasks the person handed over or on standing routines granted during setup. Finished agent work should return through a `returned_work` suggestion rather than being marked complete.
 
+## Groundwork autonomy
+
+Groundwork runs with read-only repo tools and an isolated empty Claude settings file, so user hooks and write or shell tools are unavailable. `WebSearch` remains enabled because current external facts materially improve useful groundwork; it is the lane's one intentional network egress channel. Groundwork may research and draft, but it must never send outbound communication.
+
 ## Date and time semantics
 
 Only add a time to `due_at` when the person supplied a real clock time. For date-only work, use midnight in either the canonical server timezone or UTC; Quiet Current treats both local midnight and UTC midnight as an un-timed date and will not draw a time anchor. Never turn an estimated duration or a convenient serialization hour into a displayed schedule.

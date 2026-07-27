@@ -1,6 +1,11 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import {
+  groundworkCheckinDue,
+  readForgeAutonomySettings,
+  recordGroundworkCheckinPresentation,
+} from "../autonomy/settings";
 import type { Commitment, CommitmentKind } from "../data/types";
 import { countSpooledEvents } from "../intake/inbox";
 import { readProgressDigestRelays } from "../progress/relay";
@@ -723,6 +728,42 @@ function projectProgressSource(input: {
       ].join("\n"),
       asOf: input.now.toISOString(),
       note: `error:${[warning, heartbeat.warning].filter(Boolean).join(";")}`,
+    };
+  }
+}
+
+export function autonomyCheckinSource(input: {
+  dataDir?: string;
+  now: Date;
+}): BriefSourceInput | undefined {
+  const source = {
+    id: "autonomy_checkin",
+    label: "AUTONOMY_CHECK_IN",
+    required: false,
+    maxChars: 800,
+    priority: 1,
+  } as const;
+  try {
+    const settings = readForgeAutonomySettings({
+      dataDir: input.dataDir,
+      createIfMissing: false,
+    });
+    if (!settings || !groundworkCheckinDue(settings, input.now)) return undefined;
+    recordGroundworkCheckinPresentation({ dataDir: input.dataDir });
+    return {
+      ...source,
+      content:
+        "Groundwork has been running for two weeks. Want Forge to try completing whole tasks (you still review everything), or keep it at groundwork? Edit data/forge-autonomy.json: set checkin_answered true, and level stays 'groundwork' or, when full-task mode ships, 'full'. This appears in at most three briefs; editing checkin_answered to false and checkin_presented_count to 0 re-opens it.",
+      asOf: settings.first_groundwork_at ?? input.now.toISOString(),
+    };
+  } catch (error) {
+    return {
+      ...source,
+      content: `WARNING: Forge autonomy setting is unreadable (${
+        errorNote(error, "forge_autonomy_invalid").replace(/^error:/, "")
+      }).`,
+      asOf: input.now.toISOString(),
+      note: "error:forge_autonomy_invalid",
     };
   }
 }
@@ -1632,6 +1673,10 @@ export async function collectMorningBriefSources(
       dumpAsOf = relayDump.asOf;
     }
   }
+  const autonomyCheckin = autonomyCheckinSource({
+    dataDir: options.dataDir,
+    now,
+  });
 
   const sources: BriefSourceInput[] = [
     dumpContent
@@ -1663,6 +1708,7 @@ export async function collectMorningBriefSources(
       targetTimezone,
       now,
     }),
+    ...(autonomyCheckin ? [autonomyCheckin] : []),
     fileSource("goals", "GOALS", filePolicy.goals.path, {
       required: filePolicy.goals.required,
       maxChars: 9000,

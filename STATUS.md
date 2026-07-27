@@ -87,6 +87,13 @@ Explicitly rejected: always-running general agent, autonomous external sends, cu
 
 ## Current State
 
+### 2026-07-27 Never-drop Phase 5: groundwork autonomy lane (shipped)
+
+- Triage's autonomy grade (`none|groundwork|nearly_done`) + `data/forge-autonomy.json` (default level "groundwork", "off" available) queue tasks for ONE bounded read-only Claude pass in the claude-worker watch lane: research/facts/plan/DRAFT-marked drafts appended under `## Groundwork (Forge)`, tag -> `jarvis-held`. Structural no-outbound: read/search tools only, empty MCP config, isolated empty --settings (user hooks never fire in the child), minimal env, budget + 3-min caps; WebSearch is the one documented egress.
+- Review round hardened: durable pre-PATCH attempt accounting (no infinite paid retries), atomic 10-min leases, CAS PATCHes (user content after the groundwork section preserved), check-in shows in max 3 briefs then closes.
+- 2-week check-in: after 14 days of groundwork the brief asks once whether to raise autonomy; "full" mode intentionally unbuilt until Alex says yes.
+- Known flake (pre-existing pattern, chip filed): forge-rest-route.test.mjs has one order-sensitive CSRF test (passes alone).
+
 ### 2026-07-27 Never-drop Phase 4: automatic progress tracker (shipped; Mini agent installing)
 
 - MacBook hooks (SessionStart/Stop, async, no LLM/network) append factual pings to per-machine `data/session-pings/<host>-<date>.jsonl`; live since this afternoon.
