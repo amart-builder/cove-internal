@@ -1,4 +1,5 @@
 import path from "node:path";
+import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { FORGE_REST_TABLES } from "../src/lib/data/forge-tables";
 import {
@@ -360,6 +361,6 @@ export async function main(
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(path.resolve(process.argv[1])) === fileURLToPath(import.meta.url)) {
   void main().then((code) => { process.exitCode = code; });
 }

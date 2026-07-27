@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   readdirSync,
   renameSync,
   statSync,
@@ -928,7 +929,7 @@ export async function main(args = process.argv.slice(2)) {
 
 if (
   process.argv[1] &&
-  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+  realpathSync(path.resolve(process.argv[1])) === fileURLToPath(import.meta.url)
 ) {
   void main().then((code) => {
     process.exitCode = code;
