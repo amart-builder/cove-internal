@@ -1,4 +1,5 @@
 import type { CommitmentKind } from "../data/types";
+import { operatorName } from "../operator";
 import type { ClaudeCommand } from "./commands";
 import { parseStructuredClaudeOutput, resolveClaudeModel } from "./commands";
 
@@ -149,6 +150,7 @@ export function buildDayDumpPrompt(input: {
   planItems: readonly DumpPlanItem[];
   openCommitments: readonly DumpExistingCommitment[];
 }): string {
+  const name = operatorName();
   return [
     "/forge-day-dump",
     "You convert one evening brain dump into a bounded commitment-ledger extraction. You never take action and never write storage.",
@@ -163,7 +165,7 @@ export function buildDayDumpPrompt(input: {
     "Set confidence to high, medium, or low. Never invent facts, names, counterparties, or dates. Emit ambiguous fragments with confidence low instead of guessing details.",
     "Set status to open unless BRAIN_DUMP explicitly says the item is already done, dropped, or expired.",
     "If an item clearly duplicates OPEN_COMMITMENTS, omit it from items and add that existing id to skipped_duplicates.",
-    "Also emit resolutions when BRAIN_DUMP says an existing OPEN_COMMITMENT is handled, answered, obsolete, or changed: a time became known, a person replied, or Alex did the thing.",
+    `Also emit resolutions when BRAIN_DUMP says an existing OPEN_COMMITMENT is handled, answered, obsolete, or changed: a time became known, a person replied, or ${name} did the thing.`,
     "A restatement with no new state is only a skipped_duplicates entry, never a resolution.",
     "Every resolution commitment_id MUST be one of the supplied OPEN_COMMITMENTS ids. Use action done when the commitment is finished or moot. Use action update when it remains open but its state changed.",
     "Every resolution quote MUST be copied verbatim from BRAIN_DUMP. Note is one short plain sentence describing what changed. Set due_at only for update when a concrete date or time became known, resolved to ISO 8601 with the America/Los_Angeles offset.",

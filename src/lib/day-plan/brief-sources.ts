@@ -1,7 +1,14 @@
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { Commitment, CommitmentKind } from "../data/types";
+import {
+  forgeDataDir,
+  loadOperatorProfile,
+  operatorName,
+  operatorProfilePath,
+  type OperatorProfile,
+} from "../operator";
 import type { DayPlanStore } from "./store";
 import { localDateInTimezone, type BriefSourceInput } from "./brief";
 import { buildSettlementSummary, readDumpRelay, readSettlementRelay } from "./brief-relay";
@@ -12,35 +19,103 @@ const DEFAULT_BRIEF_TIMEZONE = "America/Los_Angeles";
 const COMPOSIO_MCP_URL = "https://connect.composio.dev/mcp";
 const ATTIO_PEOPLE_QUERY_URL = "https://api.attio.com/v2/objects/people/records/query";
 
-// File-source defaults. Each is configurable; these point at Alex's real
-// operating files so the default installation briefs from the same documents
-// he maintains by hand.
-export function defaultGoalsPath(): string {
-  return (
-    process.env.FORGE_BRIEF_GOALS_PATH ??
-    path.join(homedir(), "Atlas", "brain", "GOALS.md")
+export type BriefFileSourcePolicyEntry = {
+  path: string;
+  required: boolean;
+  format?: "operator-profile-json";
+};
+
+export type BriefFileSourcePolicy = {
+  goals: BriefFileSourcePolicyEntry;
+  operator_profile: BriefFileSourcePolicyEntry;
+  leadup: BriefFileSourcePolicyEntry;
+  sprint_memo: BriefFileSourcePolicyEntry;
+};
+
+type BriefFileSourcePolicyOptions = {
+  dataDir?: string;
+  homeDir?: string;
+  goalsPath?: string;
+  operatorProfilePath?: string;
+  leadupPath?: string;
+  sprintMemoPath?: string;
+};
+
+function nonEmptyEnv(name: string): string | undefined {
+  return process.env[name]?.trim() || undefined;
+}
+
+function legacyBrainPath(homeDir: string, filename: string): string {
+  return path.join(homeDir, "Atlas", "brain", filename);
+}
+
+export function resolveBriefFileSourcePolicy(
+  options: BriefFileSourcePolicyOptions = {},
+): BriefFileSourcePolicy {
+  const dataDir = forgeDataDir(options.dataDir);
+  const homeDir = options.homeDir ?? homedir();
+  const legacyGoals = legacyBrainPath(homeDir, "GOALS.md");
+  const clientGoals = path.join(dataDir, "brief", "goals.md");
+  const legacySprintMemo = legacyBrainPath(homeDir, "path-to-30k-2026-07.md");
+  const legacyOperatorProfile = legacyBrainPath(homeDir, "operator-profile.md");
+  const legacyLeadup = legacyBrainPath(homeDir, "brief-leadup.md");
+  const jsonProfile = operatorProfilePath(dataDir);
+
+  const explicitGoals = options.goalsPath?.trim();
+  const envGoals = nonEmptyEnv("FORGE_BRIEF_GOALS_PATH");
+  const explicitSprintMemo = options.sprintMemoPath?.trim();
+  const envSprintMemo = nonEmptyEnv("FORGE_BRIEF_SPRINT_MEMO_PATH");
+  const explicitOperatorProfile = options.operatorProfilePath?.trim();
+  const envOperatorProfile = nonEmptyEnv("FORGE_BRIEF_OPERATOR_PROFILE_PATH");
+  const explicitLeadup = options.leadupPath?.trim();
+  const envLeadup = nonEmptyEnv("FORGE_BRIEF_LEADUP_PATH");
+
+  const operatorPath = explicitOperatorProfile || envOperatorProfile ||
+    (existsSync(legacyOperatorProfile) ? legacyOperatorProfile : jsonProfile);
+
+  return {
+    goals: {
+      path: explicitGoals || envGoals ||
+        (existsSync(clientGoals) ? clientGoals : legacyGoals),
+      required: true,
+    },
+    sprint_memo: {
+      path: explicitSprintMemo || envSprintMemo || legacySprintMemo,
+      required: Boolean(explicitSprintMemo || envSprintMemo),
+    },
+    operator_profile: {
+      path: operatorPath,
+      required: false,
+      ...(!explicitOperatorProfile && !envOperatorProfile && operatorPath === jsonProfile
+        ? { format: "operator-profile-json" as const }
+        : {}),
+    },
+    leadup: {
+      path: explicitLeadup || envLeadup || legacyLeadup,
+      required: false,
+    },
+  };
+}
+
+export function briefCheckpointSources(
+  options: BriefFileSourcePolicyOptions = {},
+): Record<string, { path: string; required: boolean }> {
+  return Object.fromEntries(
+    Object.entries(resolveBriefFileSourcePolicy(options)).map(([id, source]) => [
+      id,
+      { path: source.path, required: source.required },
+    ]),
   );
 }
 
-export function defaultSprintMemoPath(): string {
-  return (
-    process.env.FORGE_BRIEF_SPRINT_MEMO_PATH ??
-    path.join(homedir(), "Atlas", "brain", "path-to-30k-2026-07.md")
-  );
-}
-
-export function defaultOperatorProfilePath(): string {
-  return (
-    process.env.FORGE_BRIEF_OPERATOR_PROFILE_PATH ??
-    path.join(homedir(), "Atlas", "brain", "operator-profile.md")
-  );
-}
-
-export function defaultLeadupPath(): string {
-  return (
-    process.env.FORGE_BRIEF_LEADUP_PATH ??
-    path.join(homedir(), "Atlas", "brain", "brief-leadup.md")
-  );
+export function defaultSupernovaDir(homeDir = homedir()): string | undefined {
+  const configured = nonEmptyEnv("FORGE_SUPERNOVA_DIR");
+  if (configured) return configured;
+  const candidates = [
+    path.join(homeDir, "Atlas", "Projects", "supernova-engine"),
+    path.join(homeDir, "Desktop", "Atlas", "Projects", "supernova-engine"),
+  ];
+  return candidates.find((candidate) => existsSync(candidate));
 }
 
 // Forge installs on port 3200 (see scripts/install-forge-local.sh), so the
@@ -68,6 +143,7 @@ export type CollectedBriefSources = {
 
 export type MorningBriefSourceOptions = {
   store: DayPlanStore;
+  homeDir?: string;
   goalsPath?: string;
   operatorProfilePath?: string;
   leadupPath?: string;
@@ -180,6 +256,108 @@ function fileSource(
     return { id, label, ...options, content, asOf, note: filePath };
   } catch {
     return { id, label, ...options, note: `unreadable:${filePath}` };
+  }
+}
+
+// Whitelist for the rendered OPERATOR_PROFILE block. self_emails and
+// memory_hub_url are deliberately excluded: they are wiring the runtime reads
+// (own-record CRM filter, memory hub address), not context the brief should
+// ever quote back at the operator.
+const OPERATOR_PROFILE_FIELDS = [
+  "name",
+  "timezone",
+  "workday",
+  "responsibilities",
+  "ninety_day_outcomes",
+  "protected_time",
+  "work_sources",
+  "jarvis_may_carry",
+  "jarvis_must_return",
+  "failure_patterns",
+  "communication_style",
+  "never_drop",
+  "key_people",
+  "money",
+] as const;
+
+function readableLabel(value: string): string {
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function readableProfileValue(value: unknown, indent = ""): string[] {
+  if (typeof value === "string") {
+    const trimmed = value.replace(/\s+/g, " ").trim();
+    return trimmed ? [`${indent}${trimmed}`] : [];
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return [`${indent}${String(value)}`];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      const lines = readableProfileValue(item, `${indent}  `);
+      if (lines.length === 0) return [];
+      return [
+        `${indent}- ${lines[0].trimStart().replace(/^-\s*/, "")}`,
+        ...lines.slice(1),
+      ];
+    });
+  }
+  const record = asRecord(value);
+  if (!record) return [];
+  return Object.entries(record).flatMap(([key, item]) => {
+    const lines = readableProfileValue(item, `${indent}  `);
+    if (lines.length === 0) return [];
+    if (lines.length === 1) {
+      return [`${indent}- ${readableLabel(key)}: ${lines[0].trimStart()}`];
+    }
+    return [`${indent}- ${readableLabel(key)}:`, ...lines];
+  });
+}
+
+export function renderOperatorProfile(profile: OperatorProfile, maxChars = 6000): string {
+  const lines = OPERATOR_PROFILE_FIELDS.flatMap((field) => {
+    const valueLines = readableProfileValue(profile[field]);
+    if (valueLines.length === 0) return [];
+    return valueLines.length === 1 && !Array.isArray(profile[field]) &&
+      !asRecord(profile[field])
+      ? [`${readableLabel(field)}: ${valueLines[0].trimStart()}`]
+      : [`${readableLabel(field)}:`, ...valueLines];
+  });
+  return lines.join("\n").slice(0, maxChars);
+}
+
+function operatorProfileJsonSource(
+  sourcePath: string,
+  options: {
+    required: boolean;
+    maxChars: number;
+    priority: number;
+  },
+): BriefSourceInput {
+  try {
+    const parsed = JSON.parse(readFileSync(sourcePath, "utf8")) as unknown;
+    const profile = asRecord(parsed);
+    if (!profile) throw new Error("profile_not_object");
+    const content = renderOperatorProfile(profile, options.maxChars);
+    if (!content) throw new Error("profile_empty");
+    const asOf = statSync(sourcePath).mtime.toISOString();
+    return {
+      id: "operator_profile",
+      label: "OPERATOR_PROFILE",
+      ...options,
+      content,
+      asOf,
+      note: sourcePath,
+    };
+  } catch {
+    return {
+      id: "operator_profile",
+      label: "OPERATOR_PROFILE",
+      ...options,
+      note: `unreadable:${sourcePath}`,
+    };
   }
 }
 
@@ -436,13 +614,14 @@ async function commitmentsSource(input: {
       });
     const quotaValue = Number(process.env.FORGE_CONTENT_QUOTA_POSTS);
     const quota = Number.isFinite(quotaValue) && quotaValue >= 0 ? quotaValue : 2;
-    const quotaGap = contentQuotaGap({
-      engineDir:
-        process.env.FORGE_SUPERNOVA_ENGINE_DIR ??
-        "/Users/alexanderjmartin/Atlas/Projects/supernova-engine",
-      targetLocalDate: input.targetLocalDate,
-      quota,
-    });
+    const supernovaDir = defaultSupernovaDir();
+    const quotaGap = supernovaDir
+      ? contentQuotaGap({
+          engineDir: supernovaDir,
+          targetLocalDate: input.targetLocalDate,
+          quota,
+        })
+      : null;
     const overnight = commitments.filter((commitment) => commitment.kind === "overnight_request");
     const content = [
       "OPEN COMMITMENTS",
@@ -790,22 +969,30 @@ function attioLastTouch(record: UnknownRecord): AttioInteraction | undefined {
   );
 }
 
+// The operator's own CRM record is noise in a last-touch list. Which addresses
+// are "theirs" is install-specific, so it comes from the profile; with none
+// configured we filter nothing rather than guess.
+export function operatorSelfEmails(): ReadonlySet<string> {
+  const configured = loadOperatorProfile()?.self_emails;
+  if (!Array.isArray(configured)) return new Set();
+  return new Set(
+    configured.flatMap((value) =>
+      typeof value === "string" && value.trim() ? [value.trim().toLowerCase()] : []),
+  );
+}
+
 function formatCrmLastTouches(
   records: readonly unknown[],
   now: Date,
   timezone: string,
+  selfEmails: ReadonlySet<string>,
 ): string {
   const people = records
     .map((value) => {
       const record = asRecord(value);
       if (!record) return undefined;
       const emails = attioEmailAddresses(record);
-      if (
-        emails.some((email) => {
-          const normalized = email.toLowerCase();
-          return normalized === "alex@joinedgeai.com" || normalized === "alex@edge-fund.io";
-        })
-      ) {
+      if (emails.some((email) => selfEmails.has(email.toLowerCase()))) {
         return undefined;
       }
       const name = attioPersonName(record);
@@ -878,7 +1065,7 @@ async function crmSource(
     if (!records) throw new Error("Attio people response shape");
     return {
       ...source,
-      content: formatCrmLastTouches(records, now, timezone),
+      content: formatCrmLastTouches(records, now, timezone, operatorSelfEmails()),
       asOf: now.toISOString(),
     };
   } catch (error) {
@@ -898,11 +1085,23 @@ function formatDecisionResults(results: readonly unknown[]): string {
     .join("\n");
 }
 
-const MEMORY_QUERIES = [
-  "recent decisions, commitments, and direction changes",
-  "what Alex worked on in Claude sessions the last three days",
-  "current state of Jarvis Pro, Boomer AI (Slipstream community), content engine",
-] as const;
+// The memory hub is whichever jarvis-memory server this install owns. There is
+// deliberately no default address: an install with no hub configured degrades
+// to a missing optional source instead of reaching for someone else's machine.
+export function memoryHubUrl(): string | undefined {
+  const profileUrl = loadOperatorProfile()?.memory_hub_url;
+  const configured = nonEmptyEnv("FORGE_BRIEF_JARVIS_URL")
+    ?? (typeof profileUrl === "string" && profileUrl.trim() ? profileUrl.trim() : undefined);
+  return configured?.replace(/\/$/, "");
+}
+
+function memoryQueries(): readonly string[] {
+  return [
+    "recent decisions, commitments, and direction changes",
+    `what ${operatorName()} worked on in Claude sessions the last three days`,
+    "current state of Jarvis Pro, Boomer AI (Slipstream community), content engine",
+  ];
+}
 
 function memoryResultScore(result: unknown): number {
   const score = asRecord(result)?.score;
@@ -953,7 +1152,8 @@ async function memoryDecisionsSource(
   const tokenPath = process.env.FORGE_BRIEF_JARVIS_TOKEN_PATH?.trim()
     || path.join(homedir(), ".config", "jarvis-v2", "hub_token");
   const token = readKeyFile(tokenPath);
-  if (!token) {
+  const hubUrl = memoryHubUrl();
+  if (!token || !hubUrl) {
     return {
       id: "memory_decisions",
       label: "RECENT_DECISIONS",
@@ -962,12 +1162,11 @@ async function memoryDecisionsSource(
     };
   }
   try {
-    const hubUrl = (process.env.FORGE_BRIEF_JARVIS_URL?.trim() || "http://100.102.6.81:3510")
-      .replace(/\/$/, "");
+    const queries = memoryQueries();
     const batches: unknown[][] = [
-      await fetchMemoryResults(fetchImpl, hubUrl, token, MEMORY_QUERIES[0]),
+      await fetchMemoryResults(fetchImpl, hubUrl, token, queries[0]),
     ];
-    for (const query of MEMORY_QUERIES.slice(1)) {
+    for (const query of queries.slice(1)) {
       try {
         batches.push(await fetchMemoryResults(fetchImpl, hubUrl, token, query));
       } catch {
@@ -1026,6 +1225,30 @@ export async function collectMorningBriefSources(
     }
   }
   const memoryPath = options.memoryDecisionsPath ?? process.env.FORGE_BRIEF_MEMORY_PATH;
+  const filePolicy = resolveBriefFileSourcePolicy({
+    dataDir: options.dataDir,
+    homeDir: options.homeDir,
+    goalsPath: options.goalsPath,
+    operatorProfilePath: options.operatorProfilePath,
+    leadupPath: options.leadupPath,
+    sprintMemoPath: options.sprintMemoPath,
+  });
+  const operatorProfileSourceOptions = {
+    required: filePolicy.operator_profile.required,
+    maxChars: 6000,
+    priority: 2,
+  };
+  const operatorProfileSource = filePolicy.operator_profile.format === "operator-profile-json"
+    ? operatorProfileJsonSource(
+        filePolicy.operator_profile.path,
+        operatorProfileSourceOptions,
+      )
+    : fileSource(
+        "operator_profile",
+        "OPERATOR_PROFILE",
+        filePolicy.operator_profile.path,
+        operatorProfileSourceOptions,
+      );
 
   // Start independent external reads together. Each helper catches its own
   // failures so an optional integration can never reject the full collection.
@@ -1094,29 +1317,20 @@ export async function collectMorningBriefSources(
           priority: 0,
           note: "day_dump_unavailable",
         },
-    fileSource("goals", "GOALS", options.goalsPath ?? defaultGoalsPath(), {
-      required: true,
+    fileSource("goals", "GOALS", filePolicy.goals.path, {
+      required: filePolicy.goals.required,
       maxChars: 9000,
       priority: 1,
       // Goals change rarely; a month untouched is worth flagging.
       freshnessThresholdHours: staleThresholdHours("goals", 24 * 30),
     }),
-    fileSource(
-      "operator_profile",
-      "OPERATOR_PROFILE",
-      options.operatorProfilePath ?? defaultOperatorProfilePath(),
-      {
-        required: false,
-        maxChars: 6000,
-        priority: 2,
-      },
-    ),
+    operatorProfileSource,
     fileSource(
       "leadup",
       "LEADUP",
-      options.leadupPath ?? defaultLeadupPath(),
+      filePolicy.leadup.path,
       {
-        required: false,
+        required: filePolicy.leadup.required,
         maxChars: 9000,
         priority: 3,
       },
@@ -1124,9 +1338,9 @@ export async function collectMorningBriefSources(
     fileSource(
       "sprint_memo",
       "SPRINT_MEMO",
-      options.sprintMemoPath ?? defaultSprintMemoPath(),
+      filePolicy.sprint_memo.path,
       {
-        required: true,
+        required: filePolicy.sprint_memo.required,
         maxChars: 12_000,
         priority: 4,
         // The sprint memo should move weekly.

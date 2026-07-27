@@ -28,10 +28,35 @@ else
   BUDDY_DEEPLINKS=1
 fi
 BUDDY_APP_URL="${FORGE_BUDDY_APP_URL:-http://127.0.0.1:3200}"
-if [ "$MINI" = "1" ]; then
-  SUPERNOVA_ENGINE_DIR="/Users/alexandermartin/Desktop/Atlas/Projects/supernova-engine"
+SUPERNOVA_DIR=""
+if [ -n "${FORGE_SUPERNOVA_DIR:-}" ] && [ -d "$FORGE_SUPERNOVA_DIR" ]; then
+  SUPERNOVA_DIR="$FORGE_SUPERNOVA_DIR"
 else
-  SUPERNOVA_ENGINE_DIR="/Users/alexanderjmartin/Atlas/Projects/supernova-engine"
+  if [ "$MINI" = "1" ]; then
+    SUPERNOVA_PRIMARY="$HOME/Desktop/Atlas/Projects/supernova-engine"
+    SUPERNOVA_SECONDARY="$HOME/Atlas/Projects/supernova-engine"
+  else
+    SUPERNOVA_PRIMARY="$HOME/Atlas/Projects/supernova-engine"
+    SUPERNOVA_SECONDARY="$HOME/Desktop/Atlas/Projects/supernova-engine"
+  fi
+  for candidate in "$SUPERNOVA_PRIMARY" "$SUPERNOVA_SECONDARY"; do
+    if [ -d "$candidate" ]; then
+      SUPERNOVA_DIR="$candidate"
+      break
+    fi
+  done
+fi
+SUPERNOVA_PLIST_ENTRY=""
+if [ -n "$SUPERNOVA_DIR" ]; then
+  # & is the whole-match reference in a sed replacement, so each entity needs a
+  # single backslash escape. Two backslashes would emit a literal backslash.
+  SUPERNOVA_XML_DIR="$(printf '%s' "$SUPERNOVA_DIR" | sed \
+    -e 's/&/\&amp;/g' \
+    -e 's/</\&lt;/g' \
+    -e 's/>/\&gt;/g')"
+  printf -v SUPERNOVA_PLIST_ENTRY \
+    '    <key>FORGE_SUPERNOVA_DIR</key>\n    <string>%s</string>' \
+    "$SUPERNOVA_XML_DIR"
 fi
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -173,8 +198,7 @@ STIGNORE_BLOCK
     <string>$ATLAS_ROOT/brain/brief-leadup.md</string>
     <key>FORGE_BRIEF_SPRINT_MEMO_PATH</key>
     <string>$ATLAS_ROOT/brain/path-to-30k-2026-07.md</string>
-    <key>FORGE_SUPERNOVA_ENGINE_DIR</key>
-    <string>$SUPERNOVA_ENGINE_DIR</string>
+$SUPERNOVA_PLIST_ENTRY
     <key>FORGE_CONTENT_QUOTA_POSTS</key>
     <string>2</string>
   </dict>
@@ -309,8 +333,7 @@ cat > "$SERVER_PLIST" <<EOF
     <string>$BUDDY_APP_URL</string>
     <key>FORGE_CLAUDE_WORKER_AVAILABLE</key>
     <string>1</string>
-    <key>FORGE_SUPERNOVA_ENGINE_DIR</key>
-    <string>$SUPERNOVA_ENGINE_DIR</string>
+$SUPERNOVA_PLIST_ENTRY
     <key>FORGE_CONTENT_QUOTA_POSTS</key>
     <string>2</string>
   </dict>
@@ -361,8 +384,7 @@ cat > "$WORKER_PLIST" <<EOF
     <string>$BUDDY_DEEPLINKS</string>
     <key>FORGE_BRIEF_WEB_BASE</key>
     <string>http://127.0.0.1:3200</string>
-    <key>FORGE_SUPERNOVA_ENGINE_DIR</key>
-    <string>$SUPERNOVA_ENGINE_DIR</string>
+$SUPERNOVA_PLIST_ENTRY
     <key>FORGE_CONTENT_QUOTA_POSTS</key>
     <string>2</string>
   </dict>

@@ -21,6 +21,9 @@ import {
 } from "./brief";
 import type { DaySnapshot } from "./types";
 import type { DayPlanStore } from "./store";
+import { forgeDataDir } from "../operator";
+
+export { forgeDataDir } from "../operator";
 
 // The cross-machine relay moves immutable brief artifacts and a bounded
 // settlement summary as write-once JSON files inside Alex's Syncthing mesh. No
@@ -53,15 +56,6 @@ function sha256(value: string): string {
 
 function logLine(log: ((message: string) => void) | undefined, message: string): void {
   (log ?? ((line: string) => console.error(line)))(message);
-}
-
-// Relay files live next to forge.db so they ride the same synced tree on both
-// machines. FORGE_DB_PATH is the single source of truth for that location.
-export function forgeDataDir(explicit?: string): string {
-  if (explicit) return explicit;
-  const dbPath = process.env.FORGE_DB_PATH;
-  if (dbPath) return path.dirname(dbPath);
-  return path.join(process.cwd(), "data");
 }
 
 function briefRelayDir(dataDir?: string): string {
@@ -1137,6 +1131,20 @@ type CheckpointSource = CheckpointEntry | null;
 
 const OPTIONAL_CHECKPOINT_SOURCE_IDS = new Set(["operator_profile", "leadup"]);
 
+export type CheckpointSourceSpec = string | {
+  path: string;
+  required: boolean;
+};
+
+function checkpointSourceSpec(id: string, source: CheckpointSourceSpec): {
+  path: string;
+  required: boolean;
+} {
+  return typeof source === "string"
+    ? { path: source, required: !OPTIONAL_CHECKPOINT_SOURCE_IDS.has(id) }
+    : source;
+}
+
 type SourceCheckpointFile = {
   relay_version: number;
   written_at: string;
@@ -1157,18 +1165,19 @@ function checkpointEntry(filePath: string): CheckpointEntry | undefined {
 // allowed). Called on the MBP at settlement, local brief generation, and each
 // worker tick. Fail-open.
 export function writeSourceCheckpoint(options: {
-  sources: Record<string, string>;
+  sources: Record<string, CheckpointSourceSpec>;
   now?: Date;
   dataDir?: string;
   log?: (message: string) => void;
 }): boolean {
   try {
     const sources: Record<string, CheckpointSource> = {};
-    for (const [id, filePath] of Object.entries(options.sources)) {
-      const entry = checkpointEntry(filePath);
+    for (const [id, source] of Object.entries(options.sources)) {
+      const resolved = checkpointSourceSpec(id, source);
+      const entry = checkpointEntry(resolved.path);
       if (entry) {
         sources[id] = entry;
-      } else if (OPTIONAL_CHECKPOINT_SOURCE_IDS.has(id)) {
+      } else if (!resolved.required) {
         // Explicit absence lets the verifier distinguish an optional file the
         // writer checked from a source an older checkpoint never knew about.
         sources[id] = null;
@@ -1202,7 +1211,7 @@ export type SourceCheckpointVerdict =
 // local files. Any failure returns a reason the caller turns into a failed
 // status file (source_checkpoint_mismatch) rather than briefing off stale data.
 export function verifySourceCheckpoint(options: {
-  sources: Record<string, string>;
+  sources: Record<string, CheckpointSourceSpec>;
   now?: Date;
   dataDir?: string;
 }): SourceCheckpointVerdict {
@@ -1225,16 +1234,17 @@ export function verifySourceCheckpoint(options: {
     ) {
       return { ok: false, reason: "stale" };
     }
-    for (const [id, filePathForId] of Object.entries(options.sources)) {
+    for (const [id, source] of Object.entries(options.sources)) {
+      const resolved = checkpointSourceSpec(id, source);
       const checkpointKnowsSource = Object.prototype.hasOwnProperty.call(parsed.sources, id);
       if (!checkpointKnowsSource) {
         // Checkpoints written before operator_profile and leadup existed omit
         // those ids entirely. Preserve their compatibility until refreshed.
-        if (OPTIONAL_CHECKPOINT_SOURCE_IDS.has(id)) continue;
+        if (!resolved.required) continue;
         return { ok: false, reason: "mismatch" };
       }
       const expected = parsed.sources[id];
-      const local = checkpointEntry(filePathForId);
+      const local = checkpointEntry(resolved.path);
       if (expected === null) {
         if (local) return { ok: false, reason: "mismatch" };
         continue;

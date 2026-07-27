@@ -49,6 +49,12 @@ import {
 } from '../src/lib/claude-execution/worker.ts';
 
 const CLOCK = '2026-07-14T13:00:00.000Z';
+const PREVIOUS_OPERATOR_NAME = process.env.FORGE_OPERATOR_NAME;
+test.before(() => { process.env.FORGE_OPERATOR_NAME = 'Alex'; });
+test.after(() => {
+  if (PREVIOUS_OPERATOR_NAME === undefined) delete process.env.FORGE_OPERATOR_NAME;
+  else process.env.FORGE_OPERATOR_NAME = PREVIOUS_OPERATOR_NAME;
+});
 const VERSIONS = {
   promptVersion: MORNING_BRIEF_PROMPT_VERSION,
   schemaVersion: MORNING_BRIEF_SCHEMA_VERSION,
@@ -1123,11 +1129,11 @@ test('ensure keeps at most three items from a larger deterministic pool', (t) =>
 // ---------------------------------------------------------------------------
 
 test('the brief command is the exact bounded toolless invocation', () => {
-  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 12);
+  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 13);
   const repoCwd = process.cwd();
   const ownerPrompt = readFileSync(path.join(repoCwd, 'prompts', 'chief-of-staff.md'), 'utf8').trimEnd();
   assert.ok(ownerPrompt.includes(
-    "Work he resolved as Progress last night is momentum, not failure. Lead with it: say where it stands in his own words from the note, and make its recorded next step the obvious first move of the day. Work he resolved as Carry did not move. If the same item has been carried two or more days running, say that plainly and ask whether it still belongs in today's top three or should be deferred.",
+    "Work they resolved as Progress last night is momentum, not failure. Lead with it: say where it stands in their own words from the note, and make its recorded next step the obvious first move of the day. Work they resolved as Carry did not move. If the same item has been carried two or more days running, say that plainly and ask whether it still belongs in today's top three or should be deferred.",
   ));
   let command;
   process.chdir(os.tmpdir());
@@ -1163,7 +1169,8 @@ test('the brief command is the exact bounded toolless invocation', () => {
   assert.equal(command.stdin, [
     chiefOfStaffMandate(),
     '/forge-morning-brief',
-    'The target date below overrides any stale or prior-day date language inside CONTEXT. Do not state the date or greet him: the screen shows both above your first sentence.',
+    'OPERATOR_NAME=Alex',
+    'The target date below overrides any stale or prior-day date language inside CONTEXT. Do not state the date or greet the operator: the screen shows both above your first sentence.',
     'TARGET_LOCAL_DATE=2026-07-14',
     'TARGET_TIMEZONE=America/Los_Angeles',
     'TARGET_DAY_LABEL=Tuesday, July 14, 2026',
@@ -1173,7 +1180,7 @@ test('the brief command is the exact bounded toolless invocation', () => {
     'Every evidence_refs entry must name a source from SOURCE_MANIFEST, as source or source:detail (for example sprint_memo:gio). Forge drops any watch_item or sales_action whose refs cite anything else.',
     'existing_task_candidates: at most 3, ranked, and task_id must come from an OPEN_TASKS row marked candidate_ok. Rows without candidate_ok are context only, never candidates. Never invent tasks there.',
     'suggested_additions is a separate approval inbox for genuinely new work. Nothing in it is created automatically.',
-    'watch_items are the never-drop checks: stale leads over 3 days, promised follow-ups, invoices, call prep, the Friday scoreboard. At most five, ranked by what actually costs him something if nobody touches it today; a long list reads as noise and he stops reading it. Each evidence value must be one finished human sentence with no source citations. Keep last_seen_state and evidence_refs grounded for storage, but never write citation language into the sentence.',
+    'watch_items are the never-drop checks: stale leads over 3 days, promised follow-ups, invoices, call prep, the Friday scoreboard. At most five, ranked by what actually costs the operator something if nobody touches it today; a long list reads as noise and they stop reading it. Each evidence value must be one finished human sentence with no source citations. Keep last_seen_state and evidence_refs grounded for storage, but never write citation language into the sentence.',
     "sales_actions run the day's sales cadence with approval_required always true. Without last-touch evidence use draft_kind beats_only or blocked, never a confident full draft. Messages to close friends are always beats_only by standing rule.",
     'Do not invent facts, deadlines, contacts, or commitments. Do not use em dashes anywhere.',
     `JSON_SCHEMA=${MORNING_BRIEF_JSON_SCHEMA}`,
@@ -1376,7 +1383,7 @@ test('the brief worker validates, filters unknown tasks, and stores the artifact
     '-p', '--no-session-persistence', '--permission-mode', 'plan', '--tools', '',
     '--strict-mcp-config', '--mcp-config',
   ]);
-  assert.match(captured.input, /^# The morning brief: chief of staff mandate \(v12\)/);
+  assert.match(captured.input, /^# The morning brief: chief of staff mandate \(v13\)/);
   assert.match(captured.input, /\n\/forge-morning-brief\n/);
   // Empty queue afterwards.
   assert.equal(

@@ -13,6 +13,7 @@ import { seedBuddySession } from "@/lib/buddy/spawn-session";
 import { getQuietCurrentCsrfToken } from "@/lib/quiet-current/store";
 import { hasDayPlanRouteAccess } from "@/lib/request-security";
 import { markForgeOrchestratorSession } from "@/lib/claude-execution/orchestrator-session";
+import { workspaceRoot } from "@/lib/operator";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,8 @@ const MAX_BODY_BYTES = 16 * 1024;
 type SpawnRouteDependencies = {
   store?: BuddyStore;
   homeDir?: string;
+  workspaceRoot?: string | null;
+  resolveWorkspaceRoot?: () => string | null;
   randomId?: () => string;
   realpath?: typeof realpathSync;
   stat?: typeof statSync;
@@ -77,6 +80,18 @@ export async function handleSpawnSessionPost(
 ) {
   const accessError = denied(request, true);
   if (accessError) return accessError;
+  const configuredRoot = dependencies.resolveWorkspaceRoot
+    ? dependencies.resolveWorkspaceRoot()
+    : Object.prototype.hasOwnProperty.call(dependencies, "workspaceRoot")
+      ? dependencies.workspaceRoot ?? null
+      : workspaceRoot();
+  if (!configuredRoot) {
+    return NextResponse.json(
+      { error: "No coding workspace is configured on this machine." },
+      { status: 400 },
+    );
+  }
+  const scopedDependencies = { ...dependencies, workspaceRoot: configuredRoot };
   try {
     const raw = await request.text();
     if (Buffer.byteLength(raw, "utf8") > MAX_BODY_BYTES) {
@@ -105,19 +120,19 @@ export async function handleSpawnSessionPost(
       : requiredText(body.title, "title", 120);
     let dir: string;
     if (rawDir) {
-      dir = resolveBuddySpawnDirectory(rawDir, dependencies);
+      dir = resolveBuddySpawnDirectory(rawDir, scopedDependencies);
     } else {
       const resolver = dependencies.resolveProject ?? ((hint: string) =>
-        resolveProjectDirectory(hint, dependencies));
+        resolveProjectDirectory(hint, scopedDependencies));
       const resolved = resolver(project!);
       if (!resolved) {
         const names = (dependencies.listProjects ?? (() =>
-          listAtlasProjectFolderNames(dependencies)))();
+          listAtlasProjectFolderNames(scopedDependencies)))();
         throw new SpawnRequestError(
           `Project '${project}' did not match exactly one project folder. Available projects: ${names.join(", ") || "(none)"}.`,
         );
       }
-      dir = resolveBuddySpawnDirectory(resolved, dependencies);
+      dir = resolveBuddySpawnDirectory(resolved, scopedDependencies);
     }
     const sessionId = (dependencies.randomId ?? randomUUID)();
     const store = dependencies.store ?? getBuddyStore();

@@ -6,11 +6,13 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { workspaceRoot } from "./operator";
 
 const PROJECT_CACHE_TTL_MS = 30_000;
 
 export type AtlasProjectDependencies = {
   homeDir?: string;
+  workspaceRoot?: string | null;
   projectsRoot?: string;
   now?: () => number;
   cacheMs?: number;
@@ -29,8 +31,11 @@ let projectCache: ProjectCache | undefined;
 
 export class AtlasDirectoryError extends Error {}
 
-function atlasRoot(dependencies: AtlasProjectDependencies): string {
-  return path.join(dependencies.homeDir ?? os.homedir(), "Atlas");
+function atlasRoot(dependencies: AtlasProjectDependencies): string | null {
+  if (Object.prototype.hasOwnProperty.call(dependencies, "workspaceRoot")) {
+    return dependencies.workspaceRoot ?? null;
+  }
+  return workspaceRoot({ homeDir: dependencies.homeDir ?? os.homedir() });
 }
 
 function normalizedProjectName(value: string): string {
@@ -38,7 +43,9 @@ function normalizedProjectName(value: string): string {
 }
 
 function projectRoot(dependencies: AtlasProjectDependencies): string {
-  return dependencies.projectsRoot ?? path.join(atlasRoot(dependencies), "Projects");
+  const root = atlasRoot(dependencies);
+  if (!root) throw new AtlasDirectoryError("No coding workspace is configured on this machine.");
+  return dependencies.projectsRoot ?? path.join(root, "Projects");
 }
 
 export function resolveAtlasDirectory(
@@ -64,8 +71,9 @@ export function resolveAtlasDirectory(
   }
   if (!directory) throw new AtlasDirectoryError("Project path must be a directory.");
   const root = atlasRoot(dependencies);
+  if (!root) throw new AtlasDirectoryError("No coding workspace is configured on this machine.");
   if (real !== root && !real.startsWith(`${root}${path.sep}`)) {
-    throw new AtlasDirectoryError("Project directory must be inside ~/Atlas.");
+    throw new AtlasDirectoryError(`Project directory must be inside ${root}.`);
   }
   return real;
 }
@@ -73,7 +81,13 @@ export function resolveAtlasDirectory(
 export function listAtlasProjectFolderNames(
   dependencies: AtlasProjectDependencies = {},
 ): string[] {
-  const root = projectRoot(dependencies);
+  let root: string;
+  try {
+    root = projectRoot(dependencies);
+  } catch (error) {
+    if (error instanceof AtlasDirectoryError) return [];
+    throw error;
+  }
   const now = (dependencies.now ?? Date.now)();
   if (projectCache?.root === root && projectCache.expiresAt > now) {
     return [...projectCache.names];

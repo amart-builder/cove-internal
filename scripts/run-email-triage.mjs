@@ -3,6 +3,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { operatorName } from "../src/lib/operator-runtime.mjs";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -335,7 +336,7 @@ async function main() {
       if (classification === "log_only") stats.log += 1;
     }
 
-    const summary = pick(input.summary) ?? `Email triage processed ${stats.processed} new item(s): ${stats.action} need Alex, ${stats.tidings} update(s), ${stats.log} log-only.`;
+    const summary = pick(input.summary) ?? `Email triage processed ${stats.processed} new item(s): ${stats.action} need ${operatorName()}, ${stats.tidings} update(s), ${stats.log} log-only.`;
     await completeRun(run.id, {
       status: "succeeded",
       summary,

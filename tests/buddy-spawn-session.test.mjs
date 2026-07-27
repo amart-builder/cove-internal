@@ -54,6 +54,7 @@ test('spawn-session route gates requests and confines real directories to ~/Atla
   const baseDeps = {
     store,
     homeDir: home,
+    workspaceRoot: `${home}/Atlas`,
     markSession: () => undefined,
     stat: () => ({ isDirectory: () => true }),
   };
@@ -63,6 +64,17 @@ test('spawn-session route gates requests and confines real directories to ~/Atla
   const noCsrfRequest = request(`${home}/Atlas/app`);
   noCsrfRequest.headers.delete('x-forge-csrf');
   assert.equal((await handleSpawnSessionPost(noCsrfRequest, baseDeps)).status, 403);
+  const noWorkspace = await handleSpawnSessionPost(request(`${home}/Atlas/app`), {
+    ...baseDeps,
+    workspaceRoot: null,
+    realpath: () => assert.fail('filesystem resolution must not run without a workspace'),
+    readdir: () => assert.fail('project listing must not run without a workspace'),
+    seed: () => assert.fail('seed must not run without a workspace'),
+  });
+  assert.equal(noWorkspace.status, 400);
+  assert.deepEqual(await noWorkspace.json(), {
+    error: 'No coding workspace is configured on this machine.',
+  });
 
   const child = Object.assign(new EventEmitter(), {
     stdin: new PassThrough(),
@@ -155,7 +167,7 @@ test('spawn-session route gates requests and confines real directories to ~/Atla
       seed: () => assert.fail('seed must not run for a rejected directory'),
     });
     assert.equal(response.status, 400);
-    assert.match((await response.json()).error, /inside ~\/Atlas|does not exist/);
+    assert.match((await response.json()).error, /inside .*Atlas|does not exist/);
   };
   await rejected('/tmp/outside', (value) => value);
   await rejected(`${home}/Atlas/../Secrets`, (value) => value);

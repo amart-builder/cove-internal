@@ -19,16 +19,14 @@ import {
 } from "../day-plan/brief";
 import { evaluateScheduledBriefGate } from "../day-plan/brief-gate";
 import {
+  briefCheckpointSources,
   collectMorningBriefSources,
-  defaultGoalsPath,
-  defaultLeadupPath,
-  defaultOperatorProfilePath,
-  defaultSprintMemoPath,
   defaultBriefWebBase,
   fetchRows,
   type CollectedBriefSources,
 } from "../day-plan/brief-sources";
 import {
+  type CheckpointSourceSpec,
   exportBriefArtifact,
   liveRemoteBriefAttempt,
   originHost,
@@ -997,13 +995,16 @@ function resolveBriefTargetDate(store: DayPlanStore, now: Date): string {
   }
 }
 
-function relayCheckpointSources(relay: BriefRelayOptions): Record<string, string> {
-  return {
-    goals: relay.goalsPath ?? defaultGoalsPath(),
-    operator_profile: relay.operatorProfilePath ?? defaultOperatorProfilePath(),
-    leadup: relay.leadupPath ?? defaultLeadupPath(),
-    sprint_memo: relay.sprintMemoPath ?? defaultSprintMemoPath(),
-  };
+export function relayCheckpointSources(
+  relay: BriefRelayOptions,
+): Record<string, CheckpointSourceSpec> {
+  return briefCheckpointSources({
+    dataDir: relay.dataDir,
+    goalsPath: relay.goalsPath,
+    operatorProfilePath: relay.operatorProfilePath,
+    leadupPath: relay.leadupPath,
+    sprintMemoPath: relay.sprintMemoPath,
+  });
 }
 
 // The Morning Brief lane. It reuses the same bounded spawn machinery as the

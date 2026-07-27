@@ -12,8 +12,8 @@ test('captured Claude stream maps chat events and ignores unknown events', () =>
   assert.equal(events.filter((event) => event.kind === 'delta').map((event) => event.text).join(''), '1\n2\n3\n4\n5');
   assert.deepEqual(events.at(-1), {
     kind: 'done', resultText: '1\n2\n3\n4\n5',
-    sessionId: '86cdd665-c56b-4eeb-970d-58d15362245c',
-    costUsd: 0.0277615, isError: false,
+    sessionId: '11111111-1111-4111-8111-111111111111',
+    costUsd: 0.001, isError: false,
   });
   assert.deepEqual(parser('{"type":"future_event","value":1}'), []);
   assert.deepEqual(parser('not json'), []);

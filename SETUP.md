@@ -6,55 +6,50 @@ The user sent you this repository and asked you to set up Forge for them. Follow
 
 If the user later chooses Supabase or Convex, designate one Forge installation as the canonical server and point every browser and agent at its URL. Cloud tasks sync across servers; the provisional Quiet Current layer intentionally remains on the canonical Forge machine in the first release.
 
+**Machine paths.** Never assume this machine is laid out like any other. When a step needs a folder path (the repo location, a coding workspace, where their documents live), find it on this machine yourself or ask the user, and record it where the step says to. Nothing in this repo hard-codes a person's folders, and nothing you write during setup should either, except into the local config files named below.
+
 ## 1. Clone and install
 
 ```bash
 git clone https://github.com/amart-builder/forge.git ~/forge
 cd ~/forge
-npm install
+npm ci || npm install
 ```
 
-If `npm install` fails while building `better-sqlite3`, install Apple's command line tools once with `xcode-select --install`, then run `npm install` again.
-
-## 2. Build
+If the install fails while building `better-sqlite3`, install Apple's command line tools once with `xcode-select --install`, then run it again. Before moving on, prove the native module loads under the exact Node that will run Forge:
 
 ```bash
-npm run build
+node -e "require('better-sqlite3'); console.log('sqlite ok')"
 ```
 
-## 3. Start it, and make it start on its own
+Do not build or start anything yet. The next step comes first, because what you learn in it is what Forge runs on.
 
-```bash
-bash scripts/install-forge-local.sh
-```
+## 2. Get to know the operator (the most important step)
 
-This sets up four things:
+Forge's morning brief can only be as smart as what you learn here. You are not filling in a form; you are building the understanding a human chief of staff has after the first month, in one conversation. The question list below is a floor, not a ceiling: after every answer, ask yourself "could I act on this tomorrow morning without guessing?" If the answer is no, follow up now, in your own words. Rely on your judgment; that is what it is for.
 
-- Installs the task-capture skill, so the user can add tasks just by telling you.
-- Starts Forge at `http://localhost:3200`, makes it start automatically every time the Mac turns on, and restarts it if it ever crashes.
-- Runs a reminder checker every minute, so tasks notify the user when they are due.
-- Sets up a daily backup of the database.
-
-It binds to `localhost` only, so Forge is never exposed to the network. It is reachable only from this Mac.
-
-## 4. Tell the user it is running
-
-- "Forge is running at `http://localhost:3200` and everything saves locally on your Mac. There is no account and no login."
-- "Next we'll bookmark it and turn on reminders."
-
-## Personalization interview
-
-Before importing work or connecting other systems, learn how this person actually works. Ask one question at a time, let them answer naturally, and reflect back the important parts before moving on. Do not show them this entire list as a form.
+Ask one question at a time, let them answer naturally, and reflect back the important parts before moving on. Do not show them this list.
 
 1. **Their world:** "What are the main things you are responsible for right now, at work and outside it?"
-2. **What winning means:** "If the next 90 days went unusually well, what would be meaningfully different?"
-3. **How work reaches them:** "Where does new work usually appear today: your head, conversations, texts, email, calendar, notes, or somewhere else?"
-4. **Their day:** "When do you normally begin and stop work, and are there parts of the day you protect for deep work, calls, family, or recovery?" Confirm their timezone; never turn these answers into task-duration estimates.
-5. **Their current system:** "Where are your open commitments now, and which source should we treat as authoritative while we bring them into Forge?"
-6. **Jarvis boundaries:** "What may I carry for you after you hand it over, and what kinds of decisions or actions must always come back to you first?" Inferred work still enters in pencil regardless of the answer.
-7. **What creates stress:** "What do you most often forget, avoid, lose track of, or discover too late?"
+2. **The money:** "Walk me through what the business earns and where it comes from. Who are the clients or customers that matter most, and is there a number you are trying to reach?" You need this to weigh what a morning is worth; a brief that does not know which client pays for everything cannot rank a day.
+3. **What winning means:** "If the next 90 days went unusually well, what would be meaningfully different?"
+4. **The people:** "Who are the handful of people who most determine whether those 90 days work? Partners, key clients, a boss, a co-founder." Get names, roles, and what is live with each of them. The brief reasons about people by name or not at all.
+5. **What is in flight:** "What are you in the middle of right now? What is stuck, and what are you dreading?" This seeds the first board and the first brief with reality instead of aspiration.
+6. **How work reaches them:** "Where does new work usually appear today: your head, conversations, texts, email, calendar, notes, or somewhere else?"
+7. **Their day:** "When do you normally begin and stop work, and are there parts of the day you protect for deep work, calls, family, or recovery?" Confirm their timezone; never turn these answers into task-duration estimates.
+8. **Their current system:** "Where are your open commitments now, and which source should we treat as authoritative while we bring them into Forge?"
+9. **Never drop:** "What must never fall through the cracks, even on your worst week? Invoices, promised follow-ups, certain clients, a weekly review?" This list becomes the backbone of the brief's watch items.
+10. **Boundaries:** "What may I carry for you after you hand it over, and what kinds of decisions or actions must always come back to you first?" Inferred work still enters in pencil regardless of the answer.
+11. **What creates stress:** "What do you most often forget, avoid, lose track of, or discover too late?"
+12. **How to talk to them:** "Do you want it straight or softened? Headline first or the full picture? Any words or habits that instantly sound like a bot to you?" Their answers become standing voice rules.
 
-Summarize what you heard in plain language and ask the user to correct it. Then write the confirmed answers to `data/forge-profile.json` using this local shape:
+**The checkpoint that makes this real.** Before writing anything down, privately draft tomorrow's morning brief for this person: the one decisive move, the two or three things you would watch, what you would take off their plate. Do not show it to them. Every place you had to guess, hedge, or write something generic is a gap in what you just learned. Go back and ask about exactly those gaps. If a second private draft still reads generic, the interview is not done, no matter how many questions you have asked.
+
+## 3. Write down what you learned
+
+Two files, both local, both gitignored. Write them before any service starts, so the first brief ever generated already knows this person.
+
+**a. The profile**, `data/forge-profile.json`. Structured facts the app reads (the brief's prompts pull the operator's name from here):
 
 ```json
 {
@@ -62,26 +57,47 @@ Summarize what you heard in plain language and ask the user to correct it. Then 
   "timezone": "<IANA timezone>",
   "workday": { "starts": "09:00", "ends": "17:00" },
   "responsibilities": ["<area>"],
+  "money": ["<revenue source, rough amount, the target>"],
+  "key_people": ["<name: role, what is live with them>"],
   "ninety_day_outcomes": ["<outcome>"],
   "protected_time": ["<constraint or ritual>"],
   "work_sources": ["<where new work appears>"],
   "authoritative_source": "<current system during migration>",
+  "never_drop": ["<what must never slip>"],
   "jarvis_may_carry": ["<delegated category>"],
   "jarvis_must_return": ["<decision or action requiring review>"],
   "failure_patterns": ["<what gets lost or delayed>"],
+  "communication_style": ["<how they want to be talked to>"],
   "updated_at": "<ISO timestamp>"
 }
 ```
 
-This profile is not permission to create inferred tasks or take external action. It helps the agent explain and prioritize pencil suggestions in the person's own context. Keep credentials, private message content, and raw email out of it.
+**b. The goals file**, `data/brief/goals.md`. Prose, not bullets of fragments: the morning brief reads this file every day, and it works when the *why* travels with each fact. Write it in the operator's own words where you can. Cover: the north star and the numbers behind it; each line of attack and why it matters now; the never-drop list; how they want to be worked with. Then read it back to them and correct it together until they say "yes, that's me."
 
-Next, help the user establish their first current:
+This profile is not permission to create inferred tasks or take external action. It helps you explain and prioritize suggestions in the person's own context. Keep credentials, private message content, and raw email out of both files. Tell them the goals file is a living document: stale goals are worse than no goals, and they can tell you anytime direction changes.
 
-- Import or capture only real open commitments from the authoritative source they named. Confirm the mapping before a bulk import.
-- Ask which one commitment they want centered as Now. Do not choose it for them during setup.
-- Offer at most three clearly reasoned pencil suggestions for missing work; silence is better than speculative setup theater.
+**c. Their first current.** Import or capture only real open commitments from the authoritative source they named, confirming the mapping before any bulk import. Ask which one commitment they want centered as Now; do not choose for them. Offer at most three clearly reasoned pencil suggestions for missing work; silence is better than speculative setup theater.
+
+## 4. Build, start, and prove it
+
+```bash
+npm run build
+bash scripts/install-forge-local.sh
+```
+
+The script installs the task-capture and contact skills, starts Forge at `http://localhost:3200`, makes it start on login and restart on crash, runs a reminder checker every minute, and sets up a daily database backup. It binds to `localhost` only; Forge is never exposed to the network.
+
+Now prove it, before telling the user it is done:
+
+- **Prove Claude works headless.** Run one bounded request (`claude -p "say ok" --output-format json`) and check it returns cleanly. A worker that starts is not a worker that can think; this catches a signed-out Claude now instead of at 7:30 tomorrow.
+- **Prove the brief.** Trigger one real morning-brief generation end to end and read the result critically: does it sound like it knows this person, their money, their people, their week? If it reads generic, the profile or goals file is thin. Fix that now, with the user still next to you, not on day two.
+- **Say the readiness verdict out loud, per capability.** For tasks, email, CRM, and the brief: "can I run this well for this person tomorrow, and if not, what is missing?" Name what is missing instead of letting silence imply it all works.
+
+Then tell the user:
+
+- "Forge is running at `http://localhost:3200` and everything saves locally on your Mac. There is no account and no login."
+- "Tomorrow, open Today first. Tell me what changed, choose what is Now, and then begin. Forge learns from your corrections without silently changing your commitments."
 - Complete one harmless demo loop together: switch focus, mark a demo task done, Undo it, hand it to Jarvis, and bring it back.
-- End by saying: "Tomorrow, open Today first. Tell me what changed, choose what is Now, and then begin. Forge will learn from your corrections without silently changing your commitments."
 
 ## 5. Set up Tasks
 
@@ -223,7 +239,7 @@ c. **Demo one capture.** Ask for one real person they met recently and capture t
 
 d. **Tell them how it works day to day**, in one breath: "Mention anyone to me and I'll file them: 'met Sarah at the chamber event, owns a plumbing company, follow up Friday' becomes the contact, the note, and the follow-up task. Ask me 'who is Sarah?' before a call and I'll brief you. The tab is there when you want to browse."
 
-The `forge-contact` skill (installed with the others in step 1) does the filing: dedupes before creating, logs calls and meetings, keeps last-contact dates honest, and answers "who is X" from the record.
+The `forge-contact` skill (installed with the others in step 4) does the filing: dedupes before creating, logs calls and meetings, keeps last-contact dates honest, and answers "who is X" from the record.
 
 ## Running on more than one device
 

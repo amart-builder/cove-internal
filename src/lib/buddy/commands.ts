@@ -1,14 +1,82 @@
+import { createHash, randomUUID } from "node:crypto";
+import {
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ClaudeCommand } from "../claude-execution/commands";
 import { resolveClaudeModel } from "../claude-execution/commands";
+import { forgeDataDir, workspaceRoot } from "../operator";
 
 export const BUDDY_REPO_ROOT = process.cwd();
-export const BUDDY_HOME = path.join(BUDDY_REPO_ROOT, "buddy");
 export const BUDDY_DATA_SCRIPT = path.join(BUDDY_REPO_ROOT, "scripts/forge-buddy-data.ts");
 export const BUDDY_DATA_ALLOWED_TOOL = `Bash(npx tsx ${BUDDY_DATA_SCRIPT} *)`;
 export const BUDDY_DATA_CD_ALLOWED_TOOL =
   `Bash(cd ${BUDDY_REPO_ROOT} && npx tsx ${BUDDY_DATA_SCRIPT} *)`;
+const BUDDY_TEMPLATE_PATH = path.join(BUDDY_REPO_ROOT, "buddy", "CLAUDE.md.template");
+const SPAWN_BLOCK_RE = /<!--SPAWN-->[\s\S]*?<!--\/SPAWN-->\s*/;
+
+export function renderBuddyInstructionDoc(options: {
+  dataDir?: string;
+  workspaceRoot?: string | null;
+} = {}): string {
+  const configuredWorkspace = options.workspaceRoot === undefined
+    ? workspaceRoot()
+    : options.workspaceRoot;
+  const template = readFileSync(BUDDY_TEMPLATE_PATH, "utf8");
+  const templateHash = createHash("sha256")
+    .update(template)
+    .update("\0")
+    .update(BUDDY_REPO_ROOT)
+    .update("\0")
+    .update(configuredWorkspace ?? "")
+    .digest("hex");
+  const renderedDir = path.join(forgeDataDir(options.dataDir), "buddy-home");
+  const renderedPath = path.join(renderedDir, "CLAUDE.md");
+  const hashHeader = `<!-- FORGE_BUDDY_TEMPLATE_HASH:${templateHash} -->`;
+  let body = template
+    .replaceAll("{{FORGE_REPO_ROOT}}", BUDDY_REPO_ROOT);
+  body = configuredWorkspace
+    ? body
+        .replaceAll("{{WORKSPACE_ROOT}}", configuredWorkspace)
+        .replaceAll("<!--SPAWN-->", "")
+        .replaceAll("<!--/SPAWN-->", "")
+    : body.replace(SPAWN_BLOCK_RE, "");
+  if (body.includes("{{FORGE_REPO_ROOT}}") || body.includes("{{WORKSPACE_ROOT}}")) {
+    throw new Error("Buddy instruction template contains unresolved placeholders.");
+  }
+  const expected = `${hashHeader}\n${body}`;
+  try {
+    const current = readFileSync(renderedPath, "utf8");
+    if (current === expected && current.includes(BUDDY_DATA_SCRIPT)) {
+      return renderedDir;
+    }
+  } catch {
+    // Missing or stale output is rendered below.
+  }
+
+  mkdirSync(renderedDir, { recursive: true, mode: 0o700 });
+  const temporaryPath = path.join(
+    renderedDir,
+    `.CLAUDE.md.${process.pid}.${randomUUID()}.tmp`,
+  );
+  try {
+    writeFileSync(temporaryPath, expected, { mode: 0o600 });
+    renameSync(temporaryPath, renderedPath);
+  } catch (error) {
+    rmSync(temporaryPath, { force: true });
+    throw error;
+  }
+  const verified = readFileSync(renderedPath, "utf8");
+  if (verified !== expected || !verified.includes(BUDDY_DATA_SCRIPT)) {
+    throw new Error("Rendered Buddy instructions did not verify the Forge data tool path.");
+  }
+  return renderedDir;
+}
 
 function localIso(date: Date): string {
   const offset = -date.getTimezoneOffset();
@@ -39,9 +107,10 @@ export function buildBuddyTurnCommand(input: {
   now?: Date;
 }): ClaudeCommand {
   const executable = process.env.FORGE_CLAUDE_BIN ?? path.join(os.homedir(), ".local/bin/claude");
+  const renderedHome = renderBuddyInstructionDoc();
   return {
     executable,
-    cwd: BUDDY_HOME,
+    cwd: renderedHome,
     args: [
       "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose",
       "--model", resolveClaudeModel(input.model), "--effort", input.effort, "--name", "Forge Buddy",
@@ -65,9 +134,10 @@ function buildCompactionCommand(input: {
   prompt: string;
 }): ClaudeCommand {
   const executable = process.env.FORGE_CLAUDE_BIN ?? path.join(os.homedir(), ".local/bin/claude");
+  const renderedHome = renderBuddyInstructionDoc();
   return {
     executable,
-    cwd: BUDDY_HOME,
+    cwd: renderedHome,
     args: [
       "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose",
       "--model", "sonnet", "--effort", "low", "--name", "Forge Buddy compaction",

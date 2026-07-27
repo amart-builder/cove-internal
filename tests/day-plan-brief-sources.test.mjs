@@ -4,7 +4,15 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { assembleMorningBriefContext } from '../src/lib/day-plan/brief.ts';
-import { collectMorningBriefSources } from '../src/lib/day-plan/brief-sources.ts';
+import {
+  briefCheckpointSources,
+  collectMorningBriefSources,
+  resolveBriefFileSourcePolicy,
+} from '../src/lib/day-plan/brief-sources.ts';
+import {
+  verifySourceCheckpoint,
+  writeSourceCheckpoint,
+} from '../src/lib/day-plan/brief-relay.ts';
 
 const NOW = new Date('2026-07-16T12:00:00.000Z');
 
@@ -56,8 +64,21 @@ function disableExternalSources(t, dir, overrides = {}) {
     ATTIO_TOKEN: '',
     FORGE_BRIEF_MEMORY_PATH: '',
     FORGE_BRIEF_JARVIS_TOKEN_PATH: path.join(dir, 'missing-jarvis-token'),
+    FORGE_BRIEF_JARVIS_URL: '',
+    // Nothing here may read the installed operator profile: a fresh clone has
+    // a different one, or none, and these tests must mean the same thing there.
+    FORGE_PROFILE_PATH: path.join(dir, 'missing-profile.json'),
     ...overrides,
   });
+}
+
+// The profile is runtime wiring for the memory hub and the own-record CRM
+// filter, so tests that exercise either one supply their own.
+function writeOperatorProfile(t, dir, profile) {
+  const profilePath = path.join(dir, 'operator-profile.json');
+  writeFileSync(profilePath, JSON.stringify(profile));
+  setEnv(t, { FORGE_PROFILE_PATH: profilePath });
+  return profilePath;
 }
 
 function forgeRowsResponse(url) {
@@ -77,6 +98,133 @@ function calendarSse(items) {
   });
   return `event: message\ndata: {"progress":true}\n\nevent: message\ndata: ${message}\n\nevent: ping\ndata: {"keepalive":true}\n\n`;
 }
+
+test('brief file policy treats empty env values as unset and prefers env, client goals, then legacy', (t) => {
+  const dir = path.join(os.tmpdir(), `forge-source-policy-${process.pid}-${Date.now()}-${Math.random()}`);
+  const homeDir = path.join(dir, 'home');
+  const dataDir = path.join(dir, 'data');
+  const legacyGoals = path.join(homeDir, 'Atlas', 'brain', 'GOALS.md');
+  const clientGoals = path.join(dataDir, 'brief', 'goals.md');
+  const envGoals = path.join(dir, 'configured-goals.md');
+  mkdirSync(path.dirname(legacyGoals), { recursive: true });
+  mkdirSync(path.dirname(clientGoals), { recursive: true });
+  writeFileSync(legacyGoals, 'Legacy goals.');
+  writeFileSync(clientGoals, 'Client goals.');
+  writeFileSync(envGoals, 'Configured goals.');
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  setEnv(t, {
+    FORGE_BRIEF_GOALS_PATH: '   ',
+    FORGE_BRIEF_SPRINT_MEMO_PATH: '',
+    FORGE_BRIEF_OPERATOR_PROFILE_PATH: '',
+    FORGE_BRIEF_LEADUP_PATH: '',
+    FORGE_PROFILE_PATH: undefined,
+  });
+
+  assert.equal(
+    resolveBriefFileSourcePolicy({ dataDir, homeDir }).goals.path,
+    clientGoals,
+  );
+  process.env.FORGE_BRIEF_GOALS_PATH = `  ${envGoals}  `;
+  assert.equal(
+    resolveBriefFileSourcePolicy({ dataDir, homeDir }).goals.path,
+    envGoals,
+  );
+  process.env.FORGE_BRIEF_GOALS_PATH = '';
+  rmSync(clientGoals);
+  assert.equal(
+    resolveBriefFileSourcePolicy({ dataDir, homeDir }).goals.path,
+    legacyGoals,
+  );
+});
+
+test('an absent default sprint memo is optional in collection and checkpoint verification', async (t) => {
+  const dir = path.join(os.tmpdir(), `forge-optional-sprint-${process.pid}-${Date.now()}-${Math.random()}`);
+  const homeDir = path.join(dir, 'home');
+  const dataDir = path.join(dir, 'data');
+  const clientGoals = path.join(dataDir, 'brief', 'goals.md');
+  mkdirSync(path.dirname(clientGoals), { recursive: true });
+  writeFileSync(clientGoals, 'Client goals.');
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  disableExternalSources(t, dataDir, {
+    FORGE_BRIEF_GOALS_PATH: '',
+    FORGE_BRIEF_SPRINT_MEMO_PATH: '',
+    FORGE_BRIEF_OPERATOR_PROFILE_PATH: '',
+    FORGE_BRIEF_LEADUP_PATH: '',
+    FORGE_PROFILE_PATH: path.join(dataDir, 'forge-profile.json'),
+    FORGE_SUPERNOVA_DIR: path.join(dir, 'missing-supernova'),
+  });
+
+  const collected = await collectMorningBriefSources({
+    store: { listRecentSnapshots: () => [] },
+    homeDir,
+    dataDir,
+    webBaseUrl: 'http://forge.test',
+    targetLocalDate: '2026-07-16',
+    targetTimezone: 'America/Los_Angeles',
+    now: NOW,
+    fetchImpl: async (url) => forgeRowsResponse(url),
+  });
+  const sprint = collected.sources.find((source) => source.id === 'sprint_memo');
+  assert.equal(sprint.required, false);
+  assert.equal(sprint.content, undefined);
+
+  const checkpointSources = briefCheckpointSources({ dataDir, homeDir });
+  assert.equal(checkpointSources.sprint_memo.required, false);
+  assert.equal(writeSourceCheckpoint({ sources: checkpointSources, dataDir, now: NOW }), true);
+  assert.deepEqual(
+    verifySourceCheckpoint({ sources: checkpointSources, dataDir, now: NOW }),
+    { ok: true },
+  );
+});
+
+test('operator profile falls back to a bounded readable JSON whitelist', async (t) => {
+  const dir = path.join(os.tmpdir(), `forge-json-profile-${process.pid}-${Date.now()}-${Math.random()}`);
+  const homeDir = path.join(dir, 'home');
+  const dataDir = path.join(dir, 'data');
+  mkdirSync(path.join(dataDir, 'brief'), { recursive: true });
+  writeFileSync(path.join(dataDir, 'brief', 'goals.md'), 'Client goals.');
+  writeFileSync(path.join(dataDir, 'forge-profile.json'), JSON.stringify({
+    name: 'Jordan',
+    timezone: 'America/New_York',
+    workday: { starts: '08:30', ends: '17:30' },
+    responsibilities: ['Client delivery', 'Sales'],
+    ninety_day_outcomes: ['Reach a durable revenue target'],
+    communication_style: 'Direct and concise',
+    key_people: [{ name: 'Taylor', role: 'Client sponsor' }],
+    money: { monthly_target: '$50k' },
+    authoritative_source: 'A private task system',
+    api_token: 'must-not-appear',
+  }));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  disableExternalSources(t, dataDir, {
+    FORGE_BRIEF_GOALS_PATH: '',
+    FORGE_BRIEF_SPRINT_MEMO_PATH: '',
+    FORGE_BRIEF_OPERATOR_PROFILE_PATH: '',
+    FORGE_BRIEF_LEADUP_PATH: '',
+    FORGE_PROFILE_PATH: path.join(dataDir, 'forge-profile.json'),
+    FORGE_SUPERNOVA_DIR: path.join(dir, 'missing-supernova'),
+  });
+  const collected = await collectMorningBriefSources({
+    store: { listRecentSnapshots: () => [] },
+    homeDir,
+    dataDir,
+    webBaseUrl: 'http://forge.test',
+    targetLocalDate: '2026-07-16',
+    targetTimezone: 'America/New_York',
+    now: NOW,
+    fetchImpl: async (url) => forgeRowsResponse(url),
+  });
+  const profile = collected.sources.find((source) => source.id === 'operator_profile');
+  assert.match(profile.content, /^Name: Jordan/m);
+  assert.match(profile.content, /Responsibilities:\n- Client delivery\n- Sales/);
+  assert.match(profile.content, /Key People:/);
+  assert.match(profile.content, /Monthly Target: \$50k/);
+  assert.equal(profile.content.includes('api_token'), false);
+  assert.equal(profile.content.includes('must-not-appear'), false);
+  assert.equal(profile.content.includes('authoritative_source'), false);
+  assert.equal(profile.content.includes('private task system'), false);
+  assert.ok(profile.content.length <= profile.maxChars);
+});
 
 test('calendar fetches MCP SSE, derives DST-aware bounds, and formats visible events', async (t) => {
   const { dir, options } = fixture(t);
@@ -168,6 +316,7 @@ test('calendar fetch failures stay optional and leave the other sources availabl
 test('CRM handles Attio value variants and formats recent and quiet contacts', async (t) => {
   const { dir, options } = fixture(t);
   disableExternalSources(t, dir, { ATTIO_API_KEY: 'attio-test-key' });
+  writeOperatorProfile(t, dir, { self_emails: ['operator@example.com'] });
   const daysAgo = (days) => new Date(NOW.getTime() - days * 86_400_000).toISOString();
   const records = [
     {
@@ -213,10 +362,11 @@ test('CRM handles Attio value variants and formats recent and quiet contacts', a
     },
     {
       values: {
-        name: [{ full_name: 'Alex Martin' }],
+        name: [{ full_name: 'Riley Operator' }],
         email_addresses: [
           { email_address: 'other@example.com' },
-          { value: { email_address: 'Alex@JoinEdgeAI.com' } },
+          // Case-insensitive match against the profile's self_emails.
+          { value: { email_address: 'Operator@Example.com' } },
         ],
         last_interaction: [{ interacted_at: daysAgo(1), interaction_type: 'email' }],
       },
@@ -247,8 +397,37 @@ test('CRM handles Attio value variants and formats recent and quiet contacts', a
     'Recent touches:\nAlice Adams — last touch 2d ago (2026-07-14, email)\nTimezone Tina — last touch 2d ago (2026-07-13, meeting)\nCara Cole — last touch 3d ago (2026-07-13, call)\nfallback@example.com — last touch 4d ago (2026-07-12, email)\nBob Baker — last touch 20d ago (2026-06-26, email)\nDormant Dana — last touch 121d ago (2026-03-17)\n\nGone quiet (>14d): Bob Baker',
   );
   assert.equal(crm.content.includes('fallback@example.com — last touch 4d ago'), true);
-  assert.equal(crm.content.includes('Alex Martin'), false);
+  assert.equal(crm.content.includes('Riley Operator'), false);
   assert.equal(crm.priority, 10);
+});
+
+test('the own-record CRM filter comes from the profile and defaults to filtering nothing', async (t) => {
+  const { dir, options } = fixture(t);
+  disableExternalSources(t, dir, { ATTIO_API_KEY: 'attio-test-key' });
+  const records = [{
+    values: {
+      name: [{ full_name: 'Riley Operator' }],
+      email_addresses: [{ value: { email_address: 'Operator@Example.com' } }],
+      last_interaction: [{ interacted_at: new Date(NOW.getTime() - 86_400_000).toISOString(), interaction_type: 'email' }],
+    },
+  }];
+  const fetchImpl = async (url) => {
+    const forge = forgeRowsResponse(url);
+    if (forge) return forge;
+    return new Response(JSON.stringify({ data: { data: records } }), { status: 200 });
+  };
+  const withoutProfile = await collectMorningBriefSources({ ...options, fetchImpl });
+  assert.equal(
+    withoutProfile.sources.find((source) => source.id === 'crm_last_touch').content.includes('Riley Operator'),
+    true,
+  );
+
+  writeOperatorProfile(t, dir, { self_emails: ['  OPERATOR@example.com  ', '', 7] });
+  const withProfile = await collectMorningBriefSources({ ...options, fetchImpl });
+  assert.equal(
+    withProfile.sources.find((source) => source.id === 'crm_last_touch').content.includes('Riley Operator'),
+    false,
+  );
 });
 
 test('.env.local strips unquoted inline comments but preserves hashes inside quotes', async (t) => {
@@ -287,9 +466,14 @@ test('CRM reports not_configured when neither Attio credential is present', asyn
 
 test('memory decisions prefer decision-tagged Jarvis results and bound each line', async (t) => {
   const { dir, options } = fixture(t);
+  setEnv(t, { FORGE_OPERATOR_NAME: 'Alex' });
   const tokenPath = path.join(dir, 'jarvis-token');
   writeFileSync(tokenPath, 'jarvis-test-token\n');
-  disableExternalSources(t, dir, { FORGE_BRIEF_JARVIS_TOKEN_PATH: tokenPath });
+  disableExternalSources(t, dir, {
+    FORGE_BRIEF_JARVIS_TOKEN_PATH: tokenPath,
+    // The trailing slash also pins the normalization.
+    FORGE_BRIEF_JARVIS_URL: 'http://memory.test/',
+  });
   const longDecision = `[DECISION] ${'x'.repeat(450)}`;
   const requests = [];
   const resultsByQuery = new Map([
@@ -309,7 +493,7 @@ test('memory decisions prefer decision-tagged Jarvis results and bound each line
   const fetchImpl = async (url, init = {}) => {
     const forge = forgeRowsResponse(url);
     if (forge) return forge;
-    assert.equal(String(url), 'http://100.102.6.81:3510/api/v2/scored_search');
+    assert.equal(String(url), 'http://memory.test/api/v2/scored_search');
     const body = JSON.parse(init.body);
     requests.push(body.query);
     assert.equal(body.limit, 12);
@@ -343,6 +527,40 @@ test('memory decisions preserve file-path mode without calling Jarvis', async (t
   assert.equal(memory.note, memoryPath);
 });
 
+test('memory decisions resolve the hub from env, then the profile, and otherwise degrade', async (t) => {
+  const { dir, options } = fixture(t);
+  const tokenPath = path.join(dir, 'jarvis-token');
+  writeFileSync(tokenPath, 'jarvis-test-token');
+  disableExternalSources(t, dir, { FORGE_BRIEF_JARVIS_TOKEN_PATH: tokenPath });
+  const requested = [];
+  const fetchImpl = async (url) => {
+    const forge = forgeRowsResponse(url);
+    if (forge) return forge;
+    requested.push(String(url));
+    return new Response(JSON.stringify({ results: [{ uuid: 'a', score: 1, content: '[DECISION] Configured.' }] }), { status: 200 });
+  };
+
+  // No hub anywhere: a missing optional source, and nothing is dialed.
+  const unconfigured = await collectMorningBriefSources({ ...options, fetchImpl });
+  const missing = unconfigured.sources.find((source) => source.id === 'memory_decisions');
+  assert.equal(missing.note, 'not_configured');
+  assert.equal(missing.content, undefined);
+  assert.equal(missing.required, false);
+  assert.deepEqual(requested, []);
+
+  // The profile supplies the address when the env does not.
+  writeOperatorProfile(t, dir, { memory_hub_url: 'http://profile-hub.test' });
+  const fromProfile = await collectMorningBriefSources({ ...options, fetchImpl });
+  assert.match(fromProfile.sources.find((source) => source.id === 'memory_decisions').content, /Configured\./);
+  assert.deepEqual([...new Set(requested)], ['http://profile-hub.test/api/v2/scored_search']);
+
+  // An explicit env value outranks the profile.
+  requested.length = 0;
+  setEnv(t, { FORGE_BRIEF_JARVIS_URL: 'http://env-hub.test' });
+  await collectMorningBriefSources({ ...options, fetchImpl });
+  assert.deepEqual([...new Set(requested)], ['http://env-hub.test/api/v2/scored_search']);
+});
+
 test('memory decisions report not_configured when the hub token file is missing', async (t) => {
   const { dir, options } = fixture(t);
   disableExternalSources(t, dir);
@@ -354,7 +572,10 @@ test('memory decisions stop after the first Jarvis search fails', async (t) => {
   const { dir, options } = fixture(t);
   const tokenPath = path.join(dir, 'jarvis-token');
   writeFileSync(tokenPath, 'jarvis-test-token');
-  disableExternalSources(t, dir, { FORGE_BRIEF_JARVIS_TOKEN_PATH: tokenPath });
+  disableExternalSources(t, dir, {
+    FORGE_BRIEF_JARVIS_TOKEN_PATH: tokenPath,
+    FORGE_BRIEF_JARVIS_URL: 'http://memory.test',
+  });
   let searches = 0;
   const collected = await collectMorningBriefSources({
     ...options,
@@ -396,7 +617,7 @@ test('computed commitments source exposes open loops, clarification, and factual
     '---',
   ].join('\n'));
   setEnv(t, {
-    FORGE_SUPERNOVA_ENGINE_DIR: engineDir,
+    FORGE_SUPERNOVA_DIR: engineDir,
     FORGE_CONTENT_QUOTA_POSTS: '3',
   });
   const commitments = [
@@ -563,7 +784,7 @@ test('commitments source surfaces recent note resolutions and updates in the req
 test('commitments source marks either partial fetch failure without asserting false emptiness', async (t) => {
   const { dir, options } = fixture(t);
   disableExternalSources(t, dir);
-  setEnv(t, { FORGE_SUPERNOVA_ENGINE_DIR: path.join(dir, 'missing-engine') });
+  setEnv(t, { FORGE_SUPERNOVA_DIR: path.join(dir, 'missing-engine') });
   const recent = new Date(NOW.getTime() - 60_000).toISOString();
   const open = [{
     id: 'open-1',
@@ -628,6 +849,7 @@ test('real source ids overwrite coverage fallbacks, while failed fetches remain 
     FORGE_BRIEF_COMPOSIO_KEY: 'composio-test-key',
     ATTIO_API_KEY: 'attio-test-key',
     FORGE_BRIEF_JARVIS_TOKEN_PATH: tokenPath,
+    FORGE_BRIEF_JARVIS_URL: 'http://memory.test',
   });
   const successFetch = async (url, init = {}) => {
     const forge = forgeRowsResponse(url);

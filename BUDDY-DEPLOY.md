@@ -27,7 +27,7 @@ The Mini uses the same block with `FORGE_BUDDY_DEEPLINKS` set to `0`. `FORGE_BUD
 The MacBook service is `com.forge.web`. Run:
 
 ```bash
-cd /Users/alexanderjmartin/Atlas/Projects/astack/forge
+cd /path/to/forge
 npm run build
 
 PLIST="$HOME/Library/LaunchAgents/com.forge.web.plist"
@@ -42,11 +42,11 @@ launchctl kickstart -k "gui/$(id -u)/com.forge.web"
 
 ## Mac Mini build and restart
 
-Connect to the Mini. The username does not contain a `j`.
+Connect to the always-on machine (use your own SSH host and the repo path on that machine).
 
 ```bash
-ssh alexandermartin@100.102.6.81
-cd ~/Atlas/projects/astack/forge
+ssh <user>@<always-on-mac>
+cd <path-to-forge-repo>
 npm run build
 
 PLIST="$HOME/Library/LaunchAgents/com.atlas.forge-web.plist"

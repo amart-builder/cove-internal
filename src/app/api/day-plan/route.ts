@@ -44,10 +44,7 @@ import {
   writeSourceCheckpoint,
 } from "@/lib/day-plan/brief-relay";
 import {
-  defaultGoalsPath,
-  defaultLeadupPath,
-  defaultOperatorProfilePath,
-  defaultSprintMemoPath,
+  briefCheckpointSources,
   defaultBriefWebBase,
   fetchRows,
 } from "@/lib/day-plan/brief-sources";
@@ -754,7 +751,7 @@ export async function POST(request: NextRequest) {
     }
     // Import any synced relay artifact BEFORE ensuring or evaluating triggers, so
     // a just-synced brief is consumed (or late-attached) instead of regenerated.
-    // Fail-open and only meaningful on loopback (the surface Alex uses).
+    // Fail-open and only meaningful on the loopback operator surface.
     if (parsed.action === "ensure" && currentDayPlanAccessMode() === "loopback") {
       scanAndImportBriefRelay({ store, targetLocalDate: parsed.input.localDate });
     }
@@ -802,12 +799,7 @@ export async function POST(request: NextRequest) {
         // the one the gate is meant to describe. One ritual machine, one voice.
         writeDayClosureRelay({ store });
         writeSourceCheckpoint({
-          sources: {
-            goals: defaultGoalsPath(),
-            operator_profile: defaultOperatorProfilePath(),
-            leadup: defaultLeadupPath(),
-            sprint_memo: defaultSprintMemoPath(),
-          },
+          sources: briefCheckpointSources(),
         });
       }
     }

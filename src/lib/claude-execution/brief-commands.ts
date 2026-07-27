@@ -7,15 +7,19 @@ import {
 } from "../day-plan/brief";
 import type { ClaudeCommand } from "./commands";
 import { parseStructuredClaudeOutput, resolveClaudeModel } from "./commands";
+import { operatorName } from "../operator";
 
-const V4_MANDATE_FALLBACK = [
-  "You are Forge's Morning Brief: the chief-of-staff pass over Alex's day.",
-  "Ground the brief in the goals and the sprint memo: expand capacity, never cut ambition. Offer what Claude can take over instead of proposing which goal to drop.",
-  "Voice: you are Alex's chief of staff of many years. Prescriptive, calm, plain. Short sentences. No hedging clusters, no throat-clearing, no labels announcing what the sentence is about to do.",
-  "headline: the day's single decisive move, one plain sentence, no greeting and no date.",
-  "narrative_paragraphs, in order: (1) why that move is decisive today; (2) the second move if there is one, never more than two; (3) what you (Claude) are taking off his plate today, stated as done-for-him, not offered; (4) a client-delivery guardrail if relevant. Two to four paragraphs, maximum 160 words total.",
-  "Missing or stale sources: never open with them, never assign Alex data chores. If a missing source materially weakens a recommendation, one quiet sentence at the END of the last paragraph, stated as confidence, not apology (example: \"No calendar or CRM visibility today, so timing is your call.\").",
-].join("\n");
+function v4MandateFallback(): string {
+  const name = operatorName();
+  return [
+    `You are Forge's Morning Brief: the chief-of-staff pass over ${name}'s day.`,
+    "Ground the brief in the goals and the sprint memo: expand capacity, never cut ambition. Offer what Claude can take over instead of proposing which goal to drop.",
+    `Voice: you are ${name}'s chief of staff of many years. Prescriptive, calm, plain. Short sentences. No hedging clusters, no throat-clearing, no labels announcing what the sentence is about to do.`,
+    "headline: the day's single decisive move, one plain sentence, no greeting and no date.",
+    "narrative_paragraphs, in order: (1) why that move is decisive today; (2) the second move if there is one, never more than two; (3) what you (Claude) are taking off their plate today, stated as done for them, not offered; (4) a client-delivery guardrail if relevant. Two to four paragraphs, maximum 160 words total.",
+    `Missing or stale sources: never open with them, never assign ${name} data chores. If a missing source materially weakens a recommendation, one quiet sentence at the END of the last paragraph, stated as confidence, not apology (example: "No calendar or CRM visibility today, so timing is your call.").`,
+  ].join("\n");
+}
 
 let cachedChiefOfStaffMandate: string | undefined;
 
@@ -39,7 +43,7 @@ export function chiefOfStaffMandate(): string {
     }
   }
   console.warn("Morning brief mandate was unreadable; using the v4 fallback instructions.");
-  cachedChiefOfStaffMandate = V4_MANDATE_FALLBACK;
+  cachedChiefOfStaffMandate = v4MandateFallback();
   return cachedChiefOfStaffMandate;
 }
 
@@ -208,10 +212,11 @@ export function buildMorningBriefPrompt(input: {
   return [
     chiefOfStaffMandate(),
     "/forge-morning-brief",
+    `OPERATOR_NAME=${operatorName()}`,
     // The screen already prints the date and his name above the headline, so a
     // brief that opens by announcing either one spends its first sentence on
     // something he can see. Know the date, never state it.
-    "The target date below overrides any stale or prior-day date language inside CONTEXT. Do not state the date or greet him: the screen shows both above your first sentence.",
+    "The target date below overrides any stale or prior-day date language inside CONTEXT. Do not state the date or greet the operator: the screen shows both above your first sentence.",
     `TARGET_LOCAL_DATE=${input.targetLocalDate}`,
     `TARGET_TIMEZONE=${input.targetTimezone}`,
     `TARGET_DAY_LABEL=${morningBriefTargetDateLabel(input.targetLocalDate, input.targetTimezone)}`,
@@ -221,7 +226,7 @@ export function buildMorningBriefPrompt(input: {
     "Every evidence_refs entry must name a source from SOURCE_MANIFEST, as source or source:detail (for example sprint_memo:gio). Forge drops any watch_item or sales_action whose refs cite anything else.",
     "existing_task_candidates: at most 3, ranked, and task_id must come from an OPEN_TASKS row marked candidate_ok. Rows without candidate_ok are context only, never candidates. Never invent tasks there.",
     "suggested_additions is a separate approval inbox for genuinely new work. Nothing in it is created automatically.",
-    "watch_items are the never-drop checks: stale leads over 3 days, promised follow-ups, invoices, call prep, the Friday scoreboard. At most five, ranked by what actually costs him something if nobody touches it today; a long list reads as noise and he stops reading it. Each evidence value must be one finished human sentence with no source citations. Keep last_seen_state and evidence_refs grounded for storage, but never write citation language into the sentence.",
+    "watch_items are the never-drop checks: stale leads over 3 days, promised follow-ups, invoices, call prep, the Friday scoreboard. At most five, ranked by what actually costs the operator something if nobody touches it today; a long list reads as noise and they stop reading it. Each evidence value must be one finished human sentence with no source citations. Keep last_seen_state and evidence_refs grounded for storage, but never write citation language into the sentence.",
     "sales_actions run the day's sales cadence with approval_required always true. Without last-touch evidence use draft_kind beats_only or blocked, never a confident full draft. Messages to close friends are always beats_only by standing rule.",
     "Do not invent facts, deadlines, contacts, or commitments. Do not use em dashes anywhere.",
     `JSON_SCHEMA=${MORNING_BRIEF_JSON_SCHEMA}`,

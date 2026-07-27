@@ -41,6 +41,7 @@ yarn-error.log*
 next-env.d.ts
 
 # local data, including Quiet Current history and its per-install CSRF token
+/data/buddy-home/
 /data/
 .gstack/
 

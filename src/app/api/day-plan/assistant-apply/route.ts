@@ -9,6 +9,7 @@ import {
   getDayPlanStore,
 } from "@/lib/day-plan/store";
 import type { DayPlan, DayPlanAssistantOperation } from "@/lib/day-plan/types";
+import { operatorName } from "@/lib/operator";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,7 +56,7 @@ function operationChanges(
       return { table: "day_plan", action: "update", id: operation.itemId, summary: `Completed '${label}'` };
     }
     if (operation.operation === "set_owner") {
-      const owner = operation.owner === "me" ? "Alex" : operation.owner === "claude" ? "Claude" : "Together";
+      const owner = operation.owner === "me" ? operatorName() : operation.owner === "claude" ? "Claude" : "Together";
       return { table: "day_plan", action: "update", id: operation.itemId, summary: `Assigned '${label}' to ${owner}` };
     }
     return { table: "day_plan", action: "update", id: operation.itemId, summary: `Updated '${label}'` };

@@ -4,9 +4,9 @@
 ## Repo Identity
 - **group_id:** forge
 - **canonical_repo:** projects/astack/forge
-- **macbook_path:** /Users/alexanderjmartin/Atlas/projects/astack/forge
-- **mac_mini_path:** /Users/alexandermartin/Desktop/Atlas/projects/astack/forge
-- **github:** public `amart-builder/forge`, clean on `main` as of 2026-07-10 commit `63ac66d`
+- **macbook_path:** ~/Atlas/projects/astack/forge
+- **mac_mini_path:** ~/Desktop/Atlas/projects/astack/forge
+- **github:** PRIVATE `amart-builder/forge` (made private 2026-07-26 ahead of client installs)
 - **default_branch:** main
 - **owned_by:** shared
 - **deploy:** http://localhost:3200 on the Mac Mini; Alex's MacBook URL is http://alexander-mac-mini.taildd6a98.ts.net:3200/tasks
@@ -24,7 +24,16 @@
 
 ---
 
-**Last updated:** 2026-07-20 (plan-review tool allowlist aligned with CLI plan mode; not committed)
+**Last updated:** 2026-07-26 (client-ready portability: prompt v13, operator profile wiring, path/name scrub, intelligent SETUP interview)
+
+## Portability build (2026-07-26, for the Gary Gersh install Wednesday)
+- Repo is PRIVATE. Rollback tag `pre-portability-2026-07-26` at 4142809.
+- New `src/lib/operator.ts` + `operator-runtime.mjs`: `operatorName()` resolves env `FORGE_OPERATOR_NAME` > `data/forge-profile.json` name > "the operator". Alex's machines carry `data/forge-profile.json` (name, timezone, `self_emails`, `memory_hub_url`); it must exist on BOTH machines or the Mini brief goes generic. The profile also now feeds the jarvis hub URL and the CRM own-record filter; those literals are gone from the repo.
+- Morning-brief prompt v13 + operator-neutral mandate/skill; v12 machines reject v13 relay artifacts, so both machines must deploy in one window.
+- One shared source-path policy (`resolveBriefFileSourcePolicy`): env > `<data>/brief/goals.md` > legacy `~/Atlas/brain` paths; sprint memo optional when env unset; checkpoint verification uses the same policy. Client clones resolve to their own `data/` files; Alex's machines still resolve to Atlas paths (probed live 2026-07-26).
+- Buddy brain is now `buddy/CLAUDE.md.template`, rendered per-machine to `data/buddy-home/CLAUDE.md`; session spawning gated on `workspaceRoot()` (400 when no workspace configured).
+- SETUP.md rebuilt: intelligent operator interview BEFORE build/services, writes profile + prose `data/brief/goals.md`, then build + prove (headless Claude check, one real brief, per-capability readiness verdict).
+- Rule that bit us twice: any relay write inside a worker lane must take `dataDir` from options, never ambient, or `npm test` pollutes the live relay files.
 **State:** The MacBook's loopback-only `com.forge.web` now serves the wide Morning Arrival with Claude-powered task creation, completion, editing, ownership, and reprioritization, plus explicit execution modes, durable background runs, and reviewable results. `com.forge.claude-worker` is installed and healthy. Autonomous execution remains disabled until an allowlisted project is deliberately configured. The 8 a.m. trigger is still not installed. Email triage remains a separate Mini service and was not changed.
 
 ## North Star Goal
@@ -151,7 +160,7 @@ Explicitly rejected: always-running general agent, autonomous external sends, cu
 
 - **Commitment ledger**: shared `commitments` table (Supabase `forge_commitments` — created live via authed supabase CLI `db query --linked`; SQLite mirror + migrate guards; one allow-list opens REST + buddy CLI). Fields: kind (follow_up/promise/waiting_on/open_decision/overnight_request/idea), source_quote (verbatim), due_at/review_at, confidence, confirmed, status, evidence.
 - **End My Day brain dump**: optional ≤8000-char textarea in DaySettlement (server truncates, never blocks settlement), enqueues `day_dumps` row (SQLite queue mirroring briefs: claim/complete/fail + stale sweep). New worker lane `dump` (also under watch/all): Sol-first read-only-sandboxed parse with Claude fallback, strict validator (verbatim-substring quotes, ISO dates, ≤20 items), one corrective retry per engine, inserts via CSRF-guarded loopback forge-rest, honest partial receipts.
-- **Gap detectors** (`gap-detectors.ts`, pure/deterministic): contentQuotaGap (PT-day bucketing of supernova-engine pipeline/queue + posted; env FORGE_SUPERNOVA_ENGINE_DIR + FORGE_CONTENT_QUOTA_POSTS=2), followUpsDue (Pacific end-of-tomorrow cutoff), staleOpenItems. New computed brief source `commitments` (OPEN_COMMITMENTS_AND_GAPS, priority 5, optional, fail-open, NOT in cross-machine checkpoint); priorities renumbered 1-11; MORNING_BRIEF_PROMPT_VERSION=6. prompts/chief-of-staff.md gained the owner-authored ledger section (weave due items into the plan, quote his words on unconfirmed items, quota numbers are facts, overnight requests recorded-not-executed).
+- **Gap detectors** (`gap-detectors.ts`, pure/deterministic): contentQuotaGap (PT-day bucketing of supernova-engine pipeline/queue + posted; env FORGE_SUPERNOVA_DIR, else the legacy `~/Atlas` or `~/Desktop/Atlas` checkout when it exists, else the detector degrades; + FORGE_CONTENT_QUOTA_POSTS=2), followUpsDue (Pacific end-of-tomorrow cutoff), staleOpenItems. New computed brief source `commitments` (OPEN_COMMITMENTS_AND_GAPS, priority 5, optional, fail-open, NOT in cross-machine checkpoint); priorities renumbered 1-11; MORNING_BRIEF_PROMPT_VERSION=6. prompts/chief-of-staff.md gained the owner-authored ledger section (weave due items into the plan, quote his words on unconfirmed items, quota numbers are facts, overnight requests recorded-not-executed).
 - Verified: 300/300 + tsc clean under the president's run; fresh Opus review SHIP with zero gating findings (8 minor, 6 fixed); held-out E2E acceptance passed — real Sol parse of a synthetic dump (5 commitments, correct kinds/verbatim quotes/date resolution incl. "next Tuesday"→Jul 21), quota detector correct against the live supernova queue (0 scheduled, 4 awaiting approval, gap 2), synthetic data cleaned after.
 - First live exercise: Alex's End My Day tonight; extractions land in the 7:30 brief as OPEN_COMMITMENTS_AND_GAPS. Overnight_request items are RECORDED only (Phase 2 executes them).
 
