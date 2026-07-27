@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
+  forgeDataDir,
   loadOperatorProfile,
   operatorName,
   operatorProfilePath,
@@ -72,6 +73,17 @@ test('workspace root uses a trimmed env override, then an existing legacy Atlas 
     homeDir: '/Users/operator',
     exists: () => false,
   }), null);
+});
+
+test('forge data directory prefers an explicit argument, then FORGE_DATA_DIR', (t) => {
+  const previous = process.env.FORGE_DATA_DIR;
+  t.after(() => {
+    if (previous === undefined) delete process.env.FORGE_DATA_DIR;
+    else process.env.FORGE_DATA_DIR = previous;
+  });
+  process.env.FORGE_DATA_DIR = ' /srv/forge-data ';
+  assert.equal(forgeDataDir(), '/srv/forge-data');
+  assert.equal(forgeDataDir('/tmp/explicit-forge-data'), '/tmp/explicit-forge-data');
 });
 
 test('operatorTimezone prefers the env var, then the profile, then this machine', (t) => {

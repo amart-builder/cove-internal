@@ -106,9 +106,11 @@ function resolvedOptions(options: ForgeIntakeOptions): ForgeIntakeOptions & {
     : MODULE_REPO_DIR;
   const dataDir = options.dataDir
     ? path.resolve(options.dataDir)
-    : process.env.FORGE_DB_PATH?.trim()
-      ? path.dirname(path.resolve(process.env.FORGE_DB_PATH))
-      : path.join(repoDir, "data");
+    : process.env.FORGE_DATA_DIR?.trim()
+      ? path.resolve(process.env.FORGE_DATA_DIR)
+      : process.env.FORGE_DB_PATH?.trim()
+        ? path.dirname(path.resolve(process.env.FORGE_DB_PATH))
+        : path.join(repoDir, "data");
   return { ...options, repoDir, dataDir };
 }
 

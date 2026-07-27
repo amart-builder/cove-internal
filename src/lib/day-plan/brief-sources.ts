@@ -418,6 +418,79 @@ function inboundVerbatim(value: unknown): string {
   return JSON.stringify(value.slice(0, 120));
 }
 
+function meetingWatchHeartbeat(
+  dataDir: string | undefined,
+  now: Date,
+): { line: string; warning?: string } {
+  const heartbeatPath = path.join(
+    forgeDataDir(dataDir),
+    "intake",
+    "heartbeats.json",
+  );
+  try {
+    const parsed = JSON.parse(readFileSync(heartbeatPath, "utf8")) as unknown;
+    const root = asRecord(parsed);
+    const heartbeat = asRecord(root?.meeting_watch);
+    if (heartbeat?.disabled === true) {
+      return {
+        line: "WARNING: meeting watcher DISABLED.",
+        warning: "meeting_watch_disabled",
+      };
+    }
+    const lastRunAt = typeof heartbeat?.last_run_at === "string"
+      ? heartbeat.last_run_at
+      : undefined;
+    const lastRun = lastRunAt
+      ? Date.parse(lastRunAt)
+      : Number.NaN;
+    if (!Number.isFinite(lastRun)) {
+      return {
+        line: "WARNING: meeting watcher heartbeat is missing.",
+        warning: "meeting_watch_heartbeat_missing",
+      };
+    }
+    const elapsedMs = Math.max(0, now.getTime() - lastRun);
+    const counts = [
+      `examined=${Number.isFinite(Number(heartbeat?.examined)) ? Number(heartbeat?.examined) : "unknown"}`,
+      `matched=${Number.isFinite(Number(heartbeat?.matched)) ? Number(heartbeat?.matched) : "unknown"}`,
+      `processed=${Number.isFinite(Number(heartbeat?.processed)) ? Number(heartbeat?.processed) : "unknown"}`,
+      `errors=${Number.isFinite(Number(heartbeat?.errors)) ? Number(heartbeat?.errors) : "unknown"}`,
+      `dead_letters=${Number.isFinite(Number(heartbeat?.dead_letters)) ? Number(heartbeat?.dead_letters) : "unknown"}`,
+    ].join(" ");
+    const errorCount = Number(heartbeat?.errors);
+    const deadLetterCount = Number(heartbeat?.dead_letters);
+    if (Number.isFinite(deadLetterCount) && deadLetterCount > 0) {
+      return {
+        line: `WARNING: meeting watcher has ${deadLetterCount} dead letter${deadLetterCount === 1 ? "" : "s"} (age=${inboundAge(lastRunAt, now)} ${counts}).`,
+        warning: "meeting_watch_dead_letters",
+      };
+    }
+    if (elapsedMs > 60 * 60_000) {
+      return {
+        line: `WARNING: meeting watcher heartbeat is stale (age=${inboundAge(lastRunAt, now)} ${counts}).`,
+        warning: "meeting_watch_heartbeat_stale",
+      };
+    }
+    if (Number.isFinite(errorCount) && errorCount > 0) {
+      return {
+        line: `WARNING: meeting watcher last run reported errors (age=${inboundAge(lastRunAt, now)} ${counts}).`,
+        warning: "meeting_watch_errors",
+      };
+    }
+    return {
+      line: `Meeting watcher heartbeat: age=${inboundAge(lastRunAt, now)} ${counts}.`,
+    };
+  } catch (error) {
+    const warning = existsSync(heartbeatPath)
+      ? errorNote(error, "meeting_watch_heartbeat_invalid").replace(/^error:/, "")
+      : "meeting_watch_heartbeat_missing";
+    return {
+      line: `WARNING: meeting watcher heartbeat unavailable (${warning}).`,
+      warning,
+    };
+  }
+}
+
 async function inboundSource(input: {
   fetchImpl: typeof fetch;
   baseUrl: string;
@@ -473,12 +546,18 @@ async function inboundSource(input: {
   } else {
     lines.push(`Spool lines waiting: ${spoolCount ?? 0}.`);
   }
+  const heartbeat = meetingWatchHeartbeat(input.dataDir, input.now);
+  lines.push(heartbeat.line);
   return {
     ...source,
     content: lines.join("\n"),
     asOf: input.now.toISOString(),
-    ...(fetchWarning || spoolWarning
-      ? { note: `error:${[fetchWarning, spoolWarning].filter(Boolean).join(";")}` }
+    ...(fetchWarning || spoolWarning || heartbeat.warning
+      ? {
+          note: `error:${
+            [fetchWarning, spoolWarning, heartbeat.warning].filter(Boolean).join(";")
+          }`,
+        }
       : {}),
   };
 }

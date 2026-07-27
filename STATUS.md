@@ -87,6 +87,14 @@ Explicitly rejected: always-running general agent, autonomous external sends, cu
 
 ## Current State
 
+### 2026-07-27 Never-drop Phase 3: Gemini meeting-notes watcher (shipped; Mini install pending)
+
+- `scripts/forge-meeting-watch.mjs` polls Gmail (Composio CLI) every 5 min for meeting-notes emails via an Alex-editable matcher (`data/forge-meetings.json`); shared extractor (`src/lib/intake/meeting-followups.mjs`) parses Next Steps (HTML-normalized, "Suggested next steps" supported) with a bounded delimiter-guarded Claude fallback; Alex-owned items -> intake pipe, other-owned -> `waiting_on` commitments. Mark-processed only after every item acks; per-message failures dead-letter after 5 runs (brief warns); zero-item messages terminal; heartbeat + DISABLED state surfaced in the brief.
+- Live-verified against the real inbox: 2 genuine Gemini notes emails -> 8 items, 4 tasks + 4 waiting-on, 0 errors, idempotent on rerun. Found live: Composio CLI stores large responses to a file (`storedInFile`/`outputFilePath`) - executor now follows the pointer.
+- Fresh-context review round 2 caught an inverted ack check that would have zeroed real runs (tests had stubbed the primitive; now unstubbed) plus dead-letter/cost-loop gaps - all fixed.
+- Known cosmetic nit: N tasks can print N-1 TASK lines (data correct; print path only).
+- LaunchAgent template at `scripts/launchd/com.forge.meeting-watch.plist`; installs on the Mini next.
+
 ### 2026-07-27 Never-drop Phases 1+2: single intake pipe + triage protocol + project column (shipped)
 
 - `prompts/triage.md` is the canonical 6-question protocol (Alex-editable); `scripts/forge-intake.mjs` -> `src/lib/intake/run.ts` is the ONE writer of triaged tasks: record event first, one budget-capped `claude -p` structured triage (empty MCP, minimal env), deterministic task ids, dumb `needs-triage` fallback on any failure, exit 0 == durably captured. Live-probed end to end (triage quality good, replay idempotent).

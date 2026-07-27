@@ -3,7 +3,7 @@
  * Parse meeting notes into follow-ups and hand every item to Forge intake.
  *
  * The intake CLI owns durable capture, triage, task creation, and surfacing.
- * This script only acquires notes and splits Gemini's "Next steps" section.
+ * This script only acquires notes and uses the shared meeting extractor.
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -12,13 +12,28 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import {
+  extractMeetingFollowUps,
+  inboundAckState,
+  isAlexOwned,
+  meetingFollowUpText,
+  parseNextSteps,
+} from "../src/lib/intake/meeting-followups.mjs";
+import {
+  createComposioExecutor,
+  writeWaitingCommitment,
+} from "./forge-meeting-watch.mjs";
+
+export { parseNextSteps };
 
 const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
 require("tsx/cjs");
 const { recordEvent, resolveEvent } = require("../src/lib/intake/inbox.ts");
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const dataDir = process.env.FORGE_DATA_DIR?.trim() || path.join(repoDir, "data");
 const intakeScript = path.join(repoDir, "scripts", "forge-intake.mjs");
+const composio = createComposioExecutor({ cwd: repoDir });
 
 function arg(name) {
   const index = process.argv.indexOf(name);
@@ -31,7 +46,20 @@ function titleFromText(text, fallback) {
   return first;
 }
 
+function stableSourceId(value) {
+  return `meeting:${createHash("sha256").update(value).digest("hex")}`;
+}
+
 async function loadNotes() {
+  const spoken = arg("--text");
+  if (spoken) {
+    return {
+      title: "Spoken meeting follow-up",
+      text: spoken,
+      occurrenceId: stableSourceId(`spoken:${spoken}`),
+    };
+  }
+
   const file = arg("--file");
   if (file) {
     const text = readFileSync(file, "utf8");
@@ -48,62 +76,27 @@ async function loadNotes() {
   if (!docId) {
     throw new Error('Pass --file <path>, --doc <googleDocId>, or --text "what was said".');
   }
-
   const acquisition = await recordEvent({
     source: "meeting",
     sourceId: `meeting-document:${docId}`,
     rawText: `Review meeting document ${docId} for follow-ups.`,
+  }, {
+    dataDir,
   });
-  if (acquisition.event.spooled === false) {
+  const acquisitionState = inboundAckState(acquisition);
+  if (acquisitionState === "failed") {
     throw new Error("Meeting document could not be captured before fetch.");
   }
-  const { stdout } = await execFileAsync(
-    "composio",
-    [
-      "execute",
-      "GOOGLEDOCS_GET_DOCUMENT_PLAINTEXT",
-      "--params",
-      JSON.stringify({ document_id: docId }),
-    ],
-    { maxBuffer: 8 * 1024 * 1024 },
+  const data = await composio(
+    "GOOGLEDOCS_GET_DOCUMENT_PLAINTEXT",
+    { document_id: docId },
   );
-  const payload = JSON.parse(stdout);
-  const data = payload?.data ?? payload;
   return {
     title: data.title ?? docId,
     text: data.plain_text ?? "",
     occurrenceId: `doc:${docId}`,
-    acquisition: acquisition.event.spooled === true ? undefined : acquisition.event,
+    acquisition: acquisitionState === "db" ? acquisition.event : undefined,
   };
-}
-
-export function parseNextSteps(text) {
-  const lines = text.split(/\r?\n/);
-  const start = lines.findIndex((line) => /^\s*next steps\s*$/i.test(line));
-  if (start === -1) return [];
-
-  const items = [];
-  for (let index = start + 1; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (/^\s*(details|summary|decisions|transcript|attachments)\s*$/i.test(line)) {
-      break;
-    }
-    const match = line.match(/^\s*[-•*]\s*\[([^\]]+)\]\s*(.+?)\s*$/);
-    if (!match) continue;
-    const owner = match[1].trim();
-    const body = match[2].trim();
-    const split = body.match(/^([^:]{3,60}):\s*(.+)$/);
-    items.push({
-      owner,
-      title: split ? split[1].trim() : body,
-      detail: split ? split[2].trim() : "",
-    });
-  }
-  return items;
-}
-
-function stableSourceId(value) {
-  return `meeting:${createHash("sha256").update(value).digest("hex")}`;
 }
 
 async function runIntake(text, sourceId) {
@@ -115,7 +108,8 @@ async function runIntake(text, sourceId) {
       text,
       "--source",
       "meeting",
-      ...(sourceId ? ["--source-id", sourceId] : []),
+      "--source-id",
+      sourceId,
     ],
     {
       cwd: repoDir,
@@ -126,55 +120,71 @@ async function runIntake(text, sourceId) {
   if (stderr) process.stderr.write(stderr);
 }
 
-const spoken = arg("--text");
-if (spoken) {
-  await runIntake(spoken);
-  console.log("Sent 1 spoken follow-up through Forge intake.");
-} else {
-  const notes = await loadNotes();
-  const meetingTitle = notes.title
-    .replace(/\s*-\s*\d{4}\/\d{2}\/\d{2}.*$/, "")
-    .trim();
-  const items = parseNextSteps(notes.text);
-  if (items.length === 0) {
-    await runIntake(
-      notes.text,
-      stableSourceId(`${notes.occurrenceId}\0${notes.text}`),
-    );
-    console.log("No structured Next steps found; sent the notes through Forge intake.");
-  } else {
-    const failures = [];
-    for (const item of items) {
-      const text = [
-        item.title,
-        item.detail,
-        `Meeting: ${meetingTitle}`,
-        `Named owner: ${item.owner}`,
-      ].filter(Boolean).join("\n");
-      try {
-        await runIntake(
-          text,
-          stableSourceId(
-            `${notes.occurrenceId}\0${item.owner}\0${item.title}\0${item.detail}`,
-          ),
-        );
-      } catch (error) {
-        failures.push(error);
-        console.error(`Meeting follow-up capture failed for "${item.title}".`);
-      }
-    }
-    if (failures.length > 0) {
-      throw new Error(
-        `${failures.length} meeting follow-up${failures.length === 1 ? "" : "s"} could not be captured.`,
-      );
-    }
-    console.log(`Sent ${items.length} meeting follow-ups through Forge intake.`);
+async function processItem(item, notes, index) {
+  const sourceId = stableSourceId(
+    `${notes.occurrenceId}\0${index}\0${item.owner}\0${item.title}\0${item.detail}`,
+  );
+  const text = meetingFollowUpText(item, notes.title);
+  if (isAlexOwned(item.owner)) {
+    await runIntake(text, sourceId);
+    return "task";
   }
-  if (
-    notes.acquisition &&
-    !notes.acquisition.task_id &&
-    (notes.acquisition.state === "pending" || notes.acquisition.state === "failed")
-  ) {
-    await resolveEvent(notes.acquisition.id, { state: "dismissed" });
+  const receipt = await recordEvent(
+    {
+      source: "meeting",
+      sourceId,
+      rawText: text,
+    },
+    { dataDir },
+  );
+  const state = inboundAckState(receipt);
+  if (state === "failed") {
+    throw new Error("Meeting follow-up could not be captured.");
+  }
+  await writeWaitingCommitment(
+    item,
+    {
+      sourceId,
+      meetingTitle: notes.title,
+      baseUrl: (
+        process.env.FORGE_BRIEF_WEB_BASE ?? "http://127.0.0.1:3200"
+      ).replace(/\/$/, ""),
+    },
+  );
+  if (state === "db") {
+    await resolveEvent(receipt.event.id, { state: "triaged" });
+  }
+  return "waiting_on";
+}
+
+const notes = await loadNotes();
+notes.title = notes.title.replace(/\s*-\s*\d{4}\/\d{2}\/\d{2}.*$/, "").trim();
+const items = await extractMeetingFollowUps(notes.text, { repoDir });
+const failures = [];
+let taskCount = 0;
+let waitingCount = 0;
+for (let index = 0; index < items.length; index += 1) {
+  try {
+    const result = await processItem(items[index], notes, index);
+    if (result === "task") taskCount += 1;
+    else waitingCount += 1;
+  } catch (error) {
+    failures.push(error);
+    console.error(`Meeting follow-up capture failed for "${items[index].title}".`);
   }
 }
+if (failures.length > 0) {
+  throw new Error(
+    `${failures.length} meeting follow-up${failures.length === 1 ? "" : "s"} could not be captured.`,
+  );
+}
+if (
+  notes.acquisition &&
+  !notes.acquisition.task_id &&
+  (notes.acquisition.state === "pending" || notes.acquisition.state === "failed")
+) {
+  await resolveEvent(notes.acquisition.id, { state: "dismissed" });
+}
+console.log(
+  `Captured ${taskCount} Alex follow-up${taskCount === 1 ? "" : "s"} and ${waitingCount} waiting-on commitment${waitingCount === 1 ? "" : "s"}.`,
+);
