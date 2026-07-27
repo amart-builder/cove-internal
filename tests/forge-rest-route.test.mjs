@@ -9,7 +9,9 @@ import {
   GET,
   POST,
   targetsSpecificRows,
+  DELETE,
 } from '../src/app/api/forge-rest/[table]/route.ts';
+import { getQuietCurrentCsrfToken } from '../src/lib/quiet-current/store.ts';
 import { handleLocalRest } from '../src/lib/local/db.ts';
 
 const context = { params: Promise.resolve({ table: 'not_a_forge_table' }) };
@@ -152,4 +154,56 @@ test('a legacy tasks table is refused at startup instead of failing per query', 
     else process.env.FORGE_DB_PATH = previousPath;
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('the route rejects a filterless DELETE after CSRF passes, and still allows a targeted one', async (t) => {
+  // The CSRF gate runs first, so an unauthenticated probe never reaches this
+  // guard. Authenticate properly to prove the guard itself is load-bearing.
+  const dir = path.join(os.tmpdir(), `forge-rest-nofilter-${process.pid}-${Date.now()}`);
+  mkdirSync(dir, { recursive: true });
+  const previousDbPath = process.env.FORGE_DB_PATH;
+  const previousAccessMode = process.env.FORGE_DAY_PLAN_ACCESS_MODE;
+  process.env.FORGE_DB_PATH = path.join(dir, 'forge.db');
+  delete process.env.FORGE_DAY_PLAN_ACCESS_MODE;
+  t.after(() => {
+    if (previousDbPath === undefined) delete process.env.FORGE_DB_PATH;
+    else process.env.FORGE_DB_PATH = previousDbPath;
+    if (previousAccessMode === undefined) delete process.env.FORGE_DAY_PLAN_ACCESS_MODE;
+    else process.env.FORGE_DAY_PLAN_ACCESS_MODE = previousAccessMode;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const headers = {
+    host: 'localhost:3200',
+    origin: 'http://localhost:3200',
+    'x-forge-csrf': getQuietCurrentCsrfToken(),
+  };
+  const tasksContext = { params: Promise.resolve({ table: 'tasks' }) };
+
+  const filterless = await DELETE(
+    new NextRequest('http://localhost:3200/api/forge-rest/tasks', { method: 'DELETE', headers }),
+    tasksContext,
+  );
+  assert.equal(filterless.status, 400, 'a filterless DELETE would empty the table');
+  assert.match(await filterless.text(), /no filter/);
+
+  // Response-shaping parameters alone are still not a filter.
+  const shapedOnly = await DELETE(
+    new NextRequest('http://localhost:3200/api/forge-rest/tasks?select=id&limit=10', {
+      method: 'DELETE',
+      headers,
+    }),
+    { params: Promise.resolve({ table: 'tasks' }) },
+  );
+  assert.equal(shapedOnly.status, 400);
+
+  // A targeted delete must still go through.
+  const targeted = await DELETE(
+    new NextRequest('http://localhost:3200/api/forge-rest/tasks?id=eq.does-not-exist', {
+      method: 'DELETE',
+      headers,
+    }),
+    { params: Promise.resolve({ table: 'tasks' }) },
+  );
+  assert.notEqual(targeted.status, 400, 'a filtered delete must not be blocked');
 });
