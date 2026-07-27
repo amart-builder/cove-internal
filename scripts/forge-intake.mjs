@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -69,7 +69,7 @@ export async function main(args = process.argv.slice(2)) {
 
 if (
   process.argv[1] &&
-  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+  realpathSync(path.resolve(process.argv[1])) === fileURLToPath(import.meta.url)
 ) {
   void main().then((code) => {
     process.exitCode = code;
