@@ -4,7 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { NextRequest } from 'next/server';
-import { POST } from '../src/app/api/day-plan/assistant-apply/route.ts';
+import {
+  POST,
+  deterministicCreateId,
+} from '../src/app/api/day-plan/assistant-apply/route.ts';
 import { buildDayPlanCandidates } from '../src/lib/day-plan/candidates.ts';
 import {
   DayPlanInvalidTransition,
@@ -12,6 +15,7 @@ import {
   createDayPlanStore,
 } from '../src/lib/day-plan/store.ts';
 import { getQuietCurrentCsrfToken } from '../src/lib/quiet-current/store.ts';
+import { getEvent } from '../src/lib/intake/inbox.ts';
 
 function setupAssistantApply(t) {
   const root = path.join(os.tmpdir(), `forge-buddy-atomicity-${process.pid}-${Date.now()}-${Math.random()}`);
@@ -50,7 +54,7 @@ function setupAssistantApply(t) {
     mutationId: 'arrival-open:buddy-atomicity',
     action: 'arrival_open',
   }).plan;
-  return { store, plan };
+  return { root, store, plan };
 }
 
 test('assistant-apply enforces access and CSRF, applies valid ops, and returns conflicts', async (t) => {
@@ -181,10 +185,239 @@ test('assistant apply creates, completes, updates, and reprioritizes task-backed
   );
   assert.equal(result.plan.items.find((item) => item.id === completedItem.id).decision, 'completed');
   const mutations = store.listPendingTaskMutations();
-  assert.deepEqual(mutations.map((mutation) => mutation.action), ['create', 'create', 'complete', 'update']);
-  const supernova = mutations.find((mutation) => mutation.title === 'Finish the Supernova content generator');
-  assert.match(supernova.description, /Twitter, LinkedIn, and newsletter/);
+  assert.deepEqual(mutations.map((mutation) => mutation.action), ['complete', 'update']);
+  assert.equal(result.createdItemIds.length, 2);
+  assert.equal(
+    mutations.some((mutation) => result.createdItemIds.includes(mutation.taskId)),
+    false,
+    'new work enters through inbound_events instead of the legacy task mutation writer',
+  );
   assert.equal(result.turn.state, 'applied');
+});
+
+test('assistant create_item records the deterministic plan item in inbound_events', async (t) => {
+  const { root, store, plan } = setupAssistantApply(t);
+  const previousStore = globalThis.__forgeDayPlanStore;
+  const previousDb = globalThis.__forgeDb;
+  const previousDbPath = process.env.FORGE_DB_PATH;
+  const previousRuntime = process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+  const previousMode = process.env.FORGE_DAY_PLAN_ACCESS_MODE;
+  const previousQuietFile = process.env.FORGE_QUIET_CURRENT_FILE;
+  const inboxPath = path.join(root, 'inbox.db');
+  const quietFile = `buddy-intake-${process.pid}-${Date.now()}.json`;
+  globalThis.__forgeDayPlanStore = store;
+  delete globalThis.__forgeDb;
+  process.env.FORGE_DB_PATH = inboxPath;
+  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'local';
+  process.env.FORGE_DAY_PLAN_ACCESS_MODE = 'loopback';
+  process.env.FORGE_QUIET_CURRENT_FILE = quietFile;
+  const previousFetch = globalThis.fetch;
+  const tasks = new Map();
+  globalThis.fetch = async (url, init = {}) => {
+    const value = String(url);
+    if (value.includes('/api/forge-rest/tasks?')) {
+      const id = new URL(value).searchParams.get('id')?.replace(/^eq\./, '');
+      return new Response(JSON.stringify(id && tasks.has(id) ? [tasks.get(id)] : []));
+    }
+    if (value.includes('/api/forge-rest/task_columns')) {
+      return new Response(JSON.stringify([
+        { id: 'not-started', name: 'Not Started', position: 0 },
+        { id: 'today', name: 'Must happen today', position: 1 },
+      ]));
+    }
+    if (value.endsWith('/api/day-plan')) {
+      return new Response('{"csrfToken":"task-writer-token"}');
+    }
+    if (value.endsWith('/api/forge-rest/tasks') && init.method === 'POST') {
+      const task = JSON.parse(init.body);
+      tasks.set(task.id, task);
+      return new Response(JSON.stringify([task]), { status: 201 });
+    }
+    throw new Error(`Unexpected task-writer request: ${value}`);
+  };
+  t.after(() => {
+    globalThis.fetch = previousFetch;
+    globalThis.__forgeDb?.close();
+    if (previousDb === undefined) delete globalThis.__forgeDb;
+    else globalThis.__forgeDb = previousDb;
+    if (previousStore === undefined) delete globalThis.__forgeDayPlanStore;
+    else globalThis.__forgeDayPlanStore = previousStore;
+    if (previousDbPath === undefined) delete process.env.FORGE_DB_PATH;
+    else process.env.FORGE_DB_PATH = previousDbPath;
+    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+    else process.env.NEXT_PUBLIC_FORGE_RUNTIME = previousRuntime;
+    if (previousMode === undefined) delete process.env.FORGE_DAY_PLAN_ACCESS_MODE;
+    else process.env.FORGE_DAY_PLAN_ACCESS_MODE = previousMode;
+    if (previousQuietFile === undefined) delete process.env.FORGE_QUIET_CURRENT_FILE;
+    else process.env.FORGE_QUIET_CURRENT_FILE = previousQuietFile;
+    rmSync(path.join(process.cwd(), 'data', quietFile), { force: true });
+    rmSync(path.join(process.cwd(), 'data', `${quietFile}.token`), { force: true });
+  });
+  const response = await POST(new NextRequest(
+    'http://localhost:3200/api/day-plan/assistant-apply',
+    {
+      method: 'POST',
+      headers: {
+        host: 'localhost:3200',
+        origin: 'http://localhost:3200',
+        'content-type': 'application/json',
+        'x-forge-csrf': getQuietCurrentCsrfToken(),
+      },
+      body: JSON.stringify({
+        expectedVersion: plan.version,
+        operations: [{
+          operation: 'create_item',
+          clientId: 'capture-one',
+          title: 'Prepare the client kickoff',
+          outcome: 'Make the kickoff ready for Alex to review.',
+          project: 'forge',
+          priority: 'high',
+          position: 0,
+        }],
+      }),
+    },
+  ));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  const createdId = body.changes[0].id;
+  const event = await getEvent(createdId);
+  assert.equal(event.id, createdId);
+  assert.equal(event.source, 'day-plan');
+  assert.equal(event.state, 'triaged');
+  assert.equal(event.task_id, createdId);
+  assert.match(event.raw_text, /Outcome: Make the kickoff ready/);
+  assert.equal(tasks.get(createdId).title, 'Prepare the client kickoff');
+  assert.equal(tasks.get(createdId).column_id, 'today');
+  assert.deepEqual(tasks.get(createdId).tags, ['needs-triage']);
+  assert.equal(store.listPendingTaskMutations().some((mutation) => mutation.action === 'create'), false);
+
+  const editResponse = await POST(new NextRequest(
+    'http://localhost:3200/api/day-plan/assistant-apply',
+    {
+      method: 'POST',
+      headers: {
+        host: 'localhost:3200',
+        origin: 'http://localhost:3200',
+        'content-type': 'application/json',
+        'x-forge-csrf': getQuietCurrentCsrfToken(),
+      },
+      body: JSON.stringify({
+        expectedVersion: body.plan.version,
+        operations: [{
+          operation: 'edit_item',
+          itemId: createdId,
+          title: 'Prepare the revised client kickoff',
+        }],
+      }),
+    },
+  ));
+  assert.equal(editResponse.status, 200);
+  const [mutation] = store.listPendingTaskMutations();
+  assert.equal(mutation.action, 'update');
+  assert.equal(mutation.taskId, createdId);
+  assert.equal(tasks.has(mutation.taskId), true);
+  Object.assign(tasks.get(mutation.taskId), {
+    title: mutation.title,
+    description: mutation.description,
+  });
+  store.acknowledgeTaskMutation(mutation.id);
+  assert.equal(tasks.get(createdId).title, 'Prepare the revised client kickoff');
+  assert.deepEqual(store.listPendingTaskMutations(), []);
+
+  const editedBody = await editResponse.json();
+  const completeResponse = await POST(new NextRequest(
+    'http://localhost:3200/api/day-plan/assistant-apply',
+    {
+      method: 'POST',
+      headers: {
+        host: 'localhost:3200',
+        origin: 'http://localhost:3200',
+        'content-type': 'application/json',
+        'x-forge-csrf': getQuietCurrentCsrfToken(),
+      },
+      body: JSON.stringify({
+        expectedVersion: editedBody.plan.version,
+        operations: [{
+          operation: 'complete_item',
+          itemId: createdId,
+        }],
+      }),
+    },
+  ));
+  assert.equal(completeResponse.status, 200);
+  const [completeMutation] = store.listPendingTaskMutations();
+  assert.equal(completeMutation.action, 'complete');
+  assert.equal(tasks.has(completeMutation.taskId), true);
+  tasks.get(completeMutation.taskId).status = 'done';
+  store.acknowledgeTaskMutation(completeMutation.id);
+  assert.equal(tasks.get(createdId).status, 'done');
+  assert.deepEqual(store.listPendingTaskMutations(), []);
+});
+
+test('assistant apply dismisses captured events when the plan write loses a race', async (t) => {
+  const { root, store, plan } = setupAssistantApply(t);
+  const previousStore = globalThis.__forgeDayPlanStore;
+  const previousDb = globalThis.__forgeDb;
+  const previousDbPath = process.env.FORGE_DB_PATH;
+  const previousRuntime = process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+  const previousMode = process.env.FORGE_DAY_PLAN_ACCESS_MODE;
+  const previousQuietFile = process.env.FORGE_QUIET_CURRENT_FILE;
+  const quietFile = `buddy-race-${process.pid}-${Date.now()}.json`;
+  globalThis.__forgeDayPlanStore = store;
+  delete globalThis.__forgeDb;
+  process.env.FORGE_DB_PATH = path.join(root, 'race-inbox.db');
+  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'local';
+  process.env.FORGE_DAY_PLAN_ACCESS_MODE = 'loopback';
+  process.env.FORGE_QUIET_CURRENT_FILE = quietFile;
+  const originalApply = store.applyAssistantOperations;
+  store.applyAssistantOperations = () => {
+    throw new DayPlanVersionConflict(store.getPlan(plan.id));
+  };
+  t.after(() => {
+    store.applyAssistantOperations = originalApply;
+    globalThis.__forgeDb?.close();
+    if (previousDb === undefined) delete globalThis.__forgeDb;
+    else globalThis.__forgeDb = previousDb;
+    if (previousStore === undefined) delete globalThis.__forgeDayPlanStore;
+    else globalThis.__forgeDayPlanStore = previousStore;
+    if (previousDbPath === undefined) delete process.env.FORGE_DB_PATH;
+    else process.env.FORGE_DB_PATH = previousDbPath;
+    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+    else process.env.NEXT_PUBLIC_FORGE_RUNTIME = previousRuntime;
+    if (previousMode === undefined) delete process.env.FORGE_DAY_PLAN_ACCESS_MODE;
+    else process.env.FORGE_DAY_PLAN_ACCESS_MODE = previousMode;
+    if (previousQuietFile === undefined) delete process.env.FORGE_QUIET_CURRENT_FILE;
+    else process.env.FORGE_QUIET_CURRENT_FILE = previousQuietFile;
+    rmSync(path.join(process.cwd(), 'data', quietFile), { force: true });
+    rmSync(path.join(process.cwd(), 'data', `${quietFile}.token`), { force: true });
+  });
+  const response = await POST(new NextRequest(
+    'http://localhost:3200/api/day-plan/assistant-apply',
+    {
+      method: 'POST',
+      headers: {
+        host: 'localhost:3200',
+        origin: 'http://localhost:3200',
+        'content-type': 'application/json',
+        'x-forge-csrf': getQuietCurrentCsrfToken(),
+      },
+      body: JSON.stringify({
+        expectedVersion: plan.version,
+        operations: [{
+          operation: 'create_item',
+          clientId: 'race-item',
+          title: 'Do not resurrect this',
+          outcome: 'This item loses the version race.',
+          position: 0,
+        }],
+      }),
+    },
+  ));
+  assert.equal(response.status, 409);
+  const id = deterministicCreateId(plan.id, plan.version, 'race-item');
+  const event = await getEvent(id);
+  assert.equal(event.state, 'dismissed');
+  assert.match(event.error, /day plan changed/i);
 });
 
 test('assistant apply rejects invalid operations and conflicts without mutating the plan', (t) => {

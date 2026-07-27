@@ -20,11 +20,13 @@ import { forgeDataDir } from "../operator";
 import { getRuntimeMode } from "../runtime/mode";
 
 export type RecordEventInput = {
+  id?: string;
   source: string;
   sourceId: string;
   rawText: string;
   machine?: string;
   createdAt?: string;
+  state?: Extract<InboundEventState, "pending" | "dismissed">;
 };
 
 type RecordEventOptions = {
@@ -206,6 +208,7 @@ function parseSpoolRecord(line: string): SpoolRecord | undefined {
   try {
     const value = JSON.parse(line) as Record<string, unknown>;
     const source = typeof value.source === "string" ? value.source : undefined;
+    const id = typeof value.id === "string" ? value.id : undefined;
     const sourceId = typeof value.sourceId === "string"
       ? value.sourceId
       : typeof value.source_id === "string"
@@ -222,8 +225,17 @@ function parseSpoolRecord(line: string): SpoolRecord | undefined {
       : typeof value.created_at === "string"
         ? value.created_at
         : undefined;
+    const state = value.state === "dismissed" ? "dismissed" : "pending";
     if (!source || !sourceId || rawText === undefined || !createdAt) return undefined;
-    return { source, sourceId, rawText, machine, createdAt };
+    return {
+      ...(id ? { id } : {}),
+      source,
+      sourceId,
+      rawText,
+      machine,
+      createdAt,
+      state,
+    };
   } catch {
     return undefined;
   }
@@ -277,14 +289,28 @@ async function appendToSpool(
     chmodSync(directory, 0o700);
     const appended = await withSpoolLock(file, () => {
       if (existsSync(file)) {
-        const duplicate = readFileSync(file, "utf8")
-          .split(/\r?\n/)
-          .filter(Boolean)
-          .map(parseSpoolRecord)
-          .some((entry) =>
-            entry?.source === record.source && entry.sourceId === record.sourceId
-          );
-        if (duplicate) return true;
+        const lines = readFileSync(file, "utf8").split(/\r?\n/).filter(Boolean);
+        const duplicateIndex = lines.findIndex((line) => {
+          const entry = parseSpoolRecord(line);
+          return entry?.source === record.source && entry.sourceId === record.sourceId;
+        });
+        if (duplicateIndex >= 0) {
+          const existing = parseSpoolRecord(lines[duplicateIndex]);
+          if (existing && existing.state !== record.state) {
+            lines[duplicateIndex] = JSON.stringify({
+              ...existing,
+              state: record.state,
+            });
+            const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
+            writeFileSync(temporary, `${lines.join("\n")}\n`, {
+              encoding: "utf8",
+              mode: 0o600,
+            });
+            renameSync(temporary, file);
+            chmodSync(file, 0o600);
+          }
+          return true;
+        }
       }
       appendFileSync(file, `${JSON.stringify(record)}\n`, {
         encoding: "utf8",
@@ -321,12 +347,12 @@ function syntheticEvent(
   error?: unknown,
 ): InboundEvent {
   return {
-    id: randomUUID(),
+    id: record.id ?? randomUUID(),
     source: record.source,
     source_id: record.sourceId,
     raw_text: record.rawText,
     machine: record.machine,
-    state: "pending",
+    state: record.state ?? "pending",
     task_id: null,
     error: spooled
       ? null
@@ -367,9 +393,9 @@ async function findBySource(
 /**
  * Durably captures an inbound item without throwing to capture callers.
  *
- * When `event.spooled` is true, its synthetic random id is receipt-only and
- * must never be persisted or used as a foreign key. The eventual database row
- * receives its own durable id when the spool drains.
+ * When `event.spooled` is true and the caller did not supply a deterministic
+ * id, its synthetic random id is receipt-only and must never be persisted or
+ * used as a foreign key. The eventual database row receives its own durable id.
  */
 export async function recordEvent(
   input: RecordEventInput,
@@ -379,22 +405,25 @@ export async function recordEvent(
     ? input.createdAt
     : new Date().toISOString();
   const record: SpoolRecord = {
+    ...(input.id ? { id: input.id } : {}),
     source: input.source,
     sourceId: input.sourceId,
     rawText: input.rawText,
     machine: input.machine ?? os.hostname(),
     createdAt,
+    state: input.state ?? "pending",
   };
   try {
     const rows = await databaseRequest<unknown[]>(
       "POST",
       new URLSearchParams(),
       {
+        ...(record.id ? { id: record.id } : {}),
         source: record.source,
         source_id: record.sourceId,
         raw_text: record.rawText,
         machine: record.machine,
-        state: "pending",
+        state: record.state,
         task_id: null,
         error: null,
         attempts: 0,

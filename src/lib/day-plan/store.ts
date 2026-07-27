@@ -1470,20 +1470,28 @@ export function createDayPlanStore(options: {
     assistantTurnId: string;
     baseVersion: number;
     finishedAt: string;
+    requestedCreatedItemIds?: string[];
   }): { plan: DayPlan; createdItemIds: string[] } {
-    const { plan, proposal, assistantTurnId, baseVersion, finishedAt } = input;
+    const {
+      plan,
+      proposal,
+      assistantTurnId,
+      baseVersion,
+      finishedAt,
+      requestedCreatedItemIds,
+    } = input;
     const before = clonePlan(plan);
     const createdItemIds: string[] = [];
+    let createdIndex = 0;
     applyAssistantProposal(plan, proposal, {
       now: finishedAt,
       idFactory: () => {
-        const id = randomUUID();
+        const id = requestedCreatedItemIds?.[createdIndex] ?? randomUUID();
+        createdIndex += 1;
         createdItemIds.push(id);
         return id;
       },
     });
-    const beforeIds = new Set(before.items.map((item) => item.id));
-    const createdItems = plan.items.filter((item) => !beforeIds.has(item.id));
     const descriptionFor = (item: DayPlanItem) => [
       item.outcome,
       item.definitionOfDone ? `Done means: ${item.definitionOfDone}` : undefined,
@@ -1492,16 +1500,7 @@ export function createDayPlanStore(options: {
       taskId: string;
       action: DayPlanTaskMutation["action"];
       payload: Record<string, unknown>;
-    }> = createdItems.map((item) => ({
-      taskId: item.taskId,
-      action: "create" as const,
-      payload: {
-        title: item.title,
-        description: descriptionFor(item),
-        priority: item.priority,
-        project: item.project,
-      },
-    }));
+    }> = [];
     for (const operation of proposal.operations) {
       if (operation.operation === "edit_item") {
         const item = plan.items.find((candidate) => candidate.id === operation.itemId)!;
@@ -1557,6 +1556,7 @@ export function createDayPlanStore(options: {
   function applyAssistantOperations(input: {
     expectedVersion: number;
     operations: DayPlanAssistantOperation[];
+    createdItemIds?: string[];
   }): { turn: DayPlanAssistantTurn; plan: DayPlan; createdItemIds: string[] } {
     return immediate(() => {
       const plan = getReadModel().currentPlan;
@@ -1565,6 +1565,18 @@ export function createDayPlanStore(options: {
       requireArrivalEditing(plan);
       if (!Array.isArray(input.operations) || input.operations.length === 0) {
         throw new DayPlanInvalidTransition("Assistant apply requires at least one operation.");
+      }
+      const createCount = input.operations.filter(
+        (operation) => operation.operation === "create_item",
+      ).length;
+      if (
+        input.createdItemIds &&
+        (
+          input.createdItemIds.length !== createCount ||
+          new Set(input.createdItemIds).size !== createCount
+        )
+      ) {
+        throw new DayPlanInvalidTransition("Assistant create item identities are invalid.");
       }
       const timestamp = now().toISOString();
       const turnId = `buddy-${randomUUID()}`;
@@ -1586,6 +1598,7 @@ export function createDayPlanStore(options: {
         assistantTurnId: turnId,
         baseVersion: input.expectedVersion,
         finishedAt: timestamp,
+        requestedCreatedItemIds: input.createdItemIds,
       });
       db.prepare(
         `UPDATE day_plan_assistant_turns

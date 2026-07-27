@@ -120,6 +120,7 @@ When it opens, explain only this: "Solid work is committed. Pale work is a sugge
 - If yes and the channel is already connected, record where to reach them by writing `data/forge-reminders.json`:
   - Telegram: `{ "channel": "telegram", "telegram_chat_id": "<their chat id>", "always_on": false }`
   - iMessage: `{ "channel": "imessage", "imessage_to": "<phone or Apple ID>", "always_on": false }`
+  - If Messages lives on another Mac, add `"remote_host": "user@tailscale-host"`. Forge uses batch-mode SSH for iMessage and shows a local native notification if that host is unavailable, while retaining the text reminder for retry.
 - If they want it but the channel is not set up yet, connect it first (see "Connecting Telegram or iMessage" below), then write the file.
 - If they use neither and do not want to, skip it. Native notifications still work.
 

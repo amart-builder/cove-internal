@@ -1,7 +1,15 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { FORGE_REST_TABLES } from "../src/lib/data/forge-tables";
+import {
+  runForgeIntake,
+  type ForgeIntakeInput,
+} from "../src/lib/intake/run";
 
+export const FORGE_BUDDY_REPO_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
 export const FORGE_BUDDY_TABLES = FORGE_REST_TABLES;
 type Table = typeof FORGE_BUDDY_TABLES[number];
 type Action = "query" | "insert" | "update" | "delete";
@@ -25,21 +33,50 @@ type SpawnSessionCommand = {
   prompt: string;
   title?: string;
 } & ({ dir: string; project?: never } | { dir?: never; project: string });
-export type BuddyDataCommand = TableCommand | DayPlanCommand | SpawnSessionCommand;
+type IntakeCommand = {
+  action: "intake";
+  input: ForgeIntakeInput;
+};
+export type BuddyDataCommand =
+  | TableCommand
+  | DayPlanCommand
+  | SpawnSessionCommand
+  | IntakeCommand;
 
 function fail(message: string): never {
   throw new Error(message);
 }
 
-function option(args: string[], name: string): string | undefined {
+function option(
+  args: string[],
+  name: string,
+  options: { allowLeadingDash?: boolean } = {},
+): string | undefined {
   const index = args.indexOf(name);
   if (index < 0) return undefined;
   const value = args[index + 1];
-  if (!value || value.startsWith("--")) fail(`${name} requires a value`);
+  if (!value || (!options.allowLeadingDash && value.startsWith("--"))) {
+    fail(`${name} requires a value`);
+  }
   return value;
 }
 
 export function parseBuddyDataArgs(args: string[]): BuddyDataCommand {
+  if (args[0] === "intake") {
+    const text = option(args, "--text", { allowLeadingDash: true });
+    if (!text) fail("intake requires --text");
+    return {
+      action: "intake",
+      input: {
+        text,
+        source: "buddy",
+        ...(option(args, "--source-id")
+          ? { sourceId: option(args, "--source-id") }
+          : {}),
+        dryRun: args.includes("--dry-run"),
+      },
+    };
+  }
   if (args[0] === "spawn-session") {
     const dir = option(args, "--dir");
     const project = option(args, "--project");
@@ -71,6 +108,9 @@ export function parseBuddyDataArgs(args: string[]): BuddyDataCommand {
   const table = args[1] as Table;
   if (!["query", "insert", "update", "delete"].includes(action)) fail("unknown subcommand");
   if (!(FORGE_BUDDY_TABLES as readonly string[]).includes(table)) fail("table is not allowed");
+  if (action === "insert" && table === "tasks") {
+    fail("New tasks must use the intake subcommand.");
+  }
   const filters: string[] = [];
   args.forEach((value, index) => {
     if (value === "--filter" && args[index + 1]) filters.push(args[index + 1]);
@@ -134,11 +174,39 @@ export async function runBuddyDataCommand(
     fetch?: typeof fetch;
     appUrl?: string;
     write?: (line: string) => void;
+    runIntake?: typeof runForgeIntake;
   } = {},
 ): Promise<number> {
   const request = options.fetch ?? fetch;
   const write = options.write ?? ((line) => process.stdout.write(`${line}\n`));
   const appUrl = (options.appUrl ?? process.env.FORGE_BUDDY_APP_URL ?? "http://127.0.0.1:3200").replace(/\/$/, "");
+  if (command.action === "intake") {
+    const result = await (options.runIntake ?? runForgeIntake)(command.input, {
+      fetchImpl: request,
+      webBaseUrl: appUrl,
+      repoDir: FORGE_BUDDY_REPO_DIR,
+      write: () => undefined,
+      writeError: (line) => write(`WARN ${line}`),
+    });
+    if (command.input.dryRun) {
+      write(`DRY_RUN ${JSON.stringify({ event_id: result.event.id })}`);
+    } else if (result.taskId) {
+      write(`RECEIPT ${JSON.stringify({
+        table: "tasks",
+        action: "insert",
+        id: result.taskId,
+        summary: result.existed
+          ? `Task already captured (${result.taskId})`
+          : `Captured task (${result.taskId})`,
+      })}`);
+    } else if (result.spooled) {
+      write(`SPOOLED ${JSON.stringify({
+        source: result.event.source,
+        source_id: result.event.source_id,
+      })}`);
+    }
+    return result.exitCode;
+  }
   if (command.action === "spawn-session") {
     const state = await responseJson(await request(`${appUrl}/api/day-plan`, { cache: "no-store" }));
     if (!state || typeof state !== "object" || Array.isArray(state) ||

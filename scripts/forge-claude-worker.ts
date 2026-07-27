@@ -14,6 +14,7 @@ import {
   watchInboundEvents,
   watchMorningBriefQueue,
 } from "../src/lib/claude-execution/worker";
+import { triageRecordedEvent } from "../src/lib/intake/run";
 
 async function main(): Promise<number> {
   const laneIndex = process.argv.indexOf("--lane");
@@ -90,7 +91,16 @@ async function main(): Promise<number> {
         watchClaudeQueues(options),
         watchMorningBriefQueue(options),
         watchDayDumpQueue(options),
-        watchInboundEvents({ ...options, dataDir: relay.dataDir }),
+        watchInboundEvents({
+          ...options,
+          dataDir: relay.dataDir,
+          triageEvent: (event, input) => triageRecordedEvent(event, input, {
+            dataDir: relay.dataDir,
+            repoDir,
+            claudePath,
+            emptyMcpConfigPath: options.emptyMcpConfigPath,
+          }),
+        }),
       ]);
     }
     return 0;

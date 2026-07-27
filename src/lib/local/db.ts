@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   priority TEXT DEFAULT 'medium',
   due_at TEXT,
   tags TEXT DEFAULT '[]',
+  project TEXT NOT NULL DEFAULT 'Atlas',
   position INTEGER DEFAULT 0,
   status TEXT DEFAULT 'open',
   source_type TEXT DEFAULT 'manual',
@@ -273,6 +274,12 @@ function migrate(conn: Database.Database): void {
     conn.exec("ALTER TABLE tasks ADD COLUMN remind_text INTEGER DEFAULT 0");
   if (!cols.has("notified_at"))
     conn.exec("ALTER TABLE tasks ADD COLUMN notified_at TEXT");
+  if (!cols.has("project"))
+    conn.exec("ALTER TABLE tasks ADD COLUMN project TEXT NOT NULL DEFAULT 'Atlas'");
+  conn.exec("UPDATE tasks SET project = 'Atlas' WHERE project IS NULL");
+  conn.exec(
+    "CREATE INDEX IF NOT EXISTS tasks_project_status_idx ON tasks(project, status)",
+  );
 
   const commitmentCols = new Set(
     (conn.prepare("PRAGMA table_info(commitments)").all() as { name: string }[]).map(

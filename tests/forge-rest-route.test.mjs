@@ -156,6 +156,61 @@ test('a legacy tasks table is refused at startup instead of failing per query', 
   }
 });
 
+test('local task migration adds project with the Atlas default and index', async () => {
+  const dir = path.join(os.tmpdir(), `forge-task-project-${process.pid}-${Date.now()}`);
+  mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'forge.db');
+  const previousPath = process.env.FORGE_DB_PATH;
+  const previousDb = globalThis.__forgeDb;
+  const { default: Database } = await import('better-sqlite3');
+  const seed = new Database(file);
+  seed.exec(`
+    CREATE TABLE tasks (
+      id TEXT PRIMARY KEY,
+      column_id TEXT,
+      title TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      priority TEXT DEFAULT 'medium',
+      due_at TEXT,
+      tags TEXT DEFAULT '[]',
+      position INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'open',
+      source_type TEXT DEFAULT 'manual'
+    )
+  `);
+  seed.close();
+  process.env.FORGE_DB_PATH = file;
+  delete globalThis.__forgeDb;
+  try {
+    const inserted = handleLocalRest(
+      'tasks',
+      'POST',
+      new URLSearchParams(),
+      JSON.stringify({ id: 'project-default', title: 'General task' }),
+    );
+    assert.equal(inserted.status, 201);
+    assert.equal(inserted.body[0].project, 'Atlas');
+    globalThis.__forgeDb.close();
+    delete globalThis.__forgeDb;
+    const inspect = new Database(file, { readonly: true });
+    const columns = inspect.prepare('PRAGMA table_info(tasks)').all();
+    assert.equal(columns.find((column) => column.name === 'project').dflt_value, "'Atlas'");
+    const indexes = inspect.prepare('PRAGMA index_list(tasks)').all();
+    assert.equal(
+      indexes.some((index) => index.name === 'tasks_project_status_idx'),
+      true,
+    );
+    inspect.close();
+  } finally {
+    globalThis.__forgeDb?.close();
+    delete globalThis.__forgeDb;
+    if (previousDb !== undefined) globalThis.__forgeDb = previousDb;
+    if (previousPath === undefined) delete process.env.FORGE_DB_PATH;
+    else process.env.FORGE_DB_PATH = previousPath;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('the route rejects a filterless DELETE after CSRF passes, and still allows a targeted one', async (t) => {
   // The CSRF gate runs first, so an unauthenticated probe never reaches this
   // guard. Authenticate properly to prove the guard itself is load-bearing.

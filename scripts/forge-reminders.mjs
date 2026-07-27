@@ -14,10 +14,20 @@
  */
 import Database from "better-sqlite3";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  unlinkSync,
+} from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
+import {
+  localIMessageArgs,
+  nativeNotificationArgs,
+  remoteIMessageArgs,
+} from "../src/lib/intake/notification-transport.mjs";
 
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dbPath = process.env.FORGE_DB_PATH || path.join(repoDir, "data", "forge.db");
@@ -25,7 +35,11 @@ const dbPath = process.env.FORGE_DB_PATH || path.join(repoDir, "data", "forge.db
 function loadReminderConfig() {
   let raw;
   try {
-    raw = readFileSync(path.join(repoDir, "data", "forge-reminders.json"), "utf8");
+    raw = readFileSync(
+      process.env.FORGE_REMINDER_CONFIG_PATH ??
+        path.join(repoDir, "data", "forge-reminders.json"),
+      "utf8",
+    );
   } catch {
     return null; // No text channel configured; native notifications still work.
   }
@@ -50,24 +64,19 @@ function telegramToken() {
   }
 }
 
-/** Quote a string as an AppleScript literal (safe against quotes/newlines). */
-function asLiteral(s) {
-  return `"${String(s)
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, "\\n")
-    .replace(/\r/g, "\\r")}"`;
-}
-
 function notifyNative(taskTitle) {
-  execFileSync("osascript", [
-    "-e",
-    `display notification ${asLiteral(taskTitle)} with title ${asLiteral("Forge")} subtitle ${asLiteral("Task due")} sound name ${asLiteral("Glass")}`,
-  ]);
+  execFileSync(
+    "osascript",
+    nativeNotificationArgs(taskTitle, {
+      title: "Forge",
+      subtitle: "Task due",
+      sound: "Glass",
+    }),
+  );
 }
 
 function notifyTelegram(token, chatId, message) {
-  execFileSync("curl", [
+  const output = execFileSync("curl", [
     "-sS",
     "-m",
     "15",
@@ -76,14 +85,45 @@ function notifyTelegram(token, chatId, message) {
     `chat_id=${chatId}`,
     "--data-urlencode",
     `text=${message}`,
-  ]);
+  ]).toString();
+  if (!/"ok":\s*true/.test(output)) {
+    throw new Error(`Telegram API rejected the message: ${output.slice(0, 200)}`);
+  }
 }
 
 function notifyIMessage(to, message) {
-  execFileSync("osascript", [
-    "-e",
-    `tell application "Messages" to send ${asLiteral(message)} to buddy ${asLiteral(to)} of (1st service whose service type = iMessage)`,
-  ]);
+  execFileSync("osascript", localIMessageArgs(to, message));
+}
+
+function notifyRemoteIMessage(remoteHost, to, message) {
+  execFileSync(
+    "ssh",
+    remoteIMessageArgs(remoteHost, to, message),
+    { timeout: 10_000 },
+  );
+}
+
+function notifyConfigured(config, token, message) {
+  if (config?.channel === "telegram" && token && config.telegram_chat_id) {
+    notifyTelegram(token, config.telegram_chat_id, message);
+    return true;
+  } else if (config?.channel === "imessage" && config.imessage_to) {
+    if (config.remote_host) {
+      notifyRemoteIMessage(
+        config.remote_host,
+        config.imessage_to,
+        message,
+      );
+    } else {
+      notifyIMessage(config.imessage_to, message);
+    }
+    return true;
+  }
+  return false;
+}
+
+function configuredChannelExpected(config) {
+  return config?.channel === "telegram" || config?.channel === "imessage";
 }
 
 /** Parse a due_at into a Date, treating date-only values as 9am LOCAL (not UTC). */
@@ -92,7 +132,61 @@ function dueTime(raw) {
   return new Date(normalized);
 }
 
+function fireScheduledReminders(config, token) {
+  const directory = path.join(path.dirname(dbPath), "reminders");
+  if (!existsSync(directory)) return;
+  for (const name of readdirSync(directory).filter((value) =>
+    /^scheduled-.*\.json$/.test(value)
+  )) {
+    const file = path.join(directory, name);
+    let entry;
+    try {
+      entry = JSON.parse(readFileSync(file, "utf8"));
+    } catch (error) {
+      console.error(`Scheduled reminder ${name} is unreadable:`, error.message);
+      continue;
+    }
+    const when = dueTime(entry.surface_at);
+    if (Number.isNaN(when.getTime()) || when.getTime() > Date.now()) continue;
+    const title = entry.title || "Task";
+    let nativeDelivered = false;
+    let channelDelivered = false;
+    try {
+      notifyNative(title);
+      nativeDelivered = true;
+    } catch (error) {
+      console.error(
+        `Scheduled reminder ${entry.id ?? name} native notification failed:`,
+        error.message,
+      );
+    }
+    try {
+      channelDelivered =
+        notifyConfigured(config, token, `Forge reminder: ${title}`);
+    } catch (error) {
+      console.error(
+        `Scheduled reminder ${entry.id ?? name} configured channel failed:`,
+        error.message,
+      );
+    }
+    const delivered = configuredChannelExpected(config)
+      ? channelDelivered
+      : nativeDelivered;
+    if (delivered) {
+      try {
+        unlinkSync(file);
+      } catch {
+        // Another reminder tick may have claimed it.
+      }
+    }
+  }
+}
+
 function main() {
+  const config = loadReminderConfig();
+  const token = telegramToken();
+  fireScheduledReminders(config, token);
+
   let db;
   try {
     db = new Database(dbPath, { fileMustExist: true });
@@ -115,8 +209,6 @@ function main() {
 
   if (due.length === 0) return;
 
-  const config = loadReminderConfig();
-  const token = telegramToken();
   const claim = db.prepare(
     "UPDATE tasks SET notified_at = ? WHERE id = ? AND notified_at IS NULL",
   );
@@ -134,11 +226,7 @@ function main() {
 
       if (task.remind_text && config) {
         const message = `Forge reminder: ${title}`;
-        if (config.channel === "telegram" && token && config.telegram_chat_id) {
-          notifyTelegram(token, config.telegram_chat_id, message);
-        } else if (config.channel === "imessage" && config.imessage_to) {
-          notifyIMessage(config.imessage_to, message);
-        }
+        notifyConfigured(config, token, message);
       }
     } catch (err) {
       console.error(`Reminder for task ${task.id} failed:`, err.message);

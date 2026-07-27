@@ -7,8 +7,9 @@
  * The message is read from argv (never interpolated into a shell), so text from
  * email summaries can pass through safely. Reads the same channel config the
  * reminders cron uses (data/forge-reminders.json + the Telegram token). Prints
- * nothing on success; a missing channel is a no-op (exit 0), so callers do not
- * have to special-case an unconfigured user.
+ * nothing on success and exits nonzero unless the configured text channel
+ * delivered. A local notification fallback is visible but does not settle a
+ * durable reminder receipt.
  *
  * Runs only while the Mac is awake, same limit as reminders.
  */
@@ -17,6 +18,11 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
+import {
+  localIMessageArgs,
+  nativeNotificationArgs,
+  remoteIMessageArgs,
+} from "../src/lib/intake/notification-transport.mjs";
 
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -29,7 +35,11 @@ if (!message) {
 function loadReminderConfig() {
   try {
     return JSON.parse(
-      readFileSync(path.join(repoDir, "data", "forge-reminders.json"), "utf8"),
+      readFileSync(
+        process.env.FORGE_REMINDER_CONFIG_PATH ??
+          path.join(repoDir, "data", "forge-reminders.json"),
+        "utf8",
+      ),
     );
   } catch {
     return null; // No text channel configured; nothing to send.
@@ -47,15 +57,6 @@ function telegramToken() {
   } catch {
     return null;
   }
-}
-
-/** Quote a string as an AppleScript literal (safe against quotes/newlines). */
-function asLiteral(s) {
-  return `"${String(s)
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, "\\n")
-    .replace(/\r/g, "\\r")}"`;
 }
 
 function sendTelegram(token, chatId, text) {
@@ -78,25 +79,69 @@ function sendTelegram(token, chatId, text) {
 }
 
 function sendIMessage(to, text) {
-  execFileSync("osascript", [
-    "-e",
-    `tell application "Messages" to send ${asLiteral(text)} to buddy ${asLiteral(to)} of (1st service whose service type = iMessage)`,
-  ]);
+  execFileSync("osascript", localIMessageArgs(to, text));
+}
+
+function sendRemoteIMessage(remoteHost, to, text) {
+  execFileSync(
+    "ssh",
+    remoteIMessageArgs(remoteHost, to, text),
+    { timeout: 10_000 },
+  );
+}
+
+function notifyNative(text) {
+  execFileSync(
+    "osascript",
+    nativeNotificationArgs(text, { title: "Forge", sound: "Glass" }),
+  );
 }
 
 const config = loadReminderConfig();
-if (!config) process.exit(0); // no channel: silent no-op
+if (!config) {
+  console.error('FORGE_NOTIFY {"delivered":false,"reason":"not_configured"}');
+  process.exit(1);
+}
 
 try {
   if (config.channel === "telegram") {
     const token = telegramToken();
-    if (token && config.telegram_chat_id) {
-      sendTelegram(token, config.telegram_chat_id, message);
-    }
+    if (!token || !config.telegram_chat_id) throw new Error("Telegram is not configured");
+    sendTelegram(token, config.telegram_chat_id, message);
   } else if (config.channel === "imessage" && config.imessage_to) {
-    sendIMessage(config.imessage_to, message);
+    if (config.remote_host) {
+      try {
+        sendRemoteIMessage(config.remote_host, config.imessage_to, message);
+      } catch (error) {
+        console.error(
+          `forge-notify remote iMessage failed; using a local notification: ${error.message}`,
+        );
+        try {
+          notifyNative(message);
+        } catch {
+          // Notification delivery never changes the intake result.
+        }
+        console.error(
+          `FORGE_NOTIFY ${JSON.stringify({
+            delivered: false,
+            reason: "remote_imessage_failed",
+          })}`,
+        );
+        process.exitCode = 1;
+      }
+    } else {
+      sendIMessage(config.imessage_to, message);
+    }
+  } else {
+    throw new Error("No configured notification channel");
   }
 } catch (err) {
   console.error("forge-notify failed:", err.message);
-  process.exit(1);
+  console.error(
+    `FORGE_NOTIFY ${JSON.stringify({
+      delivered: false,
+      reason: "configured_channel_failed",
+    })}`,
+  );
+  process.exitCode = 1;
 }
