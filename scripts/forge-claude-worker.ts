@@ -14,12 +14,17 @@ import {
   watchInboundEvents,
   watchMorningBriefQueue,
 } from "../src/lib/claude-execution/worker";
+import {
+  runOneGroundwork,
+  watchGroundworkQueue,
+} from "../src/lib/autonomy/groundwork";
 import { triageRecordedEvent } from "../src/lib/intake/run";
 
 async function main(): Promise<number> {
   const laneIndex = process.argv.indexOf("--lane");
   const lane = laneIndex >= 0 ? process.argv[laneIndex + 1] : undefined;
-  if (!["execution", "all", "watch", "brief", "dump"].includes(lane ?? "")) return 2;
+  const dryRun = process.argv.includes("--dry-run");
+  if (!["execution", "all", "watch", "brief", "dump", "groundwork"].includes(lane ?? "")) return 2;
   if (process.env.FORGE_CLAUDE_WORKER_ENABLED !== "1") return 3;
   const repoDir = process.cwd();
   const claudePath = process.env.FORGE_CLAUDE_BIN ?? path.join(homedir(), ".local", "bin", "claude");
@@ -27,6 +32,28 @@ async function main(): Promise<number> {
     return 4;
   }
   const dbPath = process.env.FORGE_DB_PATH ?? path.join(repoDir, "data", "forge.db");
+  if (lane === "groundwork") {
+    const shutdown = new AbortController();
+    const stop = () => shutdown.abort();
+    process.once("SIGTERM", stop);
+    process.once("SIGINT", stop);
+    try {
+      const result = await runOneGroundwork({
+        claudePath,
+        emptyMcpConfigPath: path.join(repoDir, "scripts", "forge-empty-mcp.json"),
+        emptySettingsPath: path.join(repoDir, "scripts", "forge-empty-settings.json"),
+        dataDir: path.dirname(dbPath),
+        repoDir,
+        dryRun,
+        abortSignal: shutdown.signal,
+      });
+      if (dryRun) process.stdout.write(`${JSON.stringify(result)}\n`);
+      return 0;
+    } finally {
+      process.off("SIGTERM", stop);
+      process.off("SIGINT", stop);
+    }
+  }
   const store = createDayPlanStore({ dbPath });
   // The cross-machine file relay lives next to the (now machine-private) DB. A
   // generator that is not the authoritative source (the Mini) sets
@@ -65,6 +92,11 @@ async function main(): Promise<number> {
     else if (lane === "all") {
       await drainClaudeQueues(options);
       await drainDayDumpQueue(options);
+      await runOneGroundwork({
+        ...options,
+        dataDir: relay.dataDir,
+        repoDir,
+      });
     }
     else if (lane === "dump") {
       while (await runOneDayDump(options)) {
@@ -100,6 +132,11 @@ async function main(): Promise<number> {
             claudePath,
             emptyMcpConfigPath: options.emptyMcpConfigPath,
           }),
+        }),
+        watchGroundworkQueue({
+          ...options,
+          dataDir: relay.dataDir,
+          repoDir,
         }),
       ]);
     }

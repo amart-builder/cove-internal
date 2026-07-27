@@ -109,6 +109,7 @@ test('local PATCH returns the rows it updated even when the filter tests an over
   assert.equal(stale.status, 200);
   assert.equal(Array.isArray(stale.body), true);
   assert.equal(stale.body.length, 0, 'a lost CAS returns no rows so the caller can detect it');
+
 });
 
 test('a filterless PATCH or DELETE is not treated as targeting rows', () => {

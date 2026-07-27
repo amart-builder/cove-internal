@@ -388,7 +388,7 @@ export function resolveLocalInboundEvent(input: {
 const RESERVED = new Set(["select", "order", "limit", "offset"]);
 
 /** Parse PostgREST-style filters (col=op.value) into a WHERE clause + args. */
-function parseWhere(params: URLSearchParams): {
+function parseWhere(table: string, params: URLSearchParams): {
   clause: string;
   args: unknown[];
 } {
@@ -413,6 +413,18 @@ function parseWhere(params: URLSearchParams): {
         args.push(...items);
       } else {
         where.push("0"); // empty IN matches nothing
+      }
+    } else if (op === "cs" && JSON_COLUMNS[table]?.includes(key)) {
+      const inner = rest.replace(/^\{/, "").replace(/\}$/, "");
+      const items = inner.length ? inner.split(",") : [];
+      if (items.length) {
+        where.push(items.map(
+          () =>
+            `EXISTS (SELECT 1 FROM json_each("${key}") WHERE json_each.value = ?)`,
+        ).join(" AND "));
+        args.push(...items);
+      } else {
+        where.push("0");
       }
     } else if (OPERATORS[op]) {
       where.push(`"${key}" ${OPERATORS[op]} ?`);
@@ -466,7 +478,7 @@ function selectRows(table: string, params: URLSearchParams): RestResult {
     if (Number.isInteger(offset) && offset >= 0) tail += ` OFFSET ${offset}`;
   }
 
-  const { clause, args } = parseWhere(params);
+  const { clause, args } = parseWhere(table, params);
   const sql = `SELECT ${columns} FROM "${table}"${clause}${orderBy}${tail}`;
   const rows = db.prepare(sql).all(...args) as Record<string, unknown>[];
   return { status: 200, body: rows.map((r) => decodeRow(table, r)) };
@@ -509,7 +521,7 @@ function updateRows(
   payload: unknown,
 ): RestResult {
   const db = getDb();
-  const { clause, args } = parseWhere(params);
+  const { clause, args } = parseWhere(table, params);
   if (!clause) {
     return { status: 400, body: "Refusing to update without a filter." };
   }
@@ -550,7 +562,7 @@ function updateRows(
 
 function deleteRows(table: string, params: URLSearchParams): RestResult {
   const db = getDb();
-  const { clause, args } = parseWhere(params);
+  const { clause, args } = parseWhere(table, params);
   if (!clause) {
     return { status: 400, body: "Refusing to delete without a filter." };
   }

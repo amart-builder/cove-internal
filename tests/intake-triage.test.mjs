@@ -207,6 +207,12 @@ test('canonical intake captures first, triages once, writes project, and is idem
   assert.equal(posts[0].id, result.event.id);
   assert.equal(posts[0].column_id, 'today');
   assert.equal(posts[0].project, 'Atlas');
+  assert.deepEqual(posts[0].tags, [
+    'triaged',
+    'autonomy-groundwork',
+    'groundwork-queued',
+    'groundwork-grade:groundwork',
+  ]);
   assert.match(posts[0].description, /Offer: Want me to draft/);
   assert.match(posts[0].description, /Groundwork: Draft the scope/);
   assert.deepEqual(notifications, ['Send Maya the revised scope']);
@@ -220,6 +226,15 @@ test('canonical intake captures first, triages once, writes project, and is idem
     '1.50',
   );
   assert.equal(spawnCalls[0].options.env.SUPABASE_SERVICE_ROLE_KEY, undefined);
+  assert.deepEqual(
+    JSON.parse(readFileSync(path.join(dir, 'forge-autonomy.json'), 'utf8')),
+    {
+      level: 'groundwork',
+      first_groundwork_at: null,
+      checkin_answered: false,
+      checkin_presented_count: 0,
+    },
+  );
   assert.match(lines[0], /^TASK /);
 
   const retry = await runForgeIntake({
@@ -255,6 +270,58 @@ test('dry-run capture is terminal and never becomes sweeper work', async (t) => 
   assert.equal(result.event.state, 'dismissed');
   assert.equal(result.event.source_id, 'dry-run:dry-run-1');
   assert.equal((await getEvent(result.event.id)).state, 'dismissed');
+});
+
+test('triage autonomy none never queues groundwork', async (t) => {
+  const dir = fixture(t);
+  const posts = [];
+  await runForgeIntake({
+    text: 'Alex must handle this personally.',
+    source: 'chat',
+    sourceId: 'autonomy-none',
+  }, {
+    dataDir: dir,
+    repoDir: process.cwd(),
+    fetchImpl: forgeFetch(posts),
+    webBaseUrl: 'http://autonomy-none.test',
+    spawnImpl: claudeSpawn(validTriage({
+      autonomy: 'none',
+      groundwork_notes: null,
+      surface: 'board',
+      surface_at: null,
+    }), []),
+    now: () => new Date('2026-07-27T18:00:00.000Z'),
+    write: () => undefined,
+  });
+  assert.deepEqual(posts[0].tags, ['triaged', 'autonomy-none']);
+});
+
+test('the off setting suppresses a model-selected groundwork queue', async (t) => {
+  const dir = fixture(t);
+  writeFileSync(path.join(dir, 'forge-autonomy.json'), JSON.stringify({
+    level: 'off',
+    first_groundwork_at: null,
+    checkin_answered: false,
+    checkin_presented_count: 0,
+  }));
+  const posts = [];
+  await runForgeIntake({
+    text: 'Research this only when autonomy is enabled.',
+    source: 'chat',
+    sourceId: 'autonomy-off',
+  }, {
+    dataDir: dir,
+    repoDir: process.cwd(),
+    fetchImpl: forgeFetch(posts),
+    webBaseUrl: 'http://autonomy-off.test',
+    spawnImpl: claudeSpawn(validTriage({
+      surface: 'board',
+      surface_at: null,
+    }), []),
+    now: () => new Date('2026-07-27T18:00:00.000Z'),
+    write: () => undefined,
+  });
+  assert.deepEqual(posts[0].tags, ['triaged', 'autonomy-groundwork']);
 });
 
 test('a due-now surface receipt survives task creation and resumes without another task', async (t) => {

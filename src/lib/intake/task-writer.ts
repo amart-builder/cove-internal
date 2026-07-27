@@ -1,9 +1,11 @@
-import type { InboundEvent } from "../data/types";
+import { ensureForgeAutonomySettings } from "../autonomy/settings";
+import type { InboundEvent, Task } from "../data/types";
 import { localDateInTimezone } from "../day-plan/brief";
 import { operatorTimezone } from "../operator";
 import type { TriageOutput } from "../triage/protocol";
 
 export type InboundTaskWriterOptions = {
+  dataDir?: string;
   fetchImpl?: typeof fetch;
   webBaseUrl?: string;
   fetchTimeoutMs?: number;
@@ -125,6 +127,118 @@ export async function inboundTaskExists(
     baseUrl: webBase(options),
     timeoutMs: options.fetchTimeoutMs ?? 10_000,
   });
+}
+
+function groundworkTaskRow(value: unknown): Task | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const task = value as Partial<Task>;
+  if (
+    typeof task.id !== "string" ||
+    typeof task.title !== "string" ||
+    typeof task.description !== "string" ||
+    !Array.isArray(task.tags) ||
+    !task.tags.every((tag) => typeof tag === "string") ||
+    (
+      task.status !== "open" &&
+      task.status !== "done" &&
+      task.status !== "archived"
+    )
+  ) {
+    throw new Error("forge-rest tasks row shape");
+  }
+  return task as Task;
+}
+
+async function listGroundworkTasksWithTag(
+  tag: "groundwork-queued" | "groundwork-running",
+  options: InboundTaskWriterOptions = {},
+): Promise<Task[]> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const baseUrl = webBase(options);
+  const timeoutMs = options.fetchTimeoutMs ?? 10_000;
+  const values = await rows(
+    fetchImpl,
+    baseUrl,
+    "tasks",
+    timeoutMs,
+    "select=id,title,description,project,tags,status,created_at,updated_at" +
+      `&status=eq.open&tags=cs.${encodeURIComponent(`{${tag}}`)}` +
+      "&order=created_at.asc&limit=20",
+  );
+  return values.flatMap((value) => {
+    const task = groundworkTaskRow(value);
+    return task?.tags.includes(tag) ? [task] : [];
+  });
+}
+
+export async function listGroundworkQueuedTasks(
+  options: InboundTaskWriterOptions = {},
+): Promise<Task[]> {
+  return listGroundworkTasksWithTag("groundwork-queued", options);
+}
+
+export async function listGroundworkRunningTasks(
+  options: InboundTaskWriterOptions = {},
+): Promise<Task[]> {
+  return listGroundworkTasksWithTag("groundwork-running", options);
+}
+
+export async function getTaskThroughForgeRest(
+  id: string,
+  options: InboundTaskWriterOptions = {},
+): Promise<Task | undefined> {
+  const values = await rows(
+    options.fetchImpl ?? fetch,
+    webBase(options),
+    "tasks",
+    options.fetchTimeoutMs ?? 10_000,
+    "select=id,title,description,project,tags,status,created_at,updated_at" +
+      `&id=eq.${encodeURIComponent(id)}&limit=1`,
+  );
+  return groundworkTaskRow(values[0]);
+}
+
+export async function updateTaskThroughForgeRest(
+  id: string,
+  patch: Partial<Task>,
+  options: InboundTaskWriterOptions = {},
+  guard: { expectedTag?: string } = {},
+): Promise<Task | undefined> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const baseUrl = webBase(options);
+  const timeoutMs = options.fetchTimeoutMs ?? 10_000;
+  const token = await csrfToken(fetchImpl, baseUrl, timeoutMs);
+  const response = await fetchImpl(
+    `${baseUrl}/api/forge-rest/tasks?id=eq.${encodeURIComponent(id)}${
+      guard.expectedTag
+        ? `&tags=cs.${encodeURIComponent(`{${guard.expectedTag}}`)}`
+        : ""
+    }`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Forge-CSRF": token,
+      },
+      body: JSON.stringify(patch),
+      signal: AbortSignal.timeout(timeoutMs),
+      cache: "no-store",
+    },
+  );
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`forge-rest tasks ${response.status}: ${text.slice(0, 300)}`);
+  }
+  try {
+    const value = JSON.parse(text) as unknown;
+    if (!Array.isArray(value)) {
+      throw new Error("shape");
+    }
+    if (value.length === 0) return undefined;
+    return groundworkTaskRow(value[0]);
+  } catch {
+    throw new Error("forge-rest tasks patch shape");
+  }
 }
 
 async function createTask(
@@ -321,6 +435,14 @@ export async function createTriagedInboundTask(
     `Groundwork: ${triage.groundwork_notes ?? "Not started."}`,
     `Urgency: ${triage.urgency_reason}`,
   ].join("\n\n");
+  let queueGroundwork = false;
+  try {
+    queueGroundwork =
+      ensureForgeAutonomySettings(options.dataDir).level !== "off" &&
+      triage.autonomy !== "none";
+  } catch (error) {
+    console.error("Forge autonomy setting unavailable; groundwork was not queued.", error);
+  }
   return createTask(event, {
     id: event.id,
     column_id: targetColumn,
@@ -329,7 +451,13 @@ export async function createTriagedInboundTask(
     project: triage.project,
     priority: triage.priority,
     due_at: triage.due_at,
-    tags: ["triaged", `autonomy-${triage.autonomy}`],
+    tags: [
+      "triaged",
+      `autonomy-${triage.autonomy}`,
+      ...(queueGroundwork
+        ? ["groundwork-queued", `groundwork-grade:${triage.autonomy}`]
+        : []),
+    ],
     position: 0,
     source_type: "inbound_event",
   }, options);
