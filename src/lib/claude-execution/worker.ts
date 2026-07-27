@@ -302,6 +302,12 @@ function spawnCommand(
         terminatedBy,
       });
     });
+    // A stream 'error' with no listener is an uncaught exception, not a
+    // rejected promise. `claude` exiting before the prompt finishes writing
+    // makes this EPIPE, and it exits immediately when nobody is signed in, so
+    // the unguarded version takes the process down on a routine failure. The
+    // child's own close handler still settles the result.
+    child.stdin.once("error", () => signalProcessGroup(child, "SIGTERM"));
     child.stdin.end(command.stdin);
   });
 }

@@ -31,6 +31,16 @@ export function buildBuddySeedCommand(input: {
       "--append-system-prompt", BUDDY_SEED_SYSTEM_PROMPT,
       "--max-budget-usd", "1.00",
       "--disable-slash-commands",
+      // The system prompt above already says "do not use tools", but that is an
+      // instruction, and this run's prompt is model-written from untrusted data
+      // rows in a model-chosen directory. Pin it structurally, the way every
+      // other spawn in this codebase does: no tools, no inherited MCP servers,
+      // no browser. Only the headless seeding run is restricted; the session a
+      // human later resumes interactively is unaffected.
+      "--tools", "",
+      "--strict-mcp-config",
+      "--mcp-config", path.join(process.cwd(), "scripts/forge-empty-mcp.json"),
+      "--no-chrome",
     ],
     cwd: input.dir,
     stdin: `# ${input.title.replace(/\s+/g, " ").trim()}\n\n${input.prompt}`,

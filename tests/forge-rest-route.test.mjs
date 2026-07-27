@@ -120,3 +120,36 @@ test('a filterless PATCH or DELETE is not treated as targeting rows', () => {
   assert.equal(targetsSpecificRows(new URLSearchParams('select=*&id=eq.abc')), true);
   assert.equal(targetsSpecificRows(new URLSearchParams('status=eq.open')), true);
 });
+
+test('a legacy tasks table is refused at startup instead of failing per query', async () => {
+  const dir = path.join(os.tmpdir(), `forge-legacy-db-${process.pid}-${Date.now()}`);
+  mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'forge.db');
+  const previousPath = process.env.FORGE_DB_PATH;
+  const globalKey = globalThis;
+  const previousDb = globalKey.__forgeDb;
+
+  const { default: Database } = await import('better-sqlite3');
+  const seed = new Database(file);
+  // The pre-Convex shape: no status, no due_at, no source_type.
+  seed.exec(
+    'CREATE TABLE tasks (id TEXT PRIMARY KEY, column_id TEXT, title TEXT NOT NULL, due_date TEXT)',
+  );
+  seed.close();
+
+  process.env.FORGE_DB_PATH = file;
+  delete globalKey.__forgeDb;
+  try {
+    assert.throws(
+      () => handleLocalRest('tasks', 'GET', new URLSearchParams(''), undefined),
+      /incompatible tasks table/,
+      'a legacy database must stop Forge with an actionable message',
+    );
+  } finally {
+    delete globalKey.__forgeDb;
+    if (previousDb !== undefined) globalKey.__forgeDb = previousDb;
+    if (previousPath === undefined) delete process.env.FORGE_DB_PATH;
+    else process.env.FORGE_DB_PATH = previousPath;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

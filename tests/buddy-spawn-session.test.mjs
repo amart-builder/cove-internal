@@ -113,6 +113,15 @@ test('spawn-session route gates requests and confines real directories to ~/Atla
   assert.equal(spawnCall.args[spawnCall.args.indexOf('--model') + 1], 'claude-fable-5');
   assert.equal(spawnCall.args[spawnCall.args.indexOf('--effort') + 1], 'high');
   assert.equal(spawnCall.args[spawnCall.args.indexOf('--max-budget-usd') + 1], '1.00');
+  // The seed prompt is model-written from untrusted rows, so "don't use tools"
+  // has to be enforced by flags and not only by the system prompt.
+  assert.equal(spawnCall.args[spawnCall.args.indexOf('--tools') + 1], '');
+  assert.ok(spawnCall.args.includes('--strict-mcp-config'));
+  assert.ok(spawnCall.args.includes('--no-chrome'));
+  assert.match(
+    spawnCall.args[spawnCall.args.indexOf('--mcp-config') + 1],
+    /forge-empty-mcp\.json$/,
+  );
   const systemPrompt = spawnCall.args[spawnCall.args.indexOf('--append-system-prompt') + 1];
   assert.match(systemPrompt, /Do not read files, use tools, edit anything, or begin the work/);
   assert.match(systemPrompt, /at most 2-3 short bullets/);

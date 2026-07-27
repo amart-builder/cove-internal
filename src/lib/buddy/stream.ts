@@ -288,6 +288,16 @@ export async function runBuddyCommand(
       if (done) resolve(done);
       else reject(new Error(timedOut ? "timeout" : `missing_result:${code ?? "unknown"}:${stderr.trim()}`));
     });
+    // This one runs inside the Next server, so an unhandled stdin 'error' does
+    // not just fail the turn, it kills Forge for everyone. EPIPE here is a
+    // normal outcome when `claude` exits before the prompt lands.
+    child.stdin.once("error", (error) => {
+      clearTimeout(timeout);
+      if (killTimer) clearTimeout(killTimer);
+      signalProcessGroup(child, "SIGTERM");
+      clearActiveChild();
+      reject(error);
+    });
     child.stdin.end(command.stdin);
   });
 }
