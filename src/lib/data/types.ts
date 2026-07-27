@@ -150,3 +150,24 @@ export type Commitment = {
   created_at: string;
   updated_at: string;
 };
+
+export type InboundEventState =
+  | "pending"
+  | "triaged"
+  | "failed"
+  | "dismissed";
+
+export type InboundEvent = {
+  id: ForgeId;
+  source: string;
+  source_id: string;
+  raw_text: string;
+  machine: string | null;
+  state: InboundEventState;
+  task_id: ForgeId | null;
+  error: string | null;
+  attempts: number;
+  created_at: string;
+  updated_at: string;
+  spooled?: boolean;
+};

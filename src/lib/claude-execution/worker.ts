@@ -5,6 +5,7 @@ import {
 } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { chmodSync, closeSync, mkdirSync, openSync, writeSync } from "node:fs";
+import type { InboundEvent } from "../data/types";
 import path from "node:path";
 import type { DayPlanStore } from "../day-plan/store";
 import {
@@ -74,6 +75,13 @@ import {
   rememberNotificationTransition,
   type ExecutionNotificationInput,
 } from "./notify";
+import {
+  drainSpoolFiles,
+  getEvent,
+  listUnresolved,
+  resolveEvent,
+} from "../intake/inbox";
+import { operatorTimezone } from "../operator";
 
 type SpawnImpl = typeof spawn;
 type ExecutionNotifier = (input: ExecutionNotificationInput) => void | Promise<void>;
@@ -554,6 +562,19 @@ export type DayDumpWorkerOptions = ClaudeWorkerOptions & {
   // directory the brief lane uses. Without it the write falls back to the
   // ambient FORGE_DB_PATH/cwd and a test run overwrites the real relay file.
   relay?: BriefRelayOptions;
+};
+
+export type InboundWorkerOptions = {
+  abortSignal?: AbortSignal;
+  dataDir?: string;
+  fetchImpl?: typeof fetch;
+  now?: () => Date;
+  webBaseUrl?: string;
+  fetchTimeoutMs?: number;
+  triageEvent?: (
+    event: InboundEvent,
+    input: { taskId: string },
+  ) => Promise<boolean | undefined>;
 };
 
 export function configuredDayDumpWriter(
@@ -1418,6 +1439,199 @@ export async function watchDayDumpQueue(
   while (!options.abortSignal?.aborted) {
     const processed = await runOneDayDump(options);
     if (!processed) await waitForPoll(pollIntervalMs, options.abortSignal);
+  }
+}
+
+function addCalendarDays(localDate: string, days: number): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(localDate);
+  if (!match) throw new Error("inbound_due_date_invalid");
+  const date = new Date(
+    Date.UTC(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3]) + days,
+      12,
+    ),
+  );
+  return date.toISOString().slice(0, 10);
+}
+
+function zoneOffset(localDate: string, timezone: string): string {
+  const atNoonUtc = new Date(`${localDate}T12:00:00.000Z`);
+  const zoneName = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    timeZoneName: "longOffset",
+  }).formatToParts(atNoonUtc).find((part) => part.type === "timeZoneName")?.value;
+  if (zoneName === "GMT") return "+00:00";
+  const match = /^GMT([+-])(\d{2}):(\d{2})$/.exec(zoneName ?? "");
+  if (!match) throw new Error("inbound_due_timezone_invalid");
+  return `${match[1]}${match[2]}:${match[3]}`;
+}
+
+export function fallbackInboundDueAt(
+  now: Date,
+  timezone = operatorTimezone(),
+): string {
+  const tomorrow = addCalendarDays(localDateInTimezone(now, timezone), 1);
+  return `${tomorrow}T09:00:00${zoneOffset(tomorrow, timezone)}`;
+}
+
+async function createFallbackInboundTask(
+  event: InboundEvent,
+  options: InboundWorkerOptions,
+): Promise<string> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const baseUrl = (options.webBaseUrl ?? defaultBriefWebBase()).replace(/\/$/, "");
+  const timeoutMs = options.fetchTimeoutMs ?? 10_000;
+  const existing = await fetchRows(
+    fetchImpl,
+    baseUrl,
+    "tasks",
+    timeoutMs,
+    `select=id&id=eq.${encodeURIComponent(event.id)}&limit=1`,
+  );
+  if (existing.length > 0) return event.id;
+
+  const columns = await fetchRows(
+    fetchImpl,
+    baseUrl,
+    "task_columns",
+    timeoutMs,
+    "select=id,name&order=position.asc",
+  );
+  const notStarted = columns.find((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    return (value as Record<string, unknown>).name === "Not Started";
+  }) as Record<string, unknown> | undefined;
+  if (typeof notStarted?.id !== "string") {
+    throw new Error("inbound_not_started_column_missing");
+  }
+  const csrfToken = await forgeCsrfToken(fetchImpl, baseUrl, timeoutMs);
+  const clock = options.now ?? (() => new Date());
+  const response = await fetchImpl(`${baseUrl}/api/forge-rest/tasks`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Forge-CSRF": csrfToken,
+    },
+    body: JSON.stringify({
+      id: event.id,
+      column_id: notStarted.id,
+      title: event.raw_text.slice(0, 80) || `Inbound item from ${event.source}`,
+      description:
+        `${event.raw_text}\n\nArrived via ${event.source} and needs triage.`,
+      priority: "medium",
+      due_at: fallbackInboundDueAt(clock()),
+      tags: ["needs-triage"],
+      position: 0,
+      source_type: "inbound_event",
+    }),
+    signal: AbortSignal.timeout(timeoutMs),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const raced = await fetchRows(
+      fetchImpl,
+      baseUrl,
+      "tasks",
+      timeoutMs,
+      `select=id&id=eq.${encodeURIComponent(event.id)}&limit=1`,
+    );
+    if (raced.length > 0) return event.id;
+    throw new Error(`forge-rest tasks ${response.status}`);
+  }
+  return event.id;
+}
+
+export async function processOneInboundEvent(
+  candidate: InboundEvent,
+  options: InboundWorkerOptions = {},
+): Promise<boolean> {
+  let event: InboundEvent | undefined;
+  try {
+    event = await getEvent(candidate.id);
+    if (!event || !["pending", "failed"].includes(event.state)) return false;
+    if (event.task_id) {
+      await resolveEvent(event.id, {
+        state: "triaged",
+        taskId: event.task_id,
+      }, { now: options.now });
+      return true;
+    }
+    let smartTriaged = false;
+    if (options.triageEvent) {
+      try {
+        smartTriaged = Boolean(
+          await options.triageEvent(event, { taskId: event.id }),
+        );
+      } catch (error) {
+        console.error("Inbound smart triage failed; using the fallback task.", error);
+      }
+    }
+    const taskId = smartTriaged
+      ? event.id
+      : await createFallbackInboundTask(event, options);
+    await resolveEvent(
+      event.id,
+      { state: "triaged", taskId },
+      { now: options.now },
+    );
+  } catch (error) {
+    if (!event) {
+      console.error("Inbound event could not be re-read.", error);
+      return false;
+    }
+    const reason = (error instanceof Error ? error.message : "inbound_triage_failed")
+      .replace(/\s+/g, " ")
+      .slice(0, 500);
+    try {
+      await resolveEvent(event.id, {
+        state: event.attempts + 1 >= 5 ? "failed" : "pending",
+        error: reason,
+      }, { now: options.now });
+    } catch (resolveError) {
+      console.error("Inbound event failure could not be saved.", resolveError);
+    }
+    return false;
+  }
+  return true;
+}
+
+export async function runInboundSweep(
+  options: InboundWorkerOptions = {},
+): Promise<number> {
+  const clock = options.now ?? (() => new Date());
+  let processed = 0;
+  try {
+    const drained = await drainSpoolFiles(options.dataDir, { now: clock() });
+    processed += drained.processed;
+  } catch (error) {
+    console.error("Inbound spool drain failed; continuing.", error);
+  }
+  let events: InboundEvent[];
+  try {
+    events = await listUnresolved({
+      olderThanMinutes: 30,
+      now: clock(),
+    });
+  } catch (error) {
+    console.error("Inbound event sweep failed; continuing.", error);
+    return processed;
+  }
+  for (const event of events) {
+    if (options.abortSignal?.aborted) break;
+    if (await processOneInboundEvent(event, options)) processed += 1;
+  }
+  return processed;
+}
+
+export async function watchInboundEvents(
+  options: InboundWorkerOptions,
+  pollIntervalMs = 2000,
+): Promise<void> {
+  while (!options.abortSignal?.aborted) {
+    await runInboundSweep(options);
+    await waitForPoll(pollIntervalMs, options.abortSignal);
   }
 }
 

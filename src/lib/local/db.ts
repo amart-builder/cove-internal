@@ -199,6 +199,22 @@ CREATE INDEX IF NOT EXISTS commitments_status_due_at_idx
   ON commitments(status, due_at);
 CREATE INDEX IF NOT EXISTS commitments_status_review_at_idx
   ON commitments(status, review_at);
+CREATE TABLE IF NOT EXISTS inbound_events (
+  id TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  raw_text TEXT NOT NULL,
+  machine TEXT,
+  state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending','triaged','failed','dismissed')),
+  task_id TEXT,
+  error TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (source, source_id)
+);
+CREATE INDEX IF NOT EXISTS inbound_events_state_created_at_idx
+  ON inbound_events(state, created_at);
 `;
 
 type ForgeGlobal = { __forgeDb?: Database.Database };
@@ -337,6 +353,31 @@ function decodeRow(
   return out;
 }
 
+export function resolveLocalInboundEvent(input: {
+  id: string;
+  state: string;
+  taskId: string | null;
+  error: string | null;
+  updatedAt: string;
+}): Record<string, unknown> | undefined {
+  const row = getDb()
+    .prepare(
+      `UPDATE inbound_events
+       SET state = ?, task_id = ?, error = ?,
+           attempts = attempts + 1, updated_at = ?
+       WHERE id = ?
+       RETURNING *`,
+    )
+    .get(
+      input.state,
+      input.taskId,
+      input.error,
+      input.updatedAt,
+      input.id,
+    ) as Record<string, unknown> | undefined;
+  return row ? decodeRow("inbound_events", row) : undefined;
+}
+
 const RESERVED = new Set(["select", "order", "limit", "offset"]);
 
 /** Parse PostgREST-style filters (col=op.value) into a WHERE clause + args. */
@@ -436,7 +477,7 @@ function insertRows(table: string, payload: unknown): RestResult {
       const row = encodeRow(table, { ...(raw as Record<string, unknown>) });
       if (!row.id) row.id = randomUUID();
       if (row.created_at == null) row.created_at = now;
-      row.updated_at = now;
+      if (row.updated_at == null) row.updated_at = now;
 
       const cols = Object.keys(row).filter((c) => known.has(c));
       const sql = `INSERT INTO "${table}" (${cols

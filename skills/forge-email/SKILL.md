@@ -120,6 +120,10 @@ or promotional sender is almost always archived. Set `priority` 1 (high),
 2 (medium), 3 (low) weighing the user's stated priorities in `~/.claude/CLAUDE.md`
 and known contacts (`GET /api/forge-rest/contacts`).
 
+Also mark a thread time-sensitive only when it has a real deadline within 24
+hours, a named person is explicitly blocked on the user, or it is a money,
+legal, or client escalation. Urgent wording alone does not qualify.
+
 ## Step 2. Draft a reply (reply bucket only)
 
 Write in the **user's** voice: read `~/.claude/voice.md` and follow it exactly;
@@ -263,6 +267,10 @@ The plain-text description you write is the human-readable fallback and the data
 
 - One line through the user's channel:
   `node scripts/forge-notify.mjs "Inbox triaged: <N> need you, <A> action, <F> FYI. Card: <forge_url>/tasks  Drafts: https://mail.google.com/mail/u/0/#search/label%3AForge%2FReply"`.
+  If any thread is time-sensitive under Step 1, the message must start
+  `STOP AND LOOK: <one short clause naming the most urgent item>. `, followed
+  immediately by the normal `Inbox triaged...` summary. Never use an em dash
+  or en dash anywhere in the message.
   The helper reads `data/forge-reminders.json`; a missing channel is a silent
   no-op.
 - Write `data/forge-email-state.json` `{ "last_triaged_at": "<ISO now>" }`.
