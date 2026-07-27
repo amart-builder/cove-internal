@@ -15,7 +15,7 @@ import {
   POST,
   parseDayPlanPostBody,
 } from '../src/app/api/day-plan/route.ts';
-import { hasDayPlanRouteAccess } from '../src/lib/request-security.ts';
+import { hasDayPlanRouteAccess, isLoopbackForgeRequest } from '../src/lib/request-security.ts';
 import { getQuietCurrentCsrfToken } from '../src/lib/quiet-current/store.ts';
 
 function candidate() {
@@ -614,6 +614,45 @@ test('non-loopback day-plan access requires the separate remote session secret',
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
+  }
+});
+
+test('loopback mode admits designated tailnet hosts and nothing else', () => {
+  const previous = process.env.FORGE_TAILSCALE_TRUSTED_HOSTS;
+  const tailnetHost = 'alexander-mac-mini.taildd6a98.ts.net';
+  const viaTailnet = new NextRequest(`https://${tailnetHost}/api/day-plan`, {
+    headers: { host: tailnetHost, origin: `https://${tailnetHost}` },
+  });
+  const viaImpostor = new NextRequest('https://evil.example.com/api/day-plan', {
+    headers: { host: 'evil.example.com' },
+  });
+  try {
+    delete process.env.FORGE_TAILSCALE_TRUSTED_HOSTS;
+    assert.equal(
+      hasDayPlanRouteAccess(viaTailnet, { accessMode: 'loopback' }),
+      false,
+      'tailnet host is refused until it is explicitly designated',
+    );
+
+    process.env.FORGE_TAILSCALE_TRUSTED_HOSTS = tailnetHost;
+    assert.equal(
+      hasDayPlanRouteAccess(viaTailnet, { accessMode: 'loopback' }),
+      true,
+    );
+    // The designation is not a blanket opening: a rebinding page still arrives
+    // carrying its own Host, which never matches the list.
+    assert.equal(
+      hasDayPlanRouteAccess(viaImpostor, { accessMode: 'loopback' }),
+      false,
+    );
+    assert.equal(
+      isLoopbackForgeRequest(viaTailnet),
+      false,
+      'the buddy delete-token endpoint stays loopback-only',
+    );
+  } finally {
+    if (previous === undefined) delete process.env.FORGE_TAILSCALE_TRUSTED_HOSTS;
+    else process.env.FORGE_TAILSCALE_TRUSTED_HOSTS = previous;
   }
 });
 

@@ -135,6 +135,26 @@ export function isLoopbackForgeRequest(request: RequestLike): boolean {
   return isTrustedForgeRequest(request, LOOPBACK_ACCESS_HOSTS);
 }
 
+/**
+ * Hosts allowed to reach day-plan routes in loopback mode: the loopback aliases
+ * plus any host named in FORGE_TAILSCALE_TRUSTED_HOSTS.
+ *
+ * Naming a tailnet host here is only safe because the listener itself is bound
+ * to 127.0.0.1, so the sole route in is a Tailscale Serve proxy that already
+ * authenticated the device. The host check stays as DNS-rebinding defence: a
+ * hostile page can point its own domain at this machine, but the Host header it
+ * sends is its domain, never one on this list.
+ */
+export function dayPlanLoopbackHosts(
+  environment: ForgeHostEnvironment = process.env,
+): string[] {
+  const tailnet = (environment.FORGE_TAILSCALE_TRUSTED_HOSTS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return [...LOOPBACK_ACCESS_HOSTS, ...tailnet];
+}
+
 export function currentDayPlanAccessMode(): DayPlanAccessMode | undefined {
   const configured = process.env.FORGE_DAY_PLAN_ACCESS_MODE?.trim();
   if (!configured) return 'loopback';
@@ -146,6 +166,7 @@ export function hasDayPlanRouteAccess(
   options: {
     accessMode?: DayPlanAccessMode;
     sessionToken?: string;
+    loopbackHosts?: string[];
   } = {
     accessMode: currentDayPlanAccessMode(),
     sessionToken: process.env.FORGE_DAY_PLAN_REMOTE_TOKEN,
@@ -153,7 +174,7 @@ export function hasDayPlanRouteAccess(
 ): boolean {
   const accessMode = options.accessMode ?? currentDayPlanAccessMode();
   if (accessMode === 'loopback') {
-    return isTrustedForgeRequest(request, LOOPBACK_ACCESS_HOSTS);
+    return isTrustedForgeRequest(request, options.loopbackHosts ?? dayPlanLoopbackHosts());
   }
   if (!isTrustedForgeRequest(request)) return false;
   if (accessMode !== 'session') return false;
