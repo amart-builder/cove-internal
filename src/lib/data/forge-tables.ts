@@ -9,6 +9,7 @@ export const FORGE_REST_TABLES = [
   "email_action_log",
   "email_triage_runs",
   "commitments",
+  "inbound_events",
 ] as const;
 
 export type ForgeRestTable = typeof FORGE_REST_TABLES[number];

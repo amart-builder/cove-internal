@@ -11,6 +11,7 @@ import {
   runOneMorningBrief,
   watchClaudeQueues,
   watchDayDumpQueue,
+  watchInboundEvents,
   watchMorningBriefQueue,
 } from "../src/lib/claude-execution/worker";
 
@@ -89,6 +90,7 @@ async function main(): Promise<number> {
         watchClaudeQueues(options),
         watchMorningBriefQueue(options),
         watchDayDumpQueue(options),
+        watchInboundEvents({ ...options, dataDir: relay.dataDir }),
       ]);
     }
     return 0;

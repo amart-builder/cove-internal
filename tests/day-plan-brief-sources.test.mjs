@@ -591,6 +591,100 @@ test('memory decisions stop after the first Jarvis search fails', async (t) => {
   assert.match(memory.note, /^error:Jarvis unavailable/);
 });
 
+test('untriaged inbound is prominent, counts spool lines, and treats Waiting as in flight', async (t) => {
+  const { dir, options } = fixture(t);
+  disableExternalSources(t, dir);
+  mkdirSync(path.join(dir, 'intake'), { recursive: true });
+  writeFileSync(
+    path.join(dir, 'intake', 'spool-test.jsonl'),
+    `${JSON.stringify({ source: 'chat', sourceId: 'spooled', rawText: 'spooled', createdAt: NOW.toISOString() })}\n`,
+  );
+  const inbound = [
+    {
+      id: 'inbound-1',
+      source: 'email',
+      source_id: 'thread-1',
+      raw_text: 'First line\nSecond line',
+      state: 'pending',
+      attempts: 0,
+      created_at: '2026-07-16T10:30:00.000Z',
+    },
+    {
+      id: 'inbound-2',
+      source: 'meeting',
+      source_id: 'meeting-1',
+      raw_text: 'Client escalation',
+      state: 'failed',
+      attempts: 5,
+      created_at: '2026-07-14T12:00:00.000Z',
+    },
+    {
+      id: 'resolved',
+      source: 'chat',
+      source_id: 'done',
+      raw_text: 'Do not show this.',
+      state: 'triaged',
+      attempts: 1,
+      created_at: NOW.toISOString(),
+    },
+  ];
+  let inboundUrl = '';
+  const collected = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => {
+      const value = String(url);
+      if (value.includes('/api/forge-rest/inbound_events')) {
+        inboundUrl = value;
+        return new Response(JSON.stringify(inbound), { status: 200 });
+      }
+      if (value.includes('/api/forge-rest/tasks')) {
+        return new Response(JSON.stringify([
+          {
+            id: 'waiting-1',
+            column_id: 'waiting',
+            title: 'Waiting on signed scope',
+            status: 'open',
+            priority: 'medium',
+            tags: [],
+          },
+        ]), { status: 200 });
+      }
+      if (value.includes('/api/forge-rest/task_columns')) {
+        return new Response(JSON.stringify([
+          { id: 'waiting', name: 'Waiting' },
+        ]), { status: 200 });
+      }
+      return forgeRowsResponse(url);
+    },
+  });
+  const source = collected.sources.find((entry) => entry.id === 'untriaged_inbound');
+  assert.equal(source.label, 'UNTRIAGED_INBOUND');
+  assert.equal(source.priority, 0);
+  assert.match(
+    inboundUrl,
+    /select=source,raw_text,state,created_at&state=in\.\(pending,failed\)&order=created_at\.asc&limit=50$/,
+  );
+  assert.match(source.content, /\[pending\] source=email age=1h text="First line\\nSecond line"/);
+  assert.match(source.content, /\[failed\] source=meeting age=2d text="Client escalation"/);
+  assert.doesNotMatch(source.content, /Do not show this/);
+  assert.match(source.content, /Spool lines waiting: 1\./);
+  const tasks = collected.sources.find((entry) => entry.id === 'task_snapshot');
+  assert.match(tasks.content, /\[in_flight\] id=waiting-1 "Waiting on signed scope".*candidate_ok/);
+
+  const warning = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => {
+      if (String(url).includes('/api/forge-rest/inbound_events')) {
+        return new Response('table missing', { status: 404 });
+      }
+      return forgeRowsResponse(url);
+    },
+  });
+  const warningSource = warning.sources.find((entry) => entry.id === 'untriaged_inbound');
+  assert.match(warningSource.content, /^WARNING: inbound inbox unavailable/);
+  assert.match(warningSource.content, /Spool lines waiting: 1\./);
+});
+
 test('computed commitments source exposes open loops, clarification, and factual content gaps', async (t) => {
   const { dir, options } = fixture(t);
   disableExternalSources(t, dir);
@@ -871,6 +965,7 @@ test('real source ids overwrite coverage fallbacks, while failed fetches remain 
     included.sources.map((source) => [source.id, source.priority]),
     [
       ['day_dump', 0],
+      ['untriaged_inbound', 0],
       ['goals', 1],
       ['operator_profile', 2],
       ['leadup', 3],

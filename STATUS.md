@@ -18,8 +18,8 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-07-27T10:53:39-0700
-- **task:** buddy delete-gate fix
+- **since:** 2026-07-27T13:27:21-0700
+- **task:** never-drop-task system build
 <!-- END active-session -->
 
 ---
@@ -86,6 +86,15 @@ Standing rule (Alex, 2026-07-17): before saying "I can't see that" or asking him
 Explicitly rejected: always-running general agent, autonomous external sends, custom voice stack, constant day resequencing, implicit permission learning, pre-opened idle Claude sessions. Email triage stays OFF until Alex explicitly re-enables. 14-day pilot metrics gate each autonomy expansion (≥60-70% of overnight artifacts genuinely used, else Alex seeds the queue explicitly).
 
 ## Current State
+
+### 2026-07-27 Never-drop-a-task Phase 0: durable inbound-events inbox (shipped)
+
+- New Supabase table `forge_inbound_events` (UNIQUE source+source_id) + `src/lib/intake/inbox.ts`: every inbound item is recorded before any LLM/network work; offline captures spool to per-machine `data/intake/spool-<host>.jsonl` and never throw. Migration + atomic-resolve RPC applied to the live DB.
+- Sweeper in the claude-worker watch lane drains spools and turns unresolved events >30 min old into `needs-triage` fallback tasks (deterministic task id from event id, exponential backoff, 5-attempt cap). Brief gains an UNTRIAGED INBOUND section that surfaces pending/failed events and its own query failures.
+- Two live bugs fixed: "Waiting" column was invisible to the morning brief (missing IN_FLIGHT alias); meeting follow-ups were writing to the dead local SQLite file (full rewire lands in Phase 3).
+- Email triage skill now leads its text with `STOP AND LOOK:` when a thread is genuinely time-sensitive (deadline <24h, named person blocked, money/legal/client escalation). MBP scheduled-task duplicate stays disabled; the Mini runs triage.
+- Build seat: GPT-5.6 Sol via Codex; independent fresh-context review (Opus) found 2 blockers + 8 fixes, all applied and re-verified (26/26 tests, live idempotency + spool + RPC probes).
+- Next: Phase 1 single intake pipe (`scripts/forge-intake.mjs` + `prompts/triage.md`), then project column, meeting watcher, progress tracker, groundwork autonomy.
 
 ### 2026-07-24 The evening brain dump never reached the morning brief (shipped, prompt v12)
 

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { Commitment, CommitmentKind } from "../data/types";
+import { countSpooledEvents } from "../intake/inbox";
 import {
   forgeDataDir,
   loadOperatorProfile,
@@ -233,7 +234,7 @@ function taskTags(value: unknown): string[] {
 type ColumnRow = { id?: string; name?: string };
 
 const TODAY_ALIASES = new Set(["Must happen today", "Needs to happen today", "Today"]);
-const IN_FLIGHT_ALIASES = new Set(["In Flight / Waiting", "In Progress"]);
+const IN_FLIGHT_ALIASES = new Set(["In Flight / Waiting", "In Progress", "Waiting"]);
 const NOT_STARTED_ALIASES = new Set(["Not Started", "To Do", "Backlog"]);
 
 function columnBucket(name: string | undefined): string | undefined {
@@ -399,6 +400,86 @@ function errorNote(error: unknown, fallback: string): string {
   const reason = error instanceof Error ? error.message : fallback;
   const bounded = reason.replace(/\s+/g, " ").trim().slice(0, 160);
   return `error:${bounded || fallback}`;
+}
+
+function inboundAge(createdAt: unknown, now: Date): string {
+  const created = typeof createdAt === "string" ? Date.parse(createdAt) : Number.NaN;
+  if (!Number.isFinite(created)) return "unknown";
+  const minutes = Math.max(0, Math.floor((now.getTime() - created) / 60_000));
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+function inboundVerbatim(value: unknown): string {
+  if (typeof value !== "string") return "\"\"";
+  return JSON.stringify(value.slice(0, 120));
+}
+
+async function inboundSource(input: {
+  fetchImpl: typeof fetch;
+  baseUrl: string;
+  timeoutMs: number;
+  dataDir?: string;
+  now: Date;
+}): Promise<BriefSourceInput> {
+  const source = {
+    id: "untriaged_inbound",
+    label: "UNTRIAGED_INBOUND",
+    required: false,
+    maxChars: 60_000,
+    priority: 0,
+  } as const;
+  let rows: unknown[] | undefined;
+  let fetchWarning: string | undefined;
+  try {
+    rows = await fetchRows(
+      input.fetchImpl,
+      input.baseUrl,
+      "inbound_events",
+      input.timeoutMs,
+      "select=source,raw_text,state,created_at" +
+        "&state=in.(pending,failed)&order=created_at.asc&limit=50",
+    );
+  } catch (error) {
+    fetchWarning = errorNote(error, "inbound_events_failed").replace(/^error:/, "");
+  }
+  let spoolCount: number | undefined;
+  let spoolWarning: string | undefined;
+  try {
+    spoolCount = countSpooledEvents(input.dataDir);
+  } catch (error) {
+    spoolWarning = errorNote(error, "inbound_spool_failed").replace(/^error:/, "");
+  }
+  const unresolved = (rows ?? [])
+    .map(asRecord)
+    .filter((row): row is UnknownRecord =>
+      Boolean(row && (row.state === "pending" || row.state === "failed"))
+    );
+  const lines = unresolved.map((row) => {
+    const state = row.state === "failed" ? "failed" : "pending";
+    const sourceName = typeof row.source === "string" ? row.source : "unknown";
+    return `- [${state}] source=${sourceName} age=${inboundAge(row.created_at, input.now)} text=${inboundVerbatim(row.raw_text)}`;
+  });
+  if (fetchWarning) {
+    lines.unshift(`WARNING: inbound inbox unavailable (${fetchWarning}).`);
+  } else if (lines.length === 0) {
+    lines.push("No pending or failed inbound events.");
+  }
+  if (spoolWarning) {
+    lines.push(`WARNING: inbound spool unavailable (${spoolWarning}).`);
+  } else {
+    lines.push(`Spool lines waiting: ${spoolCount ?? 0}.`);
+  }
+  return {
+    ...source,
+    content: lines.join("\n"),
+    asOf: input.now.toISOString(),
+    ...(fetchWarning || spoolWarning
+      ? { note: `error:${[fetchWarning, spoolWarning].filter(Boolean).join(";")}` }
+      : {}),
+  };
 }
 
 const COMMITMENT_KIND_ORDER: CommitmentKind[] = [
@@ -1267,6 +1348,13 @@ export async function collectMorningBriefSources(
     targetLocalDate,
     now,
   });
+  const inboundPromise = inboundSource({
+    fetchImpl,
+    baseUrl,
+    timeoutMs,
+    dataDir: options.dataDir,
+    now,
+  });
 
   // Last night's brain dump, in Alex's own words, and the first thing the brief
   // reads. Priority 0 because it is the only source that can be hours old:
@@ -1322,6 +1410,7 @@ export async function collectMorningBriefSources(
           priority: 0,
           note: "day_dump_unavailable",
         },
+    await inboundPromise,
     fileSource("goals", "GOALS", filePolicy.goals.path, {
       required: filePolicy.goals.required,
       maxChars: 9000,
