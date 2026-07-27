@@ -8,13 +8,15 @@
  * on its own and which genuinely need a human, writes them in, and fires one
  * native notification.
  *
- * Two sources:
+ * Three sources:
  *   --file <path>   a notes document saved as text (used by the demo)
  *   --doc  <id>     a Google Doc id, fetched through the Composio CLI
+ *   --text "..."    a sentence someone just said out loud, with no notes behind it
  *
  * Usage:
  *   node scripts/meeting-followups.mjs --file notes.txt
  *   node scripts/meeting-followups.mjs --doc 18B9k0eL7dta... --notify
+ *   node scripts/meeting-followups.mjs --text "Valley Fresh needs three forklift operators Thursday" --notify
  *
  * Writes to FORGE_DB_PATH, so pointing it at the demo database keeps it entirely
  * clear of real work.
@@ -63,7 +65,7 @@ async function loadNotes() {
 
   const docId = arg("--doc");
   if (!docId) {
-    throw new Error("Pass --file <path> or --doc <googleDocId>.");
+    throw new Error('Pass --file <path>, --doc <googleDocId>, or --text "what was said".');
   }
   const { stdout } = await execFileAsync(
     "composio",
@@ -107,6 +109,59 @@ export function parseNextSteps(text) {
     });
   }
   return items;
+}
+
+/* -- 2b. turn a spoken sentence into the same items ----------------------- */
+
+/**
+ * A sentence someone says out loud has no "Next steps" section to parse, so
+ * Claude stands in for the parser and produces the same {owner, title, detail}
+ * items parseNextSteps returns. Everything downstream is untouched: the same
+ * classifier decides who takes each one, and the same writer puts them up.
+ */
+const EXTRACT_PROMPT = `Someone just said this out loud about their own business. Turn it into the
+follow-ups it implies, the way a person would write them onto a task board.
+
+Rules:
+- Pull out every distinct commitment or piece of work in what was said. Do not fold
+  two commitments into one item, and do not invent work nobody mentioned.
+- Give an item to a person the speaker named as owning it. Everything else belongs
+  to the speaker, who is called Alex: he is talking about his own business, so at
+  least one item is his to do.
+- Keep the title short and imperative, the way a person writes a task: "Confirm the
+  Thursday crew with Denise", not "Confirmation of crew availability".
+- Put the surrounding context in detail, or leave detail empty when there is none.
+- Return between 2 and 4 items. A real sentence about a business carries more than one.
+
+Return ONLY a JSON array, one object per follow-up:
+[{"owner":"who owns it","title":"short imperative task","detail":"one sentence of context, or empty"}]`;
+
+// A spoken sentence has no title line to lift, so name the source for what it
+// honestly is. The notification then reads "3 follow-ups from what you just said",
+// which is exactly what happened. --title overrides it.
+const SPOKEN_TITLE = "what you just said";
+
+async function extractFromText(spoken) {
+  const { stdout } = await execFileAsync(
+    CLAUDE_BIN,
+    ["-p", `${EXTRACT_PROMPT}\n\nWHAT WAS SAID:\n${spoken}`, "--no-session-persistence"],
+    { maxBuffer: 4 * 1024 * 1024 },
+  );
+
+  const match = stdout.match(/\[[\s\S]*\]/);
+  if (!match) throw new Error("Extractor did not return JSON:\n" + stdout.slice(0, 500));
+  const parsed = JSON.parse(match[0]);
+  // Match parseNextSteps exactly, including attributing an unowned item to the
+  // speaker, because the classifier reads owner to decide what belongs to someone
+  // else. Drop anything that came back without a title rather than posting a blank
+  // card to the board.
+  return parsed
+    .filter((item) => item && typeof item.title === "string" && item.title.trim())
+    .map((item) => ({
+      owner: String(item.owner ?? "Alex").trim() || "Alex",
+      title: item.title.trim(),
+      detail: typeof item.detail === "string" ? item.detail.trim() : "",
+    }));
 }
 
 /* -- 3. decide what Claude can take on its own ---------------------------- */
@@ -171,13 +226,27 @@ function write(items, meetingTitle) {
   );
 
   const mine = items.filter((item) => item.assignee !== "other");
-  const start = db.prepare("SELECT COALESCE(MAX(position), 0) p FROM tasks").get().p;
+  // The board sorts each column by position ascending, so a follow-up has to sit
+  // below the column's current minimum to land on top of the column, which is
+  // where whoever just read the notification is looking. Read the minimums once,
+  // before the transaction opens, and hand out a block of positions just under
+  // each one so several follow-ups into the same column keep the meeting's order.
+  const columnTop = new Map(
+    db
+      .prepare("SELECT column_id, MIN(position) AS p FROM tasks GROUP BY column_id")
+      .all()
+      .map((row) => [row.column_id, row.p]),
+  );
+  let placed = 0;
 
   const tx = db.transaction(() => {
-    mine.forEach((item, index) => {
+    mine.forEach((item) => {
+      const columnId = column(item.assignee === "claude" ? "Not Started" : "Must happen today");
+      const position = (columnTop.get(columnId) ?? 0) - mine.length + placed;
+      placed += 1;
       insertTask.run({
         id: randomUUID(),
-        column_id: column(item.assignee === "claude" ? "Not Started" : "Must happen today"),
+        column_id: columnId,
         title: item.title,
         description: [item.detail, item.reason && `Why: ${item.reason}`, item.firstStep && `First step: ${item.firstStep}`]
           .filter(Boolean)
@@ -187,7 +256,7 @@ function write(items, meetingTitle) {
         // convention and it also keeps Jarvis's own work out of the morning
         // ranking, which is exactly right for a follow-up it is handling.
         tags: JSON.stringify(item.assignee === "claude" ? ["jarvis-held"] : ["needs you"]),
-        position: start + index + 1,
+        position,
         now,
       });
       insertCommitment.run({
@@ -221,12 +290,17 @@ async function notify(counts, meetingTitle) {
       : `${total} follow-up${total === 1 ? "" : "s"} from ${meetingTitle}. I've got all of them.`;
 
   const boardUrl = process.env.FORGE_BRIEF_WEB_BASE ?? "http://127.0.0.1:3200";
-  // Normally clicking the notification opens the board. The demo points it at
-  // the deck slide instead, so a click never drops out of the presentation.
+  // Normally clicking the notification opens the board, and FORGE_FOLLOWUP_OPEN_URL
+  // can point that at some other page. Set FORGE_FOLLOWUP_ACTIVATE to a bundle id
+  // instead and a click only brings that app to the front, which is what the demo
+  // wants: opening a URL starts a new tab and abandons the presentation that is
+  // already on screen showing these very cards.
   const openUrl = process.env.FORGE_FOLLOWUP_OPEN_URL ?? `${boardUrl}/tasks`;
+  const activate = process.env.FORGE_FOLLOWUP_ACTIVATE;
+  const onClick = activate ? ["-activate", activate] : ["-open", openUrl];
   const useNotifier = existsSync(TERMINAL_NOTIFIER);
   const [bin, args] = useNotifier
-    ? [TERMINAL_NOTIFIER, ["-title", "Forge", "-message", body, "-group", "forge-followups", "-open", openUrl]]
+    ? [TERMINAL_NOTIFIER, ["-title", "Forge", "-message", body, "-group", "forge-followups", ...onClick]]
     : ["/usr/bin/osascript", ["-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run", "--", "Forge", body]];
 
   await execFileAsync(bin, args).catch(() => {});
@@ -235,14 +309,31 @@ async function notify(counts, meetingTitle) {
 
 /* ------------------------------------------------------------------------- */
 
-const notes = await loadNotes();
-const parsed = parseNextSteps(notes.text);
+// --text is the same job with the notes taken out: a sentence instead of a
+// document, extraction instead of the parser. From here down the two paths are
+// the same code.
+const spoken = arg("--text");
+let sourceTitle;
+let parsed;
+if (spoken) {
+  sourceTitle = arg("--title") ?? SPOKEN_TITLE;
+  parsed = await extractFromText(spoken);
+} else {
+  const notes = await loadNotes();
+  sourceTitle = notes.title;
+  parsed = parseNextSteps(notes.text);
+}
+
 if (parsed.length === 0) {
-  console.log("No 'Next steps' section found in these notes. Nothing to do.");
+  console.log(
+    spoken
+      ? "Nothing in that sounded like a commitment. Nothing to do."
+      : "No 'Next steps' section found in these notes. Nothing to do.",
+  );
   process.exit(0);
 }
 
-const meetingTitle = notes.title.replace(/\s*-\s*\d{4}\/\d{2}\/\d{2}.*$/, "").trim();
+const meetingTitle = sourceTitle.replace(/\s*-\s*\d{4}\/\d{2}\/\d{2}.*$/, "").trim();
 console.log(`${parsed.length} follow-up${parsed.length === 1 ? "" : "s"} in "${meetingTitle}"`);
 
 const classified = await classify(parsed);
