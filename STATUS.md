@@ -16,10 +16,10 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** none
-- **device:** —
-- **since:** —
-- **task:** —
+- **system:** cowork
+- **device:** Alexanders-MacBook-Pro-2
+- **since:** 2026-07-27T10:53:39-0700
+- **task:** buddy delete-gate fix
 <!-- END active-session -->
 
 ---
@@ -39,7 +39,11 @@ Day-plan loopback mode accepts hosts named in `FORGE_TAILSCALE_TRUSTED_HOSTS`. S
 
 **Not a bug (checked, no change):** the CRM draft re-seed the review flagged. `ContactDetailPanel` is mounted with `key={selectedContact.id}`, so React remounts it per contact and the mount-time seeding is correct.
 
-**Still open, deliberately.** The buddy's delete confirmation is not load-bearing: the mint endpoint ignores `turnId` and never checks a pending delete exists, and the CSRF token is fetchable unauthenticated, so a prompt-injected turn can mint and consume its own delete token with no card shown. This is P1 and it ships with Buddy. Also open: orphan reaping (no pid recorded for brief/dump children), readiness assessment doing git subprocesses on a 1.5s poll, and the Convex removal.
+**Delete gate closed (2026-07-27).** The mint endpoint now requires `turnId` and an undisposed `pendingDeletes` entry on that turn's stored receipts, and reads the label from the receipt instead of the request body. Previously it parsed `turnId` and ignored it, so possessing the CSRF token was enough to mint a delete token for any allowed table and row, with no confirmation card ever rendered. Tests are mutation-verified: all three fail against the old mint.
+
+One correction to the review that produced this item: it claimed a prompt-injected Buddy turn could mint its own token. It could not. Buddy's Bash is locked to `npx tsx scripts/forge-buddy-data.ts *` with no shell chaining, and that CLI has no mint path (it only consumes a token it was handed, and refuses `delete` outright without one). The CLI *can* read the CSRF token from `/api/day-plan`, which is what the review saw, but the token alone was the whole gate and now it is not. Leaving the token readable on loopback is deliberate: the UI and CLI both need it, and it no longer grants a delete on its own.
+
+**Still open:** orphan reaping (no pid recorded for brief/dump children), readiness assessment doing git subprocesses on a 1.5s poll, and the Convex removal.
 
 **Repo is still PRIVATE.** Alex has approved making it fully open source; the security fixes above were the precondition. Flip it before Wednesday.
 
