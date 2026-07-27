@@ -16,10 +16,10 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** none
-- **device:** —
-- **since:** —
-- **task:** —
+- **system:** cowork
+- **device:** Alexanders-MacBook-Pro-2
+- **since:** 2026-07-27T16:32:21-0700
+- **task:** guard symlink fix + composio parity
 <!-- END active-session -->
 
 ---
@@ -94,7 +94,14 @@ Explicitly rejected: always-running general agent, autonomous external sends, cu
 - 2-week check-in: after 14 days of groundwork the brief asks once whether to raise autonomy; "full" mode intentionally unbuilt until Alex says yes.
 - Known flake (pre-existing pattern, chip filed): forge-rest-route.test.mjs has one order-sensitive CSRF test (passes alone).
 
-### 2026-07-27 Never-drop Phase 4: automatic progress tracker (shipped; Mini agent installing)
+### 2026-07-27 Never-drop system: BOTH Mini agents verified live under launchd (evening)
+
+- Root cause of silent launchd no-ops found: the Mini's `~/Desktop/Atlas` is a SYMLINK to `~/Atlas`. Node realpath-resolves module URLs, so every `path.resolve(argv[1]) === fileURLToPath(import.meta.url)` direct-run guard failed under the Desktop path and the process exited 0 having done nothing (0-byte logs, stale heartbeats). Fixed both ways: installed plists now use the real path, and all four CLI guards compare via `realpathSync` (commit 717f440) so a symlinked install can never no-op again.
+- Second find: the Mini's homebrew `composio` was the legacy 0.7.x python CLI (no `-d` flag, different output envelope). Copied the MBP's standalone binary + auth to Mini `~/.composio/` and put it first on the watcher's PATH (template updated too).
+- Proof: meeting-watch launchd heartbeat errors:0; progress reconciler launchd run errors:0 with 4 digests written, all 4 already synced to the MBP relay for tomorrow's brief.
+- Ops rule that generalizes: ssh sessions can NEVER test claude auth on the Mini (keychain locked; "Not logged in" over ssh is an artifact) - only launchd GUI-domain runs prove anything.
+
+### 2026-07-27 Never-drop Phase 4: automatic progress tracker (shipped; Mini agent LIVE)
 
 - MacBook hooks (SessionStart/Stop, async, no LLM/network) append factual pings to per-machine `data/session-pings/<host>-<date>.jsonl`; live since this afternoon.
 - `scripts/forge-progress-reconcile.mjs` (Mini, every 30 min): cwd->project via deepest-git-dir mapping (forge maps to forge, not astack), evidence = git log + STATUS.md excerpt + pings, ONE budget-capped Claude call per project gated on NEW evidence only, per-project cursors, digests retained 20/project.
@@ -103,7 +110,7 @@ Explicitly rejected: always-running general agent, autonomous external sends, cu
 - Brief: PROJECT_PROGRESS source with relay fallback (works from either machine's store) + reconciler heartbeat staleness warnings.
 - Live dry-run: 4 projects, correct attribution (credited MHA work, refused to credit the Jamie task off a mere folder visit), 0 errors. 134 tests green after two review rounds.
 
-### 2026-07-27 Never-drop Phase 3: Gemini meeting-notes watcher (shipped; Mini install pending)
+### 2026-07-27 Never-drop Phase 3: Gemini meeting-notes watcher (shipped; Mini agent LIVE)
 
 - `scripts/forge-meeting-watch.mjs` polls Gmail (Composio CLI) every 5 min for meeting-notes emails via an Alex-editable matcher (`data/forge-meetings.json`); shared extractor (`src/lib/intake/meeting-followups.mjs`) parses Next Steps (HTML-normalized, "Suggested next steps" supported) with a bounded delimiter-guarded Claude fallback; Alex-owned items -> intake pipe, other-owned -> `waiting_on` commitments. Mark-processed only after every item acks; per-message failures dead-letter after 5 runs (brief warns); zero-item messages terminal; heartbeat + DISABLED state surfaced in the brief.
 - Live-verified against the real inbox: 2 genuine Gemini notes emails -> 8 items, 4 tasks + 4 waiting-on, 0 errors, idempotent on rerun. Found live: Composio CLI stores large responses to a file (`storedInFile`/`outputFilePath`) - executor now follows the pointer.
