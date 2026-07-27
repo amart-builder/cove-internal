@@ -1,4 +1,4 @@
-export type SuggestionKind = "create_task" | "returned_work";
+export type SuggestionKind = "create_task" | "returned_work" | "observed_progress";
 
 export type SuggestionState =
   | "proposed"
@@ -19,6 +19,7 @@ export type WorkSuggestion = {
   dueDate?: string;
   targetTaskId?: string;
   reviewMaterial?: string;
+  claimKey?: string;
   state: SuggestionState;
   dismissReason?: string;
   resolvedTaskId?: string;

@@ -212,6 +212,16 @@ type DayDumpRow = {
   finished_at: string | null;
 };
 
+type SessionDigestRow = {
+  id: string;
+  run_at: string;
+  project: string;
+  summary: string;
+  per_task_json: string;
+  evidence_json: string;
+  created_at: string;
+};
+
 type ExecutionRunRow = {
   id: string;
   day_plan_id: string;
@@ -444,6 +454,17 @@ CREATE INDEX IF NOT EXISTS day_dumps_queue
   ON day_dumps(status, created_at, id);
 CREATE INDEX IF NOT EXISTS day_dumps_by_date
   ON day_dumps(target_local_date, created_at, id);
+CREATE TABLE IF NOT EXISTS session_digests (
+  id TEXT PRIMARY KEY,
+  run_at TEXT NOT NULL,
+  project TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  per_task_json TEXT NOT NULL,
+  evidence_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS session_digests_by_run
+  ON session_digests(run_at DESC, project, id);
 CREATE TABLE IF NOT EXISTS day_plan_brief_action_states (
   brief_id TEXT NOT NULL,
   action_index INTEGER NOT NULL CHECK (action_index >= 0),
@@ -463,6 +484,43 @@ function parseJson<T>(value: string, name: string): T {
   } catch {
     throw new Error(`Stored ${name} is not valid JSON.`);
   }
+}
+
+export type SessionDigestTaskProgress = {
+  task_id: string;
+  progress: "none" | "some" | "likely_done";
+  evidence_quote: string;
+  note: string;
+  scope_changed: boolean;
+  suggested_reshape?: string;
+};
+
+export type SessionDigest = {
+  id: string;
+  runAt: string;
+  project: string;
+  summary: string;
+  perTask: SessionDigestTaskProgress[];
+  evidence: Record<string, unknown>;
+  createdAt: string;
+};
+
+function sessionDigestFromRow(row: SessionDigestRow): SessionDigest {
+  return {
+    id: row.id,
+    runAt: row.run_at,
+    project: row.project,
+    summary: row.summary,
+    perTask: parseJson<SessionDigestTaskProgress[]>(
+      row.per_task_json,
+      "session digest task progress",
+    ),
+    evidence: parseJson<Record<string, unknown>>(
+      row.evidence_json,
+      "session digest evidence",
+    ),
+    createdAt: row.created_at,
+  };
 }
 
 function planFromRow(row: DayPlanRow): DayPlan {
@@ -898,6 +956,18 @@ export function createDayPlanStore(options: {
   const selectExecutionMutation = db.prepare(
     "SELECT * FROM day_plan_execution_mutations WHERE id = ?",
   );
+  const upsertSessionDigest = db.prepare(`
+    INSERT INTO session_digests
+      (id, run_at, project, summary, per_task_json, evidence_json, created_at)
+    VALUES
+      (@id, @run_at, @project, @summary, @per_task_json, @evidence_json, @created_at)
+    ON CONFLICT(id) DO UPDATE SET
+      run_at = excluded.run_at,
+      project = excluded.project,
+      summary = excluded.summary,
+      per_task_json = excluded.per_task_json,
+      evidence_json = excluded.evidence_json
+  `);
 
   function immediate<T>(work: () => T): T {
     db.exec("BEGIN IMMEDIATE");
@@ -923,6 +993,64 @@ export function createDayPlanStore(options: {
   function getPlanForDate(localDate: string): DayPlan | undefined {
     const row = selectDatePlan.get(localDate) as DayPlanRow | undefined;
     return row ? planFromRow(row) : undefined;
+  }
+
+  function recordSessionDigest(
+    input: Omit<SessionDigest, "createdAt">,
+  ): SessionDigest {
+    const createdAt = now().toISOString();
+    upsertSessionDigest.run({
+      id: input.id,
+      run_at: input.runAt,
+      project: input.project,
+      summary: input.summary,
+      per_task_json: JSON.stringify(input.perTask),
+      evidence_json: JSON.stringify(input.evidence),
+      created_at: createdAt,
+    });
+    db.prepare(
+      `DELETE FROM session_digests
+       WHERE project = ?
+         AND id NOT IN (
+           SELECT id FROM session_digests
+           WHERE project = ?
+           ORDER BY run_at DESC, created_at DESC, id DESC
+           LIMIT 20
+         )`,
+    ).run(input.project, input.project);
+    const row = db.prepare("SELECT * FROM session_digests WHERE id = ?")
+      .get(input.id) as SessionDigestRow;
+    return sessionDigestFromRow(row);
+  }
+
+  function listSessionDigests(input: {
+    project?: string;
+    since?: string;
+    until?: string;
+    limit?: number;
+  } = {}): SessionDigest[] {
+    const conditions: string[] = [];
+    const parameters: Record<string, string | number> = {};
+    if (input.project) {
+      conditions.push("project = @project");
+      parameters.project = input.project;
+    }
+    if (input.since) {
+      conditions.push("run_at >= @since");
+      parameters.since = input.since;
+    }
+    if (input.until) {
+      conditions.push("run_at < @until");
+      parameters.until = input.until;
+    }
+    const limit = Math.max(1, Math.min(500, Math.floor(input.limit ?? 100)));
+    parameters.limit = limit;
+    const rows = db.prepare(
+      `SELECT * FROM session_digests${
+        conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : ""
+      } ORDER BY run_at DESC, project, id LIMIT @limit`,
+    ).all(parameters) as SessionDigestRow[];
+    return rows.map(sessionDigestFromRow);
   }
 
 
@@ -3530,6 +3658,8 @@ export function createDayPlanStore(options: {
     listRecentSnapshots,
     getDayDump,
     listDayDumps,
+    recordSessionDigest,
+    listSessionDigests,
     claimNextDayDump,
     completeDayDump,
     failDayDump,

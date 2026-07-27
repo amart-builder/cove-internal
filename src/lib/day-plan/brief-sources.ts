@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import type { Commitment, CommitmentKind } from "../data/types";
 import { countSpooledEvents } from "../intake/inbox";
+import { readProgressDigestRelays } from "../progress/relay";
 import {
   forgeDataDir,
   loadOperatorProfile,
@@ -11,7 +12,7 @@ import {
   operatorTimezone,
   type OperatorProfile,
 } from "../operator";
-import type { DayPlanStore } from "./store";
+import type { DayPlanStore, SessionDigest } from "./store";
 import { localDateInTimezone, type BriefSourceInput } from "./brief";
 import { buildSettlementSummary, readDumpRelay, readSettlementRelay } from "./brief-relay";
 import { contentQuotaGap, followUpsDue, staleOpenItems } from "./gap-detectors";
@@ -491,6 +492,61 @@ function meetingWatchHeartbeat(
   }
 }
 
+function progressReconcileHeartbeat(
+  dataDir: string | undefined,
+  now: Date,
+): { line: string; warning?: string } {
+  const heartbeatPath = path.join(
+    forgeDataDir(dataDir),
+    "intake",
+    "heartbeats.json",
+  );
+  try {
+    const parsed = JSON.parse(readFileSync(heartbeatPath, "utf8")) as unknown;
+    const heartbeat = asRecord(asRecord(parsed)?.progress_reconcile);
+    const lastRunAt = typeof heartbeat?.last_run_at === "string"
+      ? heartbeat.last_run_at
+      : undefined;
+    const lastRun = lastRunAt ? Date.parse(lastRunAt) : Number.NaN;
+    if (!Number.isFinite(lastRun)) {
+      return {
+        line: "WARNING: progress reconciler heartbeat is missing.",
+        warning: "progress_reconcile_heartbeat_missing",
+      };
+    }
+    const counts = [
+      `projects=${Number.isFinite(Number(heartbeat?.projects_active)) ? Number(heartbeat?.projects_active) : "unknown"}`,
+      `digests=${Number.isFinite(Number(heartbeat?.digests_written)) ? Number(heartbeat?.digests_written) : "unknown"}`,
+      `suggestions=${Number.isFinite(Number(heartbeat?.suggestions_filed)) ? Number(heartbeat?.suggestions_filed) : "unknown"}`,
+      `no_new_evidence=${Number.isFinite(Number(heartbeat?.skipped_no_new_evidence)) ? Number(heartbeat?.skipped_no_new_evidence) : "unknown"}`,
+      `malformed_pings=${Number.isFinite(Number(heartbeat?.malformed_ping_lines)) ? Number(heartbeat?.malformed_ping_lines) : "unknown"}`,
+      `errors=${Number.isFinite(Number(heartbeat?.errors)) ? Number(heartbeat?.errors) : "unknown"}`,
+    ].join(" ");
+    const age = inboundAge(lastRunAt, now);
+    if (Math.max(0, now.getTime() - lastRun) > 2 * 60 * 60_000) {
+      return {
+        line: `WARNING: progress reconciler heartbeat is stale (age=${age} ${counts}).`,
+        warning: "progress_reconcile_heartbeat_stale",
+      };
+    }
+    if (Number(heartbeat?.errors) > 0) {
+      return {
+        line: `WARNING: progress reconciler last run reported errors (age=${age} ${counts}).`,
+        warning: "progress_reconcile_errors",
+      };
+    }
+    return { line: `Progress reconciler heartbeat: age=${age} ${counts}.` };
+  } catch (error) {
+    const warning = existsSync(heartbeatPath)
+      ? errorNote(error, "progress_reconcile_heartbeat_invalid").replace(/^error:/, "")
+      : "progress_reconcile_heartbeat_missing";
+    return {
+      line: `WARNING: progress reconciler heartbeat unavailable (${warning}).`,
+      warning,
+    };
+  }
+}
+
 async function inboundSource(input: {
   fetchImpl: typeof fetch;
   baseUrl: string;
@@ -560,6 +616,115 @@ async function inboundSource(input: {
         }
       : {}),
   };
+}
+
+function projectProgressSource(input: {
+  store: DayPlanStore;
+  dataDir?: string;
+  targetLocalDate: string;
+  targetTimezone: string;
+  now: Date;
+}): BriefSourceInput {
+  const source = {
+    id: "project_progress",
+    label: "PROJECT_PROGRESS",
+    required: false,
+    maxChars: 18_000,
+    priority: 1,
+  } as const;
+  const heartbeat = progressReconcileHeartbeat(input.dataDir, input.now);
+  const previousDate = addCalendarDays(input.targetLocalDate, -1);
+  const since = calendarDayBounds(previousDate, input.targetTimezone).timeMin;
+  const until = calendarDayBounds(
+    addCalendarDays(input.targetLocalDate, 1),
+    input.targetTimezone,
+  ).timeMin;
+  const warnings: string[] = [];
+  const byId = new Map<string, SessionDigest>();
+  try {
+    const listDigests = input.store.listSessionDigests;
+    if (typeof listDigests !== "function") {
+      throw new Error("session_digest_store_unavailable");
+    }
+    for (const digest of listDigests({ since, until, limit: 100 })) {
+      byId.set(digest.id, digest);
+    }
+  } catch (error) {
+    warnings.push(errorNote(error, "project_progress_store_failed").replace(/^error:/, ""));
+  }
+  try {
+    for (
+      const digest of readProgressDigestRelays({
+        dataDir: input.dataDir,
+        since,
+        until,
+        perProjectLimit: 20,
+        totalLimit: 100,
+      })
+    ) {
+      if (!byId.has(digest.id)) byId.set(digest.id, digest);
+    }
+  } catch (error) {
+    warnings.push(errorNote(error, "project_progress_relay_failed").replace(/^error:/, ""));
+  }
+  try {
+    const perProject = new Map<string, number>();
+    const digests = [...byId.values()]
+      .sort((left, right) => right.runAt.localeCompare(left.runAt))
+      .filter((digest) => {
+        const count = perProject.get(digest.project) ?? 0;
+        if (count >= 3) return false;
+        perProject.set(digest.project, count + 1);
+        return true;
+      })
+      .slice(0, 30);
+    const summaries = digests.map(
+      (digest) =>
+        `- ${compactLine(digest.project, 100)}: ${compactLine(digest.summary, 360)}`,
+    );
+    const taskNotes = digests.flatMap((digest) =>
+      digest.perTask
+        .filter((item) => item.progress !== "none" || item.scope_changed)
+        .map((item) =>
+          `- project=${compactLine(digest.project, 100)}` +
+          ` task_id=${item.task_id}` +
+          ` progress=${item.progress}` +
+          ` scope_changed=${item.scope_changed}` +
+          ` note=${JSON.stringify(compactLine(item.note, 200))}` +
+          ` evidence=${JSON.stringify(compactLine(item.evidence_quote, 240))}`,
+        )
+    );
+    const content = [
+      "PROJECT SUMMARIES",
+      ...(summaries.length > 0 ? summaries : ["No project progress digests for yesterday or today."]),
+      "",
+      "TASK-LEVEL NOTES",
+      ...(taskNotes.length > 0 ? taskNotes : ["None."]),
+      "",
+      heartbeat.line,
+    ].join("\n");
+    return {
+      ...source,
+      content,
+      asOf: digests[0]?.runAt ?? input.now.toISOString(),
+      ...(warnings.length > 0 || heartbeat.warning
+        ? {
+            note: `error:${[...warnings, heartbeat.warning].filter(Boolean).join(";")}`,
+          }
+        : {}),
+    };
+  } catch (error) {
+    const warning = errorNote(error, "project_progress_failed").replace(/^error:/, "");
+    return {
+      ...source,
+      content: [
+        `WARNING: project progress unavailable (${warning}).`,
+        heartbeat.line,
+      ].join("\n"),
+      asOf: input.now.toISOString(),
+      note: `error:${[warning, heartbeat.warning].filter(Boolean).join(";")}`,
+    };
+  }
 }
 
 const COMMITMENT_KIND_ORDER: CommitmentKind[] = [
@@ -1491,6 +1656,13 @@ export async function collectMorningBriefSources(
           note: "day_dump_unavailable",
         },
     await inboundPromise,
+    projectProgressSource({
+      store: options.store,
+      dataDir: options.dataDir,
+      targetLocalDate,
+      targetTimezone,
+      now,
+    }),
     fileSource("goals", "GOALS", filePolicy.goals.path, {
       required: filePolicy.goals.required,
       maxChars: 9000,

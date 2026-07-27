@@ -11,6 +11,7 @@ import {
   type SuggestionState,
 } from "@/lib/quiet-current/store";
 import { isTrustedForgeRequest } from "@/lib/request-security";
+import { consumeProgressSuggestionRelays } from "@/lib/progress/relay";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ export const dynamic = "force-dynamic";
 const KINDS = new Set<SuggestionKind>([
   "create_task",
   "returned_work",
+  "observed_progress",
 ]);
 const PRIORITIES = new Set<SuggestionPriority>(["low", "medium", "high"]);
 const RESOLUTION_STATES = new Set<SuggestionState>([
@@ -45,11 +47,19 @@ function stringValue(
   return trimmed;
 }
 
+function ingestProgressSuggestionRelays(): void {
+  if (process.env.FORGE_PROGRESS_RELAY_CONSUMER !== "1") return;
+  consumeProgressSuggestionRelays({
+    log: (message) => console.error(message),
+  });
+}
+
 export async function GET(request: NextRequest) {
   try {
     if (!isTrustedForgeRequest(request)) {
       return NextResponse.json({ error: "Untrusted request host." }, { status: 403 });
     }
+    ingestProgressSuggestionRelays();
     return NextResponse.json({
       ...getQuietCurrentSnapshot(),
       csrfToken: getQuietCurrentCsrfToken(),
@@ -67,6 +77,7 @@ export async function POST(request: NextRequest) {
     if (!isTrustedForgeRequest(request)) {
       return NextResponse.json({ error: "Untrusted request host." }, { status: 403 });
     }
+    ingestProgressSuggestionRelays();
     const body = (await request.json()) as Record<string, unknown>;
     const action = stringValue(body.action, "action", { required: true, max: 40 });
 
@@ -97,6 +108,7 @@ export async function POST(request: NextRequest) {
         reviewMaterial: stringValue(body.reviewMaterial, "reviewMaterial", {
           max: 20000,
         }),
+        claimKey: stringValue(body.claimKey, "claimKey", { max: 300 }),
         expiresAt: stringValue(body.expiresAt, "expiresAt", { max: 80 }),
       });
       return NextResponse.json(suggestion, { status: 201 });

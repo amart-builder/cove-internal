@@ -36,7 +36,7 @@ curl -s -X POST 'http://localhost:3200/api/quiet-current' \
   }'
 ```
 
-The first release supports `create_task` and `returned_work`. Returned work requires `targetTaskId` and may include `reviewMaterial`; it still arrives in pencil. Defer, retire, and handoff offers stay out of the agent API until their target-task transactions can be made atomic.
+Forge supports `create_task`, `returned_work`, and `observed_progress`. Returned work is work Jarvis did and may include `reviewMaterial`. Observed progress is evidence of work the person did themselves; it requires `targetTaskId`, never carries Jarvis ownership, and offers a plain mark-done or open-task decision. All three still arrive in pencil. Defer, retire, and handoff offers stay out of the agent API until their target-task transactions can be made atomic.
 
 ## Handoff state
 

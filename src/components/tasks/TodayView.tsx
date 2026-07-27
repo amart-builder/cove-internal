@@ -1263,8 +1263,11 @@ function TodayExperience({
     const targetTask = suggestion.targetTaskId
       ? tasks.find((task) => task._id === suggestion.targetTaskId)
       : undefined;
-    if (suggestion.kind === 'returned_work' && !targetTask) {
-      setSurfaceError('The task this returned work refers to no longer exists.');
+    if (
+      (suggestion.kind === 'returned_work' || suggestion.kind === 'observed_progress') &&
+      !targetTask
+    ) {
+      setSurfaceError('The task this suggestion refers to no longer exists.');
       return;
     }
     const targetBefore = targetTask
@@ -1297,6 +1300,12 @@ function TodayExperience({
           tags: withoutTag(targetTask.tags, JARVIS_HELD_TAG),
         });
         focusTask(targetTask._id, 'returned_work');
+      } else if (targetTask && suggestion.kind === 'observed_progress') {
+        resolvedTaskId = targetTask._id;
+        if (source === 'explicit_accept') {
+          await updateTask(targetTask._id, { status: 'done' });
+        }
+        focusTask(targetTask._id, 'observed_progress');
       } else {
         resolvedTaskId = await createTask({
           columnId: todayColumn._id,
@@ -1331,7 +1340,14 @@ function TodayExperience({
 
       await loadSuggestions();
       showUndo({
-        message: suggestion.kind === 'returned_work' ? 'Review moved to your current' : 'Added to your current',
+        message:
+          suggestion.kind === 'returned_work'
+            ? 'Review moved to your current'
+            : suggestion.kind === 'observed_progress'
+              ? source === 'explicit_accept'
+                ? 'Marked task done'
+                : 'Opened task'
+              : 'Added to your current',
         run: async () => {
           await reopenSuggestion(
             suggestion.id,
@@ -2305,8 +2321,8 @@ function TodayExperience({
                       {suggestion.kind === 'returned_work' && suggestion.reviewMaterial && <details className="quiet-returned-work"><summary>Read Jarvis&apos;s work</summary><pre>{suggestion.reviewMaterial}</pre></details>}
                       <small>Source: {suggestion.source}</small>
                       <div className="current-tributary-actions">
-                        <button type="button" onClick={() => void commitSuggestion(suggestion, 'explicit_accept')} className="quiet-pencil-action is-primary">Accept</button>
-                        <button type="button" onClick={() => void commitSuggestion(suggestion, 'began_work')} className="quiet-pencil-action">Begin</button>
+                        <button type="button" onClick={() => void commitSuggestion(suggestion, 'explicit_accept')} className="quiet-pencil-action is-primary">{suggestion.kind === 'observed_progress' ? 'Mark done' : 'Accept'}</button>
+                        <button type="button" onClick={() => void commitSuggestion(suggestion, 'began_work')} className="quiet-pencil-action">{suggestion.kind === 'observed_progress' ? 'Open task' : 'Begin'}</button>
                         <button type="button" onClick={() => { setEditingSuggestionId(suggestion.id); setSuggestionDraft({ title: suggestion.title, description: suggestion.description }); }} className="quiet-pencil-action">Edit</button>
                         {!suggestion.resurfacedFromDeferredAt && (
                           <button type="button" onClick={() => void deferSuggestion(suggestion)} className="quiet-pencil-action">Later</button>

@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { forgeDataDir } from "../operator";
 
-export type SuggestionKind = "create_task" | "returned_work";
+export type SuggestionKind = "create_task" | "returned_work" | "observed_progress";
 
 export type SuggestionState =
   | "proposed"
@@ -25,6 +26,7 @@ export type WorkSuggestion = {
   dueDate?: string;
   targetTaskId?: string;
   reviewMaterial?: string;
+  claimKey?: string;
   state: SuggestionState;
   dismissReason?: string;
   resolvedTaskId?: string;
@@ -76,7 +78,7 @@ function storePath(): string {
   if (testStorePath) return testStorePath;
   const configuredName = process.env.FORGE_QUIET_CURRENT_FILE;
   const fileName = configuredName ? path.basename(configuredName) : "quiet-current.json";
-  return path.join(process.cwd(), "data", fileName);
+  return path.join(forgeDataDir(), fileName);
 }
 
 /** Test-only path override so state tests never touch a real Forge installation. */
@@ -265,6 +267,7 @@ export function getQuietCurrentSnapshot(): QuietCurrentStore {
 }
 
 export function createWorkSuggestion(input: {
+  id?: string;
   kind?: SuggestionKind;
   title: string;
   description?: string;
@@ -274,14 +277,25 @@ export function createWorkSuggestion(input: {
   dueDate?: string;
   targetTaskId?: string;
   reviewMaterial?: string;
+  claimKey?: string;
   expiresAt?: string;
 }): WorkSuggestion {
   const kind = input.kind ?? "create_task";
-  if (kind === "returned_work" && !input.targetTaskId) {
-    throw new Error("Returned work requires an existing target task.");
+  if (
+    (kind === "returned_work" || kind === "observed_progress") &&
+    !input.targetTaskId
+  ) {
+    throw new Error(`${kind === "returned_work" ? "Returned work" : "Observed progress"} requires an existing target task.`);
   }
   const store = readStore();
-  refreshSuggestionLifecycle(store);
+  const lifecycleChanged = refreshSuggestionLifecycle(store);
+  if (input.id) {
+    const existing = store.suggestions.find((suggestion) => suggestion.id === input.id);
+    if (existing) {
+      if (lifecycleChanged) writeStore(store);
+      return existing;
+    }
+  }
   const now = nowDate();
   const expiresAt = input.expiresAt
     ? new Date(input.expiresAt)
@@ -291,7 +305,7 @@ export function createWorkSuggestion(input: {
   }
 
   const suggestion: WorkSuggestion = {
-    id: randomUUID(),
+    id: input.id ?? randomUUID(),
     kind,
     title: input.title.trim(),
     description: input.description?.trim() ?? "",
@@ -301,6 +315,7 @@ export function createWorkSuggestion(input: {
     dueDate: input.dueDate,
     targetTaskId: input.targetTaskId,
     reviewMaterial: input.reviewMaterial,
+    claimKey: input.claimKey,
     state: "proposed",
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),

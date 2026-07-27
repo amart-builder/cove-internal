@@ -331,6 +331,7 @@ test('a due-now surface receipt survives task creation and resumes without anoth
 test('triage failure creates the Phase 0 fallback on the same event and records the error', async (t) => {
   const dir = fixture(t);
   const posts = [];
+  const lines = [];
   const result = await runForgeIntake({
     text: 'Capture this even when Claude returns nonsense.',
     source: 'voice',
@@ -342,7 +343,7 @@ test('triage failure creates the Phase 0 fallback on the same event and records 
     webBaseUrl: 'http://fallback.test',
     spawnImpl: claudeSpawn('not-json', []),
     now: () => new Date('2026-07-27T18:00:00.000Z'),
-    write: () => undefined,
+    write: (line) => lines.push(line),
     writeError: () => undefined,
   });
   assert.equal(result.exitCode, 0);
@@ -355,6 +356,8 @@ test('triage failure creates the Phase 0 fallback on the same event and records 
   assert.equal(stored.state, 'triaged');
   assert.equal(stored.task_id, stored.id);
   assert.match(stored.error, /triage_output_invalid_json/);
+  assert.match(lines[0], /^TASK /);
+  assert.match(lines[0], /"fallback":true/);
 });
 
 test('scheduled triage writes a reminder entry and task writes retry without a live project column', async (t) => {

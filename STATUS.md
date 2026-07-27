@@ -87,6 +87,15 @@ Explicitly rejected: always-running general agent, autonomous external sends, cu
 
 ## Current State
 
+### 2026-07-27 Never-drop Phase 4: automatic progress tracker (shipped; Mini agent installing)
+
+- MacBook hooks (SessionStart/Stop, async, no LLM/network) append factual pings to per-machine `data/session-pings/<host>-<date>.jsonl`; live since this afternoon.
+- `scripts/forge-progress-reconcile.mjs` (Mini, every 30 min): cwd->project via deepest-git-dir mapping (forge maps to forge, not astack), evidence = git log + STATUS.md excerpt + pings, ONE budget-capped Claude call per project gated on NEW evidence only, per-project cursors, digests retained 20/project.
+- Cross-machine by write-once relay ONLY (review-caught blocker: the Mini must never rewrite synced mutable JSON): digests + suggestions travel via `progress-relay/`; the MBP web app consumes suggestion relays behind `FORGE_PROGRESS_RELAY_CONSUMER=1` (added to com.forge.web plist).
+- New suggestion kind `observed_progress` in AGENT_CONTRACT.md: accepting marks done / opens the task; no Jarvis-work panel for work Alex did himself. Never mutates tasks directly - pencil only, 3-day expiry, cross-source dedupe.
+- Brief: PROJECT_PROGRESS source with relay fallback (works from either machine's store) + reconciler heartbeat staleness warnings.
+- Live dry-run: 4 projects, correct attribution (credited MHA work, refused to credit the Jamie task off a mere folder visit), 0 errors. 134 tests green after two review rounds.
+
 ### 2026-07-27 Never-drop Phase 3: Gemini meeting-notes watcher (shipped; Mini install pending)
 
 - `scripts/forge-meeting-watch.mjs` polls Gmail (Composio CLI) every 5 min for meeting-notes emails via an Alex-editable matcher (`data/forge-meetings.json`); shared extractor (`src/lib/intake/meeting-followups.mjs`) parses Next Steps (HTML-normalized, "Suggested next steps" supported) with a bounded delimiter-guarded Claude fallback; Alex-owned items -> intake pipe, other-owned -> `waiting_on` commitments. Mark-processed only after every item acks; per-message failures dead-letter after 5 runs (brief warns); zero-item messages terminal; heartbeat + DISABLED state surfaced in the brief.

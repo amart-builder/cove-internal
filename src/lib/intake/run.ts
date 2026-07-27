@@ -709,7 +709,12 @@ export async function runForgeIntake(
         taskId,
         error: reason,
       }, { now: runtimeOptions.now });
-      write(`FALLBACK ${JSON.stringify({ id: taskId, error: reason })}`);
+      write(`TASK ${JSON.stringify({
+        id: taskId,
+        existing: false,
+        fallback: true,
+        error: reason,
+      })}`);
       return {
         exitCode: 0,
         event: resolved,

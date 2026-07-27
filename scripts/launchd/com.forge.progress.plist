@@ -3,16 +3,16 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.forge.meeting-watch</string>
+  <string>com.forge.progress</string>
   <key>ProgramArguments</key>
   <array>
     <string>/usr/bin/env</string>
     <string>node</string>
     <string>--env-file=.env.local</string>
-    <string>/Users/alexandermartin/Desktop/Atlas/Projects/astack/forge/scripts/forge-meeting-watch.mjs</string>
+    <string>/Users/alexandermartin/Desktop/Atlas/Projects/astack/forge/scripts/forge-progress-reconcile.mjs</string>
     <string>--once</string>
   </array>
-  <!-- Substitute every absolute repo/data path if the Mini checkout moves. -->
+  <!-- Substitute every absolute repo/data/Atlas path if the Mini checkout moves. -->
   <key>WorkingDirectory</key>
   <string>/Users/alexandermartin/Desktop/Atlas/Projects/astack/forge</string>
   <key>EnvironmentVariables</key>
@@ -23,16 +23,18 @@
     <string>/opt/homebrew/bin:/usr/local/bin:/Users/alexandermartin/.local/bin:/usr/bin:/bin</string>
     <key>FORGE_DATA_DIR</key>
     <string>/Users/alexandermartin/Desktop/Atlas/Projects/astack/forge/data</string>
+    <key>FORGE_ATLAS_ROOT</key>
+    <string>/Users/alexandermartin/Desktop/Atlas</string>
   </dict>
   <key>StartInterval</key>
-  <integer>300</integer>
+  <integer>1800</integer>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <false/>
   <key>StandardOutPath</key>
-  <string>/Users/alexandermartin/Library/Logs/forge-meeting-watch.log</string>
+  <string>/Users/alexandermartin/Library/Logs/forge-progress-reconcile.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/alexandermartin/Library/Logs/forge-meeting-watch.log</string>
+  <string>/Users/alexandermartin/Library/Logs/forge-progress-reconcile.log</string>
 </dict>
 </plist>

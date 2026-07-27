@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { rmSync, writeFileSync } from 'node:fs';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -86,6 +86,54 @@ test('accepting a proposal records the resolved task and closes it once', (t) =>
     'suggestion_undo',
   );
   assert.throws(() => reopenWorkSuggestion('missing-suggestion'), /not found/);
+});
+
+test('observed progress targets an existing task and deterministic relay ids replay', (t) => {
+  isolatedStore(t);
+  assert.throws(
+    () => createWorkSuggestion({
+      kind: 'observed_progress',
+      title: 'Review observed progress',
+      reason: 'A matching commit exists.',
+      source: 'progress-reconciler',
+    }),
+    /target task/,
+  );
+  const input = {
+    id: 'progress-suggestion-0123456789abcdef0123456789abcdef',
+    kind: 'observed_progress',
+    title: 'Review observed progress',
+    reason: 'A matching commit exists.',
+    source: 'progress-reconciler',
+    targetTaskId: 'task-1',
+    claimKey: 'observed_progress:task-1:likely_done',
+  };
+  const first = createWorkSuggestion(input);
+  const replay = createWorkSuggestion(input);
+  assert.equal(replay.id, first.id);
+  assert.equal(getQuietCurrentSnapshot().suggestions.length, 1);
+});
+
+test('default Quiet Current storage follows FORGE_DATA_DIR instead of cwd', (t) => {
+  const dir = path.join(
+    os.tmpdir(),
+    `forge-quiet-current-data-dir-${process.pid}-${Date.now()}-${Math.random()}`,
+  );
+  const previous = process.env.FORGE_DATA_DIR;
+  process.env.FORGE_DATA_DIR = dir;
+  setQuietCurrentStorePathForTests(undefined);
+  t.after(() => {
+    if (previous === undefined) delete process.env.FORGE_DATA_DIR;
+    else process.env.FORGE_DATA_DIR = previous;
+    setQuietCurrentStorePathForTests(undefined);
+    rmSync(dir, { recursive: true, force: true });
+  });
+  createWorkSuggestion({
+    title: 'Anchored suggestion',
+    reason: 'Verify the configured data directory.',
+    source: 'test',
+  });
+  assert.equal(existsSync(path.join(dir, 'quiet-current.json')), true);
 });
 
 test('expired pencil retires without changing accepted work', async (t) => {

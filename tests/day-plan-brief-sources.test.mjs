@@ -13,6 +13,7 @@ import {
   verifySourceCheckpoint,
   writeSourceCheckpoint,
 } from '../src/lib/day-plan/brief-relay.ts';
+import { writeProgressDigestRelay } from '../src/lib/progress/relay.ts';
 
 const NOW = new Date('2026-07-16T12:00:00.000Z');
 
@@ -852,6 +853,109 @@ test('computed commitments source exposes open loops, clarification, and factual
   assert.match(source.content, /Draft the FAQ overnight \| recorded — overnight execution not yet live/);
 });
 
+test('project progress source shows yesterday and today digests and heartbeat warnings', async (t) => {
+  const { dir, options } = fixture(t);
+  disableExternalSources(t, dir);
+  mkdirSync(path.join(dir, 'intake'), { recursive: true });
+  writeFileSync(path.join(dir, 'intake', 'heartbeats.json'), JSON.stringify({
+    progress_reconcile: {
+      last_run_at: '2026-07-16T11:30:00.000Z',
+      projects_active: 1,
+      digests_written: 1,
+      suggestions_filed: 1,
+      errors: 0,
+    },
+  }));
+  const store = {
+    listRecentSnapshots: () => [],
+    listSessionDigests: () => [{
+      id: 'digest-1',
+      runAt: '2026-07-16T11:00:00.000Z',
+      project: 'catalyst',
+      summary: 'The launch path moved forward.',
+      perTask: [{
+        task_id: 'task-1',
+        progress: 'likely_done',
+        evidence_quote: 'abc123 Finish launch route',
+        note: 'The launch route appears complete.',
+        scope_changed: false,
+      }],
+      evidence: {},
+      createdAt: '2026-07-16T11:00:00.000Z',
+    }],
+  };
+  const collected = await collectMorningBriefSources({
+    ...options,
+    store,
+    fetchImpl: async (url) => forgeRowsResponse(url),
+  });
+  const progress = collected.sources.find((source) => source.id === 'project_progress');
+  assert.equal(progress.label, 'PROJECT_PROGRESS');
+  assert.match(progress.content, /PROJECT SUMMARIES\n- catalyst: The launch path moved forward\./);
+  assert.match(progress.content, /task_id=task-1 progress=likely_done/);
+  assert.match(progress.content, /evidence="abc123 Finish launch route"/);
+  assert.match(progress.content, /Progress reconciler heartbeat: age=30m/);
+
+  writeFileSync(path.join(dir, 'intake', 'heartbeats.json'), JSON.stringify({
+    progress_reconcile: {
+      last_run_at: '2026-07-16T09:00:00.000Z',
+      projects_active: 0,
+      digests_written: 0,
+      suggestions_filed: 0,
+      errors: 0,
+    },
+  }));
+  const stale = await collectMorningBriefSources({
+    ...options,
+    store,
+    fetchImpl: async (url) => forgeRowsResponse(url),
+  });
+  assert.match(
+    stale.sources.find((source) => source.id === 'project_progress').content,
+    /WARNING: progress reconciler heartbeat is stale \(age=3h/,
+  );
+});
+
+test('project progress falls back to the immutable Mini digest relay', async (t) => {
+  const { dir, options } = fixture(t);
+  disableExternalSources(t, dir);
+  mkdirSync(path.join(dir, 'intake'), { recursive: true });
+  writeFileSync(path.join(dir, 'intake', 'heartbeats.json'), JSON.stringify({
+    progress_reconcile: {
+      last_run_at: NOW.toISOString(),
+      projects_active: 1,
+      digests_written: 1,
+      suggestions_filed: 0,
+      skipped_no_new_evidence: 0,
+      malformed_ping_lines: 0,
+      errors: 0,
+    },
+  }));
+  writeProgressDigestRelay({
+    dataDir: dir,
+    digest: {
+      id: 'progress-0123456789abcdef0123456789abcdef',
+      runAt: '2026-07-16T11:00:00.000Z',
+      project: 'forge',
+      summary: 'Relayed progress reached the MacBook brief.',
+      perTask: [],
+      evidence: { fingerprint: 'one' },
+    },
+  });
+  const collected = await collectMorningBriefSources({
+    ...options,
+    store: {
+      listRecentSnapshots: () => [],
+      listSessionDigests: () => [],
+    },
+    fetchImpl: async (url) => forgeRowsResponse(url),
+  });
+  assert.match(
+    collected.sources.find((source) => source.id === 'project_progress').content,
+    /forge: Relayed progress reached the MacBook brief\./,
+  );
+});
+
 test('commitments source surfaces recent note resolutions and updates in the required section order', async (t) => {
   const { dir, options } = fixture(t);
   disableExternalSources(t, dir);
@@ -1050,6 +1154,7 @@ test('real source ids overwrite coverage fallbacks, while failed fetches remain 
     [
       ['day_dump', 0],
       ['untriaged_inbound', 0],
+      ['project_progress', 1],
       ['goals', 1],
       ['operator_profile', 2],
       ['leadup', 3],
