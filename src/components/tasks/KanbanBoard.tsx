@@ -317,7 +317,7 @@ function toSupabaseTaskPatch(patch: UpdateTaskInput): Partial<SupabaseTask> {
       patch.dueDate === undefined
         ? undefined
         : patch.dueDate
-          ? new Date(`${patch.dueDate}T00:00:00`).toISOString()
+          ? new Date(`${patch.dueDate}T00:00:00Z`).toISOString()
           : null,
     tags: patch.tags,
     position: patch.position,
@@ -325,9 +325,14 @@ function toSupabaseTaskPatch(patch: UpdateTaskInput): Partial<SupabaseTask> {
   };
 }
 
+// A due date is a calendar date, not an instant, so it is stored at UTC
+// midnight. Parsing it as *local* midnight shifts the stored day backwards for
+// any operator at or ahead of UTC, and the read path slices the UTC date
+// straight off the string, so the board would show them the day before the one
+// they picked.
 function toSupabaseDueAt(value: string | null | undefined): string | null | undefined {
   if (value === undefined) return undefined;
-  return value ? new Date(`${value}T00:00:00`).toISOString() : null;
+  return value ? new Date(`${value}T00:00:00Z`).toISOString() : null;
 }
 
 function SupabaseKanbanBoard() {

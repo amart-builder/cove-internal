@@ -8,6 +8,7 @@ import {
   forgeRestMutationAccessFailure,
   GET,
   POST,
+  targetsSpecificRows,
 } from '../src/app/api/forge-rest/[table]/route.ts';
 import { handleLocalRest } from '../src/lib/local/db.ts';
 
@@ -106,4 +107,16 @@ test('local PATCH returns the rows it updated even when the filter tests an over
   assert.equal(stale.status, 200);
   assert.equal(Array.isArray(stale.body), true);
   assert.equal(stale.body.length, 0, 'a lost CAS returns no rows so the caller can detect it');
+});
+
+test('a filterless PATCH or DELETE is not treated as targeting rows', () => {
+  // PostgREST reads these as whole-table operations, so they must never reach it.
+  assert.equal(targetsSpecificRows(new URLSearchParams('')), false);
+  assert.equal(targetsSpecificRows(new URLSearchParams('select=*')), false);
+  assert.equal(targetsSpecificRows(new URLSearchParams('select=id&order=created_at&limit=50')), false);
+
+  // Anything that is not a response-shaping parameter selects rows.
+  assert.equal(targetsSpecificRows(new URLSearchParams('id=eq.abc')), true);
+  assert.equal(targetsSpecificRows(new URLSearchParams('select=*&id=eq.abc')), true);
+  assert.equal(targetsSpecificRows(new URLSearchParams('status=eq.open')), true);
 });

@@ -18,6 +18,10 @@ export function operatorName(): string {
   return runtime.operatorName();
 }
 
+export function operatorTimezone(): string {
+  return runtime.operatorTimezone();
+}
+
 export function workspaceRoot(options: {
   env?: NodeJS.ProcessEnv;
   homeDir?: string;

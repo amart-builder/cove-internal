@@ -293,6 +293,9 @@ function applyPatch(task: TaskData, patch: UpdateTaskInput): TaskData {
   };
 }
 
+// Due dates are calendar dates, so they are stored at UTC midnight (see the
+// note on toSupabaseDueAt in KanbanBoard). Local midnight would move the stored
+// day for anyone at or ahead of UTC.
 function toRestPatch(patch: UpdateTaskInput): Partial<RestTask> {
   return {
     column_id: patch.columnId,
@@ -303,7 +306,7 @@ function toRestPatch(patch: UpdateTaskInput): Partial<RestTask> {
       patch.dueDate === undefined
         ? undefined
         : patch.dueDate
-          ? new Date(`${patch.dueDate}T00:00:00`).toISOString()
+          ? new Date(`${patch.dueDate}T00:00:00Z`).toISOString()
           : null,
     tags: patch.tags,
     position: patch.position,
@@ -514,7 +517,7 @@ function RestTodayView({ onOpenAllWork }: TodayViewProps) {
             description: input.description,
             priority: input.priority,
             due_at: input.dueDate
-              ? new Date(`${input.dueDate}T00:00:00`).toISOString()
+              ? new Date(`${input.dueDate}T00:00:00Z`).toISOString()
               : undefined,
             tags: input.tags,
             position: nextPosition,

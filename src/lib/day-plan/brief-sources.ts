@@ -7,6 +7,7 @@ import {
   loadOperatorProfile,
   operatorName,
   operatorProfilePath,
+  operatorTimezone,
   type OperatorProfile,
 } from "../operator";
 import type { DayPlanStore } from "./store";
@@ -15,7 +16,11 @@ import { buildSettlementSummary, readDumpRelay, readSettlementRelay } from "./br
 import { contentQuotaGap, followUpsDue, staleOpenItems } from "./gap-detectors";
 
 const EXTERNAL_FETCH_TIMEOUT_MS = 10_000;
-const DEFAULT_BRIEF_TIMEZONE = "America/Los_Angeles";
+// The operator's own zone, not a fixed one: this is the fallback used when
+// no caller or env var pinned a timezone, and a wrong fallback silently
+// targets the wrong calendar day. Read per call, because the profile that
+// supplies it is written during setup, after this module first loads.
+const defaultBriefTimezone = () => operatorTimezone();
 const COMPOSIO_MCP_URL = "https://connect.composio.dev/mcp";
 const ATTIO_PEOPLE_QUERY_URL = "https://api.attio.com/v2/objects/people/records/query";
 
@@ -1213,7 +1218,7 @@ export async function collectMorningBriefSources(
   const baseUrl = (options.webBaseUrl ?? defaultBriefWebBase()).replace(/\/$/, "");
   const timeoutMs = options.timeoutMs ?? 8000;
   const now = options.now ?? new Date();
-  const targetTimezone = options.targetTimezone ?? process.env.FORGE_BRIEF_TIMEZONE ?? DEFAULT_BRIEF_TIMEZONE;
+  const targetTimezone = options.targetTimezone ?? process.env.FORGE_BRIEF_TIMEZONE ?? defaultBriefTimezone();
   let targetLocalDate = options.targetLocalDate;
   if (!targetLocalDate) {
     try {
@@ -1221,7 +1226,7 @@ export async function collectMorningBriefSources(
     } catch {
       // Keep non-calendar sources available even if a direct caller supplies a
       // bad timezone. The calendar helper will report its own scoped error.
-      targetLocalDate = localDateInTimezone(now, DEFAULT_BRIEF_TIMEZONE);
+      targetLocalDate = localDateInTimezone(now, defaultBriefTimezone());
     }
   }
   const memoryPath = options.memoryDecisionsPath ?? process.env.FORGE_BRIEF_MEMORY_PATH;

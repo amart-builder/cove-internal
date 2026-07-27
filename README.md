@@ -65,7 +65,7 @@ launchctl bootout gui/$(id -u)/com.forge.reminders      # stop reminder notifica
 launchctl bootout gui/$(id -u)/com.forge.email-triage   # stop scheduled email triage
 ```
 
-To start fresh: stop Forge, delete `data/forge.db`, and start it again. It recreates the default board.
+To start fresh: stop Forge, **move** `data/forge.db` aside (rename it, don't delete it), and start it again. It recreates the default board, and your old board is still sitting there if you want it back. Same idea in reverse to restore: stop Forge, copy a file out of `data/backups/` over `data/forge.db`, start it again.
 
 ## Tech stack
 

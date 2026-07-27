@@ -2,7 +2,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { Commitment } from "../data/types";
 
-const PACIFIC_TIMEZONE = "America/Los_Angeles";
+import { operatorTimezone } from "../operator";
+
 
 export type ContentQuotaGap = {
   scheduled: number;
@@ -50,7 +51,7 @@ function pacificCalendarDate(value: string | Date | undefined): string | undefin
   if (Number.isNaN(parsed.getTime())) return undefined;
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat("en-CA-u-ca-gregory-nu-latn", {
-      timeZone: PACIFIC_TIMEZONE,
+      timeZone: operatorTimezone(),
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
@@ -74,7 +75,7 @@ function pacificMidnightEpoch(localDate: string): number {
   if (!match) throw new Error("target date invalid");
   const desiredEpoch = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
   const formatter = new Intl.DateTimeFormat("en-CA-u-ca-gregory-nu-latn", {
-    timeZone: PACIFIC_TIMEZONE,
+    timeZone: operatorTimezone(),
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

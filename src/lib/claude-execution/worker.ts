@@ -1094,6 +1094,10 @@ export async function runOneMorningBrief(
           targetLocalDate: claimed.targetLocalDate,
           targetTimezone,
           now: clock(),
+          // Without this the collector falls back to the forge.db directory,
+          // so on a relaying machine it reads a different settlement relay than
+          // the one every other call in this function writes to.
+          dataDir: relay?.dataDir,
         }));
     const collected = await collect(options.store);
     const context = assembleMorningBriefContext(collected.sources, {

@@ -251,10 +251,12 @@ If the user wants Forge on more than one device, for example their phone or an a
 
 Forge has one switch, the `NEXT_PUBLIC_FORGE_RUNTIME` environment variable:
 
-| Value | What it uses | Login | Best for |
+| Value | What it uses | Account needed | Best for |
 | --- | --- | --- | --- |
 | unset or `local` | Local SQLite file (default) | None | One Mac. The recommended default. |
-| `supabase` | Cloud Postgres | Yes | Multiple devices, cloud backup. |
-| `convex` | Cloud reactive backend | Yes | Multiple devices, live automations. |
+| `supabase` | Cloud Postgres | A free Supabase account, created once by the user | Multiple devices, cloud backup. |
+| `convex` | Cloud reactive backend | A free Convex account, created once by the user | Legacy. Do not choose this for a new install. |
 
-Set it in a `.env.local` file in the project root only if you are moving off local storage.
+Forge itself never asks anyone to log in, in any mode. The account in that third column is one the user creates with the cloud provider so Forge has somewhere to put the data; Forge then talks to it with a key from `.env.local`.
+
+Set the variable in a `.env.local` file in the project root only if you are moving off local storage. `convex` is kept only for the one existing installation that still runs it and is being retired, so a new install should be `local`, or `supabase` if the user asked for multi-device.
