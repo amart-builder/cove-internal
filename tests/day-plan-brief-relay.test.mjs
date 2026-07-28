@@ -44,7 +44,7 @@ const VERSIONS = { promptVersion: MORNING_BRIEF_PROMPT_VERSION, schemaVersion: M
 const PROVENANCE = { modelAlias: 'opus', effort: 'high', budgetUsd: 1.5 };
 
 const WIRE_BRIEF = {
-  lens_narrative: 'Protect client delivery first, then push the Jarvis Pro funnel.',
+  lens_narrative: 'Protect client delivery first, then push the Pilot Pro funnel.',
   existing_task_candidates: [
     {
       task_id: 'task-c',
@@ -367,7 +367,7 @@ test('the settlement relay round-trips and the collector falls back to it with f
 
 // The dump is typed on the MBP and the 7:30 brief runs on the Mini, whose
 // day_dumps table is machine-private and empty. Without the relay the freshest
-// statement of direction Alex makes never reaches the brief that frames his day.
+// statement of direction Jordan Rivers makes never reaches the brief that frames his day.
 test('the dump relay carries last night’s brain dump to a machine with no local dumps', async (t) => {
   const { dir } = fixture(t);
   const dumpStore = {

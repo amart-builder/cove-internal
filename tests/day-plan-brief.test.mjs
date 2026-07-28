@@ -50,7 +50,7 @@ import {
 
 const CLOCK = '2026-07-14T13:00:00.000Z';
 const PREVIOUS_OPERATOR_NAME = process.env.COVE_OPERATOR_NAME;
-test.before(() => { process.env.COVE_OPERATOR_NAME = 'Alex'; });
+test.before(() => { process.env.COVE_OPERATOR_NAME = 'Jordan Rivers'; });
 test.after(() => {
   if (PREVIOUS_OPERATOR_NAME === undefined) delete process.env.COVE_OPERATOR_NAME;
   else process.env.COVE_OPERATOR_NAME = PREVIOUS_OPERATOR_NAME;
@@ -61,7 +61,7 @@ const VERSIONS = {
 };
 
 const WIRE_BRIEF = {
-  headline: 'Protect client delivery first, then push the Jarvis Pro funnel.',
+  headline: 'Protect client delivery first, then push the Pilot Pro funnel.',
   narrative_paragraphs: [
     'The client blocks are the only work today with a date attached to it.',
     'Once those land, the referral asks are the one move that grows the funnel.',
@@ -230,7 +230,7 @@ function collectedSources({ goals = 'North star: 30k a month.' } = {}) {
     sources: [
       // An empty string reads as missing (whitespace-only content is absent).
       { id: 'goals', label: 'GOALS', required: true, maxChars: 9000, priority: 1, content: goals || undefined, asOf: CLOCK },
-      { id: 'operator_profile', label: 'OPERATOR_PROFILE', required: false, maxChars: 6000, priority: 2, content: 'Alex runs three operating lanes.', asOf: CLOCK },
+      { id: 'operator_profile', label: 'OPERATOR_PROFILE', required: false, maxChars: 6000, priority: 2, content: 'Jordan Rivers runs three operating lanes.', asOf: CLOCK },
       { id: 'leadup', label: 'LEADUP', required: false, maxChars: 9000, priority: 3, content: 'Client delivery led the week.', asOf: CLOCK },
       { id: 'sprint_memo', label: 'SPRINT_MEMO', required: true, maxChars: 12000, priority: 4, content: 'Four setups this month.', asOf: CLOCK },
       { id: 'task_snapshot', label: 'OPEN_TASKS', required: true, maxChars: 14000, priority: 6, content: '- [today] id=task-a "Deliver the MHA weekly block"', asOf: CLOCK },
@@ -466,7 +466,7 @@ test('a date claim is stripped from the brief, and a wrong one is reported', () 
 
   const stripped = stripMorningBriefDateClaim(
     {
-      headline: 'Today is Wednesday, Jul 15. Lock the session with Brian.',
+      headline: 'Today is Wednesday, Jul 15. Lock the session with Morgan.',
       narrativeParagraphs: ['Today is Sunday. The window closes Sunday.', 'Today is the day it ships.'],
       lensNarrative: 'ignored, recomputed',
       existingTaskCandidates: [],
@@ -478,7 +478,7 @@ test('a date claim is stripped from the brief, and a wrong one is reported', () 
     'America/Los_Angeles',
   );
   assert.equal(stripped.contradicted, true);
-  assert.equal(stripped.brief.headline, 'Lock the session with Brian.');
+  assert.equal(stripped.brief.headline, 'Lock the session with Morgan.');
   // Only the first paragraph is an opener. "Today is the day it ships" further
   // down is prose, and rewriting it would be vandalism.
   assert.deepEqual(stripped.brief.narrativeParagraphs, [
@@ -487,7 +487,7 @@ test('a date claim is stripped from the brief, and a wrong one is reported', () 
   ]);
   assert.equal(
     stripped.brief.lensNarrative,
-    'Lock the session with Brian.\n\nThe window closes Sunday.\n\nToday is the day it ships.',
+    'Lock the session with Morgan.\n\nThe window closes Sunday.\n\nToday is the day it ships.',
   );
 });
 
@@ -1169,7 +1169,7 @@ test('the brief command is the exact bounded toolless invocation', () => {
   assert.equal(command.stdin, [
     chiefOfStaffMandate(),
     '/cove-morning-brief',
-    'OPERATOR_NAME=Alex',
+    'OPERATOR_NAME=Jordan Rivers',
     'The target date below overrides any stale or prior-day date language inside CONTEXT. Do not state the date or greet the operator: the screen shows both above your first sentence.',
     'TARGET_LOCAL_DATE=2026-07-14',
     'TARGET_TIMEZONE=America/Los_Angeles',

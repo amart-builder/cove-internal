@@ -125,14 +125,11 @@ export function briefCheckpointSources(
   );
 }
 
-export function defaultSupernovaDir(homeDir = homedir()): string | undefined {
-  const configured = nonEmptyEnv("COVE_SUPERNOVA_DIR");
-  if (configured) return configured;
-  const candidates = [
-    path.join(homeDir, "Atlas", "Projects", "supernova-engine"),
-    path.join(homeDir, "Desktop", "Atlas", "Projects", "supernova-engine"),
-  ];
-  return candidates.find((candidate) => existsSync(candidate));
+// Opt-in only. No two machines are laid out the same way, so guessing a folder
+// would silently feed the brief some other repo's pipeline counts; an
+// unconfigured install just reports the source as unavailable.
+export function defaultSupernovaDir(): string | undefined {
+  return nonEmptyEnv("COVE_SUPERNOVA_DIR");
 }
 
 // Cove installs on port 3200 (see scripts/install-cove-local.sh), so the
@@ -1019,7 +1016,7 @@ async function commitmentsSource(input: {
       "CONTENT QUOTA",
       quotaGap
         ? `scheduled=${quotaGap.scheduled} | posted=${quotaGap.posted} | awaiting_approval=${quotaGap.awaitingApproval} | quota=${quotaGap.quota} | gap=${quotaGap.gap}`
-        : "Unavailable: Supernova pipeline directories could not be read.",
+        : "Unavailable: content engine pipeline directories could not be read.",
       "",
       "OVERNIGHT REQUESTS",
       ...(overnight.length > 0
@@ -1474,7 +1471,7 @@ function memoryQueries(): readonly string[] {
   return [
     "recent decisions, commitments, and direction changes",
     `what ${operatorName()} worked on in Claude sessions the last three days`,
-    "current state of Jarvis Pro, Boomer AI (Slipstream community), content engine",
+    "current state of the operator's active projects and business lines",
   ];
 }
 
@@ -1645,7 +1642,7 @@ export async function collectMorningBriefSources(
     now,
   });
 
-  // Last night's brain dump, in Alex's own words, and the first thing the brief
+  // Last night's brain dump, in the operator's own words, and the first thing the brief
   // reads. Priority 0 because it is the only source that can be hours old:
   // GOALS and the sprint memo are written by hand and go stale between edits,
   // so when he changes direction at night the dump is the only place the brief

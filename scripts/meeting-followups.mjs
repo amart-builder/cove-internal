@@ -15,7 +15,7 @@ import { promisify } from "node:util";
 import {
   extractMeetingFollowUps,
   inboundAckState,
-  isAlexOwned,
+  isOperatorOwned,
   meetingFollowUpText,
   parseNextSteps,
 } from "../src/lib/intake/meeting-followups.mjs";
@@ -126,7 +126,7 @@ async function processItem(item, notes, index) {
     `${notes.occurrenceId}\0${index}\0${item.owner}\0${item.title}\0${item.detail}`,
   );
   const text = meetingFollowUpText(item, notes.title);
-  if (isAlexOwned(item.owner)) {
+  if (isOperatorOwned(item.owner)) {
     await runIntake(text, sourceId);
     return "task";
   }
@@ -187,5 +187,5 @@ if (
   await resolveEvent(notes.acquisition.id, { state: "dismissed" });
 }
 console.log(
-  `Captured ${taskCount} Alex follow-up${taskCount === 1 ? "" : "s"} and ${waitingCount} waiting-on commitment${waitingCount === 1 ? "" : "s"}.`,
+  `Captured ${taskCount} operator follow-up${taskCount === 1 ? "" : "s"} and ${waitingCount} waiting-on commitment${waitingCount === 1 ? "" : "s"}.`,
 );

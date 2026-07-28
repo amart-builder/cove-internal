@@ -1004,7 +1004,7 @@ function isValidTimezone(zone: string | undefined): zone is string {
 }
 
 // The brief lane's target-date timezone. A validated COVE_BRIEF_TIMEZONE wins so
-// the Mini (whose local day_plans is stale by design) targets Alex's real
+// the Mini (whose local day_plans is stale by design) targets the operator's real
 // morning; otherwise the open plan's zone, then the latest settlement's, then
 // the machine's, then UTC.
 function resolveBriefTimezone(store: DayPlanStore): string {
@@ -1302,7 +1302,7 @@ export async function runOneMorningBrief(
 
 // Scheduled entry point (the ~7:30 local LaunchAgent run, which may fire late
 // on wake). Targets today with a validated COVE_BRIEF_TIMEZONE first (so the
-// Mini, whose local day_plans is stale by design, still targets Alex's real
+// Mini, whose local day_plans is stale by design, still targets the operator's real
 // morning), then the open plan's zone, the latest settlement's, the machine's,
 // and UTC. When relaying, it first imports any already-synced artifact and waits
 // while another machine has a live generation for this date. Skips cleanly when

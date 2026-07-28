@@ -324,7 +324,7 @@ export function buildGroundworkPrompt(input: {
     "2. Key facts and links found in the repo or research",
     "3. Concrete step-by-step plan",
     "4. Drafts, if useful (label every draft DRAFT)",
-    "5. Open questions for Alex",
+    "5. Open questions for the operator",
     "",
     `Relevant project directory: ${input.projectDir}`,
     "",

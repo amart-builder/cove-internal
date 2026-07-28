@@ -27,23 +27,12 @@ else
   BUDDY_DEEPLINKS=1
 fi
 BUDDY_APP_URL="${COVE_BUDDY_APP_URL:-http://127.0.0.1:3200}"
+# Optional content-engine integration. Set COVE_SUPERNOVA_DIR to the checkout;
+# nothing is guessed from the filesystem, because no two machines are laid out
+# the same way and a wrong guess silently feeds the brief the wrong repo.
 SUPERNOVA_DIR=""
 if [ -n "${COVE_SUPERNOVA_DIR:-}" ] && [ -d "$COVE_SUPERNOVA_DIR" ]; then
   SUPERNOVA_DIR="$COVE_SUPERNOVA_DIR"
-else
-  if [ "$MINI" = "1" ]; then
-    SUPERNOVA_PRIMARY="$HOME/Desktop/Atlas/Projects/supernova-engine"
-    SUPERNOVA_SECONDARY="$HOME/Atlas/Projects/supernova-engine"
-  else
-    SUPERNOVA_PRIMARY="$HOME/Atlas/Projects/supernova-engine"
-    SUPERNOVA_SECONDARY="$HOME/Desktop/Atlas/Projects/supernova-engine"
-  fi
-  for candidate in "$SUPERNOVA_PRIMARY" "$SUPERNOVA_SECONDARY"; do
-    if [ -d "$candidate" ]; then
-      SUPERNOVA_DIR="$candidate"
-      break
-    fi
-  done
 fi
 SUPERNOVA_PLIST_ENTRY=""
 if [ -n "$SUPERNOVA_DIR" ]; then
@@ -117,7 +106,8 @@ if [ "$MINI" = "1" ]; then
   # COVE_MINI_CONFIRM_STIGNORE=1 or interactively below.
   cat <<'STIGNORE_BLOCK'
 ================================================================================
-Before this installs anything, ~/Atlas/.stignore must contain the block below
+Before this installs anything, the .stignore at the root of the synced
+workspace folder (the folder Syncthing shares) must contain the block below
 ON BOTH MACHINES (.stignore itself does NOT sync — edit it on each machine),
 and the Cove web + worker processes on both machines must have been STOPPED
 when the block was applied:
@@ -227,11 +217,11 @@ const path = require("node:path");
 const [source, destination, repoDir, homeDir, atlasRoot] = process.argv.slice(2);
 const template = fs.readFileSync(source, "utf8");
 const templateRepo = template.match(
-  /<string>([^<]*\/Desktop\/Atlas\/Projects\/astack\/forge)(?:\/[^<]*)?<\/string>/,
+  /<string>([^<]*\/Atlas\/Projects\/astack\/forge)(?:\/[^<]*)?<\/string>/,
 )?.[1];
 if (!templateRepo) throw new Error(`Could not locate the repo path in ${source}`);
 const templateAtlas = path.resolve(templateRepo, "../../..");
-const templateHome = path.resolve(templateAtlas, "../..");
+const templateHome = path.dirname(templateAtlas);
 const rendered = template
   .replaceAll(templateRepo, repoDir)
   .replaceAll(templateAtlas, atlasRoot)
@@ -249,11 +239,11 @@ const path = require("node:path");
 const [source, destination, repoDir, homeDir, atlasRoot] = process.argv.slice(2);
 const template = fs.readFileSync(source, "utf8");
 const templateRepo = template.match(
-  /<string>([^<]*\/Desktop\/Atlas\/Projects\/astack\/forge)(?:\/[^<]*)?<\/string>/,
+  /<string>([^<]*\/Atlas\/Projects\/astack\/forge)(?:\/[^<]*)?<\/string>/,
 )?.[1];
 if (!templateRepo) throw new Error(`Could not locate the repo path in ${source}`);
 const templateAtlas = path.resolve(templateRepo, "../../..");
-const templateHome = path.resolve(templateAtlas, "../..");
+const templateHome = path.dirname(templateAtlas);
 const rendered = template
   .replaceAll(templateRepo, repoDir)
   .replaceAll(templateAtlas, atlasRoot)

@@ -22,10 +22,10 @@ Check the machine before cloning or installing anything, then set up whatever is
 
 ## 1. Clone and install
 
-Only continue after every Step 0 check passes. The GitHub repository is still named `forge` (Cove's earlier name); the folder on this Mac is `cove`.
+Only continue after every Step 0 check passes.
 
 ```bash
-git clone https://github.com/amart-builder/forge.git ~/cove
+git clone https://github.com/amart-builder/cove.git ~/cove
 cd ~/cove
 npm ci || npm install
 ```

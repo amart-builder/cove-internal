@@ -62,16 +62,16 @@ function ping(project, minute, host = "mbp") {
 
 test("cwd project mapping tolerates both machines, nesting, and non-project paths", () => {
   assert.equal(
-    projectFromCwd("/Users/alexanderjmartin/Atlas/Projects/catalyst/src/app"),
+    projectFromCwd("/Users/operator/Atlas/Projects/catalyst/src/app"),
     "catalyst",
   );
   assert.equal(
     projectFromCwd(
-      "/Users/alexandermartin/Desktop/Atlas/Projects/astack/forge/scripts",
+      "/Users/operator/Atlas/Projects/astack/forge/scripts",
     ),
     "forge",
   );
-  assert.equal(projectFromCwd("/Users/alexandermartin/Desktop/Atlas/brain"), "Atlas");
+  assert.equal(projectFromCwd("/Users/operator/Atlas/brain"), "Atlas");
   assert.equal(projectFromCwd("/tmp"), "Atlas");
 });
 
@@ -82,7 +82,7 @@ test("cwd mapping selects the deepest bounded git repo and rejects hostile segme
   });
   assert.deepEqual(
     resolvePingProject(
-      "/Users/alexandermartin/Desktop/Atlas/Projects/astack/forge/src",
+      "/Users/operator/Atlas/Projects/astack/forge/src",
       { atlasRoot: root },
     ),
     {
@@ -92,21 +92,21 @@ test("cwd mapping selects the deepest bounded git repo and rejects hostile segme
   );
   assert.equal(
     projectFromCwd(
-      "/Users/alex/Atlas/Projects/../secrets",
+      "/Users/operator/Atlas/Projects/../secrets",
       { atlasRoot: root },
     ),
     "Atlas",
   );
   assert.equal(
     projectFromCwd(
-      "/Users/alex/Atlas/Projects//secrets",
+      "/Users/operator/Atlas/Projects//secrets",
       { atlasRoot: root },
     ),
     "Atlas",
   );
   assert.equal(
     projectFromCwd(
-      "/Users/alex/Atlas/Projects/.hidden/repo",
+      "/Users/operator/Atlas/Projects/.hidden/repo",
       { atlasRoot: root },
     ),
     "Atlas",

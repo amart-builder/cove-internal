@@ -41,7 +41,7 @@ test('remote iMessage failure falls back to native notification but reports non-
   writeFileSync(config, JSON.stringify({
     channel: 'imessage',
     imessage_to: '+13105550123',
-    remote_host: 'alex@100.102.6.81',
+    remote_host: 'operator@100.64.0.9',
   }));
   const result = spawnSync(
     process.execPath,
@@ -66,7 +66,7 @@ test('remote iMessage failure falls back to native notification but reports non-
 test('remote iMessage argv safely quotes hostile AppleScript and shell text', () => {
   const hostile = "He said \"go\" `whoami` $(touch /tmp/forge-pwned) and it's urgent";
   const args = remoteIMessageArgs(
-    'alex@100.102.6.81',
+    'operator@100.64.0.9',
     '+13105550123',
     hostile,
   );
@@ -75,7 +75,7 @@ test('remote iMessage argv safely quotes hostile AppleScript and shell text', ()
     'BatchMode=yes',
     '-o',
     'ConnectTimeout=10',
-    'alex@100.102.6.81',
+    'operator@100.64.0.9',
   ]);
   assert.match(args[5], /^osascript -e '/);
   assert.match(args[5], /`whoami`/);
@@ -154,7 +154,7 @@ test('a failed remote iMessage keeps the receipt even when native succeeds', (t)
   writeFileSync(config, JSON.stringify({
     channel: 'imessage',
     imessage_to: '+13105550123',
-    remote_host: 'alex@100.102.6.81',
+    remote_host: 'operator@100.64.0.9',
   }));
   writeFileSync(entry, JSON.stringify({
     id: 'task-3',

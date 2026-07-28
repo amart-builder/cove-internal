@@ -167,7 +167,7 @@ test('enqueued runs use the latest progress snapshot for the task within 14 days
 
 test('plan-review runs persist the resolved project directory for execution and resume', (t) => {
   const file = path.join(os.tmpdir(), `forge-execution-project-${process.pid}-${Date.now()}.db`);
-  const projectDir = '/private/tmp/atlas-projects/supernova-engine';
+  const projectDir = '/private/tmp/atlas-projects/beacon-engine';
   const hints = [];
   let resolvedProjectDir = projectDir;
   const store = createDayPlanStore({
@@ -176,7 +176,7 @@ test('plan-review runs persist the resolved project directory for execution and 
     executionEnvironment: { autonomousEnabled: false, workspaces: new Map() },
     resolveProjectDirectory: (hint) => {
       hints.push(hint);
-      return hint === 'Supernova Engine' ? resolvedProjectDir : null;
+      return hint === 'Beacon Engine' ? resolvedProjectDir : null;
     },
   });
   t.after(() => {
@@ -195,7 +195,7 @@ test('plan-review runs persist the resolved project directory for execution and 
       tasks: [{
         id: 'task-project', title: 'Draft the launch plan', description: 'Plan it',
         priority: 'high', position: 0, column: 'today', status: 'open',
-        project: 'Supernova Engine',
+        project: 'Beacon Engine',
         updatedAt: '2026-07-10T15:00:00.000Z', refreshedAt: '2026-07-10T16:00:00.000Z',
       }],
     }),
@@ -209,7 +209,7 @@ test('plan-review runs persist the resolved project directory for execution and 
     action: 'start_day',
   }).executionRuns;
 
-  assert.equal(hints[0], 'Supernova Engine');
+  assert.equal(hints[0], 'Beacon Engine');
   assert.equal(run.workspacePath, projectDir);
   assert.equal(store.getExecutionRun(run.id).workspacePath, projectDir);
   assert.equal(buildExecutionCommand({
@@ -220,13 +220,13 @@ test('plan-review runs persist the resolved project directory for execution and 
   }).cwd, projectDir);
   assert.match(
     publicExecutionRun(run, 'loopback').resumeCommand,
-    /^cd '\/private\/tmp\/atlas-projects\/supernova-engine' && claude --resume /,
+    /^cd '\/private\/tmp\/atlas-projects\/beacon-engine' && claude --resume /,
   );
   resolvedProjectDir = '/private/tmp/atlas-projects/renamed-after-enqueue';
   const claimed = store.claimNextExecutionRun();
   assert.equal(claimed.status, 'starting');
   assert.equal(claimed.workspacePath, projectDir);
-  assert.deepEqual(hints, ['Supernova Engine']);
+  assert.deepEqual(hints, ['Beacon Engine']);
 });
 
 test('Together can never be configured for autonomous execution', (t) => {

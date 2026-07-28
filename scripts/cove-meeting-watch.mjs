@@ -32,7 +32,8 @@ import { promisify } from "node:util";
 import {
   extractMeetingFollowUps,
   inboundAckState,
-  isAlexOwned,
+  isOperatorConfigured,
+  isOperatorOwned,
   meetingFollowUpText,
 } from "../src/lib/intake/meeting-followups.mjs";
 import { coveConfigPath, coveEnv } from "../src/lib/env-runtime.mjs";
@@ -489,7 +490,7 @@ export async function writeWaitingCommitment(item, context, options = {}) {
 
 export async function acknowledgeMeetingItem(item, context, options) {
   const text = meetingFollowUpText(item, context.meetingTitle);
-  if (isAlexOwned(item.owner)) {
+  if (isOperatorOwned(item.owner)) {
     const result = await options.runIntakeImpl(
       {
         text,
@@ -549,7 +550,11 @@ export async function runMeetingWatch(options = {}) {
     matched: 0,
     processed: 0,
     parsed_items: 0,
-    alex_owned: 0,
+    // With no operator name configured, ownership routing cannot distinguish
+    // own items from waiting-on ones, so everything lands in the task lane.
+    // The flag lets the brief say so instead of quietly overstating the split.
+    operator_unconfigured: !isOperatorConfigured(),
+    operator_owned: 0,
     waiting_on: 0,
     zero_item_messages: 0,
     dead_letters: 0,
@@ -653,8 +658,8 @@ export async function runMeetingWatch(options = {}) {
         summary.parsed_items += items.length;
         zeroItems = items.length === 0;
         if (zeroItems) summary.zero_item_messages += 1;
-        summary.alex_owned += items.filter((item) => isAlexOwned(item.owner)).length;
-        summary.waiting_on += items.filter((item) => !isAlexOwned(item.owner)).length;
+        summary.operator_owned += items.filter((item) => isOperatorOwned(item.owner)).length;
+        summary.waiting_on += items.filter((item) => !isOperatorOwned(item.owner)).length;
 
         if (dryRun) continue;
         for (let index = 0; index < items.length; index += 1) {

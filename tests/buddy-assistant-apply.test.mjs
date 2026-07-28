@@ -154,11 +154,11 @@ test('assistant apply creates, completes, updates, and reprioritizes task-backed
       { operation: 'complete_item', itemId: completedItem.id },
       {
         operation: 'create_item',
-        clientId: 'supernova',
-        title: 'Finish the Supernova content generator',
+        clientId: 'beacon',
+        title: 'Finish the Beacon content generator',
         outcome: 'Finish the Twitter, LinkedIn, and newsletter generators; make the newsletter ready for client use.',
         definitionOfDone: 'All three generators work and the newsletter flow is client-ready.',
-        project: 'supernova',
+        project: 'beacon',
         priority: 'high',
         position: 0,
       },
@@ -181,7 +181,7 @@ test('assistant apply creates, completes, updates, and reprioritizes task-backed
   assert.equal(result.plan.version, plan.version + 1);
   assert.deepEqual(
     result.plan.items.filter((item) => item.decision !== 'completed').map((item) => item.title),
-    ['Finish the Supernova content generator', 'Standardize client call days', 'Schedule client call days'],
+    ['Finish the Beacon content generator', 'Standardize client call days', 'Schedule client call days'],
   );
   assert.equal(result.plan.items.find((item) => item.id === completedItem.id).decision, 'completed');
   const mutations = store.listPendingTaskMutations();
@@ -269,7 +269,7 @@ test('assistant create_item records the deterministic plan item in inbound_event
           operation: 'create_item',
           clientId: 'capture-one',
           title: 'Prepare the client kickoff',
-          outcome: 'Make the kickoff ready for Alex to review.',
+          outcome: 'Make the kickoff ready for Jordan Rivers to review.',
           project: 'forge',
           priority: 'high',
           position: 0,

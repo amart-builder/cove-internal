@@ -125,10 +125,10 @@ test('buddy dry-run resolves the repo from its script and prints a receipt from 
 
 test('buddy data CLI parses and submits a spawned-session request', async () => {
   const command = parseBuddyDataArgs([
-    'spawn-session', '--dir', '/Users/alex/Atlas/demo', '--prompt', 'Plan this', '--title', 'Demo',
+    'spawn-session', '--dir', '/Users/operator/Atlas/demo', '--prompt', 'Plan this', '--title', 'Demo',
   ]);
   assert.deepEqual(command, {
-    action: 'spawn-session', dir: '/Users/alex/Atlas/demo', prompt: 'Plan this', title: 'Demo',
+    action: 'spawn-session', dir: '/Users/operator/Atlas/demo', prompt: 'Plan this', title: 'Demo',
   });
   const calls = [];
   const lines = [];
@@ -144,13 +144,13 @@ test('buddy data CLI parses and submits a spawned-session request', async () => 
   assert.match(calls[1].url, /\/api\/buddy\/spawn-session$/);
   assert.equal(calls[1].init.headers['X-Forge-CSRF'], 'token');
   assert.deepEqual(JSON.parse(lines[0].slice('SESSION '.length)), {
-    sessionId: 'session-1', dir: '/Users/alex/Atlas/demo', title: 'Demo',
+    sessionId: 'session-1', dir: '/Users/operator/Atlas/demo', title: 'Demo',
   });
 
   assert.deepEqual(parseBuddyDataArgs([
-    'spawn-session', '--project', 'Supernova Engine', '--prompt', 'Plan this', '--title', 'Demo',
+    'spawn-session', '--project', 'Beacon Engine', '--prompt', 'Plan this', '--title', 'Demo',
   ]), {
-    action: 'spawn-session', project: 'Supernova Engine', prompt: 'Plan this', title: 'Demo',
+    action: 'spawn-session', project: 'Beacon Engine', prompt: 'Plan this', title: 'Demo',
   });
   assert.throws(
     () => parseBuddyDataArgs(['spawn-session', '--prompt', 'Plan this']),
@@ -166,7 +166,7 @@ test('buddy data CLI parses and submits a spawned-session request', async () => 
 
 test('buddy data CLI submits --project and reports the resolved directory', async () => {
   const command = parseBuddyDataArgs([
-    'spawn-session', '--project', 'Supernova', '--prompt', 'Plan this', '--title', 'Launch plan',
+    'spawn-session', '--project', 'Beacon', '--prompt', 'Plan this', '--title', 'Launch plan',
   ]);
   const calls = [];
   const lines = [];
@@ -175,16 +175,16 @@ test('buddy data CLI submits --project and reports the resolved directory', asyn
       calls.push({ url: String(url), init });
       return calls.length === 1
         ? new Response('{"csrfToken":"token"}')
-        : new Response('{"sessionId":"session-project","state":"seeding","dir":"/Users/alex/Atlas/Projects/supernova-engine"}');
+        : new Response('{"sessionId":"session-project","state":"seeding","dir":"/Users/operator/Atlas/Projects/demo-engine"}');
     },
     write: (line) => lines.push(line),
   });
   assert.deepEqual(JSON.parse(calls[1].init.body), {
-    project: 'Supernova', prompt: 'Plan this', title: 'Launch plan',
+    project: 'Beacon', prompt: 'Plan this', title: 'Launch plan',
   });
   assert.deepEqual(JSON.parse(lines[0].slice('SESSION '.length)), {
     sessionId: 'session-project',
-    dir: '/Users/alex/Atlas/Projects/supernova-engine',
+    dir: '/Users/operator/Atlas/Projects/demo-engine',
     title: 'Launch plan',
   });
 });

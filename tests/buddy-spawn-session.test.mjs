@@ -193,27 +193,27 @@ test('spawn-session route gates requests and confines real directories to ~/Atla
 
   let resolvedHint;
   let seededProjectDir;
-  const projectResponse = await handleSpawnSessionPost(requestBody({ project: 'Supernova' }), {
+  const projectResponse = await handleSpawnSessionPost(requestBody({ project: 'Beacon' }), {
     ...baseDeps,
     realpath: (value) => value,
     resolveProject: (hint) => {
       resolvedHint = hint;
-      return `${home}/Atlas/Projects/supernova-engine`;
+      return `${home}/Atlas/Projects/demo-engine`;
     },
     randomId: () => 'session-project',
     seed: ({ dir }) => { seededProjectDir = dir; },
   });
   assert.equal(projectResponse.status, 200);
-  assert.equal(resolvedHint, 'Supernova');
-  assert.equal(seededProjectDir, `${home}/Atlas/Projects/supernova-engine`);
+  assert.equal(resolvedHint, 'Beacon');
+  assert.equal(seededProjectDir, `${home}/Atlas/Projects/demo-engine`);
   assert.equal((await projectResponse.json()).dir, seededProjectDir);
 
   const missingProject = await handleSpawnSessionPost(requestBody({ project: 'Jarvis' }), {
     ...baseDeps,
     resolveProject: () => null,
-    listProjects: () => ['Jarvis Memory', 'Jarvis Pro', 'Supernova Engine'],
+    listProjects: () => ['Pilot Memory', 'Pilot Pro', 'Beacon Engine'],
     seed: () => assert.fail('seed must not run for an unresolved project'),
   });
   assert.equal(missingProject.status, 400);
-  assert.match((await missingProject.json()).error, /Available projects: Jarvis Memory, Jarvis Pro, Supernova Engine/);
+  assert.match((await missingProject.json()).error, /Available projects: Pilot Memory, Pilot Pro, Beacon Engine/);
 });

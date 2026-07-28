@@ -26,7 +26,7 @@
     {
       "thread_id": "sample-thread-action-no-reply",
       "message_id": "sample-message-action-no-reply",
-      "sender_name": "Heather Martinelli",
+      "sender_name": "Heather Nolan",
       "sender_email": "heather@example.com",
       "subject": "Email access",
       "full_body": "Your email account is set up.\n\nThe password is in the thread.\n\nHeather",

@@ -217,17 +217,17 @@ test("successful groundwork attaches a bounded section, swaps tags, and starts t
   const longOutput = `Plan\n${"x".repeat(5_000)}`;
   let current = task({
     description: [
-      "Alex's latest edit.",
+      "Jordan Rivers's latest edit.",
       "",
       "## Groundwork (Cove)",
       "",
       "Old groundwork.",
       "",
-      "## Alex Notes",
+      "## Jordan Rivers Notes",
       "",
       "Keep this after the generated section.",
     ].join("\n"),
-    tags: [...task().tags, "alex-added"],
+    tags: [...task().tags, "operator-added"],
   });
   const result = await runOneGroundwork({
     dataDir: dir,
@@ -263,16 +263,16 @@ test("successful groundwork attaches a bounded section, swaps tags, and starts t
   );
   assert.equal(section.length, 4_000);
   assert.match(section, /\[Groundwork truncated by Cove\.\]\n\n<!-- \/forge-groundwork -->$/);
-  assert.match(patch.description, /^Alex's latest edit\./);
+  assert.match(patch.description, /^Jordan Rivers's latest edit\./);
   assert.match(
     patch.description,
-    /## Alex Notes\n\nKeep this after the generated section\.$/,
+    /## Jordan Rivers Notes\n\nKeep this after the generated section\.$/,
   );
   assert.equal(patch.tags.includes("groundwork-queued"), false);
   assert.equal(patch.tags.includes("groundwork-attempted"), false);
   assert.equal(patch.tags.includes("jarvis-held"), true);
   assert.equal(patch.tags.includes("groundwork-grade:groundwork"), true);
-  assert.equal(patch.tags.includes("alex-added"), true);
+  assert.equal(patch.tags.includes("operator-added"), true);
   assert.deepEqual(
     JSON.parse(readFileSync(path.join(dir, "cove-autonomy.json"), "utf8")),
     {
@@ -355,7 +355,7 @@ test("a task changed while Claude runs is re-read and never overwritten", async 
       current = task({
         status: "done",
         tags: ["triaged"],
-        description: "Alex completed this while groundwork ran.",
+        description: "Jordan Rivers completed this while groundwork ran.",
       });
       return "Research that arrived too late.";
     },

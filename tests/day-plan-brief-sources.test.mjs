@@ -21,7 +21,7 @@ function fixture(t) {
   const dir = path.join(os.tmpdir(), `forge-brief-sources-${process.pid}-${Date.now()}-${Math.random()}`);
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, 'goals.md'), 'Grow Edge AI.');
-  writeFileSync(path.join(dir, 'operator-profile.md'), 'Alex runs three operating lanes.');
+  writeFileSync(path.join(dir, 'operator-profile.md'), 'Jordan Rivers runs three operating lanes.');
   writeFileSync(path.join(dir, 'leadup.md'), 'This week started with client delivery.');
   writeFileSync(path.join(dir, 'memo.md'), 'Ship the current sprint.');
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -152,7 +152,7 @@ test('an absent default sprint memo is optional in collection and checkpoint ver
     COVE_BRIEF_OPERATOR_PROFILE_PATH: '',
     COVE_BRIEF_LEADUP_PATH: '',
     COVE_PROFILE_PATH: path.join(dataDir, 'cove-profile.json'),
-    COVE_SUPERNOVA_DIR: path.join(dir, 'missing-supernova'),
+    COVE_SUPERNOVA_DIR: path.join(dir, 'missing-beacon'),
   });
 
   const collected = await collectMorningBriefSources({
@@ -203,7 +203,7 @@ test('operator profile falls back to a bounded readable JSON whitelist', async (
     COVE_BRIEF_OPERATOR_PROFILE_PATH: '',
     COVE_BRIEF_LEADUP_PATH: '',
     COVE_PROFILE_PATH: path.join(dataDir, 'cove-profile.json'),
-    COVE_SUPERNOVA_DIR: path.join(dir, 'missing-supernova'),
+    COVE_SUPERNOVA_DIR: path.join(dir, 'missing-beacon'),
   });
   const collected = await collectMorningBriefSources({
     store: { listRecentSnapshots: () => [] },
@@ -238,7 +238,7 @@ test('calendar fetches MCP SSE, derives DST-aware bounds, and formats visible ev
       start: { dateTime: '2026-11-01T09:00:00-08:00' },
       end: { dateTime: '2026-11-01T09:30:00-08:00' },
       attendees: [
-        { email: 'alex@example.com', self: true, responseStatus: 'accepted' },
+        { email: 'jordan@example.com', self: true, responseStatus: 'accepted' },
         { email: 'one@example.com' },
         { email: 'two@example.com' },
         { email: 'three@example.com' },
@@ -256,7 +256,7 @@ test('calendar fetches MCP SSE, derives DST-aware bounds, and formats visible ev
       summary: 'Declined event',
       start: { dateTime: '2026-11-01T11:00:00-08:00' },
       end: { dateTime: '2026-11-01T12:00:00-08:00' },
-      attendees: [{ email: 'alex@example.com', self: true, responseStatus: 'declined' }],
+      attendees: [{ email: 'jordan@example.com', self: true, responseStatus: 'declined' }],
     },
   ];
   const fetchImpl = async (url, init = {}) => {
@@ -467,7 +467,7 @@ test('CRM reports not_configured when neither Attio credential is present', asyn
 
 test('memory decisions prefer decision-tagged Jarvis results and bound each line', async (t) => {
   const { dir, options } = fixture(t);
-  setEnv(t, { COVE_OPERATOR_NAME: 'Alex' });
+  setEnv(t, { COVE_OPERATOR_NAME: 'Jordan Rivers' });
   const tokenPath = path.join(dir, 'jarvis-token');
   writeFileSync(tokenPath, 'jarvis-test-token\n');
   disableExternalSources(t, dir, {
@@ -483,12 +483,12 @@ test('memory decisions prefer decision-tagged Jarvis results and bound each line
       { uuid: 'background', score: 0.4, content: 'Background context that should be filtered out.' },
       { uuid: 'forge', score: 0.8, content: '[DECISION] Keep Cove as the command center.' },
     ]],
-    ['what Alex worked on in Claude sessions the last three days', [
+    ['what Jordan Rivers worked on in Claude sessions the last three days', [
       { uuid: 'forge', score: 0.95, content: '[DECISION] Keep Cove as the source of truth.' },
       { uuid: 'route', score: 0.7, content: '[DECISION] Route from the latest saved state.' },
     ]],
-    ['current state of Jarvis Pro, Boomer AI (Slipstream community), content engine', [
-      { uuid: 'jarvis', score: 0.6, content: '[DECISION] Keep Jarvis Pro moving.' },
+    ["current state of the operator's active projects and business lines", [
+      { uuid: 'jarvis', score: 0.6, content: '[DECISION] Keep Pilot Pro moving.' },
     ]],
   ]);
   const fetchImpl = async (url, init = {}) => {
@@ -787,7 +787,7 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
 test('computed commitments source exposes open loops, clarification, and factual content gaps', async (t) => {
   const { dir, options } = fixture(t);
   disableExternalSources(t, dir);
-  const engineDir = path.join(dir, 'supernova-engine');
+  const engineDir = path.join(dir, 'beacon-engine');
   const queueDir = path.join(engineDir, 'pipeline', 'queue');
   const postedDir = path.join(engineDir, 'pipeline', 'posted');
   mkdirSync(queueDir, { recursive: true });
@@ -999,7 +999,7 @@ test('commitments source surfaces recent note resolutions and updates in the req
     {
       id: 'updated-1',
       kind: 'promise',
-      title: 'Meet Brian',
+      title: 'Meet Morgan',
       source_kind: 'brain_dump',
       source_quote: 'Get the meeting time.',
       confidence: 'high',
@@ -1008,7 +1008,7 @@ test('commitments source surfaces recent note resolutions and updates in the req
       evidence: JSON.stringify({
         updated_by: 'day_dump',
         updated_at: recent,
-        quote: 'Brian confirmed Tuesday 2pm.',
+        quote: 'Morgan confirmed Tuesday 2pm.',
       }),
       created_at: recent,
       updated_at: recent,
@@ -1016,16 +1016,16 @@ test('commitments source surfaces recent note resolutions and updates in the req
     {
       id: 'proposed-1',
       kind: 'follow_up',
-      title: 'Gary checklist',
+      title: 'Casey checklist',
       source_kind: 'brain_dump',
-      source_quote: 'Check on Gary.',
+      source_quote: 'Check on Casey.',
       confidence: 'medium',
       confirmed: false,
       status: 'open',
       evidence: JSON.stringify({
         proposed_resolution: {
           action: 'done',
-          quote: "Gary's checklist should be handled.",
+          quote: "Casey's checklist should be handled.",
           confidence: 'medium',
         },
       }),
@@ -1036,12 +1036,12 @@ test('commitments source surfaces recent note resolutions and updates in the req
   const done = [
     {
       id: 'resolved-1',
-      title: 'Get the Boomer AI jam time',
+      title: 'Get the Harbor AI jam time',
       status: 'done',
       evidence: JSON.stringify({
         resolved_by: 'day_dump',
         resolved_at: recent,
-        quote: `Brian confirmed Tuesday 2pm ${'x'.repeat(180)}`,
+        quote: `Morgan confirmed Tuesday 2pm ${'x'.repeat(180)}`,
       }),
       updated_at: recent,
     },
@@ -1068,11 +1068,11 @@ test('commitments source surfaces recent note resolutions and updates in the req
     },
   });
   const content = collected.sources.find((entry) => entry.id === 'commitments').content;
-  assert.match(content, /Meet Brian.*updated_from_your_notes/);
-  assert.match(content, /Gary checklist \| you said: "Gary's checklist should be handled\." \| proposed: close/);
-  assert.match(content, /RESOLVED FROM YOUR NOTES\n- Get the Boomer AI jam time \| you said: "Brian confirmed Tuesday 2pm x+/);
+  assert.match(content, /Meet Morgan.*updated_from_your_notes/);
+  assert.match(content, /Casey checklist \| you said: "Casey's checklist should be handled\." \| proposed: close/);
+  assert.match(content, /RESOLVED FROM YOUR NOTES\n- Get the Harbor AI jam time \| you said: "Morgan confirmed Tuesday 2pm x+/);
   assert.equal(content.includes('Old resolution'), false);
-  assert.equal(content.match(/Brian confirmed Tuesday 2pm x+/)[0].length < 180, true);
+  assert.equal(content.match(/Morgan confirmed Tuesday 2pm x+/)[0].length < 180, true);
   const headings = [
     'OPEN COMMITMENTS',
     'NEEDS CLARIFICATION',

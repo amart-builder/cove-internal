@@ -13,10 +13,21 @@ import {
 } from "../scripts/cove-meeting-watch.mjs";
 import {
   claudeMeetingFallback,
+  isOperatorConfigured,
+  isOperatorOwned,
   parseNextSteps,
 } from "../src/lib/intake/meeting-followups.mjs";
 
 const NOW = new Date("2026-07-27T18:00:00.000Z");
+
+// Ownership routing keys off the configured operator, so the fixtures below
+// name that operator instead of hard-coding one person's name into the product.
+const PREVIOUS_OPERATOR_NAME = process.env.COVE_OPERATOR_NAME;
+test.before(() => { process.env.COVE_OPERATOR_NAME = "Jordan Rivers"; });
+test.after(() => {
+  if (PREVIOUS_OPERATOR_NAME === undefined) delete process.env.COVE_OPERATOR_NAME;
+  else process.env.COVE_OPERATOR_NAME = PREVIOUS_OPERATOR_NAME;
+});
 
 function fixture(t) {
   const dir = path.join(
@@ -35,7 +46,7 @@ function fixture(t) {
     processed_label: "Cove/Meeting-Processed",
   }));
   writeFileSync(emailConfigPath, JSON.stringify({
-    account_email: "alex@example.com",
+    account_email: "jordan@example.com",
     forge_url: "http://forge.test",
   }));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -67,7 +78,7 @@ function fakeComposio(calls = []) {
             "Summary",
             "We reviewed launch readiness.",
             "Next steps",
-            "- [Alex] Finish launch brief: Include the launch risks.",
+            "- [Jordan Rivers] Finish launch brief: Include the launch risks.",
             "- [Sam] Send contract: Return the signed copy.",
           ].join("\n"),
         }],
@@ -102,7 +113,7 @@ test("message is marked only after every item is acknowledged", async (t) => {
     sourceIds.push(input.sourceId);
     return {
       exitCode: 0,
-      event: { id: "event-alex" },
+      event: { id: "event-operator" },
       spooled: false,
     };
   };
@@ -243,7 +254,7 @@ test("real acknowledgement primitive distinguishes DB, spool, and spool failure"
   }
 });
 
-test("Alex-owned acknowledgement uses intake as the single receipt writer", async (t) => {
+test("Jordan Rivers-owned acknowledgement uses intake as the single receipt writer", async (t) => {
   const files = fixture(t);
   let labels = 0;
   let intakeCalls = 0;
@@ -253,18 +264,18 @@ test("Alex-owned acknowledgement uses intake as the single receipt writer", asyn
     now: () => NOW,
     composio: fakeComposio(),
     extractFollowUps: async () => [{
-      owner: "Alex",
+      owner: "Jordan Rivers",
       title: "Finish launch brief",
       detail: "",
     }],
     recordEventImpl: async () => {
-      throw new Error("watcher double-recorded Alex item");
+      throw new Error("watcher double-recorded Jordan Rivers item");
     },
     runIntakeImpl: async () => {
       intakeCalls += 1;
       return {
         exitCode: 0,
-        event: { id: "event-alex-db" },
+        event: { id: "event-operator-db" },
         spooled: false,
       };
     },
@@ -410,7 +421,7 @@ test("dry run fetches and parses without any durable writes", async (t) => {
   assert.equal(result.exitCode, 0);
   assert.equal(result.summary.matched, 1);
   assert.equal(result.summary.parsed_items, 2);
-  assert.equal(result.summary.alex_owned, 1);
+  assert.equal(result.summary.operator_owned, 1);
   assert.equal(result.summary.waiting_on, 1);
   assert.equal(calls.some((call) => call.tool === "GMAIL_MODIFY_THREAD_LABELS"), false);
   assert.equal(calls.some((call) => call.tool === "GMAIL_LIST_LABELS"), false);
@@ -469,7 +480,7 @@ test("HTML list boundaries preserve suggested next steps for deterministic parsi
         messageText: [
           "<div>Suggested next steps</div>",
           "<ul>",
-          "<li>[Alex] Finish brief: Include risks</li>",
+          "<li>[Jordan Rivers] Finish brief: Include risks</li>",
           "<li>[Sam] Send contract: Return the signed copy</li>",
           "</ul>",
         ].join(""),
@@ -485,9 +496,9 @@ test("HTML list boundaries preserve suggested next steps for deterministic parsi
     composio,
   });
   assert.equal(result.summary.parsed_items, 2);
-  assert.equal(result.summary.alex_owned, 1);
+  assert.equal(result.summary.operator_owned, 1);
   assert.equal(result.summary.waiting_on, 1);
-  assert.equal(parseNextSteps("Action items\n- [Alex] Confirm launch").length, 1);
+  assert.equal(parseNextSteps("Action items\n- [Jordan Rivers] Confirm launch").length, 1);
 });
 
 test("Claude fallback retries invalid JSON once and accepts a fenced result", async () => {
@@ -621,4 +632,80 @@ test("Composio CLI boundary follows a storedInFile response", async (t) => {
       preview: { subject: "Notes: Large meeting" },
     },
   );
+});
+
+// Meeting notes carry whatever display name the calendar had, so one person
+// arrives under several spellings. Getting this wrong is silent: a missed match
+// parks the operator's own commitment in the waiting-on lane forever.
+test("ownership matching tolerates the display-name spellings of one operator", () => {
+  for (const owner of [
+    "Jordan Rivers",
+    "jordan rivers",
+    "  Jordan   Rivers  ",
+    "Jordan",
+    "Jordan R.",
+    "Jordanne",
+    "me",
+    "self",
+  ]) {
+    assert.equal(isOperatorOwned(owner, "Jordan Rivers"), true, owner);
+  }
+  // A short operator name still matches the longer legal name, both directions.
+  assert.equal(isOperatorOwned("Daniel", "Dan"), true);
+  assert.equal(isOperatorOwned("Dan Rivera", "Dan"), true);
+  assert.equal(isOperatorOwned("Dan R.", "Dan"), true);
+  assert.equal(isOperatorOwned("Dan", "Daniel"), true);
+
+  for (const owner of ["Dana", "Dana Whitfield", "Morgan", "", "   "]) {
+    assert.equal(isOperatorOwned(owner, "Jordan Rivers"), false, owner);
+  }
+  // Two-character overlap is a coincidence, not a nickname.
+  assert.equal(isOperatorOwned("Da", "Daniel"), false);
+});
+
+test("an unconfigured operator routes every follow-up to tasks and says so", () => {
+  assert.equal(isOperatorConfigured("the operator"), false);
+  assert.equal(isOperatorConfigured("  The Operator  "), false);
+  assert.equal(isOperatorConfigured(""), false);
+  assert.equal(isOperatorConfigured("Jordan Rivers"), true);
+
+  // Fail toward the task lane: a task that should not exist is one click to
+  // dismiss, a silently parked own-item is invisible until it is late.
+  for (const owner of ["Dana Whitfield", "Jordan Rivers", "anyone at all", ""]) {
+    assert.equal(isOperatorOwned(owner, "the operator"), true, owner);
+  }
+});
+
+test("the watch summary flags an install with no operator configured", async (t) => {
+  const files = fixture(t);
+  // Both name sources have to be empty: the env var and the on-disk profile.
+  const previous = {
+    name: process.env.COVE_OPERATOR_NAME,
+    profile: process.env.COVE_PROFILE_PATH,
+  };
+  delete process.env.COVE_OPERATOR_NAME;
+  process.env.COVE_PROFILE_PATH = path.join(files.dir, "data", "no-profile.json");
+  t.after(() => {
+    for (const [key, value] of [
+      ["COVE_OPERATOR_NAME", previous.name],
+      ["COVE_PROFILE_PATH", previous.profile],
+    ]) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+  const result = await runMeetingWatch({
+    ...files,
+    repoDir: files.dir,
+    now: () => NOW,
+    dryRun: true,
+    composio: fakeComposio([]),
+  });
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.summary.operator_unconfigured, true);
+  // The same fixture splits 1/1 when an operator is configured; with none, both
+  // items go to the task lane rather than being quietly parked.
+  assert.equal(result.summary.parsed_items, 2);
+  assert.equal(result.summary.operator_owned, 2);
+  assert.equal(result.summary.waiting_on, 0);
 });

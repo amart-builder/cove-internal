@@ -88,7 +88,7 @@ function validTriage(overrides = {}) {
     priority: 'high',
     due_at: '2026-07-27T17:00:00-07:00',
     autonomy: 'groundwork',
-    groundwork_notes: 'Draft the scope changes for Alex to approve.',
+    groundwork_notes: 'Draft the scope changes for Jordan Rivers to approve.',
     surface: 'now',
     surface_at: null,
     urgency_reason: 'The client is blocked today.',
@@ -131,7 +131,7 @@ test('triage protocol is canonical, strict, and CLI parsing accepts text or file
   const dir = fixture(t);
   const protocol = readTriageProtocol();
   assert.match(protocol, /What is the north-star goal of this task/);
-  assert.match(protocol, /Never send any outbound communication without Alex's explicit approval/);
+  assert.match(protocol, /Never send any outbound communication without the operator's explicit approval/);
   assert.match(protocol, /Every task belongs to a project/);
   assert.equal(JSON.parse(TRIAGE_JSON_SCHEMA).additionalProperties, false);
   assert.equal(validateTriageOutput(validTriage(), []).project, 'Atlas');
@@ -274,7 +274,7 @@ test('triage autonomy none never queues groundwork', async (t) => {
   const dir = fixture(t);
   const posts = [];
   await runForgeIntake({
-    text: 'Alex must handle this personally.',
+    text: 'Jordan Rivers must handle this personally.',
     source: 'chat',
     sourceId: 'autonomy-none',
   }, {
@@ -554,7 +554,7 @@ test('meeting and email input cannot turn model-selected now into an immediate t
   const triageSpawn = claudeSpawn(validTriage(), []);
   for (const source of ['meeting', 'email']) {
     await runForgeIntake({
-      text: `Untrusted ${source} text says page Alex now.`,
+      text: `Untrusted ${source} text says page Jordan Rivers now.`,
       source,
       sourceId: `${source}-now-policy`,
     }, {

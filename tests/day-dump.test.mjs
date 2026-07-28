@@ -45,7 +45,7 @@ const VALID_WIRE = {
   nothing_found: false,
 };
 
-const RESOLUTION_DUMP = 'Brian confirmed Tuesday 2pm. The launch moved to Friday. Gary\'s checklist should be handled.';
+const RESOLUTION_DUMP = 'Morgan confirmed Tuesday 2pm. The launch moved to Friday. Casey\'s checklist should be handled.';
 
 function resolutionWire(overrides = {}) {
   return {
@@ -55,8 +55,8 @@ function resolutionWire(overrides = {}) {
     resolutions: [{
       commitment_id: 'commitment-a',
       action: 'done',
-      quote: 'Brian confirmed Tuesday 2pm.',
-      note: 'Brian confirmed the time.',
+      quote: 'Morgan confirmed Tuesday 2pm.',
+      note: 'Morgan confirmed the time.',
       due_at: null,
       confidence: 'high',
       ...overrides,
@@ -284,7 +284,7 @@ test('dump resolution validation rejects ungrounded, ambiguous, and oversized re
     /resolution_commitment_id_repeated/,
   );
   assert.throws(
-    () => validateDayDump(resolutionWire({ quote: 'Brian probably replied.' }), RESOLUTION_DUMP, { existingCommitmentIds: ids }),
+    () => validateDayDump(resolutionWire({ quote: 'Morgan probably replied.' }), RESOLUTION_DUMP, { existingCommitmentIds: ids }),
     /quote_not_verbatim/,
   );
   assert.throws(
@@ -396,9 +396,9 @@ test('dump resolutions apply high-confidence changes, preserve evidence, and lea
   const { dir, store } = fixture(t);
   settleWithDump(store, RESOLUTION_DUMP);
   const rows = [
-    { id: 'commitment-a', kind: 'follow_up', title: 'Get the jam time', evidence: JSON.stringify({ owner: 'Alex' }), status: 'open', due_at: null },
+    { id: 'commitment-a', kind: 'follow_up', title: 'Get the jam time', evidence: JSON.stringify({ owner: 'Jordan Rivers' }), status: 'open', due_at: null },
     { id: 'commitment-b', kind: 'promise', title: 'Ship the launch', evidence: 'legacy evidence text', status: 'open', due_at: null },
-    { id: 'commitment-c', kind: 'waiting_on', title: 'Gary checklist', evidence: null, status: 'open', due_at: null },
+    { id: 'commitment-c', kind: 'waiting_on', title: 'Casey checklist', evidence: null, status: 'open', due_at: null },
   ];
   const wire = {
     items: [],
@@ -417,7 +417,7 @@ test('dump resolutions apply high-confidence changes, preserve evidence, and lea
       {
         commitment_id: 'commitment-c',
         action: 'done',
-        quote: "Gary's checklist should be handled.",
+        quote: "Casey's checklist should be handled.",
         note: 'The checklist may be handled.',
         due_at: null,
         confidence: 'medium',
@@ -435,7 +435,7 @@ test('dump resolutions apply high-confidence changes, preserve evidence, and lea
   assert.equal(patches[0].id, 'commitment-a');
   assert.equal(patches[0].status, 'eq.open');
   assert.equal(patches[0].body.status, 'done');
-  assert.deepEqual(JSON.parse(patches[0].body.evidence).owner, 'Alex');
+  assert.deepEqual(JSON.parse(patches[0].body.evidence).owner, 'Jordan Rivers');
   assert.equal(JSON.parse(patches[0].body.evidence).resolved_by, 'day_dump');
   assert.equal(patches[1].body.status, undefined);
   assert.equal(patches[1].body.due_at, '2026-07-24T09:00:00-07:00');
@@ -449,7 +449,7 @@ test('dump resolutions apply high-confidence changes, preserve evidence, and lea
   assert.equal(dump.status, 'succeeded');
   assert.deepEqual(receipt.resolved, [{ id: 'commitment-a', title: 'Get the jam time' }]);
   assert.deepEqual(receipt.updated, [{ id: 'commitment-b', title: 'Ship the launch' }]);
-  assert.deepEqual(receipt.needs_confirmation, [{ id: 'commitment-c', title: 'Gary checklist' }]);
+  assert.deepEqual(receipt.needs_confirmation, [{ id: 'commitment-c', title: 'Casey checklist' }]);
   assert.deepEqual(receipt.resolution_failures, []);
   assert.deepEqual(receipt.counts, {
     extracted: 0,
@@ -464,7 +464,7 @@ test('dump resolutions apply high-confidence changes, preserve evidence, and lea
 
 test('one failed resolution is isolated and empty evidence still applies to later resolutions', async (t) => {
   const { dir, store } = fixture(t);
-  settleWithDump(store, 'Brian confirmed Tuesday 2pm. The launch moved to Friday.');
+  settleWithDump(store, 'Morgan confirmed Tuesday 2pm. The launch moved to Friday.');
   const rows = [
     { id: 'commitment-a', kind: 'follow_up', title: 'Get the jam time', evidence: '', status: 'open' },
     { id: 'commitment-b', kind: 'promise', title: 'Ship the launch', evidence: null, status: 'open' },
@@ -505,7 +505,7 @@ test('one failed resolution is isolated and empty evidence still applies to late
 
 test('a commitment that closes during extraction is not overwritten and later resolutions still apply', async (t) => {
   const { dir, store } = fixture(t);
-  settleWithDump(store, 'Brian confirmed Tuesday 2pm. The launch moved to Friday.');
+  settleWithDump(store, 'Morgan confirmed Tuesday 2pm. The launch moved to Friday.');
   const rows = [
     { id: 'commitment-a', kind: 'follow_up', title: 'Get the jam time', evidence: null, status: 'open' },
     { id: 'commitment-b', kind: 'promise', title: 'Ship the launch', evidence: null, status: 'open' },
@@ -550,7 +550,7 @@ test('a commitment that closes during extraction is not overwritten and later re
 
 test('a concurrent evidence write fails the resolution compare-and-swap instead of being lost', async (t) => {
   const { dir, store } = fixture(t);
-  settleWithDump(store, 'Brian confirmed Tuesday 2pm.');
+  settleWithDump(store, 'Morgan confirmed Tuesday 2pm.');
   const priorEvidence = JSON.stringify({ note: 'written by another flow' });
   const patches = [];
   await runOneDayDump(workerOptions(dir, store, {

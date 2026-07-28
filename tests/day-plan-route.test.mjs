@@ -619,7 +619,7 @@ test('non-loopback day-plan access requires the separate remote session secret',
 
 test('loopback mode admits designated tailnet hosts and nothing else', () => {
   const previous = process.env.COVE_TAILSCALE_TRUSTED_HOSTS;
-  const tailnetHost = 'alexander-mac-mini.taildd6a98.ts.net';
+  const tailnetHost = 'mini.example.ts.net';
   const viaTailnet = new NextRequest(`https://${tailnetHost}/api/day-plan`, {
     headers: { host: tailnetHost, origin: `https://${tailnetHost}` },
   });

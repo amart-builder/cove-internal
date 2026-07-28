@@ -27,7 +27,7 @@ import { coveEnv } from "../env";
 export { coveDataDir } from "../operator";
 
 // The cross-machine relay moves immutable brief artifacts and a bounded
-// settlement summary as write-once JSON files inside Alex's Syncthing mesh. No
+// settlement summary as write-once JSON files inside the operator's Syncthing mesh. No
 // SQLite file is ever shared. Every path here is fail-open: a filesystem defect
 // logs one line and degrades to the deterministic arrival, never a throw that
 // blocks generation or the ritual.
@@ -881,7 +881,7 @@ export function readSettlementRelay(options: {
 }
 
 // ---------------------------------------------------------------------------
-// Day-dump relay: Alex types his evening brain dump on whichever machine he is
+// Day-dump relay: the operator types the evening brain dump on whichever machine they are
 // sitting at, but the 7:30 brief runs on the Mini, whose day_dumps table is
 // machine-private and therefore empty. Without this the freshest and most
 // decision-relevant thing he produces never reaches the brief that frames his
@@ -971,7 +971,7 @@ export function readDumpRelay(options: {
 }
 
 // ---------------------------------------------------------------------------
-// Day-closure relay: the machine Alex actually runs the ritual on publishes
+// Day-closure relay: the machine the operator actually runs the ritual on publishes
 // whether a workday is still open. Every other machine gates on this file rather
 // than on its own day_plans, which is machine-private and stale by design.
 // ---------------------------------------------------------------------------

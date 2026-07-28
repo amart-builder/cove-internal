@@ -9,7 +9,7 @@ test('Atlas project resolver handles exact, unique fuzzy, ambiguous, missing, an
   const fixture = path.join(os.tmpdir(), `forge-atlas-projects-${process.pid}-${Date.now()}`);
   const home = path.join(fixture, 'home');
   const projectsRoot = path.join(home, 'Atlas', 'Projects');
-  for (const name of ['AI', 'Jarvis Memory', 'Jarvis Pro', 'Supernova-Engine']) {
+  for (const name of ['AI', 'Pilot Memory', 'Pilot Pro', 'Beacon-Engine']) {
     mkdirSync(path.join(projectsRoot, name), { recursive: true });
   }
   const outside = path.join(fixture, 'outside-atlas');
@@ -22,18 +22,18 @@ test('Atlas project resolver handles exact, unique fuzzy, ambiguous, missing, an
   const dependencies = { homeDir: realHome, projectsRoot: realProjectsRoot, cacheMs: 0 };
 
   assert.equal(
-    resolveProjectDirectory('supernova engine', dependencies),
-    realpathSync(path.join(realProjectsRoot, 'Supernova-Engine')),
+    resolveProjectDirectory('beacon engine', dependencies),
+    realpathSync(path.join(realProjectsRoot, 'Beacon-Engine')),
   );
   assert.equal(
-    resolveProjectDirectory('supernova', dependencies),
-    realpathSync(path.join(realProjectsRoot, 'Supernova-Engine')),
+    resolveProjectDirectory('beacon', dependencies),
+    realpathSync(path.join(realProjectsRoot, 'Beacon-Engine')),
   );
   assert.equal(
-    resolveProjectDirectory('the Supernova Engine launch', dependencies),
-    realpathSync(path.join(realProjectsRoot, 'Supernova-Engine')),
+    resolveProjectDirectory('the Beacon Engine launch', dependencies),
+    realpathSync(path.join(realProjectsRoot, 'Beacon-Engine')),
   );
-  assert.equal(resolveProjectDirectory('jarvis', dependencies), null);
+  assert.equal(resolveProjectDirectory('pilot', dependencies), null);
   assert.equal(
     resolveProjectDirectory('AI', dependencies),
     realpathSync(path.join(realProjectsRoot, 'AI')),
@@ -41,6 +41,6 @@ test('Atlas project resolver handles exact, unique fuzzy, ambiguous, missing, an
   assert.equal(resolveProjectDirectory('AI roadmap', dependencies), null);
   assert.equal(resolveProjectDirectory('unknown project', dependencies), null);
   assert.equal(resolveProjectDirectory('Not A Project', dependencies), null);
-  assert.equal(resolveProjectDirectory('../Supernova-Engine', dependencies), null);
+  assert.equal(resolveProjectDirectory('../Beacon-Engine', dependencies), null);
   assert.equal(resolveProjectDirectory('Escaped Project', dependencies), null);
 });

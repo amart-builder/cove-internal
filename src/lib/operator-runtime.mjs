@@ -46,13 +46,20 @@ export function loadOperatorProfile() {
   }
 }
 
+/**
+ * What operatorName() returns when nothing is configured. Callers that route on
+ * identity need to recognize this exact value, so it lives here rather than
+ * being retyped as a literal in each of them.
+ */
+export const OPERATOR_NAME_FALLBACK = "the operator";
+
 export function operatorName() {
   const envName = coveEnvTrimmed("OPERATOR_NAME");
   if (envName) return envName;
   const profileName = loadOperatorProfile()?.name;
   return typeof profileName === "string" && profileName.trim()
     ? profileName.trim()
-    : "the operator";
+    : OPERATOR_NAME_FALLBACK;
 }
 
 function usableTimezone(value) {

@@ -301,8 +301,8 @@ test('start-day receipt keeps setup details out and mentions only work already m
 
 test('resume command quotes both workspace and session for the copy fallback', () => {
   assert.equal(
-    buildClaudeResumeCommand("/tmp/Alex's project", 'session id'),
-    `cd '/tmp/Alex'"'"'s project' && claude --resume 'session id'`,
+    buildClaudeResumeCommand("/tmp/Jordan Rivers's project", 'session id'),
+    `cd '/tmp/Jordan Rivers'"'"'s project' && claude --resume 'session id'`,
   );
   assert.equal(executionWorkspaceLabel('/projects/acme-site'), 'Acme site');
 });

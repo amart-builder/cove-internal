@@ -93,7 +93,7 @@ test('the operator profile is read from a pre-rename data/forge-profile.json', (
   const dir = tempDir(t);
   writeFileSync(
     path.join(dir, 'forge-profile.json'),
-    JSON.stringify({ name: 'Gary', timezone: 'America/New_York' }),
+    JSON.stringify({ name: 'Casey', timezone: 'America/New_York' }),
   );
   withEnv(t, {
     COVE_PROFILE_PATH: undefined,
@@ -107,12 +107,12 @@ test('the operator profile is read from a pre-rename data/forge-profile.json', (
   });
 
   assert.equal(coveDataDir(), dir);
-  assert.equal(operatorName(), 'Gary');
+  assert.equal(operatorName(), 'Casey');
   assert.equal(operatorTimezone(), 'America/New_York');
 
   // The legacy env name for the operator still overrides the profile.
-  process.env.FORGE_OPERATOR_NAME = 'Gary M';
-  assert.equal(operatorName(), 'Gary M');
+  process.env.FORGE_OPERATOR_NAME = 'Casey M';
+  assert.equal(operatorName(), 'Casey M');
 });
 
 test('FORGE_TAILSCALE_TRUSTED_HOSTS alone still authorizes a trusted host', async () => {

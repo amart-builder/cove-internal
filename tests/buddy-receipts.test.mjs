@@ -58,15 +58,15 @@ test('receipt normalization caps item counts and encoded payload size', () => {
 });
 
 test('session receipts parse and render only when backed by CLI SESSION output', () => {
-  const parsed = parseBuddyReceipts('Started it.\n```forge-receipts\n{"changes":[],"pendingDeletes":[],"sessions":[{"sessionId":"session-1","dir":"/Users/alex/Atlas/demo","title":"Demo"}]}\n```');
+  const parsed = parseBuddyReceipts('Started it.\n```forge-receipts\n{"changes":[],"pendingDeletes":[],"sessions":[{"sessionId":"session-1","dir":"/Users/operator/Atlas/demo","title":"Demo"}]}\n```');
   assert.equal(parsed.text, 'Started it.');
   assert.equal(parsed.receipts.sessions[0].sessionId, 'session-1');
 
   const tool = parseBuddyDataToolOutput(
-    'SESSION {"sessionId":"session-1","dir":"/Users/alex/Atlas/demo","title":"Demo"}',
+    'SESSION {"sessionId":"session-1","dir":"/Users/operator/Atlas/demo","title":"Demo"}',
   );
   assert.deepEqual(tool.sessions, [
-    { sessionId: 'session-1', dir: '/Users/alex/Atlas/demo', title: 'Demo' },
+    { sessionId: 'session-1', dir: '/Users/operator/Atlas/demo', title: 'Demo' },
   ]);
   assert.equal(reconcileBuddyReceipts(parsed.receipts, [], [])?.sessions?.length ?? 0, 0);
   assert.deepEqual(reconcileBuddyReceipts(parsed.receipts, [], tool.sessions).sessions, tool.sessions);

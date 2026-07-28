@@ -9,22 +9,25 @@
     <string>/usr/bin/env</string>
     <string>node</string>
     <string>--env-file=.env.local</string>
-    <string>/Users/alexandermartin/Desktop/Atlas/Projects/astack/forge/scripts/cove-progress-reconcile.mjs</string>
+    <string>/Users/operator/Atlas/Projects/astack/forge/scripts/cove-progress-reconcile.mjs</string>
     <string>--once</string>
   </array>
-  <!-- Substitute every absolute repo/data/Atlas path if the Mini checkout moves. -->
+  <!-- /Users/operator/Atlas/Projects/astack/forge is a placeholder layout.
+       install-cove-local.sh rewrites every absolute repo/data/workspace/home
+       path for the machine it runs on. Edit by hand only if you install this
+       agent without that script. -->
   <key>WorkingDirectory</key>
-  <string>/Users/alexandermartin/Desktop/Atlas/Projects/astack/forge</string>
+  <string>/Users/operator/Atlas/Projects/astack/forge</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>
-    <string>/Users/alexandermartin</string>
+    <string>/Users/operator</string>
     <key>PATH</key>
-    <string>/opt/homebrew/bin:/usr/local/bin:/Users/alexandermartin/.local/bin:/usr/bin:/bin</string>
+    <string>/opt/homebrew/bin:/usr/local/bin:/Users/operator/.local/bin:/usr/bin:/bin</string>
     <key>COVE_DATA_DIR</key>
-    <string>/Users/alexandermartin/Desktop/Atlas/Projects/astack/forge/data</string>
+    <string>/Users/operator/Atlas/Projects/astack/forge/data</string>
     <key>COVE_ATLAS_ROOT</key>
-    <string>/Users/alexandermartin/Desktop/Atlas</string>
+    <string>/Users/operator/Atlas</string>
   </dict>
   <key>StartInterval</key>
   <integer>1800</integer>
@@ -33,8 +36,8 @@
   <key>KeepAlive</key>
   <false/>
   <key>StandardOutPath</key>
-  <string>/Users/alexandermartin/Library/Logs/cove-progress-reconcile.log</string>
+  <string>/Users/operator/Library/Logs/cove-progress-reconcile.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/alexandermartin/Library/Logs/cove-progress-reconcile.log</string>
+  <string>/Users/operator/Library/Logs/cove-progress-reconcile.log</string>
 </dict>
 </plist>

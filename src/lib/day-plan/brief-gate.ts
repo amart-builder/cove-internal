@@ -14,7 +14,7 @@ export type ScheduledBriefGateVerdict =
   | { blocked: false; reason: "closed" | "no_closure_signal" }
   | { blocked: true; reason: "unclosed_day"; unclosedLocalDate: string };
 
-// The gate for the 7:30 cron, which does not run on the machine Alex rituals on.
+// The gate for the 7:30 cron, which does not run on the machine the operator rituals on.
 // Its own day_plans table is machine-private and stale by design (see the header
 // of ./brief-relay), so asking it whether yesterday was closed returns a
 // confident answer about the wrong computer. It reads the published closure fact
