@@ -24,7 +24,15 @@
 
 ---
 
-**Last updated:** 2026-07-28 (pre-install audit + P0 client-readiness fixes, uncommitted)
+**Last updated:** 2026-07-28 evening (product renamed Cove; private mirror repo live at amart-builder/cove)
+
+## 2026-07-28 evening: Forge -> COVE rename + client mirror (shipped, pushed)
+
+- **Product is now "Cove"** (Alex's pick). Commits 4a414cb (rename) + c8b4c70 (de-personalization) on main, pushed. Everything user-facing renamed: scripts/cove-*, skills/cove-*, com.cove.* launchd labels, COVE_* env vars (FORGE_* still honored via src/lib/env.ts fallback), data/cove-*.json configs (forge-*.json read as fallback). Deliberately NOT renamed: forge_ table prefix/tables, data/forge.db, /api/forge-rest, wire headers, NEXT_PUBLIC_FORGE_* build vars. External to repo, still old names: ~/.claude/skills/forge-day, /forge-day-dump (called by old names from src/lib/claude-execution — rename together in a later pass).
+- **MIGRATION REQUIRED on both machines: run `bash scripts/install-cove-local.sh` (Mini adds --mini), and export `COVE_SUPERNOVA_DIR=~/Atlas/Projects/supernova-engine` first** — supernova auto-detect was removed (env-only now); without it the content-quota brief line silently dies. The installer retires all com.forge.* agents (incl. the live web server) before installing com.cove.*. Until run, old agents keep working but reference renamed-away script paths and cannot restart cleanly.
+- Two real bugs found by the de-personalization: meeting follow-ups hardcoded Alex's name (would misroute 100% on any client; now profile-driven isOperatorOwned, fail-toward-tasks when operator unconfigured, summary flags operator_unconfigured — brief does not surface that flag yet, small follow-up) and brief memory queries hardcoded his project names.
+- **Private mirror repo for client installs: github.com/amart-builder/cove** — allowlist export, single "Cove 1.0" commit, author Cove <noreply@example.com>, no STATUS.md/BUDDY-DEPLOY/dated reviews, zero personal identifiers (swept), 481/481 tests green from a fresh export. SETUP.md (both repos) clones this URL into ~/cove. **Repo is PRIVATE: flip public (or auth) before the client's clone tomorrow.** Dev repo amart-builder/forge stays private forever; future mirror refreshes re-export from a clean SHA, never flip the dev repo.
+- Gmail: new installs label Cove/*; triage query ignores both Cove/Triaged and Forge/Triaged so Alex's inbox is never re-triaged; old threads keep Forge/* labels (cosmetic).
 
 ## 2026-07-28 Pre-Gary-install audit + P0 fixes (working tree)
 
