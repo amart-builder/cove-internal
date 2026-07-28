@@ -7,7 +7,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { forgeDataDir } from "../operator";
+import { coveDataDir } from "../operator";
+import { coveConfigPath, coveConfigWritePath } from "../env";
 
 // "full" stays reserved until reviewed full-task execution exists.
 export type ForgeAutonomyLevel = "off" | "groundwork";
@@ -27,7 +28,13 @@ export const DEFAULT_AUTONOMY_SETTINGS: ForgeAutonomySettings = {
 };
 
 export function forgeAutonomySettingsPath(dataDir?: string): string {
-  return path.join(forgeDataDir(dataDir), "forge-autonomy.json");
+  return coveConfigPath(coveDataDir(dataDir), "autonomy.json");
+}
+
+// Writes always land on the new name; an install that still has the old
+// forge-autonomy.json is read from it once and migrated on the next write.
+function autonomySettingsWritePath(dataDir?: string): string {
+  return coveConfigWritePath(coveDataDir(dataDir), "autonomy.json");
 }
 
 function validateSettings(value: unknown): ForgeAutonomySettings {
@@ -93,7 +100,7 @@ export function readForgeAutonomySettings(options: {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     if (!options.createIfMissing) return undefined;
-    atomicWriteSettings(file, DEFAULT_AUTONOMY_SETTINGS);
+    atomicWriteSettings(autonomySettingsWritePath(options.dataDir), DEFAULT_AUTONOMY_SETTINGS);
     return { ...DEFAULT_AUTONOMY_SETTINGS };
   }
 }
@@ -119,7 +126,7 @@ export function markFirstGroundworkSuccess(
     ...current,
     first_groundwork_at: (options.now ?? new Date()).toISOString(),
   };
-  atomicWriteSettings(forgeAutonomySettingsPath(options.dataDir), next);
+  atomicWriteSettings(autonomySettingsWritePath(options.dataDir), next);
   return next;
 }
 
@@ -153,6 +160,6 @@ export function recordGroundworkCheckinPresentation(
     checkin_presented_count: presentedCount,
     checkin_answered: current.checkin_answered || presentedCount >= 3,
   };
-  atomicWriteSettings(forgeAutonomySettingsPath(options.dataDir), next);
+  atomicWriteSettings(autonomySettingsWritePath(options.dataDir), next);
   return next;
 }

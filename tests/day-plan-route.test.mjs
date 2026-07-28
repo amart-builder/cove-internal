@@ -330,18 +330,18 @@ test('GET exposes briefGeneration on loopback and strips it for a remote session
   const globalRef = globalThis;
   const previousStore = globalRef.__forgeDayPlanStore;
   const previousEnv = {
-    access: process.env.FORGE_DAY_PLAN_ACCESS_MODE,
-    token: process.env.FORGE_DAY_PLAN_REMOTE_TOKEN,
-    hosts: process.env.FORGE_ALLOWED_HOSTS,
+    access: process.env.COVE_DAY_PLAN_ACCESS_MODE,
+    token: process.env.COVE_DAY_PLAN_REMOTE_TOKEN,
+    hosts: process.env.COVE_ALLOWED_HOSTS,
   };
   globalRef.__forgeDayPlanStore = store;
   t.after(() => {
     if (previousStore === undefined) delete globalRef.__forgeDayPlanStore;
     else globalRef.__forgeDayPlanStore = previousStore;
     for (const [key, value] of [
-      ['FORGE_DAY_PLAN_ACCESS_MODE', previousEnv.access],
-      ['FORGE_DAY_PLAN_REMOTE_TOKEN', previousEnv.token],
-      ['FORGE_ALLOWED_HOSTS', previousEnv.hosts],
+      ['COVE_DAY_PLAN_ACCESS_MODE', previousEnv.access],
+      ['COVE_DAY_PLAN_REMOTE_TOKEN', previousEnv.token],
+      ['COVE_ALLOWED_HOSTS', previousEnv.hosts],
     ]) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
@@ -363,7 +363,7 @@ test('GET exposes briefGeneration on loopback and strips it for a remote session
     { modelAlias: 'opus', effort: 'high', budgetUsd: 1.5 },
   ).brief;
 
-  process.env.FORGE_DAY_PLAN_ACCESS_MODE = 'loopback';
+  process.env.COVE_DAY_PLAN_ACCESS_MODE = 'loopback';
   const loopback = await GET(
     new NextRequest('http://localhost:3200/api/day-plan', {
       headers: { host: 'localhost:3200', 'x-forwarded-for': '127.0.0.1' },
@@ -395,9 +395,9 @@ test('GET exposes briefGeneration on loopback and strips it for a remote session
 
   // The same store over a remote session strips briefGeneration exactly like
   // brief content: a remote caller never learns a brief exists or is being written.
-  process.env.FORGE_DAY_PLAN_ACCESS_MODE = 'session';
-  process.env.FORGE_DAY_PLAN_REMOTE_TOKEN = 'secret-value';
-  process.env.FORGE_ALLOWED_HOSTS = 'forge.example.test';
+  process.env.COVE_DAY_PLAN_ACCESS_MODE = 'session';
+  process.env.COVE_DAY_PLAN_REMOTE_TOKEN = 'secret-value';
+  process.env.COVE_ALLOWED_HOSTS = 'forge.example.test';
   const remote = await GET(
     new NextRequest('https://forge.example.test/api/day-plan', {
       headers: {
@@ -424,19 +424,19 @@ test('settlement opens with last-known state on a REST hiccup, then reconciles o
   const globalRef = globalThis;
   const previousStore = globalRef.__forgeDayPlanStore;
   const previousFetch = globalRef.fetch;
-  const previousAccess = process.env.FORGE_DAY_PLAN_ACCESS_MODE;
-  const previousWebUrl = process.env.FORGE_BRIEF_WEB_BASE;
+  const previousAccess = process.env.COVE_DAY_PLAN_ACCESS_MODE;
+  const previousWebUrl = process.env.COVE_BRIEF_WEB_BASE;
   globalRef.__forgeDayPlanStore = store;
-  process.env.FORGE_DAY_PLAN_ACCESS_MODE = 'loopback';
-  process.env.FORGE_BRIEF_WEB_BASE = 'http://forge.test';
+  process.env.COVE_DAY_PLAN_ACCESS_MODE = 'loopback';
+  process.env.COVE_BRIEF_WEB_BASE = 'http://forge.test';
   t.after(() => {
     if (previousStore === undefined) delete globalRef.__forgeDayPlanStore;
     else globalRef.__forgeDayPlanStore = previousStore;
     globalRef.fetch = previousFetch;
-    if (previousAccess === undefined) delete process.env.FORGE_DAY_PLAN_ACCESS_MODE;
-    else process.env.FORGE_DAY_PLAN_ACCESS_MODE = previousAccess;
-    if (previousWebUrl === undefined) delete process.env.FORGE_BRIEF_WEB_BASE;
-    else process.env.FORGE_BRIEF_WEB_BASE = previousWebUrl;
+    if (previousAccess === undefined) delete process.env.COVE_DAY_PLAN_ACCESS_MODE;
+    else process.env.COVE_DAY_PLAN_ACCESS_MODE = previousAccess;
+    if (previousWebUrl === undefined) delete process.env.COVE_BRIEF_WEB_BASE;
+    else process.env.COVE_BRIEF_WEB_BASE = previousWebUrl;
     store.close();
     rmSync(dir, { recursive: true, force: true });
   });
@@ -541,13 +541,13 @@ test('settlement opens with last-known state on a REST hiccup, then reconciles o
 
 test('non-loopback day-plan access requires the separate remote session secret', () => {
   const previous = {
-    allowedHosts: process.env.FORGE_ALLOWED_HOSTS,
-    accessMode: process.env.FORGE_DAY_PLAN_ACCESS_MODE,
-    trustProxy: process.env.FORGE_TRUST_PROXY,
+    allowedHosts: process.env.COVE_ALLOWED_HOSTS,
+    accessMode: process.env.COVE_DAY_PLAN_ACCESS_MODE,
+    trustProxy: process.env.COVE_TRUST_PROXY,
   };
-  process.env.FORGE_ALLOWED_HOSTS = 'forge.example.test';
-  delete process.env.FORGE_DAY_PLAN_ACCESS_MODE;
-  delete process.env.FORGE_TRUST_PROXY;
+  process.env.COVE_ALLOWED_HOSTS = 'forge.example.test';
+  delete process.env.COVE_DAY_PLAN_ACCESS_MODE;
+  delete process.env.COVE_TRUST_PROXY;
   try {
     const request = (session) => new NextRequest('https://forge.example.test/api/day-plan', {
       headers: {
@@ -600,16 +600,16 @@ test('non-loopback day-plan access requires the separate remote session secret',
       hasDayPlanRouteAccess(proxiedToLoopback, { accessMode: 'loopback' }),
       true,
     );
-    process.env.FORGE_TRUST_PROXY = '1';
+    process.env.COVE_TRUST_PROXY = '1';
     assert.equal(
       hasDayPlanRouteAccess(proxiedToLoopback, { accessMode: 'loopback' }),
       false,
     );
   } finally {
     for (const [key, value] of [
-      ['FORGE_ALLOWED_HOSTS', previous.allowedHosts],
-      ['FORGE_DAY_PLAN_ACCESS_MODE', previous.accessMode],
-      ['FORGE_TRUST_PROXY', previous.trustProxy],
+      ['COVE_ALLOWED_HOSTS', previous.allowedHosts],
+      ['COVE_DAY_PLAN_ACCESS_MODE', previous.accessMode],
+      ['COVE_TRUST_PROXY', previous.trustProxy],
     ]) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
@@ -618,7 +618,7 @@ test('non-loopback day-plan access requires the separate remote session secret',
 });
 
 test('loopback mode admits designated tailnet hosts and nothing else', () => {
-  const previous = process.env.FORGE_TAILSCALE_TRUSTED_HOSTS;
+  const previous = process.env.COVE_TAILSCALE_TRUSTED_HOSTS;
   const tailnetHost = 'alexander-mac-mini.taildd6a98.ts.net';
   const viaTailnet = new NextRequest(`https://${tailnetHost}/api/day-plan`, {
     headers: { host: tailnetHost, origin: `https://${tailnetHost}` },
@@ -627,14 +627,14 @@ test('loopback mode admits designated tailnet hosts and nothing else', () => {
     headers: { host: 'evil.example.com' },
   });
   try {
-    delete process.env.FORGE_TAILSCALE_TRUSTED_HOSTS;
+    delete process.env.COVE_TAILSCALE_TRUSTED_HOSTS;
     assert.equal(
       hasDayPlanRouteAccess(viaTailnet, { accessMode: 'loopback' }),
       false,
       'tailnet host is refused until it is explicitly designated',
     );
 
-    process.env.FORGE_TAILSCALE_TRUSTED_HOSTS = tailnetHost;
+    process.env.COVE_TAILSCALE_TRUSTED_HOSTS = tailnetHost;
     assert.equal(
       hasDayPlanRouteAccess(viaTailnet, { accessMode: 'loopback' }),
       true,
@@ -651,24 +651,24 @@ test('loopback mode admits designated tailnet hosts and nothing else', () => {
       'the buddy delete-token endpoint stays loopback-only',
     );
   } finally {
-    if (previous === undefined) delete process.env.FORGE_TAILSCALE_TRUSTED_HOSTS;
-    else process.env.FORGE_TAILSCALE_TRUSTED_HOSTS = previous;
+    if (previous === undefined) delete process.env.COVE_TAILSCALE_TRUSTED_HOSTS;
+    else process.env.COVE_TAILSCALE_TRUSTED_HOSTS = previous;
   }
 });
 
 test('unset and empty day-plan access mode default to loopback', () => {
-  const previous = process.env.FORGE_DAY_PLAN_ACCESS_MODE;
+  const previous = process.env.COVE_DAY_PLAN_ACCESS_MODE;
   const localRequest = new NextRequest('http://localhost:3200/api/day-plan', {
     headers: { host: 'localhost:3200', origin: 'http://localhost:3200' },
   });
   try {
-    delete process.env.FORGE_DAY_PLAN_ACCESS_MODE;
+    delete process.env.COVE_DAY_PLAN_ACCESS_MODE;
     assert.equal(hasDayPlanRouteAccess(localRequest), true);
-    process.env.FORGE_DAY_PLAN_ACCESS_MODE = '   ';
+    process.env.COVE_DAY_PLAN_ACCESS_MODE = '   ';
     assert.equal(hasDayPlanRouteAccess(localRequest), true);
   } finally {
-    if (previous === undefined) delete process.env.FORGE_DAY_PLAN_ACCESS_MODE;
-    else process.env.FORGE_DAY_PLAN_ACCESS_MODE = previous;
+    if (previous === undefined) delete process.env.COVE_DAY_PLAN_ACCESS_MODE;
+    else process.env.COVE_DAY_PLAN_ACCESS_MODE = previous;
   }
 });
 
@@ -703,19 +703,19 @@ function gateFixture(t) {
   const globalRef = globalThis;
   const previousStore = globalRef.__forgeDayPlanStore;
   const previousEnv = {
-    access: process.env.FORGE_DAY_PLAN_ACCESS_MODE,
-    token: process.env.FORGE_DAY_PLAN_REMOTE_TOKEN,
-    hosts: process.env.FORGE_ALLOWED_HOSTS,
+    access: process.env.COVE_DAY_PLAN_ACCESS_MODE,
+    token: process.env.COVE_DAY_PLAN_REMOTE_TOKEN,
+    hosts: process.env.COVE_ALLOWED_HOSTS,
   };
   globalRef.__forgeDayPlanStore = store;
-  process.env.FORGE_DAY_PLAN_ACCESS_MODE = 'loopback';
+  process.env.COVE_DAY_PLAN_ACCESS_MODE = 'loopback';
   t.after(() => {
     if (previousStore === undefined) delete globalRef.__forgeDayPlanStore;
     else globalRef.__forgeDayPlanStore = previousStore;
     for (const [key, value] of [
-      ['FORGE_DAY_PLAN_ACCESS_MODE', previousEnv.access],
-      ['FORGE_DAY_PLAN_REMOTE_TOKEN', previousEnv.token],
-      ['FORGE_ALLOWED_HOSTS', previousEnv.hosts],
+      ['COVE_DAY_PLAN_ACCESS_MODE', previousEnv.access],
+      ['COVE_DAY_PLAN_REMOTE_TOKEN', previousEnv.token],
+      ['COVE_ALLOWED_HOSTS', previousEnv.hosts],
     ]) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
@@ -821,9 +821,9 @@ test('brief me anyway never buys a second brief once one is already written', as
 test('forcing a brief is loopback-only, like every other brief surface', async (t) => {
   const { store } = gateFixture(t);
   const token = (await (await loopbackGet()).json()).csrfToken;
-  process.env.FORGE_DAY_PLAN_ACCESS_MODE = 'session';
-  process.env.FORGE_DAY_PLAN_REMOTE_TOKEN = 'secret-value';
-  process.env.FORGE_ALLOWED_HOSTS = 'forge.example.test';
+  process.env.COVE_DAY_PLAN_ACCESS_MODE = 'session';
+  process.env.COVE_DAY_PLAN_REMOTE_TOKEN = 'secret-value';
+  process.env.COVE_ALLOWED_HOSTS = 'forge.example.test';
   const remote = await POST(new NextRequest('https://forge.example.test/api/day-plan', {
     method: 'POST',
     headers: {

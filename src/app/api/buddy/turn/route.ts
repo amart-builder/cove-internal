@@ -28,6 +28,7 @@ import {
   type SpawnedSessionReceipt,
 } from "@/lib/buddy/receipts";
 import type { ClaudeCommand } from "@/lib/claude-execution/commands";
+import { coveEnv } from "../../../../lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,7 +40,7 @@ function protectedRequest(request: NextRequest): NextResponse | undefined {
     return NextResponse.json({ error: "Untrusted request host." }, { status: 403 });
   }
   if (request.headers.get("x-forge-csrf") !== getQuietCurrentCsrfToken()) {
-    return NextResponse.json({ error: "Forge request token is missing." }, { status: 403 });
+    return NextResponse.json({ error: "Cove request token is missing." }, { status: 403 });
   }
 }
 
@@ -194,7 +195,7 @@ export function prepareBuddyRecentTurns(store: BuddyStore, limit: number) {
 }
 
 function buddyAppUrl(request: NextRequest): string {
-  const forwardedHost = process.env.FORGE_TRUST_PROXY === "1"
+  const forwardedHost = coveEnv("TRUST_PROXY") === "1"
     ? request.headers.get("x-forwarded-host")?.split(",")[0]?.trim()
     : undefined;
   const candidateHost = forwardedHost ?? request.headers.get("host")
@@ -203,7 +204,7 @@ function buddyAppUrl(request: NextRequest): string {
     const port = new URL(`http://${candidateHost}`).port;
     if (port) return `http://127.0.0.1:${port}`;
   } catch { /* Fall through to the configured URL. */ }
-  return process.env.FORGE_BUDDY_APP_URL ?? "http://127.0.0.1:3200";
+  return coveEnv("BUDDY_APP_URL") ?? "http://127.0.0.1:3200";
 }
 
 export async function GET(request: NextRequest) {
@@ -320,7 +321,7 @@ export async function POST(request: NextRequest) {
       } : {}),
       runCommand: (command, onEvent, options) => runBuddyCommand(command, onEvent, {
         ...options,
-        env: { FORGE_BUDDY_APP_URL: buddyAppUrl(request) },
+        env: { COVE_BUDDY_APP_URL: buddyAppUrl(request) },
       }),
       send,
       close,

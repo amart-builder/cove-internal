@@ -169,7 +169,7 @@ export default function BuddyPanel() {
       >
         {visibleTurns.length === 0 ? (
           <div className="py-8 text-center text-sm text-muted-foreground">
-            Ask me about anything in Forge.
+            Ask me about anything in Cove.
           </div>
         ) : visibleTurns.map((turn, index) => (
           <Fragment key={turn.id}>

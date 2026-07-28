@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
+import { coveEnv } from "./env";
 
 export type TrustedOriginInput = {
   origin?: string | null;
@@ -20,6 +21,11 @@ const LOOPBACK_ACCESS_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
 
 type ForgeHostEnvironment = {
   [key: string]: string | undefined;
+  COVE_PUBLIC_URL?: string;
+  COVE_TAILSCALE_TRUSTED_HOSTS?: string;
+  COVE_ALLOWED_HOSTS?: string;
+  COVE_TRUST_PROXY?: string;
+  // The pre-rename spellings. Read through coveEnv, never directly.
   FORGE_PUBLIC_URL?: string;
   FORGE_TAILSCALE_TRUSTED_HOSTS?: string;
   FORGE_ALLOWED_HOSTS?: string;
@@ -78,9 +84,9 @@ export function getForgeAllowedHosts(
   environment: ForgeHostEnvironment = process.env,
 ): string[] {
   const configured = [
-    environment.FORGE_PUBLIC_URL,
-    environment.FORGE_TAILSCALE_TRUSTED_HOSTS,
-    environment.FORGE_ALLOWED_HOSTS,
+    coveEnv('PUBLIC_URL', environment),
+    coveEnv('TAILSCALE_TRUSTED_HOSTS', environment),
+    coveEnv('ALLOWED_HOSTS', environment),
   ]
     .flatMap((value) => value?.split(',') ?? [])
     .map((value) => value.trim())
@@ -90,7 +96,7 @@ export function getForgeAllowedHosts(
 
 /**
  * Validates both the public request host and, when present, the browser Origin.
- * The allowlist prevents DNS rebinding while Host-based comparison lets Forge
+ * The allowlist prevents DNS rebinding while Host-based comparison lets Cove
  * work through loopback aliases and trusted reverse proxies.
  */
 export function isTrustedRequestOrigin(input: TrustedOriginInput): boolean {
@@ -119,7 +125,7 @@ export function isTrustedForgeRequest(
   request: RequestLike,
   allowedHosts = getForgeAllowedHosts(),
 ): boolean {
-  const trustProxy = process.env.FORGE_TRUST_PROXY === '1';
+  const trustProxy = coveEnv("TRUST_PROXY") === '1';
   return isTrustedRequestOrigin({
     origin: request.headers.get('origin'),
     host: request.headers.get('host') ?? request.nextUrl.host,
@@ -137,7 +143,7 @@ export function isLoopbackForgeRequest(request: RequestLike): boolean {
 
 /**
  * Hosts allowed to reach day-plan routes in loopback mode: the loopback aliases
- * plus any host named in FORGE_TAILSCALE_TRUSTED_HOSTS.
+ * plus any host named in COVE_TAILSCALE_TRUSTED_HOSTS.
  *
  * Naming a tailnet host here is only safe because the listener itself is bound
  * to 127.0.0.1, so the sole route in is a Tailscale Serve proxy that already
@@ -148,7 +154,7 @@ export function isLoopbackForgeRequest(request: RequestLike): boolean {
 export function dayPlanLoopbackHosts(
   environment: ForgeHostEnvironment = process.env,
 ): string[] {
-  const tailnet = (environment.FORGE_TAILSCALE_TRUSTED_HOSTS ?? '')
+  const tailnet = (coveEnv('TAILSCALE_TRUSTED_HOSTS', environment) ?? '')
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean);
@@ -156,7 +162,7 @@ export function dayPlanLoopbackHosts(
 }
 
 export function currentDayPlanAccessMode(): DayPlanAccessMode | undefined {
-  const configured = process.env.FORGE_DAY_PLAN_ACCESS_MODE?.trim();
+  const configured = coveEnv("DAY_PLAN_ACCESS_MODE")?.trim();
   if (!configured) return 'loopback';
   return configured === 'loopback' || configured === 'session' ? configured : undefined;
 }
@@ -169,7 +175,7 @@ export function hasDayPlanRouteAccess(
     loopbackHosts?: string[];
   } = {
     accessMode: currentDayPlanAccessMode(),
-    sessionToken: process.env.FORGE_DAY_PLAN_REMOTE_TOKEN,
+    sessionToken: coveEnv("DAY_PLAN_REMOTE_TOKEN"),
   },
 ): boolean {
   const accessMode = options.accessMode ?? currentDayPlanAccessMode();

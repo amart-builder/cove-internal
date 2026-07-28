@@ -55,6 +55,7 @@ import {
   publicUnreadyItem,
 } from "@/lib/day-plan/public-execution";
 import { taskColumnKeyForName } from "@/lib/tasks/columns";
+import { coveEnv } from "../../../lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -664,7 +665,7 @@ export async function POST(request: NextRequest) {
   }
   const suppliedToken = request.headers.get("x-forge-csrf");
   if (!suppliedToken || suppliedToken !== getQuietCurrentCsrfToken()) {
-    return NextResponse.json({ error: "Forge request token is missing." }, { status: 403 });
+    return NextResponse.json({ error: "Cove request token is missing." }, { status: 403 });
   }
 
   try {
@@ -757,7 +758,7 @@ export async function POST(request: NextRequest) {
     if (parsed.action === "settlement_start") {
       const plan = store.getPlan(parsed.input.planId);
       if (!plan) throw new DayPlanNotFound();
-      // Settlement completion is reconciled from canonical Forge REST state at
+      // Settlement completion is reconciled from canonical Cove REST state at
       // open time. The returned versioned plan, not the browser's cached board,
       // owns the Completed/Unresolved split. Fail open on a transient REST
       // failure: omitting the optional ids preserves the plan's last-known
@@ -785,11 +786,11 @@ export async function POST(request: NextRequest) {
     // The MBP settles days; refresh the settlement relay so the Mini's next
     // brief sees the same reconciliation summary, and publish the source
     // checkpoint alongside it. Role-gated: a machine that itself gates on the
-    // checkpoint (the Mini sets FORGE_BRIEF_REQUIRE_SOURCE_CHECKPOINT=1) is not
+    // checkpoint (the Mini sets COVE_BRIEF_REQUIRE_SOURCE_CHECKPOINT=1) is not
     // the authoritative source publisher and must never write it. Fail-open.
     if (parsed.action === "settlement_commit" || parsed.action === "reconciliation_applied") {
       writeSettlementRelay({ store });
-      if (process.env.FORGE_BRIEF_REQUIRE_SOURCE_CHECKPOINT !== "1") {
+      if (coveEnv("BRIEF_REQUIRE_SOURCE_CHECKPOINT") !== "1") {
         // Closing a day is the moment the closure fact changes. Publishing it
         // here as well as on the worker's 5-minute cadence means the peer's next
         // scheduled run sees the close immediately rather than up to 5 minutes

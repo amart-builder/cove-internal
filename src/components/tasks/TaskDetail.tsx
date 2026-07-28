@@ -144,7 +144,7 @@ export default function TaskDetail({
 
       onClose();
     } catch {
-      setActionError("Forge couldn't save those task details. Try again.");
+      setActionError("Cove couldn't save those task details. Try again.");
     } finally {
       setSaving(false);
     }
@@ -158,7 +158,7 @@ export default function TaskDetail({
       await onDeleteTask();
       onDeleted(taskId);
     } catch {
-      setActionError("Forge couldn't confirm that deletion. Refresh All Work to check the task, then try again.");
+      setActionError("Cove couldn't confirm that deletion. Refresh All Work to check the task, then try again.");
     }
   }
 

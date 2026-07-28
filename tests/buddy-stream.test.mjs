@@ -32,7 +32,7 @@ test('Buddy data Bash results surface authoritative RECEIPT and ERROR lines once
   const parser = createBuddyEventParser();
   const toolUse = JSON.stringify({ type: 'assistant', message: { content: [
     { type: 'tool_use', id: 'tool-data', name: 'Bash', input: {
-      command: 'npx tsx /repo/scripts/forge-buddy-data.ts delete contacts --id c1 --confirm-token token',
+      command: 'npx tsx /repo/scripts/cove-buddy-data.ts delete contacts --id c1 --confirm-token token',
     } },
   ] } });
   parser(toolUse);

@@ -23,7 +23,7 @@ import {
   runProgressReconcile,
   shouldProcessProject,
   validateProgress,
-} from "../scripts/forge-progress-reconcile.mjs";
+} from "../scripts/cove-progress-reconcile.mjs";
 import {
   consumeProgressSuggestionRelays,
   readProgressDigestRelays,
@@ -329,7 +329,7 @@ test("digest relay is write-once and readable by a machine without the Mini stor
     id: "progress-0123456789abcdef0123456789abcdef",
     runAt: NOW.toISOString(),
     project: "forge",
-    summary: "Forge moved forward.",
+    summary: "Cove moved forward.",
     perTask: [],
     evidence: { fingerprint: "fingerprint-1" },
   };
@@ -592,12 +592,12 @@ test("noise-floor rejection happens before the full task fetch", async (t) => {
 
 test("Mini installer renders and registers meeting and progress templates", () => {
   const installer = readFileSync(
-    path.join(process.cwd(), "scripts", "install-forge-local.sh"),
+    path.join(process.cwd(), "scripts", "install-cove-local.sh"),
     "utf8",
   );
-  assert.match(installer, /scripts\/launchd\/com\.forge\.meeting-watch\.plist/);
-  assert.match(installer, /scripts\/launchd\/com\.forge\.progress\.plist/);
-  assert.match(installer, /FORGE_PROGRESS_RELAY_CONSUMER/);
+  assert.match(installer, /scripts\/launchd\/com\.cove\.meeting-watch\.plist/);
+  assert.match(installer, /scripts\/launchd\/com\.cove\.progress\.plist/);
+  assert.match(installer, /COVE_PROGRESS_RELAY_CONSUMER/);
   assert.match(installer, /launchctl bootstrap "gui\/\$UID_NUM" "\$MINI_MEETING_PLIST"/);
   assert.match(installer, /launchctl bootstrap "gui\/\$UID_NUM" "\$MINI_PROGRESS_PLIST"/);
 });

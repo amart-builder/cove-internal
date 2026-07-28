@@ -4,11 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
-  FORGE_BUDDY_REPO_DIR,
+  COVE_BUDDY_REPO_DIR,
   main,
   parseBuddyDataArgs,
   runBuddyDataCommand,
-} from '../scripts/forge-buddy-data.ts';
+} from '../scripts/cove-buddy-data.ts';
 
 test('buddy data CLI parses repeated PostgREST filters and mutation arguments', () => {
   assert.deepEqual(parseBuddyDataArgs([
@@ -55,7 +55,7 @@ test('buddy data CLI routes new tasks through intake and refuses raw task insert
       runIntake: async (input, options) => {
         assert.equal(input.source, 'buddy');
         assert.equal(options.webBaseUrl, 'http://127.0.0.1:3200');
-        assert.equal(options.repoDir, FORGE_BUDDY_REPO_DIR);
+        assert.equal(options.repoDir, COVE_BUDDY_REPO_DIR);
         return {
           exitCode: 0,
           event: { source: 'buddy', source_id: 'derived' },
@@ -102,7 +102,7 @@ test('buddy dry-run resolves the repo from its script and prints a receipt from 
     {
       runIntake: async (input, options) => {
         assert.equal(input.text, '--review this flag-shaped task');
-        assert.equal(options.repoDir, FORGE_BUDDY_REPO_DIR);
+        assert.equal(options.repoDir, COVE_BUDDY_REPO_DIR);
         assert.notEqual(options.repoDir, process.cwd());
         return {
           exitCode: 0,

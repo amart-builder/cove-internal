@@ -24,7 +24,7 @@ import {
   TRIAGE_JSON_SCHEMA,
   validateTriageOutput,
 } from '../src/lib/triage/protocol.ts';
-import { parseForgeIntakeArgs } from '../scripts/forge-intake.mjs';
+import { parseForgeIntakeArgs } from '../scripts/cove-intake.mjs';
 
 function fixture(t) {
   const dir = path.join(
@@ -34,25 +34,25 @@ function fixture(t) {
   mkdirSync(path.join(dir, 'brief'), { recursive: true });
   writeFileSync(path.join(dir, 'brief', 'goals.md'), '# Goals\nGrow Edge AI.');
   const prior = {
-    db: process.env.FORGE_DB_PATH,
+    db: process.env.COVE_DB_PATH,
     runtime: process.env.NEXT_PUBLIC_FORGE_RUNTIME,
-    timezone: process.env.FORGE_TIMEZONE,
+    timezone: process.env.COVE_TIMEZONE,
   };
   const priorDb = globalThis.__forgeDb;
   delete globalThis.__forgeDb;
-  process.env.FORGE_DB_PATH = path.join(dir, 'forge.db');
+  process.env.COVE_DB_PATH = path.join(dir, 'forge.db');
   process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'local';
-  process.env.FORGE_TIMEZONE = 'America/Los_Angeles';
+  process.env.COVE_TIMEZONE = 'America/Los_Angeles';
   t.after(() => {
     globalThis.__forgeDb?.close();
     if (priorDb === undefined) delete globalThis.__forgeDb;
     else globalThis.__forgeDb = priorDb;
-    if (prior.db === undefined) delete process.env.FORGE_DB_PATH;
-    else process.env.FORGE_DB_PATH = prior.db;
+    if (prior.db === undefined) delete process.env.COVE_DB_PATH;
+    else process.env.COVE_DB_PATH = prior.db;
     if (prior.runtime === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
     else process.env.NEXT_PUBLIC_FORGE_RUNTIME = prior.runtime;
-    if (prior.timezone === undefined) delete process.env.FORGE_TIMEZONE;
-    else process.env.FORGE_TIMEZONE = prior.timezone;
+    if (prior.timezone === undefined) delete process.env.COVE_TIMEZONE;
+    else process.env.COVE_TIMEZONE = prior.timezone;
     rmSync(dir, { recursive: true, force: true });
   });
   return dir;
@@ -225,7 +225,7 @@ test('canonical intake captures first, triages once, writes project, and is idem
   );
   assert.equal(spawnCalls[0].options.env.SUPABASE_SERVICE_ROLE_KEY, undefined);
   assert.deepEqual(
-    JSON.parse(readFileSync(path.join(dir, 'forge-autonomy.json'), 'utf8')),
+    JSON.parse(readFileSync(path.join(dir, 'cove-autonomy.json'), 'utf8')),
     {
       level: 'off',
       first_groundwork_at: null,
@@ -296,7 +296,7 @@ test('triage autonomy none never queues groundwork', async (t) => {
 
 test('the off setting suppresses a model-selected groundwork queue', async (t) => {
   const dir = fixture(t);
-  writeFileSync(path.join(dir, 'forge-autonomy.json'), JSON.stringify({
+  writeFileSync(path.join(dir, 'cove-autonomy.json'), JSON.stringify({
     level: 'off',
     first_groundwork_at: null,
     checkin_answered: false,

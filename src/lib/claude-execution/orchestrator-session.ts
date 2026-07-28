@@ -14,6 +14,6 @@ export function markForgeOrchestratorSession(
       mode: 0o600,
     });
   } catch (error) {
-    console.error("Could not mark Forge orchestrator session.", error);
+    console.error("Could not mark Cove orchestrator session.", error);
   }
 }

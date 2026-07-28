@@ -13,8 +13,8 @@ export function isClaudeWorkerAvailable(options: {
   maximumAgeMs?: number;
 } = {}): boolean {
   const configured = options.configured ?? (
-    process.env.FORGE_CLAUDE_WORKER_AVAILABLE === "1" ||
-    process.env.FORGE_CLAUDE_WORKER_ENABLED === "1"
+    coveEnv("CLAUDE_WORKER_AVAILABLE") === "1" ||
+    coveEnv("CLAUDE_WORKER_ENABLED") === "1"
   );
   if (!configured) return false;
   try {
@@ -39,3 +39,4 @@ export function triggerOneShotWorker(lane: WorkerLane): WorkerQueueAcknowledgeme
 }
 import { statSync } from "node:fs";
 import path from "node:path";
+import { coveEnv } from "../env";

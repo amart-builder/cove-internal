@@ -4,6 +4,7 @@ import { localDateInTimezone } from "../day-plan/brief";
 import { operatorTimezone } from "../operator";
 import { taskColumnKeyForName, type TaskColumnKey } from "../tasks/columns";
 import type { TriageOutput } from "../triage/protocol";
+import { coveEnv } from "../env";
 
 export type InboundTaskWriterOptions = {
   dataDir?: string;
@@ -36,7 +37,7 @@ function shouldWriteProject(
 function webBase(options: InboundTaskWriterOptions): string {
   return (
     options.webBaseUrl ??
-    process.env.FORGE_BRIEF_WEB_BASE ??
+    coveEnv("BRIEF_WEB_BASE") ??
     "http://127.0.0.1:3200"
   ).replace(/\/$/, "");
 }
@@ -442,7 +443,7 @@ export async function createTriagedInboundTask(
       ensureForgeAutonomySettings(options.dataDir).level !== "off" &&
       triage.autonomy !== "none";
   } catch (error) {
-    console.error("Forge autonomy setting unavailable; groundwork was not queued.", error);
+    console.error("Cove autonomy setting unavailable; groundwork was not queued.", error);
   }
   return createTask(event, {
     id: event.id,

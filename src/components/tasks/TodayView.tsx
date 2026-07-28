@@ -180,11 +180,11 @@ function proposalCommitError(error: unknown): string {
   const message = error instanceof Error ? error.message : '';
   if (
     message ===
-    "Forge couldn't accept that proposal or fully restore the task. Open All Work to check the task before trying again."
+    "Cove couldn't accept that proposal or fully restore the task. Open All Work to check the task before trying again."
   ) {
     return message;
   }
-  return "Forge couldn't add that proposal to your current. Open All Work to check the task, then try again.";
+  return "Cove couldn't add that proposal to your current. Open All Work to check the task, then try again.";
 }
 
 function readLocalValue(key: string): string | null {
@@ -395,8 +395,8 @@ function RestTodayView({ onOpenAllWork }: TodayViewProps) {
         }
         setError(
           hadCredibleData
-            ? `Forge couldn't refresh because the Today or Done list is missing. You're still seeing ${savedCurrentDescription(lastSnapshotSavedAtRef.current)}. Open All Work to restore the list.`
-            : 'Forge needs both a Today list and a Done list. Open All Work to restore them, then try again.',
+            ? `Cove couldn't refresh because the Today or Done list is missing. You're still seeing ${savedCurrentDescription(lastSnapshotSavedAtRef.current)}. Open All Work to restore the list.`
+            : 'Cove needs both a Today list and a Done list. Open All Work to restore them, then try again.',
         );
         return;
       }
@@ -810,7 +810,7 @@ function TodayExperience({
       setSuggestions(snapshot.suggestions);
       setSurfaceError(undefined);
     } catch {
-      setSurfaceError("Forge couldn't refresh Jarvis suggestions. This doesn't touch your committed tasks.");
+      setSurfaceError("Cove couldn't refresh Jarvis suggestions. This doesn't touch your committed tasks.");
     } finally {
       setSuggestionsLoading(false);
     }
@@ -934,7 +934,7 @@ function TodayExperience({
       await dayRitual.openArrival();
     } catch (nextError) {
       setSurfaceError(
-        nextError instanceof Error ? nextError.message : "Forge couldn't open Morning Arrival.",
+        nextError instanceof Error ? nextError.message : "Cove couldn't open Morning Arrival.",
       );
     }
   }, [closeTransientSurfaces, dayRitual]);
@@ -946,7 +946,7 @@ function TodayExperience({
       await dayRitual.openSettlement();
     } catch (nextError) {
       setSurfaceError(
-        nextError instanceof Error ? nextError.message : "Forge couldn't open Day Settlement.",
+        nextError instanceof Error ? nextError.message : "Cove couldn't open Day Settlement.",
       );
     }
   }, [closeTransientSurfaces, dayRitual]);
@@ -958,7 +958,7 @@ function TodayExperience({
       if (taskId) focusTask(taskId, 'start_my_day');
     } catch (nextError) {
       setSurfaceError(
-        nextError instanceof Error ? nextError.message : "Forge couldn't start the planned day.",
+        nextError instanceof Error ? nextError.message : "Cove couldn't start the planned day.",
       );
     }
   }, [dayRitual, focusTask]);
@@ -968,7 +968,7 @@ function TodayExperience({
   ) => {
     if (reconciliationRunningRef.current || reconciliations.length === 0) return;
     if (candidateEvidence?.freshness !== 'current') {
-      throw new Error('Forge needs a fresh task refresh before reconciling the closed day.');
+      throw new Error('Cove needs a fresh task refresh before reconciling the closed day.');
     }
     reconciliationRunningRef.current = true;
     try {
@@ -997,7 +997,7 @@ function TodayExperience({
           taskStateById.get(reconciliation.taskId),
           step.nextState,
         )) {
-          throw new Error('Forge could not verify the task reconciliation result.');
+          throw new Error('Cove could not verify the task reconciliation result.');
         }
         await dayRitual.acknowledgeReconciliation(reconciliation.id);
       }
@@ -1024,7 +1024,7 @@ function TodayExperience({
               priority: mutation.priority,
               tags: mutation.project ? [mutation.project] : [],
             });
-            if (createdId !== mutation.taskId) throw new Error('Forge could not preserve the new task identity.');
+            if (createdId !== mutation.taskId) throw new Error('Cove could not preserve the new task identity.');
           }
         } else if (mutation.action === 'update') {
           if (!existing) throw new Error('The task Claude tried to update no longer exists.');
@@ -1050,8 +1050,8 @@ function TodayExperience({
     if (loading || dayRitual.pendingTaskMutations.length === 0) return;
     void reconcileAssistantTaskMutations().catch((nextError) => {
       setSurfaceError(nextError instanceof Error
-        ? `Forge updated the plan but still needs to sync a task: ${nextError.message}`
-        : 'Forge updated the plan but still needs to sync a task.');
+        ? `Cove updated the plan but still needs to sync a task: ${nextError.message}`
+        : 'Cove updated the plan but still needs to sync a task.');
     });
   }, [dayRitual.pendingTaskMutations, loading, reconcileAssistantTaskMutations]);
 
@@ -1059,14 +1059,14 @@ function TodayExperience({
     const currentPlan = dayRitual.plan;
     if (!currentPlan) return;
     if (candidateEvidence?.freshness !== 'current') {
-      setSurfaceError('Refresh Forge before closing the day so task state is current.');
+      setSurfaceError('Refresh Cove before closing the day so task state is current.');
       return;
     }
     if (
       !notStartedColumn &&
       currentPlan.items.some((item) => item.settlementDecision?.disposition === 'defer')
     ) {
-      setSurfaceError('Forge needs a Not Started or To Do list before it can defer work. Choose Progress, Carry, or Drop instead.');
+      setSurfaceError('Cove needs a Not Started or To Do list before it can defer work. Choose Progress, Carry, or Drop instead.');
       return;
     }
     const completedHumanTaskIds = currentPlan.items
@@ -1094,7 +1094,7 @@ function TodayExperience({
       setSurfaceError(
         nextError instanceof Error
           ? nextError.message
-          : "Forge couldn't finish reconciling the closed day.",
+          : "Cove couldn't finish reconciling the closed day.",
       );
     }
   }, [candidateEvidence?.freshness, dayRitual, notStartedColumn, reconcileDayPlanActions, settlementNote]);
@@ -1130,8 +1130,8 @@ function TodayExperience({
       } catch (nextError) {
         setSurfaceError(
           nextError instanceof Error
-            ? `The day is closed, but Forge still needs to reconcile a task: ${nextError.message}`
-            : 'The day is closed, but Forge still needs to reconcile a task.',
+            ? `The day is closed, but Cove still needs to reconcile a task: ${nextError.message}`
+            : 'The day is closed, but Cove still needs to reconcile a task.',
         );
       }
     })();
@@ -1225,7 +1225,7 @@ function TodayExperience({
       setCaptureOpen(false);
       focusTask(taskId, 'capture');
     } catch {
-      setSurfaceError("Forge couldn't finish that addition. Refresh the current to confirm the task, then try again.");
+      setSurfaceError("Cove couldn't finish that addition. Refresh the current to confirm the task, then try again.");
     } finally {
       setCapturing(false);
     }
@@ -1244,7 +1244,7 @@ function TodayExperience({
     try {
       await action.run();
     } catch {
-      setSurfaceError("Forge couldn't undo that change. Open All Work to check the task, then try again.");
+      setSurfaceError("Cove couldn't undo that change. Open All Work to check the task, then try again.");
     } finally {
       undoRunningRef.current = false;
     }
@@ -1326,7 +1326,7 @@ function TodayExperience({
           await rollBackTaskMutation();
         } catch {
           throw new Error(
-            "Forge couldn't accept that proposal or fully restore the task. Open All Work to check the task before trying again.",
+            "Cove couldn't accept that proposal or fully restore the task. Open All Work to check the task before trying again.",
           );
         } finally {
           setFocusedTaskId(commitments[0]?._id ?? null);
@@ -1376,7 +1376,7 @@ function TodayExperience({
       setEditingSuggestionId(null);
       await loadSuggestions();
     } catch {
-      setSurfaceError("Forge couldn't finish saving that wording. Refresh the current to confirm it, then try again.");
+      setSurfaceError("Cove couldn't finish saving that wording. Refresh the current to confirm it, then try again.");
     }
   }
 
@@ -1396,7 +1396,7 @@ function TodayExperience({
         },
       });
     } catch {
-      setSurfaceError("Forge couldn't finish setting that aside. Refresh the current to confirm it, then try again.");
+      setSurfaceError("Cove couldn't finish setting that aside. Refresh the current to confirm it, then try again.");
     }
   }
 
@@ -1420,7 +1420,7 @@ function TodayExperience({
         },
       });
     } catch {
-      setSurfaceError("Forge couldn't finish dismissing that suggestion. Refresh the current to confirm it, then try again.");
+      setSurfaceError("Cove couldn't finish dismissing that suggestion. Refresh the current to confirm it, then try again.");
     }
   }
 
@@ -1465,7 +1465,7 @@ function TodayExperience({
         },
       });
     } catch {
-      setSurfaceError("Forge couldn't finish completing that task. Refresh the current to confirm its state, then try again.");
+      setSurfaceError("Cove couldn't finish completing that task. Refresh the current to confirm its state, then try again.");
     } finally {
       setCompletingTaskId(null);
     }
@@ -1493,7 +1493,7 @@ function TodayExperience({
         },
       });
     } catch {
-      setSurfaceError("Forge couldn't finish moving that task to the Jarvis shelf. Refresh the current to confirm its state, then try again.");
+      setSurfaceError("Cove couldn't finish moving that task to the Jarvis shelf. Refresh the current to confirm its state, then try again.");
     }
   }
 
@@ -1509,7 +1509,7 @@ function TodayExperience({
       });
       focusTask(task._id, 'pluck_back');
     } catch {
-      setSurfaceError("Forge couldn't finish bringing that task back. Refresh the current to confirm its state, then try again.");
+      setSurfaceError("Cove couldn't finish bringing that task back. Refresh the current to confirm its state, then try again.");
     }
   }
 
@@ -1532,7 +1532,7 @@ function TodayExperience({
     try {
       await updateTask(detailTask._id, nextPatch);
     } catch (error) {
-      setSurfaceError("Forge couldn't save those task details. Try again.");
+      setSurfaceError("Cove couldn't save those task details. Try again.");
       throw error;
     }
   }
@@ -1542,7 +1542,7 @@ function TodayExperience({
     try {
       await deleteTask(detailTask._id);
     } catch (error) {
-      setSurfaceError("Forge couldn't confirm that deletion. Refresh All Work to check the task, then try again.");
+      setSurfaceError("Cove couldn't confirm that deletion. Refresh All Work to check the task, then try again.");
       throw error;
     }
   }
@@ -1621,7 +1621,7 @@ function TodayExperience({
       : dayRitual.plan.state === 'settled'
         ? 'Morning Arrival is unavailable because today is closed.'
         : dayRitual.busy
-          ? 'Forge is updating today\'s plan.'
+          ? 'Cove is updating today\'s plan.'
           : undefined;
   const searchResults = openTasks
     .filter((task) => {
@@ -1663,7 +1663,7 @@ function TodayExperience({
   );
   const recommendation = arrivalPlanItems[0]
     ? `Start with ${arrivalPlanItems[0].title}. ${arrivalPlanItems[0].whyToday}`
-    : 'Forge does not have enough current evidence to choose your first move yet.';
+    : 'Cove does not have enough current evidence to choose your first move yet.';
   const boardExecutionByTaskId = useMemo(() => {
     const map = new Map<string, {
       item: DayPlanItem;
@@ -1848,7 +1848,7 @@ function TodayExperience({
     return (
       <div className="quiet-current-surface flex h-full items-center justify-center p-6">
         <div className="quiet-error-card max-w-lg">
-          <p className="text-sm font-semibold">Forge couldn&apos;t load Today.</p>
+          <p className="text-sm font-semibold">Cove couldn&apos;t load Today.</p>
           <p className="mt-2 text-sm text-muted-foreground">
             {error || 'The Today or Done list is missing. Open All Work to restore it, then try again.'}
           </p>
@@ -2506,7 +2506,7 @@ function TodayExperience({
                 descriptionId={RITUAL_DESCRIPTION_IDS.settlement}
                 onDecision={(itemId, disposition, progress) => {
                   if (disposition === 'defer' && !notStartedColumn) {
-                    setSurfaceError('Forge needs a Not Started or To Do list before it can defer work.');
+                    setSurfaceError('Cove needs a Not Started or To Do list before it can defer work.');
                     return;
                   }
                   return dayRitual.decideSettlement(itemId, disposition, progress);

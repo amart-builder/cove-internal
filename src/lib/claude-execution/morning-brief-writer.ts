@@ -2,13 +2,14 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync } fr
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import type { ClaudeCommand } from "./commands";
+import { coveEnv } from "../env";
 
 export type MorningBriefWriter = "codex" | "claude";
 
 export function configuredMorningBriefWriter(
   env: NodeJS.ProcessEnv = process.env,
 ): MorningBriefWriter {
-  return env.FORGE_BRIEF_WRITER?.trim().toLowerCase() === "claude" ? "claude" : "codex";
+  return coveEnv("BRIEF_WRITER", env)?.trim().toLowerCase() === "claude" ? "claude" : "codex";
 }
 
 export function resolveCodexBinary(options: {
@@ -18,7 +19,7 @@ export function resolveCodexBinary(options: {
 } = {}): string | undefined {
   const env = options.env ?? process.env;
   const exists = options.exists ?? existsSync;
-  const configured = env.FORGE_CODEX_BIN?.trim();
+  const configured = coveEnv("CODEX_BIN", env)?.trim();
   if (configured) {
     return configured.includes(path.sep) && !exists(configured) ? undefined : configured;
   }
@@ -50,7 +51,7 @@ export function createCodexStructuredAttempt(input: {
 }): CodexStructuredAttempt | undefined {
   const executable = input.executable ?? resolveCodexBinary({ env: input.env });
   if (!executable) return undefined;
-  const cwd = mkdtempSync(path.join(tmpdir(), input.tempPrefix ?? "forge-morning-brief-"));
+  const cwd = mkdtempSync(path.join(tmpdir(), input.tempPrefix ?? "cove-morning-brief-"));
   chmodSync(cwd, 0o700);
   const outputPath = path.join(cwd, "last-message.json");
   return {

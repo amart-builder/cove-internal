@@ -20,8 +20,11 @@ function checkAuth(req: Request): boolean {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader?.startsWith("Bearer ")) return false;
   const token = authHeader.slice(7);
-  // FORGE_API_SECRET is set as a Convex environment variable
-  return token === process.env.FORGE_API_SECRET;
+  // COVE_API_SECRET (or the legacy FORGE_API_SECRET) is set as a Convex environment variable
+  // Convex bundles this file on its own, so it cannot import src/lib/env.
+  // The COVE_/FORGE_ fallback is spelled out here instead.
+  const secret = process.env.COVE_API_SECRET ?? process.env.FORGE_API_SECRET;
+  return token === secret;
 }
 
 // POST /api/triage — batch email triage items

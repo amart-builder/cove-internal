@@ -536,8 +536,8 @@ test('autonomous readiness requires enablement, allowlisted clean Git, DoD, opt-
   mkdirSync(repo);
   writeFileSync(path.join(repo, 'README.md'), 'fixture\n');
   execFileSync('/usr/bin/git', ['-C', repo, 'init', '-q']);
-  execFileSync('/usr/bin/git', ['-C', repo, '-c', 'user.name=Forge Test', '-c', 'user.email=forge@example.test', 'add', 'README.md']);
-  execFileSync('/usr/bin/git', ['-C', repo, '-c', 'user.name=Forge Test', '-c', 'user.email=forge@example.test', 'commit', '-qm', 'fixture']);
+  execFileSync('/usr/bin/git', ['-C', repo, '-c', 'user.name=Cove Test', '-c', 'user.email=forge@example.test', 'add', 'README.md']);
+  execFileSync('/usr/bin/git', ['-C', repo, '-c', 'user.name=Cove Test', '-c', 'user.email=forge@example.test', 'commit', '-qm', 'fixture']);
   t.after(() => rmSync(repo, { recursive: true, force: true }));
   const environment = {
     autonomousEnabled: true,
@@ -615,8 +615,8 @@ test('authorization revisions cancel queued runs for mode, model, budget, and wo
     mkdirSync(repo);
     writeFileSync(path.join(repo, 'README.md'), `${label}\n`);
     execFileSync('/usr/bin/git', ['-C', repo, 'init', '-q']);
-    execFileSync('/usr/bin/git', ['-C', repo, '-c', 'user.name=Forge Test', '-c', 'user.email=forge@example.test', 'add', 'README.md']);
-    execFileSync('/usr/bin/git', ['-C', repo, '-c', 'user.name=Forge Test', '-c', 'user.email=forge@example.test', 'commit', '-qm', 'fixture']);
+    execFileSync('/usr/bin/git', ['-C', repo, '-c', 'user.name=Cove Test', '-c', 'user.email=forge@example.test', 'add', 'README.md']);
+    execFileSync('/usr/bin/git', ['-C', repo, '-c', 'user.name=Cove Test', '-c', 'user.email=forge@example.test', 'commit', '-qm', 'fixture']);
     t.after(() => rmSync(repo, { recursive: true, force: true }));
     return repo;
   }

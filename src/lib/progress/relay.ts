@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { hostname } from "node:os";
 import path from "node:path";
-import { forgeDataDir } from "../operator";
+import { coveDataDir } from "../operator";
 import {
   createWorkSuggestion,
   getQuietCurrentSnapshot,
@@ -73,7 +73,7 @@ function sha256(value: string): string {
 }
 
 function relayRoot(dataDir?: string): string {
-  return path.join(forgeDataDir(dataDir), "progress-relay");
+  return path.join(coveDataDir(dataDir), "progress-relay");
 }
 
 function digestDir(dataDir?: string): string {

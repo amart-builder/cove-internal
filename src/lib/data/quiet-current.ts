@@ -47,7 +47,7 @@ let csrfToken: string | undefined;
 
 async function fetchQuietCurrentSnapshot(): Promise<QuietCurrentSnapshot> {
   const response = await fetch("/api/quiet-current", { cache: "no-store" });
-  if (!response.ok) throw new Error("Forge couldn't refresh Jarvis suggestions.");
+  if (!response.ok) throw new Error("Cove couldn't refresh Jarvis suggestions.");
   const snapshot = (await response.json()) as QuietCurrentSnapshot;
   csrfToken = snapshot.csrfToken;
   return snapshot;
@@ -67,7 +67,7 @@ async function quietCurrentRequest<T>(body?: Record<string, unknown>): Promise<T
   });
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new Error(payload.error || "Forge couldn't update that suggestion. Try again.");
+    throw new Error(payload.error || "Cove couldn't update that suggestion. Try again.");
   }
   return (await response.json()) as T;
 }

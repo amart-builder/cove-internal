@@ -151,7 +151,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Untrusted request host." }, { status: 403 });
   }
   if (request.headers.get("x-forge-csrf") !== getQuietCurrentCsrfToken()) {
-    return NextResponse.json({ error: "Forge request token is missing." }, { status: 403 });
+    return NextResponse.json({ error: "Cove request token is missing." }, { status: 403 });
   }
   try {
     const raw = await request.text();

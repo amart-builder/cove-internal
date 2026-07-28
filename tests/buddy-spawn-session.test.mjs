@@ -19,21 +19,21 @@ test('spawn-session route gates requests and confines real directories to ~/Atla
   const root = path.join(os.tmpdir(), `forge-buddy-spawn-${process.pid}-${Date.now()}`);
   const store = createBuddyStore({ dbPath: path.join(root, 'forge.db') });
   const home = '/Users/forge-test';
-  const previousMode = process.env.FORGE_DAY_PLAN_ACCESS_MODE;
-  const previousQuietFile = process.env.FORGE_QUIET_CURRENT_FILE;
-  const previousDeepLinks = process.env.FORGE_BUDDY_DEEPLINKS;
+  const previousMode = process.env.COVE_DAY_PLAN_ACCESS_MODE;
+  const previousQuietFile = process.env.COVE_QUIET_CURRENT_FILE;
+  const previousDeepLinks = process.env.COVE_BUDDY_DEEPLINKS;
   const quietFile = `buddy-spawn-${process.pid}-${Date.now()}.json`;
-  process.env.FORGE_DAY_PLAN_ACCESS_MODE = 'loopback';
-  process.env.FORGE_QUIET_CURRENT_FILE = quietFile;
-  process.env.FORGE_BUDDY_DEEPLINKS = '0';
+  process.env.COVE_DAY_PLAN_ACCESS_MODE = 'loopback';
+  process.env.COVE_QUIET_CURRENT_FILE = quietFile;
+  process.env.COVE_BUDDY_DEEPLINKS = '0';
   t.after(() => {
     store.close();
-    if (previousMode === undefined) delete process.env.FORGE_DAY_PLAN_ACCESS_MODE;
-    else process.env.FORGE_DAY_PLAN_ACCESS_MODE = previousMode;
-    if (previousQuietFile === undefined) delete process.env.FORGE_QUIET_CURRENT_FILE;
-    else process.env.FORGE_QUIET_CURRENT_FILE = previousQuietFile;
-    if (previousDeepLinks === undefined) delete process.env.FORGE_BUDDY_DEEPLINKS;
-    else process.env.FORGE_BUDDY_DEEPLINKS = previousDeepLinks;
+    if (previousMode === undefined) delete process.env.COVE_DAY_PLAN_ACCESS_MODE;
+    else process.env.COVE_DAY_PLAN_ACCESS_MODE = previousMode;
+    if (previousQuietFile === undefined) delete process.env.COVE_QUIET_CURRENT_FILE;
+    else process.env.COVE_QUIET_CURRENT_FILE = previousQuietFile;
+    if (previousDeepLinks === undefined) delete process.env.COVE_BUDDY_DEEPLINKS;
+    else process.env.COVE_BUDDY_DEEPLINKS = previousDeepLinks;
     rmSync(path.join(process.cwd(), 'data', quietFile), { force: true });
     rmSync(path.join(process.cwd(), 'data', `${quietFile}.token`), { force: true });
     rmSync(root, { recursive: true, force: true });
@@ -120,7 +120,7 @@ test('spawn-session route gates requests and confines real directories to ~/Atla
   assert.ok(spawnCall.args.includes('--no-chrome'));
   assert.match(
     spawnCall.args[spawnCall.args.indexOf('--mcp-config') + 1],
-    /forge-empty-mcp\.json$/,
+    /cove-empty-mcp\.json$/,
   );
   const systemPrompt = spawnCall.args[spawnCall.args.indexOf('--append-system-prompt') + 1];
   assert.match(systemPrompt, /Do not read files, use tools, edit anything, or begin the work/);
@@ -143,7 +143,7 @@ test('spawn-session route gates requests and confines real directories to ~/Atla
   assert.equal(fetched.status, 200);
   assert.equal(fetchedBody.deepLinksEnabled, false);
   assert.equal(fetchedBody.hostname, os.hostname());
-  delete process.env.FORGE_BUDDY_DEEPLINKS;
+  delete process.env.COVE_BUDDY_DEEPLINKS;
   const defaultConfig = await handleSpawnSessionGet(new NextRequest(
     'http://127.0.0.1:3200/api/buddy/spawn-session?id=session-1',
     { headers: { host: '127.0.0.1:3200' } },

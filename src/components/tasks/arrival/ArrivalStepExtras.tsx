@@ -47,7 +47,7 @@ export default function ArrivalStepExtras({
             Today&apos;s sales cadence
           </h2>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Approve marks a message ready for you to send. Forge never sends anything itself.
+            Approve marks a message ready for you to send. Cove never sends anything itself.
           </p>
           <ul className="mt-4 divide-y divide-border">
             {brief.salesActions.map((action, index) => {

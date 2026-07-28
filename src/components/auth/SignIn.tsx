@@ -29,7 +29,7 @@ export default function SignIn() {
     <div className="flex items-center justify-center h-screen bg-background">
       <div className="w-full max-w-sm mx-4">
         <div className="text-center mb-8">
-          <h1 className="text-xl font-semibold text-foreground">Forge</h1>
+          <h1 className="text-xl font-semibold text-foreground">Cove</h1>
           <p className="text-xs text-muted-foreground mt-1">
             {mode === "signIn" ? "Sign in to continue" : "Create your account"}
           </p>

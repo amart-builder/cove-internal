@@ -30,7 +30,7 @@ export default function BuddyMessage({ turn, thinking, hostname, deepLinksEnable
             </p>
             {deepLinksEnabled === false && (
               <p className="text-sm leading-relaxed text-muted-foreground">
-                Heads up: Forge here runs on {hostLabel}, so the sign-in has to happen on that machine (Screen Sharing into it, or ssh, then the same steps).
+                Heads up: Cove here runs on {hostLabel}, so the sign-in has to happen on that machine (Screen Sharing into it, or ssh, then the same steps).
               </p>
             )}
             <ol className="list-decimal space-y-1.5 pl-5 text-sm leading-relaxed text-muted-foreground">

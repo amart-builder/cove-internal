@@ -44,7 +44,7 @@ export type DayPlanExecutionState = {
 
 export class DayPlanApiConflict extends Error {
   constructor(public readonly currentPlan: DayPlan) {
-    super("The day plan changed. Forge refreshed the newest version.");
+    super("The day plan changed. Cove refreshed the newest version.");
     this.name = "DayPlanApiConflict";
   }
 }
@@ -65,7 +65,7 @@ export async function getDayPlanState(): Promise<DayPlanApiSnapshot> {
   const payload = await responsePayload(response);
   if (!response.ok) {
     throw new Error(
-      typeof payload.error === "string" ? payload.error : "Forge couldn't load the day plan.",
+      typeof payload.error === "string" ? payload.error : "Cove couldn't load the day plan.",
     );
   }
   const snapshot = payload as DayPlanApiSnapshot;
@@ -92,7 +92,7 @@ async function postDayPlan<T = DayPlanMutationResult>(
   }
   if (!response.ok) {
     throw new Error(
-      typeof payload.error === "string" ? payload.error : "Forge couldn't update the day plan.",
+      typeof payload.error === "string" ? payload.error : "Cove couldn't update the day plan.",
     );
   }
   return payload as T;
@@ -115,7 +115,7 @@ async function postProtected<T>(endpoint: string, body: Record<string, unknown>)
   }
   if (!response.ok) {
     throw new Error(
-      typeof payload.error === "string" ? payload.error : "Forge request failed.",
+      typeof payload.error === "string" ? payload.error : "Cove request failed.",
     );
   }
   return payload as T;
@@ -218,7 +218,7 @@ export async function getDayPlanExecutionState(
   const payload = await responsePayload(response);
   if (!response.ok) {
     throw new Error(
-      typeof payload.error === "string" ? payload.error : "Forge couldn't load Claude execution state.",
+      typeof payload.error === "string" ? payload.error : "Cove couldn't load Claude execution state.",
     );
   }
   return payload as DayPlanExecutionState;

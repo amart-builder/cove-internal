@@ -84,6 +84,7 @@ import {
 import {
   createFallbackInboundTask,
 } from "../intake/task-writer";
+import { coveEnv } from "../env";
 
 export { fallbackInboundDueAt } from "../intake/task-writer";
 
@@ -153,7 +154,7 @@ export function openClaudeSessionInBackground(
   sessionId: string,
   spawnImpl: SpawnImpl = spawn,
 ): void {
-  if (process.platform !== "darwin" || process.env.FORGE_BUDDY_DEEPLINKS === "0") return;
+  if (process.platform !== "darwin" || coveEnv("BUDDY_DEEPLINKS") === "0") return;
   try {
     const child = spawnImpl(
       "/usr/bin/open",
@@ -161,11 +162,11 @@ export function openClaudeSessionInBackground(
       { detached: true, stdio: "ignore" },
     );
     child.once("error", (error) => {
-      console.error("Could not open Forge session in Claude Code.", error);
+      console.error("Could not open Cove session in Claude Code.", error);
     });
     child.unref();
   } catch (error) {
-    console.error("Could not open Forge session in Claude Code.", error);
+    console.error("Could not open Cove session in Claude Code.", error);
   }
 }
 
@@ -445,7 +446,7 @@ export async function runOneExecution(options: ClaudeWorkerOptions): Promise<boo
         try {
           (options.markSession ?? markForgeOrchestratorSession)(run.claudeSessionId);
         } catch (error) {
-          console.error("Could not mark Forge orchestrator session.", error);
+          console.error("Could not mark Cove orchestrator session.", error);
         }
         options.store.markExecutionRunRunning(run.id, childPid);
       },
@@ -511,7 +512,7 @@ export async function runOneExecution(options: ClaudeWorkerOptions): Promise<boo
       try {
         (options.openSession ?? openClaudeSessionInBackground)(finished.claudeSessionId);
       } catch (error) {
-        console.error("Could not open Forge session in Claude Code.", error);
+        console.error("Could not open Cove session in Claude Code.", error);
       }
     }
   } catch (error) {
@@ -564,7 +565,7 @@ export type DayDumpWorkerOptions = ClaudeWorkerOptions & {
   dumpFetchTimeoutMs?: number;
   // The dump lane publishes the dump relay, so it needs the same scoped data
   // directory the brief lane uses. Without it the write falls back to the
-  // ambient FORGE_DB_PATH/cwd and a test run overwrites the real relay file.
+  // ambient COVE_DB_PATH/cwd and a test run overwrites the real relay file.
   relay?: BriefRelayOptions;
 };
 
@@ -584,7 +585,7 @@ export type InboundWorkerOptions = {
 export function configuredDayDumpWriter(
   env: NodeJS.ProcessEnv = process.env,
 ): MorningBriefWriter {
-  return env.FORGE_DUMP_WRITER?.trim().toLowerCase() === "claude" ? "claude" : "codex";
+  return coveEnv("DUMP_WRITER", env)?.trim().toLowerCase() === "claude" ? "claude" : "codex";
 }
 
 const DUMP_KINDS = new Set([
@@ -1002,13 +1003,13 @@ function isValidTimezone(zone: string | undefined): zone is string {
   }
 }
 
-// The brief lane's target-date timezone. A validated FORGE_BRIEF_TIMEZONE wins so
+// The brief lane's target-date timezone. A validated COVE_BRIEF_TIMEZONE wins so
 // the Mini (whose local day_plans is stale by design) targets Alex's real
 // morning; otherwise the open plan's zone, then the latest settlement's, then
 // the machine's, then UTC.
 function resolveBriefTimezone(store: DayPlanStore): string {
   const readModel = store.getReadModel();
-  const envZone = process.env.FORGE_BRIEF_TIMEZONE;
+  const envZone = coveEnv("BRIEF_TIMEZONE");
   return (
     (isValidTimezone(envZone) ? envZone : undefined) ??
     readModel.currentPlan?.timezone ??
@@ -1300,7 +1301,7 @@ export async function runOneMorningBrief(
 }
 
 // Scheduled entry point (the ~7:30 local LaunchAgent run, which may fire late
-// on wake). Targets today with a validated FORGE_BRIEF_TIMEZONE first (so the
+// on wake). Targets today with a validated COVE_BRIEF_TIMEZONE first (so the
 // Mini, whose local day_plans is stale by design, still targets Alex's real
 // morning), then the open plan's zone, the latest settlement's, the machine's,
 // and UTC. When relaying, it first imports any already-synced artifact and waits

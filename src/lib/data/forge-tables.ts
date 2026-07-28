@@ -1,4 +1,4 @@
-export const FORGE_REST_TABLES = [
+export const COVE_REST_TABLES = [
   "tasks",
   "task_columns",
   "contacts",
@@ -12,4 +12,4 @@ export const FORGE_REST_TABLES = [
   "inbound_events",
 ] as const;
 
-export type ForgeRestTable = typeof FORGE_REST_TABLES[number];
+export type ForgeRestTable = typeof COVE_REST_TABLES[number];

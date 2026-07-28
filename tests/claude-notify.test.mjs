@@ -34,7 +34,7 @@ test('terminal-notifier receives sanitized values as separate argv and dedupes a
   const calls = [];
   const logs = [];
   const notify = createExecutionNotifier({
-    env: { FORGE_NOTIFY: '1' },
+    env: { COVE_NOTIFY: '1' },
     processStartedAt: PROCESS_STARTED_AT,
     exists: (candidate) => candidate === '/opt/homebrew/bin/terminal-notifier',
     spawnImpl: (executable, args, options) => {
@@ -50,7 +50,7 @@ test('terminal-notifier receives sanitized values as separate argv and dedupes a
   assert.equal(calls.length, 1);
   assert.equal(calls[0].executable, '/opt/homebrew/bin/terminal-notifier');
   assert.deepEqual(calls[0].args, [
-    '-title', 'Forge needs you',
+    '-title', 'Cove needs you',
     '-message', 'Plan ready: Finish launch brief. Claude has questions only you can answer.',
     '-group', 'forge-run-123',
     '-open', 'claude://resume?session=session%20with%20spaces',
@@ -67,21 +67,21 @@ test('notification gate and process-start guard suppress delivery without consum
   };
   await createExecutionNotifier({ env: {}, spawnImpl })(input());
   await createExecutionNotifier({
-    env: { FORGE_NOTIFY: '1' },
+    env: { COVE_NOTIFY: '1' },
     processStartedAt: new Date('2026-07-16T18:01:00.000Z'),
     spawnImpl,
   })(input());
   assert.equal(spawns, 0);
 });
 
-test('default notifier is a no-op and does not throw when FORGE_NOTIFY is unset', async () => {
-  const previous = process.env.FORGE_NOTIFY;
-  delete process.env.FORGE_NOTIFY;
+test('default notifier is a no-op and does not throw when COVE_NOTIFY is unset', async () => {
+  const previous = process.env.COVE_NOTIFY;
+  delete process.env.COVE_NOTIFY;
   try {
     await assert.doesNotReject(notifyExecutionRun(input({ transitionedAt: new Date().toISOString() })));
   } finally {
-    if (previous === undefined) delete process.env.FORGE_NOTIFY;
-    else process.env.FORGE_NOTIFY = previous;
+    if (previous === undefined) delete process.env.COVE_NOTIFY;
+    else process.env.COVE_NOTIFY = previous;
   }
 });
 
@@ -101,7 +101,7 @@ test('notification transition dedupe evicts the oldest entry after 500 keys', ()
 test('notification spawn failure is contained and logged once', async () => {
   const logs = [];
   const notify = createExecutionNotifier({
-    env: { FORGE_NOTIFY: '1' },
+    env: { COVE_NOTIFY: '1' },
     processStartedAt: PROCESS_STARTED_AT,
     exists: () => true,
     spawnImpl: () => {
@@ -116,7 +116,7 @@ test('notification spawn failure is contained and logged once', async () => {
 test('osascript fallback keeps user text in argv and has no click action', async () => {
   const calls = [];
   const notify = createExecutionNotifier({
-    env: { FORGE_NOTIFY: '1' },
+    env: { COVE_NOTIFY: '1' },
     processStartedAt: PROCESS_STARTED_AT,
     exists: () => false,
     spawnImpl: (executable, args, options) => {
@@ -129,16 +129,16 @@ test('osascript fallback keeps user text in argv and has no click action', async
   assert.equal(calls[0].executable, '/usr/bin/osascript');
   assert.deepEqual(calls[0].args.slice(-3), [
     '--',
-    'Forge',
-    "Didn't finish: Finish launch brief. Open Forge to restart it.",
+    'Cove',
+    "Didn't finish: Finish launch brief. Open Cove to restart it.",
   ]);
   assert.equal(calls[0].args.includes('http://127.0.0.1:3200/tasks'), false);
 });
 
-test('terminal-notifier opens the Forge board when a session reference is absent', async () => {
+test('terminal-notifier opens the Cove board when a session reference is absent', async () => {
   const calls = [];
   const notify = createExecutionNotifier({
-    env: { FORGE_NOTIFY: '1' },
+    env: { COVE_NOTIFY: '1' },
     processStartedAt: PROCESS_STARTED_AT,
     exists: () => true,
     spawnImpl: (executable, args, options) => {

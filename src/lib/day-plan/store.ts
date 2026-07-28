@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { resolveProjectDirectory } from "../atlas-projects";
 import { hasPlanExecutionResultSubstance } from "../claude-execution/commands";
+import { coveEnv } from "../env";
 import type {
   DayPlan,
   DayPlanAssistantProposal,
@@ -3690,7 +3691,7 @@ export function getDayPlanStore(): DayPlanStore {
   if (!global.__forgeDayPlanStore) {
     global.__forgeDayPlanStore = createDayPlanStore({
       dbPath:
-        process.env.FORGE_DB_PATH ?? path.join(process.cwd(), "data", "forge.db"),
+        coveEnv("DB_PATH") ?? path.join(process.cwd(), "data", "forge.db"),
     });
   }
   return global.__forgeDayPlanStore;

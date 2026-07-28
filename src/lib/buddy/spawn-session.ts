@@ -3,11 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import type { BuddyStore } from "./store";
 import { minimalChildEnvironment, signalProcessGroup } from "../claude-execution/worker";
+import { coveEnv } from "../env";
 
 type SpawnImpl = typeof spawn;
 
 const BUDDY_SEED_SYSTEM_PROMPT = [
-  "This session was started from Forge. Do not read files, use tools, edit anything, or begin the work. Reply with at most 2-3 short bullets outlining how you would approach the request, then STOP. The request below is context for the future desktop session.",
+  "This session was started from Cove. Do not read files, use tools, edit anything, or begin the work. Reply with at most 2-3 short bullets outlining how you would approach the request, then STOP. The request below is context for the future desktop session.",
   "",
   "If a human resumes this session interactively, invoke the Skill tool with skill: orchestrator before continuing the task.",
 ].join("\n");
@@ -19,7 +20,7 @@ export function buildBuddySeedCommand(input: {
   title: string;
 }) {
   return {
-    executable: process.env.FORGE_CLAUDE_BIN ?? path.join(os.homedir(), ".local/bin/claude"),
+    executable: coveEnv("CLAUDE_BIN") ?? path.join(os.homedir(), ".local/bin/claude"),
     args: [
       "-p",
       "--session-id", input.sessionId,
@@ -39,7 +40,7 @@ export function buildBuddySeedCommand(input: {
       // human later resumes interactively is unaffected.
       "--tools", "",
       "--strict-mcp-config",
-      "--mcp-config", path.join(process.cwd(), "scripts/forge-empty-mcp.json"),
+      "--mcp-config", path.join(process.cwd(), "scripts/cove-empty-mcp.json"),
       "--no-chrome",
     ],
     cwd: input.dir,

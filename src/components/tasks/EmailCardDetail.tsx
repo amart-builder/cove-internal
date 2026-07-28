@@ -5,7 +5,7 @@ import { listAllEmailItems, updateEmailItem } from '@/lib/data/email';
 import type { EmailItem } from '@/lib/data/types';
 import { useDataChanged } from '@/lib/data/refresh-bus';
 
-// The interactive body of the daily "Emails: <date>" card. The forge-email skill
+// The interactive body of the daily "Emails: <date>" card. The cove-email skill
 // keeps email_items in sync (Gmail is the source of truth); this view renders the
 // current open items grouped into the same buckets the skill writes, links each to
 // its Gmail thread (draft sits inline), and lets the user check off action items,

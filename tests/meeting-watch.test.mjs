@@ -10,7 +10,7 @@ import {
   runMeetingWatch,
   writeMeetingHeartbeat,
   writeMeetingState,
-} from "../scripts/forge-meeting-watch.mjs";
+} from "../scripts/cove-meeting-watch.mjs";
 import {
   claudeMeetingFallback,
   parseNextSteps,
@@ -24,15 +24,15 @@ function fixture(t) {
     `forge-meeting-watch-${process.pid}-${Date.now()}-${Math.random()}`,
   );
   mkdirSync(path.join(dir, "data", "intake"), { recursive: true });
-  const configPath = path.join(dir, "data", "forge-meetings.json");
-  const emailConfigPath = path.join(dir, "data", "forge-email.json");
+  const configPath = path.join(dir, "data", "cove-meetings.json");
+  const emailConfigPath = path.join(dir, "data", "cove-email.json");
   const statePath = path.join(dir, "data", "forge-meeting-state.json");
   const heartbeatPath = path.join(dir, "data", "intake", "heartbeats.json");
   writeFileSync(configPath, JSON.stringify({
     enabled: true,
     query: 'from:(gemini-noreply@google.com) OR subject:("Notes:")',
     window: "newer_than:2d",
-    processed_label: "Forge/Meeting-Processed",
+    processed_label: "Cove/Meeting-Processed",
   }));
   writeFileSync(emailConfigPath, JSON.stringify({
     account_email: "alex@example.com",
@@ -75,7 +75,7 @@ function fakeComposio(calls = []) {
     }
     if (tool === "GMAIL_LIST_LABELS") {
       return {
-        labels: [{ id: "Label_42", name: "Forge/Meeting-Processed" }],
+        labels: [{ id: "Label_42", name: "Cove/Meeting-Processed" }],
       };
     }
     if (tool === "GMAIL_MODIFY_THREAD_LABELS") return {};
@@ -89,7 +89,7 @@ test("meeting matcher config is loaded entirely from JSON", (t) => {
     enabled: true,
     query: 'from:(gemini-noreply@google.com) OR subject:("Notes:")',
     window: "newer_than:2d",
-    processedLabel: "Forge/Meeting-Processed",
+    processedLabel: "Cove/Meeting-Processed",
   });
 });
 
@@ -371,7 +371,7 @@ test("disabled watcher emits an explicit disabled heartbeat", async (t) => {
     enabled: false,
     query: "from:gemini-noreply@google.com",
     window: "newer_than:2d",
-    processed_label: "Forge/Meeting-Processed",
+    processed_label: "Cove/Meeting-Processed",
   }));
   const result = await runMeetingWatch({
     ...files,
@@ -416,7 +416,7 @@ test("dry run fetches and parses without any durable writes", async (t) => {
   assert.equal(calls.some((call) => call.tool === "GMAIL_LIST_LABELS"), false);
   assert.equal(
     calls.find((call) => call.tool === "GMAIL_FETCH_EMAILS").params.query,
-    '(from:(gemini-noreply@google.com) OR subject:("Notes:")) newer_than:2d -label:"Forge/Meeting-Processed"',
+    '(from:(gemini-noreply@google.com) OR subject:("Notes:")) newer_than:2d -label:"Cove/Meeting-Processed"',
   );
   assert.equal(readMeetingState(files.statePath).processed_ids.length, 0);
   assert.throws(() => readFileSync(files.heartbeatPath));

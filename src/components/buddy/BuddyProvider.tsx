@@ -178,7 +178,7 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
     const response = await fetch('/api/day-plan', { cache: 'no-store' });
     const payload = await jsonResponse(response);
     if (!response.ok || typeof payload.csrfToken !== 'string') {
-      throw new Error(typeof payload.error === 'string' ? payload.error : 'Forge request token is unavailable.');
+      throw new Error(typeof payload.error === 'string' ? payload.error : 'Cove request token is unavailable.');
     }
     setCsrfToken(payload.csrfToken);
     return payload.csrfToken;

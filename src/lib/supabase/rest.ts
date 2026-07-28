@@ -171,7 +171,7 @@ async function serverRequest<T>(
 
   if (!response.ok) {
     const message = await response.text();
-    throw new Error(`Forge ${method} ${table} failed: ${message}`);
+    throw new Error(`Cove ${method} ${table} failed: ${message}`);
   }
 
   if (response.status === 204) {
@@ -198,11 +198,11 @@ export async function forgeRest<T>(
   let requestToken = initialToken;
 
   if (options.requireAuth && !hasStoredAccessToken()) {
-    throw new Error("Supabase sign-in is required to read Forge data.");
+    throw new Error("Supabase sign-in is required to read Cove data.");
   }
 
   if (method !== "GET" && !hasStoredAccessToken()) {
-    throw new Error("Supabase sign-in is required to modify Forge data.");
+    throw new Error("Supabase sign-in is required to modify Cove data.");
   }
 
   let response = await request(table, options, requestToken);
@@ -213,7 +213,7 @@ export async function forgeRest<T>(
       requestToken = refreshedToken;
       response = await request(table, options, requestToken);
     } else if (options.requireAuth) {
-      throw new Error("Supabase sign-in is required to read Forge data.");
+      throw new Error("Supabase sign-in is required to read Cove data.");
     } else if (method === "GET") {
       requestToken = supabaseAnonKey;
       response = await request(table, options, requestToken);

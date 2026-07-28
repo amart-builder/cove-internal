@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { forgeDataDir } from "../operator";
+import { coveDataDir } from "../operator";
+import { coveEnv } from "../env";
 
 export type SuggestionKind = "create_task" | "returned_work" | "observed_progress";
 
@@ -61,7 +62,7 @@ const MAX_SUGGESTIONS = 500;
 const MAX_EVENTS = 2000;
 let testStorePath: string | undefined;
 let testNow: Date | undefined;
-// Keyed by the token file's path: FORGE_DB_PATH/FORGE_DATA_DIR can change
+// Keyed by the token file's path: COVE_DB_PATH/COVE_DATA_DIR can change
 // between tests, and tsx can load two copies of this module. Tying the cache
 // to the file keeps every copy converging on the same on-disk token.
 let tokenCache: { file: string; token: string } | undefined;
@@ -79,12 +80,12 @@ function nextMorning(now: Date): Date {
 
 function storePath(): string {
   if (testStorePath) return testStorePath;
-  const configuredName = process.env.FORGE_QUIET_CURRENT_FILE;
+  const configuredName = coveEnv("QUIET_CURRENT_FILE");
   const fileName = configuredName ? path.basename(configuredName) : "quiet-current.json";
-  return path.join(forgeDataDir(), fileName);
+  return path.join(coveDataDir(), fileName);
 }
 
-/** Test-only path override so state tests never touch a real Forge installation. */
+/** Test-only path override so state tests never touch a real Cove installation. */
 export function setQuietCurrentStorePathForTests(file?: string): void {
   testStorePath = file;
   tokenCache = undefined;

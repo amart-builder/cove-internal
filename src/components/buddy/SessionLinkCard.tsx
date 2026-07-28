@@ -111,7 +111,7 @@ export default function SessionLinkCard({ session }: { session: SpawnedSessionRe
       {openable && status.deepLinksEnabled === false && (
         <div className="mt-3 space-y-2">
           <p className="text-[10px] text-muted-foreground">
-            Created on {status.hostname ?? 'another Forge host'}
+            Created on {status.hostname ?? 'another Cove host'}
           </p>
           <div className="flex items-start gap-2 rounded-lg bg-muted p-2">
             <code className="min-w-0 flex-1 break-all text-[10px] leading-relaxed">{command}</code>

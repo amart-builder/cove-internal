@@ -12,7 +12,7 @@ function denied(request: NextRequest): NextResponse | undefined {
     return NextResponse.json({ error: "Untrusted request host." }, { status: 403 });
   }
   if (request.headers.get("x-forge-csrf") !== getQuietCurrentCsrfToken()) {
-    return NextResponse.json({ error: "Forge request token is missing." }, { status: 403 });
+    return NextResponse.json({ error: "Cove request token is missing." }, { status: 403 });
   }
 }
 

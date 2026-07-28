@@ -2,8 +2,8 @@ import * as runtime from "./operator-runtime.mjs";
 
 export type OperatorProfile = Record<string, unknown>;
 
-export function forgeDataDir(explicit?: string): string {
-  return runtime.forgeDataDir(explicit);
+export function coveDataDir(explicit?: string): string {
+  return runtime.coveDataDir(explicit);
 }
 
 export function operatorProfilePath(dataDir?: string): string {

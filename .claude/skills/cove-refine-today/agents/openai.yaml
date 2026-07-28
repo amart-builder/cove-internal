@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cove Refine Today"
+  short_description: "Safely translate morning replanning into Cove task changes"
+  default_prompt: "Refine today by creating, updating, completing, assigning, and reprioritizing Cove task cards."

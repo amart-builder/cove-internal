@@ -3,13 +3,14 @@ import { getRuntimeMode } from "@/lib/runtime/mode";
 import { handleLocalRest } from "@/lib/local/db";
 import { getQuietCurrentCsrfToken } from "@/lib/quiet-current/store";
 import { hasDayPlanRouteAccess, isTrustedForgeRequest } from "@/lib/request-security";
-import { FORGE_REST_TABLES } from "@/lib/data/forge-tables";
+import { COVE_REST_TABLES } from "@/lib/data/forge-tables";
+import { coveEnv } from "../../../../lib/env";
 
 type RouteContext = {
   params: Promise<{ table: string }>;
 };
 
-const ALLOWED_TABLES = new Set<string>(FORGE_REST_TABLES);
+const ALLOWED_TABLES = new Set<string>(COVE_REST_TABLES);
 const MUTATING_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 
 // PostgREST query parameters that shape the response rather than select rows.
@@ -52,7 +53,7 @@ export function forgeRestMutationAccessFailure(
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const tablePrefix =
-  process.env.FORGE_TABLE_PREFIX ??
+  coveEnv("TABLE_PREFIX") ??
   process.env.NEXT_PUBLIC_FORGE_TABLE_PREFIX ??
   "";
 
@@ -93,7 +94,7 @@ async function handleRequest(
       return new NextResponse("Untrusted request host.", { status: 403 });
     }
     if (accessFailure === "csrf") {
-      return new NextResponse("Forge request token is missing.", { status: 403 });
+      return new NextResponse("Cove request token is missing.", { status: 403 });
     }
   }
   if (!MUTATING_METHODS.has(method) && !isTrustedForgeRequest(request)) {
@@ -150,7 +151,7 @@ async function handleRequest(
   }
 
   if (!ALLOWED_TABLES.has(unprefixedTable)) {
-    return new NextResponse("Unknown Forge table.", { status: 404 });
+    return new NextResponse("Unknown Cove table.", { status: 404 });
   }
 
   let response: Response;

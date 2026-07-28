@@ -255,7 +255,7 @@ test('Buddy store migrates legacy tables that are missing current columns', (t) 
 });
 
 test('getBuddyStore replaces an HMR-stale singleton whose API predates completeTurn', (t) => {
-  const previousPath = process.env.FORGE_DB_PATH;
+  const previousPath = process.env.COVE_DB_PATH;
   const previousStore = globalThis.__forgeBuddyStore;
   const currentFile = path.join(os.tmpdir(), `forge-buddy-current-${process.pid}-${Date.now()}.db`);
   const staleFile = path.join(os.tmpdir(), `forge-buddy-stale-${process.pid}-${Date.now()}.db`);
@@ -263,7 +263,7 @@ test('getBuddyStore replaces an HMR-stale singleton whose API predates completeT
   delete staleStore.completeTurn;
   globalThis.__forgeBuddyStore = staleStore;
   delete globalThis.__forgeBuddyStoreVersion;
-  process.env.FORGE_DB_PATH = currentFile;
+  process.env.COVE_DB_PATH = currentFile;
   t.after(() => {
     const currentStore = globalThis.__forgeBuddyStore;
     if (currentStore && currentStore !== staleStore) currentStore.close();
@@ -271,8 +271,8 @@ test('getBuddyStore replaces an HMR-stale singleton whose API predates completeT
     if (previousStore) globalThis.__forgeBuddyStore = previousStore;
     else delete globalThis.__forgeBuddyStore;
     delete globalThis.__forgeBuddyStoreVersion;
-    if (previousPath === undefined) delete process.env.FORGE_DB_PATH;
-    else process.env.FORGE_DB_PATH = previousPath;
+    if (previousPath === undefined) delete process.env.COVE_DB_PATH;
+    else process.env.COVE_DB_PATH = previousPath;
     for (const file of [currentFile, staleFile]) {
       for (const suffix of ['', '-wal', '-shm']) rmSync(`${file}${suffix}`, { force: true });
     }

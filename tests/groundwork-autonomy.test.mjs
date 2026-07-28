@@ -205,7 +205,7 @@ test("level off prevents queue reads and execution", async () => {
 test("successful groundwork attaches a bounded section, swaps tags, and starts the clock", async (t) => {
   const dir = fixture(t);
   writeFileSync(
-    path.join(dir, "forge-autonomy.json"),
+    path.join(dir, "cove-autonomy.json"),
     `${JSON.stringify({
       level: "groundwork",
       first_groundwork_at: null,
@@ -219,7 +219,7 @@ test("successful groundwork attaches a bounded section, swaps tags, and starts t
     description: [
       "Alex's latest edit.",
       "",
-      "## Groundwork (Forge)",
+      "## Groundwork (Cove)",
       "",
       "Old groundwork.",
       "",
@@ -257,12 +257,12 @@ test("successful groundwork attaches a bounded section, swaps tags, and starts t
   );
   const patch = patches[1].patch;
   const section = patch.description.slice(
-    patch.description.indexOf("## Groundwork (Forge)"),
+    patch.description.indexOf("## Groundwork (Cove)"),
     patch.description.indexOf("<!-- /forge-groundwork -->") +
       "<!-- /forge-groundwork -->".length,
   );
   assert.equal(section.length, 4_000);
-  assert.match(section, /\[Groundwork truncated by Forge\.\]\n\n<!-- \/forge-groundwork -->$/);
+  assert.match(section, /\[Groundwork truncated by Cove\.\]\n\n<!-- \/forge-groundwork -->$/);
   assert.match(patch.description, /^Alex's latest edit\./);
   assert.match(
     patch.description,
@@ -274,7 +274,7 @@ test("successful groundwork attaches a bounded section, swaps tags, and starts t
   assert.equal(patch.tags.includes("groundwork-grade:groundwork"), true);
   assert.equal(patch.tags.includes("alex-added"), true);
   assert.deepEqual(
-    JSON.parse(readFileSync(path.join(dir, "forge-autonomy.json"), "utf8")),
+    JSON.parse(readFileSync(path.join(dir, "cove-autonomy.json"), "utf8")),
     {
       level: "groundwork",
       first_groundwork_at: NOW.toISOString(),
@@ -284,10 +284,10 @@ test("successful groundwork attaches a bounded section, swaps tags, and starts t
   );
   assert.equal(
     attachGroundwork(
-      "Before\n\n## Groundwork (Forge)\n\nOld\n\n## User Notes\n\nKeep me",
+      "Before\n\n## Groundwork (Cove)\n\nOld\n\n## User Notes\n\nKeep me",
       "New",
     ),
-    "Before\n\n## Groundwork (Forge)\n\nNew\n\n<!-- /forge-groundwork -->\n\n## User Notes\n\nKeep me",
+    "Before\n\n## Groundwork (Cove)\n\nNew\n\n<!-- /forge-groundwork -->\n\n## User Notes\n\nKeep me",
   );
 });
 
@@ -483,16 +483,16 @@ test("task-writer PATCH uses tag containment as a compare-and-swap guard", async
 
 test("local task CAS supports PostgREST tag containment", (t) => {
   const dir = fixture(t);
-  const previousPath = process.env.FORGE_DB_PATH;
+  const previousPath = process.env.COVE_DB_PATH;
   const previousDb = globalThis.__forgeDb;
-  process.env.FORGE_DB_PATH = path.join(dir, "forge.db");
+  process.env.COVE_DB_PATH = path.join(dir, "forge.db");
   delete globalThis.__forgeDb;
   t.after(() => {
     globalThis.__forgeDb?.close();
     delete globalThis.__forgeDb;
     if (previousDb !== undefined) globalThis.__forgeDb = previousDb;
-    if (previousPath === undefined) delete process.env.FORGE_DB_PATH;
-    else process.env.FORGE_DB_PATH = previousPath;
+    if (previousPath === undefined) delete process.env.COVE_DB_PATH;
+    else process.env.COVE_DB_PATH = previousPath;
   });
   assert.equal(handleLocalRest(
     "tasks",
@@ -550,7 +550,7 @@ test("dry-run analyzes one task but writes no task or setting state", async (t) 
   });
   assert.equal(result.outcome, "dry-run");
   assert.equal(result.output, "Dry-run groundwork.");
-  assert.equal(existsSync(path.join(dir, "forge-autonomy.json")), false);
+  assert.equal(existsSync(path.join(dir, "cove-autonomy.json")), false);
 });
 
 test("two-week check-in uses exact date math and auto-closes after three briefs", (t) => {
@@ -567,7 +567,7 @@ test("two-week check-in uses exact date math and auto-closes after three briefs"
   );
   assert.equal(groundworkCheckinDue(settings, NOW), true);
   writeFileSync(
-    path.join(dir, "forge-autonomy.json"),
+    path.join(dir, "cove-autonomy.json"),
     `${JSON.stringify(settings)}\n`,
   );
   for (let presentation = 1; presentation <= 3; presentation += 1) {
@@ -576,7 +576,7 @@ test("two-week check-in uses exact date math and auto-closes after three briefs"
     assert.match(source.content, /Groundwork has been running for two weeks/);
     assert.match(source.content, /checkin_presented_count to 0 re-opens it/);
     const stored = JSON.parse(
-      readFileSync(path.join(dir, "forge-autonomy.json"), "utf8"),
+      readFileSync(path.join(dir, "cove-autonomy.json"), "utf8"),
     );
     assert.equal(stored.checkin_presented_count, presentation);
     assert.equal(stored.checkin_answered, presentation === 3);
@@ -586,12 +586,12 @@ test("two-week check-in uses exact date math and auto-closes after three briefs"
 
 test("the supervised watch lane includes groundwork without a new agent", () => {
   const worker = readFileSync(
-    new URL("../scripts/forge-claude-worker.ts", import.meta.url),
+    new URL("../scripts/cove-claude-worker.ts", import.meta.url),
     "utf8",
   );
   assert.match(worker, /watchGroundworkQueue\(/);
   assert.match(worker, /lane === "groundwork"/);
-  assert.match(worker, /FORGE_CLAUDE_WORKER_ENABLED !== "1"/);
+  assert.match(worker, /coveEnv\("CLAUDE_WORKER_ENABLED"\) !== "1"/);
   assert.match(worker, /process\.once\("SIGTERM", stop\)/);
   assert.match(worker, /abortSignal: shutdown\.signal/);
   assert.ok(
@@ -607,7 +607,7 @@ test("standalone groundwork dry-run still requires worker enablement", () => {
     [
       "--import",
       "tsx",
-      "scripts/forge-claude-worker.ts",
+      "scripts/cove-claude-worker.ts",
       "--lane",
       "groundwork",
       "--dry-run",
@@ -616,7 +616,7 @@ test("standalone groundwork dry-run still requires worker enablement", () => {
       cwd: new URL("..", import.meta.url),
       env: {
         ...process.env,
-        FORGE_CLAUDE_WORKER_ENABLED: "0",
+        COVE_CLAUDE_WORKER_ENABLED: "0",
       },
       encoding: "utf8",
     },

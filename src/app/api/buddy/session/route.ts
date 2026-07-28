@@ -4,6 +4,7 @@ import { hasDayPlanRouteAccess } from "@/lib/request-security";
 import { getQuietCurrentCsrfToken } from "@/lib/quiet-current/store";
 import { BUDDY_STALE_TURN_MS, getBuddyStore } from "@/lib/buddy/store";
 import type { BuddyStore, BuddyState } from "@/lib/buddy/store";
+import { coveEnv } from "../../../../lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,7 +23,7 @@ function sessionPayload() {
     totalCostUsd: state.totalCostUsd,
     createdAt: state.createdAt,
     hostname: os.hostname(),
-    deepLinksEnabled: process.env.FORGE_BUDDY_DEEPLINKS !== "0",
+    deepLinksEnabled: coveEnv("BUDDY_DEEPLINKS") !== "0",
   };
 }
 
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Untrusted request host." }, { status: 403 });
   }
   if (request.headers.get("x-forge-csrf") !== getQuietCurrentCsrfToken()) {
-    return NextResponse.json({ error: "Forge request token is missing." }, { status: 403 });
+    return NextResponse.json({ error: "Cove request token is missing." }, { status: 403 });
   }
   try {
     const body = await request.json() as unknown;

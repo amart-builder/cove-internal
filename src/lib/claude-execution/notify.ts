@@ -1,10 +1,11 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import type { DayPlanExecutionRunStatus } from "../day-plan/types";
+import { coveEnv } from "../env";
 
 const TERMINAL_NOTIFIER = "/opt/homebrew/bin/terminal-notifier";
 const OSASCRIPT = "/usr/bin/osascript";
-const FORGE_BOARD_URL = "http://127.0.0.1:3200/tasks";
+const COVE_BOARD_URL = "http://127.0.0.1:3200/tasks";
 const DELIVERY_TIMEOUT_MS = 3_000;
 const PROCESS_STARTED_AT = new Date(Date.now() - process.uptime() * 1_000);
 export const MAX_NOTIFICATION_DEDUPE_ENTRIES = 500;
@@ -75,12 +76,12 @@ export function notificationCopy(input: ExecutionNotificationInput): {
   const itemTitle = sanitizeNotificationText(input.itemTitle) || "Claude work";
   if (input.state === "failed") {
     return {
-      title: "Forge",
-      body: boundedBody("Didn't finish: ", itemTitle, ". Open Forge to restart it."),
+      title: "Cove",
+      body: boundedBody("Didn't finish: ", itemTitle, ". Open Cove to restart it."),
     };
   }
   return {
-    title: "Forge needs you",
+    title: "Cove needs you",
     body: boundedBody(
       "Plan ready: ",
       itemTitle,
@@ -124,7 +125,7 @@ export function createExecutionNotifier(dependencies: ExecutionNotifierDependenc
   const deliveredTransitions = dependencies.deliveredTransitions ?? new Set<string>();
 
   return async function notifyExecutionRun(input: ExecutionNotificationInput): Promise<void> {
-    if (env.FORGE_NOTIFY !== "1") return;
+    if (coveEnv("NOTIFY", env) !== "1") return;
     const copy = notificationCopy(input);
     if (!copy) return;
     const transitionedAt = new Date(input.transitionedAt).getTime();
@@ -135,7 +136,7 @@ export function createExecutionNotifier(dependencies: ExecutionNotifierDependenc
 
     const openUrl = input.claudeSessionId
       ? `claude://resume?session=${encodeURIComponent(input.claudeSessionId)}`
-      : FORGE_BOARD_URL;
+      : COVE_BOARD_URL;
     const useTerminalNotifier = exists(TERMINAL_NOTIFIER);
     const executable = useTerminalNotifier ? TERMINAL_NOTIFIER : OSASCRIPT;
     const args = useTerminalNotifier

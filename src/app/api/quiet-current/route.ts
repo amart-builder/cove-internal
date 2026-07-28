@@ -12,6 +12,7 @@ import {
 } from "@/lib/quiet-current/store";
 import { isTrustedForgeRequest } from "@/lib/request-security";
 import { consumeProgressSuggestionRelays } from "@/lib/progress/relay";
+import { coveEnv } from "../../../lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,7 +49,7 @@ function stringValue(
 }
 
 function ingestProgressSuggestionRelays(): void {
-  if (process.env.FORGE_PROGRESS_RELAY_CONSUMER !== "1") return;
+  if (coveEnv("PROGRESS_RELAY_CONSUMER") !== "1") return;
   consumeProgressSuggestionRelays({
     log: (message) => console.error(message),
   });
@@ -84,7 +85,7 @@ export async function POST(request: NextRequest) {
     if (action !== "suggest") {
       const suppliedToken = request.headers.get("x-forge-csrf");
       if (!suppliedToken || suppliedToken !== getQuietCurrentCsrfToken()) {
-        return NextResponse.json({ error: "Forge request token is missing." }, { status: 403 });
+        return NextResponse.json({ error: "Cove request token is missing." }, { status: 403 });
       }
     }
 

@@ -11,23 +11,23 @@ import { getQuietCurrentCsrfToken } from '../src/lib/quiet-current/store.ts';
 
 function setup(t) {
   const root = path.join(os.tmpdir(), `forge-buddy-confirm-${process.pid}-${Date.now()}-${Math.random()}`);
-  const previousMode = process.env.FORGE_DAY_PLAN_ACCESS_MODE;
-  const previousDb = process.env.FORGE_DB_PATH;
-  const previousQuietFile = process.env.FORGE_QUIET_CURRENT_FILE;
+  const previousMode = process.env.COVE_DAY_PLAN_ACCESS_MODE;
+  const previousDb = process.env.COVE_DB_PATH;
+  const previousQuietFile = process.env.COVE_QUIET_CURRENT_FILE;
   const quietFile = `buddy-confirm-${process.pid}-${Date.now()}-${Math.random()}.json`;
-  process.env.FORGE_DAY_PLAN_ACCESS_MODE = 'loopback';
-  process.env.FORGE_DB_PATH = path.join(root, 'forge.db');
-  process.env.FORGE_QUIET_CURRENT_FILE = quietFile;
+  process.env.COVE_DAY_PLAN_ACCESS_MODE = 'loopback';
+  process.env.COVE_DB_PATH = path.join(root, 'forge.db');
+  process.env.COVE_QUIET_CURRENT_FILE = quietFile;
   t.after(() => {
     globalThis.__forgeBuddyStore?.close();
     delete globalThis.__forgeBuddyStore;
     delete globalThis.__forgeBuddyStoreVersion;
-    if (previousMode === undefined) delete process.env.FORGE_DAY_PLAN_ACCESS_MODE;
-    else process.env.FORGE_DAY_PLAN_ACCESS_MODE = previousMode;
-    if (previousDb === undefined) delete process.env.FORGE_DB_PATH;
-    else process.env.FORGE_DB_PATH = previousDb;
-    if (previousQuietFile === undefined) delete process.env.FORGE_QUIET_CURRENT_FILE;
-    else process.env.FORGE_QUIET_CURRENT_FILE = previousQuietFile;
+    if (previousMode === undefined) delete process.env.COVE_DAY_PLAN_ACCESS_MODE;
+    else process.env.COVE_DAY_PLAN_ACCESS_MODE = previousMode;
+    if (previousDb === undefined) delete process.env.COVE_DB_PATH;
+    else process.env.COVE_DB_PATH = previousDb;
+    if (previousQuietFile === undefined) delete process.env.COVE_QUIET_CURRENT_FILE;
+    else process.env.COVE_QUIET_CURRENT_FILE = previousQuietFile;
     rmSync(path.join(process.cwd(), 'data', quietFile), { force: true });
     rmSync(path.join(process.cwd(), 'data', `${quietFile}.token`), { force: true });
     rmSync(root, { recursive: true, force: true });

@@ -59,16 +59,16 @@ function setEnv(t, changes) {
 
 function disableExternalSources(t, dir, overrides = {}) {
   setEnv(t, {
-    FORGE_BRIEF_COMPOSIO_KEY: '',
-    FORGE_BRIEF_COMPOSIO_KEY_PATH: path.join(dir, 'missing-composio-key'),
+    COVE_BRIEF_COMPOSIO_KEY: '',
+    COVE_BRIEF_COMPOSIO_KEY_PATH: path.join(dir, 'missing-composio-key'),
     ATTIO_API_KEY: '',
     ATTIO_TOKEN: '',
-    FORGE_BRIEF_MEMORY_PATH: '',
-    FORGE_BRIEF_JARVIS_TOKEN_PATH: path.join(dir, 'missing-jarvis-token'),
-    FORGE_BRIEF_JARVIS_URL: '',
+    COVE_BRIEF_MEMORY_PATH: '',
+    COVE_BRIEF_JARVIS_TOKEN_PATH: path.join(dir, 'missing-jarvis-token'),
+    COVE_BRIEF_JARVIS_URL: '',
     // Nothing here may read the installed operator profile: a fresh clone has
     // a different one, or none, and these tests must mean the same thing there.
-    FORGE_PROFILE_PATH: path.join(dir, 'missing-profile.json'),
+    COVE_PROFILE_PATH: path.join(dir, 'missing-profile.json'),
     ...overrides,
   });
 }
@@ -78,7 +78,7 @@ function disableExternalSources(t, dir, overrides = {}) {
 function writeOperatorProfile(t, dir, profile) {
   const profilePath = path.join(dir, 'operator-profile.json');
   writeFileSync(profilePath, JSON.stringify(profile));
-  setEnv(t, { FORGE_PROFILE_PATH: profilePath });
+  setEnv(t, { COVE_PROFILE_PATH: profilePath });
   return profilePath;
 }
 
@@ -114,23 +114,23 @@ test('brief file policy treats empty env values as unset and prefers env, client
   writeFileSync(envGoals, 'Configured goals.');
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   setEnv(t, {
-    FORGE_BRIEF_GOALS_PATH: '   ',
-    FORGE_BRIEF_SPRINT_MEMO_PATH: '',
-    FORGE_BRIEF_OPERATOR_PROFILE_PATH: '',
-    FORGE_BRIEF_LEADUP_PATH: '',
-    FORGE_PROFILE_PATH: undefined,
+    COVE_BRIEF_GOALS_PATH: '   ',
+    COVE_BRIEF_SPRINT_MEMO_PATH: '',
+    COVE_BRIEF_OPERATOR_PROFILE_PATH: '',
+    COVE_BRIEF_LEADUP_PATH: '',
+    COVE_PROFILE_PATH: undefined,
   });
 
   assert.equal(
     resolveBriefFileSourcePolicy({ dataDir, homeDir }).goals.path,
     clientGoals,
   );
-  process.env.FORGE_BRIEF_GOALS_PATH = `  ${envGoals}  `;
+  process.env.COVE_BRIEF_GOALS_PATH = `  ${envGoals}  `;
   assert.equal(
     resolveBriefFileSourcePolicy({ dataDir, homeDir }).goals.path,
     envGoals,
   );
-  process.env.FORGE_BRIEF_GOALS_PATH = '';
+  process.env.COVE_BRIEF_GOALS_PATH = '';
   rmSync(clientGoals);
   assert.equal(
     resolveBriefFileSourcePolicy({ dataDir, homeDir }).goals.path,
@@ -147,12 +147,12 @@ test('an absent default sprint memo is optional in collection and checkpoint ver
   writeFileSync(clientGoals, 'Client goals.');
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   disableExternalSources(t, dataDir, {
-    FORGE_BRIEF_GOALS_PATH: '',
-    FORGE_BRIEF_SPRINT_MEMO_PATH: '',
-    FORGE_BRIEF_OPERATOR_PROFILE_PATH: '',
-    FORGE_BRIEF_LEADUP_PATH: '',
-    FORGE_PROFILE_PATH: path.join(dataDir, 'forge-profile.json'),
-    FORGE_SUPERNOVA_DIR: path.join(dir, 'missing-supernova'),
+    COVE_BRIEF_GOALS_PATH: '',
+    COVE_BRIEF_SPRINT_MEMO_PATH: '',
+    COVE_BRIEF_OPERATOR_PROFILE_PATH: '',
+    COVE_BRIEF_LEADUP_PATH: '',
+    COVE_PROFILE_PATH: path.join(dataDir, 'cove-profile.json'),
+    COVE_SUPERNOVA_DIR: path.join(dir, 'missing-supernova'),
   });
 
   const collected = await collectMorningBriefSources({
@@ -184,7 +184,7 @@ test('operator profile falls back to a bounded readable JSON whitelist', async (
   const dataDir = path.join(dir, 'data');
   mkdirSync(path.join(dataDir, 'brief'), { recursive: true });
   writeFileSync(path.join(dataDir, 'brief', 'goals.md'), 'Client goals.');
-  writeFileSync(path.join(dataDir, 'forge-profile.json'), JSON.stringify({
+  writeFileSync(path.join(dataDir, 'cove-profile.json'), JSON.stringify({
     name: 'Jordan',
     timezone: 'America/New_York',
     workday: { starts: '08:30', ends: '17:30' },
@@ -198,12 +198,12 @@ test('operator profile falls back to a bounded readable JSON whitelist', async (
   }));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   disableExternalSources(t, dataDir, {
-    FORGE_BRIEF_GOALS_PATH: '',
-    FORGE_BRIEF_SPRINT_MEMO_PATH: '',
-    FORGE_BRIEF_OPERATOR_PROFILE_PATH: '',
-    FORGE_BRIEF_LEADUP_PATH: '',
-    FORGE_PROFILE_PATH: path.join(dataDir, 'forge-profile.json'),
-    FORGE_SUPERNOVA_DIR: path.join(dir, 'missing-supernova'),
+    COVE_BRIEF_GOALS_PATH: '',
+    COVE_BRIEF_SPRINT_MEMO_PATH: '',
+    COVE_BRIEF_OPERATOR_PROFILE_PATH: '',
+    COVE_BRIEF_LEADUP_PATH: '',
+    COVE_PROFILE_PATH: path.join(dataDir, 'cove-profile.json'),
+    COVE_SUPERNOVA_DIR: path.join(dir, 'missing-supernova'),
   });
   const collected = await collectMorningBriefSources({
     store: { listRecentSnapshots: () => [] },
@@ -229,7 +229,7 @@ test('operator profile falls back to a bounded readable JSON whitelist', async (
 
 test('calendar fetches MCP SSE, derives DST-aware bounds, and formats visible events', async (t) => {
   const { dir, options } = fixture(t);
-  disableExternalSources(t, dir, { FORGE_BRIEF_COMPOSIO_KEY: 'composio-test-key' });
+  disableExternalSources(t, dir, { COVE_BRIEF_COMPOSIO_KEY: 'composio-test-key' });
   const requests = [];
   let initializeResponse;
   const items = [
@@ -302,7 +302,7 @@ test('calendar reports not_configured for a missing key file', async (t) => {
 
 test('calendar fetch failures stay optional and leave the other sources available', async (t) => {
   const { dir, options } = fixture(t);
-  disableExternalSources(t, dir, { FORGE_BRIEF_COMPOSIO_KEY: 'composio-test-key' });
+  disableExternalSources(t, dir, { COVE_BRIEF_COMPOSIO_KEY: 'composio-test-key' });
   const fetchImpl = async (url) => {
     const forge = forgeRowsResponse(url);
     if (forge) return forge;
@@ -467,13 +467,13 @@ test('CRM reports not_configured when neither Attio credential is present', asyn
 
 test('memory decisions prefer decision-tagged Jarvis results and bound each line', async (t) => {
   const { dir, options } = fixture(t);
-  setEnv(t, { FORGE_OPERATOR_NAME: 'Alex' });
+  setEnv(t, { COVE_OPERATOR_NAME: 'Alex' });
   const tokenPath = path.join(dir, 'jarvis-token');
   writeFileSync(tokenPath, 'jarvis-test-token\n');
   disableExternalSources(t, dir, {
-    FORGE_BRIEF_JARVIS_TOKEN_PATH: tokenPath,
+    COVE_BRIEF_JARVIS_TOKEN_PATH: tokenPath,
     // The trailing slash also pins the normalization.
-    FORGE_BRIEF_JARVIS_URL: 'http://memory.test/',
+    COVE_BRIEF_JARVIS_URL: 'http://memory.test/',
   });
   const longDecision = `[DECISION] ${'x'.repeat(450)}`;
   const requests = [];
@@ -481,10 +481,10 @@ test('memory decisions prefer decision-tagged Jarvis results and bound each line
     ['recent decisions, commitments, and direction changes', [
       { uuid: 'long', score: 0.9, content: longDecision },
       { uuid: 'background', score: 0.4, content: 'Background context that should be filtered out.' },
-      { uuid: 'forge', score: 0.8, content: '[DECISION] Keep Forge as the command center.' },
+      { uuid: 'forge', score: 0.8, content: '[DECISION] Keep Cove as the command center.' },
     ]],
     ['what Alex worked on in Claude sessions the last three days', [
-      { uuid: 'forge', score: 0.95, content: '[DECISION] Keep Forge as the source of truth.' },
+      { uuid: 'forge', score: 0.95, content: '[DECISION] Keep Cove as the source of truth.' },
       { uuid: 'route', score: 0.7, content: '[DECISION] Route from the latest saved state.' },
     ]],
     ['current state of Jarvis Pro, Boomer AI (Slipstream community), content engine', [
@@ -507,7 +507,7 @@ test('memory decisions prefer decision-tagged Jarvis results and bound each line
   assert.deepEqual(requests, [...resultsByQuery.keys()]);
   assert.equal(lines.length, 4);
   assert.equal(lines[1].length, 402);
-  assert.equal(lines.filter((line) => line.includes('Keep Forge')).length, 1);
+  assert.equal(lines.filter((line) => line.includes('Keep Cove')).length, 1);
   assert.equal(memory.content.includes('Background context'), false);
   assert.equal(memory.priority, 11);
 });
@@ -532,7 +532,7 @@ test('memory decisions resolve the hub from env, then the profile, and otherwise
   const { dir, options } = fixture(t);
   const tokenPath = path.join(dir, 'jarvis-token');
   writeFileSync(tokenPath, 'jarvis-test-token');
-  disableExternalSources(t, dir, { FORGE_BRIEF_JARVIS_TOKEN_PATH: tokenPath });
+  disableExternalSources(t, dir, { COVE_BRIEF_JARVIS_TOKEN_PATH: tokenPath });
   const requested = [];
   const fetchImpl = async (url) => {
     const forge = forgeRowsResponse(url);
@@ -557,7 +557,7 @@ test('memory decisions resolve the hub from env, then the profile, and otherwise
 
   // An explicit env value outranks the profile.
   requested.length = 0;
-  setEnv(t, { FORGE_BRIEF_JARVIS_URL: 'http://env-hub.test' });
+  setEnv(t, { COVE_BRIEF_JARVIS_URL: 'http://env-hub.test' });
   await collectMorningBriefSources({ ...options, fetchImpl });
   assert.deepEqual([...new Set(requested)], ['http://env-hub.test/api/v2/scored_search']);
 });
@@ -574,8 +574,8 @@ test('memory decisions stop after the first Jarvis search fails', async (t) => {
   const tokenPath = path.join(dir, 'jarvis-token');
   writeFileSync(tokenPath, 'jarvis-test-token');
   disableExternalSources(t, dir, {
-    FORGE_BRIEF_JARVIS_TOKEN_PATH: tokenPath,
-    FORGE_BRIEF_JARVIS_URL: 'http://memory.test',
+    COVE_BRIEF_JARVIS_TOKEN_PATH: tokenPath,
+    COVE_BRIEF_JARVIS_URL: 'http://memory.test',
   });
   let searches = 0;
   const collected = await collectMorningBriefSources({
@@ -810,8 +810,8 @@ test('computed commitments source exposes open loops, clarification, and factual
     '---',
   ].join('\n'));
   setEnv(t, {
-    FORGE_SUPERNOVA_DIR: engineDir,
-    FORGE_CONTENT_QUOTA_POSTS: '3',
+    COVE_SUPERNOVA_DIR: engineDir,
+    COVE_CONTENT_QUOTA_POSTS: '3',
   });
   const commitments = [
     {
@@ -933,7 +933,7 @@ test('project progress source shows yesterday and today digests and heartbeat wa
 test('a due autonomy check-in is included in collected brief sources', async (t) => {
   const { dir, options } = fixture(t);
   disableExternalSources(t, dir);
-  writeFileSync(path.join(dir, 'forge-autonomy.json'), JSON.stringify({
+  writeFileSync(path.join(dir, 'cove-autonomy.json'), JSON.stringify({
     level: 'groundwork',
     first_groundwork_at: '2026-07-02T12:00:00.000Z',
     checkin_answered: false,
@@ -1100,7 +1100,7 @@ test('commitments source surfaces recent note resolutions and updates in the req
 test('commitments source marks either partial fetch failure without asserting false emptiness', async (t) => {
   const { dir, options } = fixture(t);
   disableExternalSources(t, dir);
-  setEnv(t, { FORGE_SUPERNOVA_DIR: path.join(dir, 'missing-engine') });
+  setEnv(t, { COVE_SUPERNOVA_DIR: path.join(dir, 'missing-engine') });
   const recent = new Date(NOW.getTime() - 60_000).toISOString();
   const open = [{
     id: 'open-1',
@@ -1162,10 +1162,10 @@ test('real source ids overwrite coverage fallbacks, while failed fetches remain 
   const tokenPath = path.join(dir, 'jarvis-token');
   writeFileSync(tokenPath, 'jarvis-test-token');
   disableExternalSources(t, dir, {
-    FORGE_BRIEF_COMPOSIO_KEY: 'composio-test-key',
+    COVE_BRIEF_COMPOSIO_KEY: 'composio-test-key',
     ATTIO_API_KEY: 'attio-test-key',
-    FORGE_BRIEF_JARVIS_TOKEN_PATH: tokenPath,
-    FORGE_BRIEF_JARVIS_URL: 'http://memory.test',
+    COVE_BRIEF_JARVIS_TOKEN_PATH: tokenPath,
+    COVE_BRIEF_JARVIS_URL: 'http://memory.test',
   });
   const successFetch = async (url, init = {}) => {
     const forge = forgeRowsResponse(url);

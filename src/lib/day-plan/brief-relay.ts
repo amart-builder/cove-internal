@@ -21,9 +21,10 @@ import {
 } from "./brief";
 import type { DaySnapshot } from "./types";
 import type { DayPlanStore } from "./store";
-import { forgeDataDir } from "../operator";
+import { coveDataDir } from "../operator";
+import { coveEnv } from "../env";
 
-export { forgeDataDir } from "../operator";
+export { coveDataDir } from "../operator";
 
 // The cross-machine relay moves immutable brief artifacts and a bounded
 // settlement summary as write-once JSON files inside Alex's Syncthing mesh. No
@@ -59,7 +60,7 @@ function logLine(log: ((message: string) => void) | undefined, message: string):
 }
 
 function briefRelayDir(dataDir?: string): string {
-  return path.join(forgeDataDir(dataDir), "brief-relay");
+  return path.join(coveDataDir(dataDir), "brief-relay");
 }
 
 function statusRelayDir(dataDir?: string): string {
@@ -67,11 +68,11 @@ function statusRelayDir(dataDir?: string): string {
 }
 
 function settlementRelayPath(dataDir?: string): string {
-  return path.join(forgeDataDir(dataDir), "settlement-relay", "latest.json");
+  return path.join(coveDataDir(dataDir), "settlement-relay", "latest.json");
 }
 
 function sourceCheckpointPath(dataDir?: string): string {
-  return path.join(forgeDataDir(dataDir), "source-checkpoint.json");
+  return path.join(coveDataDir(dataDir), "source-checkpoint.json");
 }
 
 // Atomic write via a same-directory temp file + rename. Optional write-once:
@@ -296,7 +297,7 @@ export function sweepBriefRelayOutbox(
 function recentDates(now: Date, days: number): string[] {
   const anchor = localDateInTimezone(
     now,
-    process.env.FORGE_BRIEF_TIMEZONE ??
+    coveEnv("BRIEF_TIMEZONE") ??
       Intl.DateTimeFormat().resolvedOptions().timeZone ??
       "UTC",
   );
@@ -893,7 +894,7 @@ export function readSettlementRelay(options: {
 export const DUMP_RELAY_MAX_AGE_MS = 60 * 60 * 60 * 1000;
 
 function dumpRelayPath(dataDir?: string): string {
-  return path.join(forgeDataDir(dataDir), "dump-relay", "latest.json");
+  return path.join(coveDataDir(dataDir), "dump-relay", "latest.json");
 }
 
 export type RelayDayDump = { content: string; asOf: string; targetLocalDate: string };
@@ -996,7 +997,7 @@ export type DayClosureRelay = {
 };
 
 function closureRelayPath(dataDir?: string): string {
-  return path.join(forgeDataDir(dataDir), "settlement-relay", "closure.json");
+  return path.join(coveDataDir(dataDir), "settlement-relay", "closure.json");
 }
 
 const LOCAL_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

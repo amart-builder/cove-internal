@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Parse meeting notes into follow-ups and hand every item to Forge intake.
+ * Parse meeting notes into follow-ups and hand every item to Cove intake.
  *
  * The intake CLI owns durable capture, triage, task creation, and surfacing.
  * This script only acquires notes and uses the shared meeting extractor.
@@ -22,7 +22,8 @@ import {
 import {
   createComposioExecutor,
   writeWaitingCommitment,
-} from "./forge-meeting-watch.mjs";
+} from "./cove-meeting-watch.mjs";
+import { coveEnv } from "../src/lib/env-runtime.mjs";
 
 export { parseNextSteps };
 
@@ -31,8 +32,8 @@ const require = createRequire(import.meta.url);
 require("tsx/cjs");
 const { recordEvent, resolveEvent } = require("../src/lib/intake/inbox.ts");
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const dataDir = process.env.FORGE_DATA_DIR?.trim() || path.join(repoDir, "data");
-const intakeScript = path.join(repoDir, "scripts", "forge-intake.mjs");
+const dataDir = coveEnv("DATA_DIR")?.trim() || path.join(repoDir, "data");
+const intakeScript = path.join(repoDir, "scripts", "cove-intake.mjs");
 const composio = createComposioExecutor({ cwd: repoDir });
 
 function arg(name) {
@@ -147,7 +148,7 @@ async function processItem(item, notes, index) {
       sourceId,
       meetingTitle: notes.title,
       baseUrl: (
-        process.env.FORGE_BRIEF_WEB_BASE ?? "http://127.0.0.1:3200"
+        coveEnv("BRIEF_WEB_BASE") ?? "http://127.0.0.1:3200"
       ).replace(/\/$/, ""),
     },
   );

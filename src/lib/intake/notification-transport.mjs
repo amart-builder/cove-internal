@@ -46,7 +46,7 @@ export function remoteIMessageArgs(remoteHost, to, message) {
  */
 export function nativeNotificationArgs(
   message,
-  { title = "Forge", subtitle, sound } = {},
+  { title = "Cove", subtitle, sound } = {},
 ) {
   return [
     "-e",

@@ -68,7 +68,7 @@ export type MorningBrief = {
   suggestedAdditions: MorningBriefSuggestedAddition[];
   watchItems: MorningBriefWatchItem[];
   salesActions: MorningBriefSalesAction[];
-  // Forge-added record of items dropped during validation (for example a watch
+  // Cove-added record of items dropped during validation (for example a watch
   // item whose evidence refs cite no collected source). Never model-authored.
   validationNotes?: string[];
 };
@@ -500,7 +500,7 @@ export type MorningBriefValidation = {
 // Bounded grounding for watch items and sales actions: every evidence ref must
 // name a collected source ("goals", "sprint_memo:gio", ...). This is not the
 // full per-fact evidence registry (explicitly deferred); it only guarantees
-// each surviving item cites something Forge actually showed the model.
+// each surviving item cites something Cove actually showed the model.
 function evidenceRefsResolve(
   refs: readonly string[],
   sourceIds: ReadonlySet<string> | undefined,

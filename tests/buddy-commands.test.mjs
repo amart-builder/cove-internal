@@ -14,14 +14,14 @@ import {
 } from '../src/lib/buddy/commands.ts';
 
 const buddyDataDir = path.join(os.tmpdir(), `forge-buddy-command-${process.pid}-${Date.now()}`);
-const previousDbPath = process.env.FORGE_DB_PATH;
+const previousDbPath = process.env.COVE_DB_PATH;
 test.before(() => {
   mkdirSync(buddyDataDir, { recursive: true });
-  process.env.FORGE_DB_PATH = path.join(buddyDataDir, 'forge.db');
+  process.env.COVE_DB_PATH = path.join(buddyDataDir, 'forge.db');
 });
 test.after(() => {
-  if (previousDbPath === undefined) delete process.env.FORGE_DB_PATH;
-  else process.env.FORGE_DB_PATH = previousDbPath;
+  if (previousDbPath === undefined) delete process.env.COVE_DB_PATH;
+  else process.env.COVE_DB_PATH = previousDbPath;
   rmSync(buddyDataDir, { recursive: true, force: true });
 });
 
@@ -44,7 +44,7 @@ test('new Buddy commands use a bounded read-only Claude session and contextual s
     ['--allowedTools', BUDDY_DATA_ALLOWED_TOOL, BUDDY_DATA_CD_ALLOWED_TOOL]);
   assert.deepEqual(command.args.slice(command.args.indexOf('--permission-mode'), command.args.indexOf('--permission-mode') + 2), ['--permission-mode', 'dontAsk']);
   assert.deepEqual(command.args.slice(-2), ['--session-id', 'new-session']);
-  assert.ok(command.args.includes(path.join(process.cwd(), 'scripts/forge-empty-mcp.json')));
+  assert.ok(command.args.includes(path.join(process.cwd(), 'scripts/cove-empty-mcp.json')));
   assert.match(command.stdin, /^PAGE_CONTEXT: {"view":"tasks"}\nNOW: /);
   assert.match(command.stdin, /\n\nHello$/);
 });
@@ -57,7 +57,7 @@ test('Buddy instructions render placeholders into an isolated governed cwd', (t)
     workspaceRoot: '/Users/operator/workspace',
   });
   const rendered = readFileSync(path.join(renderedDir, 'CLAUDE.md'), 'utf8');
-  assert.equal(rendered.includes('{{FORGE_REPO_ROOT}}'), false);
+  assert.equal(rendered.includes('{{COVE_REPO_ROOT}}'), false);
   assert.equal(rendered.includes('{{WORKSPACE_ROOT}}'), false);
   assert.ok(rendered.includes(BUDDY_DATA_SCRIPT));
   assert.ok(rendered.includes('/Users/operator/workspace'));

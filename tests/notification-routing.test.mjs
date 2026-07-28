@@ -27,7 +27,7 @@ function fixture(t) {
   );
   writeFileSync(
     path.join(bin, 'osascript'),
-    '#!/bin/sh\nprintf "%s\\n" "$*" >> "$FORGE_TEST_CALLS"\n',
+    '#!/bin/sh\nprintf "%s\\n" "$*" >> "$COVE_TEST_CALLS"\n',
   );
   chmodSync(path.join(bin, 'ssh'), 0o700);
   chmodSync(path.join(bin, 'osascript'), 0o700);
@@ -45,15 +45,15 @@ test('remote iMessage failure falls back to native notification but reports non-
   }));
   const result = spawnSync(
     process.execPath,
-    ['scripts/forge-notify.mjs', 'Client needs attention'],
+    ['scripts/cove-notify.mjs', 'Client needs attention'],
     {
       cwd: process.cwd(),
       encoding: 'utf8',
       env: {
         ...process.env,
         PATH: `${bin}:${process.env.PATH}`,
-        FORGE_REMINDER_CONFIG_PATH: config,
-        FORGE_TEST_CALLS: calls,
+        COVE_REMINDER_CONFIG_PATH: config,
+        COVE_TEST_CALLS: calls,
       },
     },
   );
@@ -98,15 +98,15 @@ test('the reminders tick fires and removes a due scheduled intake entry', (t) =>
     title: 'Review the proposal',
     surface_at: '2020-01-01T09:00:00.000Z',
   }));
-  const result = spawnSync(process.execPath, ['scripts/forge-reminders.mjs'], {
+  const result = spawnSync(process.execPath, ['scripts/cove-reminders.mjs'], {
     cwd: process.cwd(),
     encoding: 'utf8',
     env: {
       ...process.env,
       PATH: `${bin}:${process.env.PATH}`,
-      FORGE_DB_PATH: dbPath,
-      FORGE_REMINDER_CONFIG_PATH: config,
-      FORGE_TEST_CALLS: calls,
+      COVE_DB_PATH: dbPath,
+      COVE_REMINDER_CONFIG_PATH: config,
+      COVE_TEST_CALLS: calls,
     },
   });
   assert.equal(result.status, 0);
@@ -129,14 +129,14 @@ test('the reminders tick retains a due entry when every delivery path fails', (t
     title: 'Keep trying this reminder',
     surface_at: '2020-01-01T09:00:00.000Z',
   }));
-  const result = spawnSync(process.execPath, ['scripts/forge-reminders.mjs'], {
+  const result = spawnSync(process.execPath, ['scripts/cove-reminders.mjs'], {
     cwd: process.cwd(),
     encoding: 'utf8',
     env: {
       ...process.env,
       PATH: `${bin}:${process.env.PATH}`,
-      FORGE_DB_PATH: dbPath,
-      FORGE_REMINDER_CONFIG_PATH: config,
+      COVE_DB_PATH: dbPath,
+      COVE_REMINDER_CONFIG_PATH: config,
     },
   });
   assert.equal(result.status, 0);
@@ -162,15 +162,15 @@ test('a failed remote iMessage keeps the receipt even when native succeeds', (t)
     title: 'Remote delivery must settle this',
     surface_at: '2020-01-01T09:00:00.000Z',
   }));
-  const result = spawnSync(process.execPath, ['scripts/forge-reminders.mjs'], {
+  const result = spawnSync(process.execPath, ['scripts/cove-reminders.mjs'], {
     cwd: process.cwd(),
     encoding: 'utf8',
     env: {
       ...process.env,
       PATH: `${bin}:${process.env.PATH}`,
-      FORGE_DB_PATH: dbPath,
-      FORGE_REMINDER_CONFIG_PATH: config,
-      FORGE_TEST_CALLS: calls,
+      COVE_DB_PATH: dbPath,
+      COVE_REMINDER_CONFIG_PATH: config,
+      COVE_TEST_CALLS: calls,
     },
   });
   assert.equal(result.status, 0);

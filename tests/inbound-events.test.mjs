@@ -35,15 +35,15 @@ function fixture(t) {
   );
   mkdirSync(dir, { recursive: true });
   const previous = new Map([
-    ['FORGE_DB_PATH', process.env.FORGE_DB_PATH],
+    ['COVE_DB_PATH', process.env.COVE_DB_PATH],
     ['NEXT_PUBLIC_FORGE_RUNTIME', process.env.NEXT_PUBLIC_FORGE_RUNTIME],
     ['NEXT_PUBLIC_SUPABASE_URL', process.env.NEXT_PUBLIC_SUPABASE_URL],
     ['SUPABASE_SERVICE_ROLE_KEY', process.env.SUPABASE_SERVICE_ROLE_KEY],
-    ['FORGE_TIMEZONE', process.env.FORGE_TIMEZONE],
+    ['COVE_TIMEZONE', process.env.COVE_TIMEZONE],
   ]);
-  process.env.FORGE_DB_PATH = path.join(dir, 'forge.db');
+  process.env.COVE_DB_PATH = path.join(dir, 'forge.db');
   process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'local';
-  process.env.FORGE_TIMEZONE = 'America/Los_Angeles';
+  process.env.COVE_TIMEZONE = 'America/Los_Angeles';
   t.after(() => {
     for (const [name, value] of previous) {
       if (value === undefined) delete process.env[name];
@@ -67,11 +67,11 @@ async function crashWhileHoldingSpoolLock(t, spoolFile) {
     process.execPath,
     [
       '-e',
-      "const Database=require('better-sqlite3');const db=new Database(process.env.FORGE_TEST_LOCK_DB);db.exec('BEGIN IMMEDIATE');process.stdout.write('locked\\n');setInterval(()=>{},1000);",
+      "const Database=require('better-sqlite3');const db=new Database(process.env.COVE_TEST_LOCK_DB);db.exec('BEGIN IMMEDIATE');process.stdout.write('locked\\n');setInterval(()=>{},1000);",
     ],
     {
       cwd: path.resolve(new URL('..', import.meta.url).pathname),
-      env: { ...process.env, FORGE_TEST_LOCK_DB: lockDb },
+      env: { ...process.env, COVE_TEST_LOCK_DB: lockDb },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   );

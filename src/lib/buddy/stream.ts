@@ -178,7 +178,7 @@ export function createBuddyEventParser() {
         const key = typeof block.id === "string" ? block.id : `${block.name}:${JSON.stringify(block.input)}`;
         const input = record(block.input);
         if (block.name === "Bash" && typeof input?.command === "string" &&
-          input.command.includes("forge-buddy-data.ts") && typeof block.id === "string") {
+          input.command.includes("cove-buddy-data.ts") && typeof block.id === "string") {
           buddyDataTools.add(block.id);
         }
         if (seenTools.has(key)) continue;
@@ -289,7 +289,7 @@ export async function runBuddyCommand(
       else reject(new Error(timedOut ? "timeout" : `missing_result:${code ?? "unknown"}:${stderr.trim()}`));
     });
     // This one runs inside the Next server, so an unhandled stdin 'error' does
-    // not just fail the turn, it kills Forge for everyone. EPIPE here is a
+    // not just fail the turn, it kills Cove for everyone. EPIPE here is a
     // normal outcome when `claude` exits before the prompt lands.
     child.stdin.once("error", (error) => {
       clearTimeout(timeout);

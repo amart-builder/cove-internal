@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { operatorName } from "../src/lib/operator-runtime.mjs";
+import { coveEnv } from "../src/lib/env-runtime.mjs";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -44,18 +45,18 @@ if (!inputPath) throw new Error("Usage: node scripts/run-email-triage.mjs --inpu
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const ownerUserId = process.env.FORGE_OWNER_USER_ID;
-const tablePrefix = process.env.FORGE_TABLE_PREFIX ?? process.env.NEXT_PUBLIC_FORGE_TABLE_PREFIX ?? "";
+const ownerUserId = coveEnv("OWNER_USER_ID");
+const tablePrefix = coveEnv("TABLE_PREFIX") ?? process.env.NEXT_PUBLIC_FORGE_TABLE_PREFIX ?? "";
 
 if (!supabaseUrl) throw new Error("NEXT_PUBLIC_SUPABASE_URL is missing.");
 if (!serviceRoleKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY is missing.");
-if (!ownerUserId) throw new Error("FORGE_OWNER_USER_ID is missing.");
+if (!ownerUserId) throw new Error("COVE_OWNER_USER_ID is missing.");
 
 const input = JSON.parse(readFileSync(resolve(inputPath), "utf8"));
 const emails = Array.isArray(input.emails) ? input.emails : [];
 const startedAt = new Date().toISOString();
 const provider = input.provider ?? "gmail";
-const accountEmail = input.account_email ?? process.env.FORGE_OWNER_EMAIL ?? null;
+const accountEmail = input.account_email ?? coveEnv("OWNER_EMAIL") ?? null;
 
 function table(name) {
   return tablePrefix && !name.startsWith(tablePrefix) ? `${tablePrefix}${name}` : name;

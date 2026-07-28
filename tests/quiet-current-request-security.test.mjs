@@ -140,11 +140,11 @@ test('configured ports stay exact while loopback names accept any port', () => {
   );
 });
 
-test('builds the server allowlist from existing Forge setup variables', () => {
+test('builds the server allowlist from existing Cove setup variables', () => {
   assert.deepEqual(
     getForgeAllowedHosts({
-      FORGE_PUBLIC_URL: 'https://forge.example.com:443/tasks',
-      FORGE_TAILSCALE_TRUSTED_HOSTS: 'mini.example.ts.net, backup.example.ts.net:3200',
+      COVE_PUBLIC_URL: 'https://forge.example.com:443/tasks',
+      COVE_TAILSCALE_TRUSTED_HOSTS: 'mini.example.ts.net, backup.example.ts.net:3200',
     }),
     [
       'localhost',

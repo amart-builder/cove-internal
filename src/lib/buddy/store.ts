@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import type { BuddySpawnedSessionState } from "./spawned-session-state";
+import { coveEnv } from "../env";
 
 export { BUDDY_STALE_TURN_MS } from "./timing";
 
@@ -412,7 +413,7 @@ export function getBuddyStore(): BuddyStore {
   }
   if (!global.__forgeBuddyStore) {
     global.__forgeBuddyStore = createBuddyStore({
-      dbPath: process.env.FORGE_DB_PATH ?? path.join(process.cwd(), "data", "forge.db"),
+      dbPath: coveEnv("DB_PATH") ?? path.join(process.cwd(), "data", "forge.db"),
     });
     global.__forgeBuddyStoreVersion = BUDDY_STORE_API_VERSION;
   }

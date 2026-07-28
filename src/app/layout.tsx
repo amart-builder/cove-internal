@@ -7,7 +7,7 @@ import { BuddyProvider } from "@/components/buddy/BuddyProvider";
 import BuddyDock from "@/components/buddy/BuddyDock";
 
 export const metadata: Metadata = {
-  title: "Forge",
+  title: "Cove",
   description: "Tasks, Email, and CRM - your local command center",
 };
 

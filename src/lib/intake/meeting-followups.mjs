@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { coveEnv } from "../env-runtime.mjs";
 
 const FALLBACK_PROMPT = `Turn these meeting notes into the distinct follow-up items they imply.
 
@@ -116,7 +117,7 @@ function validFollowUps(value) {
 function runClaudeMeetingCommand(prompt, options) {
   const repoDir = options.repoDir ?? process.cwd();
   const executable = options.claudePath ??
-    process.env.FORGE_CLAUDE_BIN ??
+    coveEnv("CLAUDE_BIN") ??
     path.join(process.env.HOME ?? "", ".local", "bin", "claude");
   const spawnImpl = options.spawnImpl ?? spawn;
   return new Promise((resolve, reject) => {
@@ -131,7 +132,7 @@ function runClaudeMeetingCommand(prompt, options) {
         "",
         "--strict-mcp-config",
         "--mcp-config",
-        path.join(repoDir, "scripts", "forge-empty-mcp.json"),
+        path.join(repoDir, "scripts", "cove-empty-mcp.json"),
         "--model",
         "claude-opus-5",
         "--output-format",

@@ -17,11 +17,11 @@ import { handleLocalRest } from '../src/lib/local/db.ts';
 const context = { params: Promise.resolve({ table: 'not_a_forge_table' }) };
 
 test('forge-rest keeps GET host-only while mutations require route access and CSRF', async (t) => {
-  const previousAccessMode = process.env.FORGE_DAY_PLAN_ACCESS_MODE;
-  delete process.env.FORGE_DAY_PLAN_ACCESS_MODE;
+  const previousAccessMode = process.env.COVE_DAY_PLAN_ACCESS_MODE;
+  delete process.env.COVE_DAY_PLAN_ACCESS_MODE;
   t.after(() => {
-    if (previousAccessMode === undefined) delete process.env.FORGE_DAY_PLAN_ACCESS_MODE;
-    else process.env.FORGE_DAY_PLAN_ACCESS_MODE = previousAccessMode;
+    if (previousAccessMode === undefined) delete process.env.COVE_DAY_PLAN_ACCESS_MODE;
+    else process.env.COVE_DAY_PLAN_ACCESS_MODE = previousAccessMode;
   });
 
   const untrustedGet = await GET(new NextRequest('http://evil.example/api/forge-rest/tasks', {
@@ -57,11 +57,11 @@ test('forge-rest keeps GET host-only while mutations require route access and CS
 test('local PATCH returns the rows it updated even when the filter tests an overwritten column', async (t) => {
   const dir = path.join(os.tmpdir(), `forge-rest-cas-${process.pid}-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
-  const previousDbPath = process.env.FORGE_DB_PATH;
-  process.env.FORGE_DB_PATH = path.join(dir, 'forge.db');
+  const previousDbPath = process.env.COVE_DB_PATH;
+  process.env.COVE_DB_PATH = path.join(dir, 'forge.db');
   t.after(() => {
-    if (previousDbPath === undefined) delete process.env.FORGE_DB_PATH;
-    else process.env.FORGE_DB_PATH = previousDbPath;
+    if (previousDbPath === undefined) delete process.env.COVE_DB_PATH;
+    else process.env.COVE_DB_PATH = previousDbPath;
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -128,7 +128,7 @@ test('a legacy tasks table is refused at startup instead of failing per query', 
   const dir = path.join(os.tmpdir(), `forge-legacy-db-${process.pid}-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
   const file = path.join(dir, 'forge.db');
-  const previousPath = process.env.FORGE_DB_PATH;
+  const previousPath = process.env.COVE_DB_PATH;
   const globalKey = globalThis;
   const previousDb = globalKey.__forgeDb;
 
@@ -140,19 +140,19 @@ test('a legacy tasks table is refused at startup instead of failing per query', 
   );
   seed.close();
 
-  process.env.FORGE_DB_PATH = file;
+  process.env.COVE_DB_PATH = file;
   delete globalKey.__forgeDb;
   try {
     assert.throws(
       () => handleLocalRest('tasks', 'GET', new URLSearchParams(''), undefined),
       /incompatible tasks table/,
-      'a legacy database must stop Forge with an actionable message',
+      'a legacy database must stop Cove with an actionable message',
     );
   } finally {
     delete globalKey.__forgeDb;
     if (previousDb !== undefined) globalKey.__forgeDb = previousDb;
-    if (previousPath === undefined) delete process.env.FORGE_DB_PATH;
-    else process.env.FORGE_DB_PATH = previousPath;
+    if (previousPath === undefined) delete process.env.COVE_DB_PATH;
+    else process.env.COVE_DB_PATH = previousPath;
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -161,7 +161,7 @@ test('local task migration adds project with the Atlas default and index', async
   const dir = path.join(os.tmpdir(), `forge-task-project-${process.pid}-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
   const file = path.join(dir, 'forge.db');
-  const previousPath = process.env.FORGE_DB_PATH;
+  const previousPath = process.env.COVE_DB_PATH;
   const previousDb = globalThis.__forgeDb;
   const { default: Database } = await import('better-sqlite3');
   const seed = new Database(file);
@@ -180,7 +180,7 @@ test('local task migration adds project with the Atlas default and index', async
     )
   `);
   seed.close();
-  process.env.FORGE_DB_PATH = file;
+  process.env.COVE_DB_PATH = file;
   delete globalThis.__forgeDb;
   try {
     const inserted = handleLocalRest(
@@ -206,8 +206,8 @@ test('local task migration adds project with the Atlas default and index', async
     globalThis.__forgeDb?.close();
     delete globalThis.__forgeDb;
     if (previousDb !== undefined) globalThis.__forgeDb = previousDb;
-    if (previousPath === undefined) delete process.env.FORGE_DB_PATH;
-    else process.env.FORGE_DB_PATH = previousPath;
+    if (previousPath === undefined) delete process.env.COVE_DB_PATH;
+    else process.env.COVE_DB_PATH = previousPath;
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -217,15 +217,15 @@ test('the route rejects a filterless DELETE after CSRF passes, and still allows 
   // guard. Authenticate properly to prove the guard itself is load-bearing.
   const dir = path.join(os.tmpdir(), `forge-rest-nofilter-${process.pid}-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
-  const previousDbPath = process.env.FORGE_DB_PATH;
-  const previousAccessMode = process.env.FORGE_DAY_PLAN_ACCESS_MODE;
-  process.env.FORGE_DB_PATH = path.join(dir, 'forge.db');
-  delete process.env.FORGE_DAY_PLAN_ACCESS_MODE;
+  const previousDbPath = process.env.COVE_DB_PATH;
+  const previousAccessMode = process.env.COVE_DAY_PLAN_ACCESS_MODE;
+  process.env.COVE_DB_PATH = path.join(dir, 'forge.db');
+  delete process.env.COVE_DAY_PLAN_ACCESS_MODE;
   t.after(() => {
-    if (previousDbPath === undefined) delete process.env.FORGE_DB_PATH;
-    else process.env.FORGE_DB_PATH = previousDbPath;
-    if (previousAccessMode === undefined) delete process.env.FORGE_DAY_PLAN_ACCESS_MODE;
-    else process.env.FORGE_DAY_PLAN_ACCESS_MODE = previousAccessMode;
+    if (previousDbPath === undefined) delete process.env.COVE_DB_PATH;
+    else process.env.COVE_DB_PATH = previousDbPath;
+    if (previousAccessMode === undefined) delete process.env.COVE_DAY_PLAN_ACCESS_MODE;
+    else process.env.COVE_DAY_PLAN_ACCESS_MODE = previousAccessMode;
     rmSync(dir, { recursive: true, force: true });
   });
 

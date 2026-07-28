@@ -14,6 +14,7 @@ import { getQuietCurrentCsrfToken } from "@/lib/quiet-current/store";
 import { hasDayPlanRouteAccess } from "@/lib/request-security";
 import { markForgeOrchestratorSession } from "@/lib/claude-execution/orchestrator-session";
 import { workspaceRoot } from "@/lib/operator";
+import { coveEnv } from "../../../../lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,7 +58,7 @@ function denied(request: NextRequest, csrf: boolean): NextResponse | undefined {
     return NextResponse.json({ error: "Untrusted request host." }, { status: 403 });
   }
   if (csrf && request.headers.get("x-forge-csrf") !== getQuietCurrentCsrfToken()) {
-    return NextResponse.json({ error: "Forge request token is missing." }, { status: 403 });
+    return NextResponse.json({ error: "Cove request token is missing." }, { status: 403 });
   }
 }
 
@@ -70,7 +71,7 @@ function publicSession(session: NonNullable<ReturnType<BuddyStore["getSpawnedSes
     error: session.error,
     createdAt: session.created_at,
     hostname: os.hostname(),
-    deepLinksEnabled: process.env.FORGE_BUDDY_DEEPLINKS !== "0",
+    deepLinksEnabled: coveEnv("BUDDY_DEEPLINKS") !== "0",
   };
 }
 

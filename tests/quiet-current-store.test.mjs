@@ -114,17 +114,17 @@ test('observed progress targets an existing task and deterministic relay ids rep
   assert.equal(getQuietCurrentSnapshot().suggestions.length, 1);
 });
 
-test('default Quiet Current storage follows FORGE_DATA_DIR instead of cwd', (t) => {
+test('default Quiet Current storage follows COVE_DATA_DIR instead of cwd', (t) => {
   const dir = path.join(
     os.tmpdir(),
     `forge-quiet-current-data-dir-${process.pid}-${Date.now()}-${Math.random()}`,
   );
-  const previous = process.env.FORGE_DATA_DIR;
-  process.env.FORGE_DATA_DIR = dir;
+  const previous = process.env.COVE_DATA_DIR;
+  process.env.COVE_DATA_DIR = dir;
   setQuietCurrentStorePathForTests(undefined);
   t.after(() => {
-    if (previous === undefined) delete process.env.FORGE_DATA_DIR;
-    else process.env.FORGE_DATA_DIR = previous;
+    if (previous === undefined) delete process.env.COVE_DATA_DIR;
+    else process.env.COVE_DATA_DIR = previous;
     setQuietCurrentStorePathForTests(undefined);
     rmSync(dir, { recursive: true, force: true });
   });

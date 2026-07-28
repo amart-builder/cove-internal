@@ -16,8 +16,9 @@ import os from "node:os";
 import path from "node:path";
 import type { InboundEvent, InboundEventState } from "../data/types";
 import { handleLocalRest, resolveLocalInboundEvent } from "../local/db";
-import { forgeDataDir } from "../operator";
+import { coveDataDir } from "../operator";
 import { getRuntimeMode } from "../runtime/mode";
+import { coveEnv } from "../env";
 
 export type RecordEventInput = {
   id?: string;
@@ -62,7 +63,7 @@ class InboxDatabaseError extends Error {
 
 function tableName(): string {
   const prefix =
-    process.env.FORGE_TABLE_PREFIX ??
+    coveEnv("TABLE_PREFIX") ??
     process.env.NEXT_PUBLIC_FORGE_TABLE_PREFIX ??
     "";
   return prefix ? `${prefix}inbound_events` : "inbound_events";
@@ -187,7 +188,7 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 function spoolDir(dataDir?: string): string {
-  return path.join(forgeDataDir(dataDir), "intake");
+  return path.join(coveDataDir(dataDir), "intake");
 }
 
 function spoolFilename(dataDir?: string): string {
@@ -336,7 +337,7 @@ async function appendToSpool(
     chmodSync(overflow, 0o600);
     return true;
   } catch (error) {
-    console.error("Forge inbound capture could not write its spool.", error);
+    console.error("Cove inbound capture could not write its spool.", error);
     return false;
   }
 }

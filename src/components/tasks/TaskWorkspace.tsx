@@ -40,7 +40,7 @@ export default function TaskWorkspace() {
             title={
               quietCurrentAvailable
                 ? undefined
-                : 'Today is available after moving this Forge setup to the local or Supabase runtime.'
+                : 'Today is available after moving this Cove setup to the local or Supabase runtime.'
             }
             onClick={() => setView('today')}
             className={`quiet-segment ${view === 'today' ? 'is-active' : ''}`}

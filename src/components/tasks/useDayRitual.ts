@@ -270,7 +270,7 @@ export default function useDayRitual({
     } catch (nextError) {
       const message = nextError instanceof Error
         ? nextError.message
-        : "Forge couldn't refresh Claude execution state.";
+        : "Cove couldn't refresh Claude execution state.";
       setExecutionError(message);
       throw nextError;
     } finally {
@@ -307,7 +307,7 @@ export default function useDayRitual({
             planRef.current = undefined;
             setPlan(undefined);
             setView('none');
-            setError('Forge is finishing the previous day before it prepares today.');
+            setError('Cove is finishing the previous day before it prepares today.');
             return;
           }
           if (reconciliationBlockedRef.current) {
@@ -316,7 +316,7 @@ export default function useDayRitual({
           }
           if (!candidatesReady) {
             setView('none');
-            setError('Forge needs a fresh task refresh before it can propose today’s plan.');
+            setError('Cove needs a fresh task refresh before it can propose today’s plan.');
             return;
           }
           const ensured = await ensureDayPlan({
@@ -387,7 +387,7 @@ export default function useDayRitual({
             stalePlan.state !== 'settling' ||
             stalePlan.settlementState !== 'in_progress'
           ) {
-            throw new Error('Forge could not prepare the previous workday for Settlement.');
+            throw new Error('Cove could not prepare the previous workday for Settlement.');
           }
           if (cancelled) return;
           setAnnouncement('Close the previous workday before planning today.');
@@ -422,7 +422,7 @@ export default function useDayRitual({
         setError(
           nextError instanceof Error
             ? nextError.message
-            : "Forge couldn't load the morning ritual. Living Current is still available.",
+            : "Cove couldn't load the morning ritual. Living Current is still available.",
         );
       }
     }
@@ -625,7 +625,7 @@ export default function useDayRitual({
             acceptPlan(nextError.currentPlan);
           }
           const message =
-            nextError instanceof Error ? nextError.message : "Forge couldn't update the day plan.";
+            nextError instanceof Error ? nextError.message : "Cove couldn't update the day plan.";
           setError(message);
           throw nextError;
         } finally {
@@ -708,7 +708,7 @@ export default function useDayRitual({
         item.rankReasons.includes('accepted_today'),
     );
     if (!added) {
-      const message = "Forge couldn't confirm that the addition reached today's plan.";
+      const message = "Cove couldn't confirm that the addition reached today's plan.";
       setError(message);
       throw new Error(message);
     }
@@ -781,7 +781,7 @@ export default function useDayRitual({
       if (nextError instanceof DayPlanApiConflict) acceptPlan(nextError.currentPlan);
       const message = nextError instanceof Error
         ? nextError.message
-        : "Forge couldn't save that execution mode.";
+        : "Cove couldn't save that execution mode.";
       setExecutionError(message);
       throw nextError;
     } finally {
@@ -880,7 +880,7 @@ export default function useDayRitual({
       if (nextError instanceof DayPlanApiConflict) acceptPlan(nextError.currentPlan);
       const message = nextError instanceof Error
         ? nextError.message
-        : "Forge couldn't queue that task.";
+        : "Cove couldn't queue that task.";
       setExecutionError(message);
       throw nextError;
     } finally {
@@ -911,7 +911,7 @@ export default function useDayRitual({
     } catch (nextError) {
       const message = nextError instanceof Error
         ? nextError.message
-        : "Forge couldn't cancel that Claude run.";
+        : "Cove couldn't cancel that Claude run.";
       setExecutionError(message);
       throw nextError;
     } finally {
@@ -1031,7 +1031,7 @@ export default function useDayRitual({
     const localDate = localDateInTimezone(new Date(), timezone);
     if (settledLocalDate === localDate) return;
     if (!candidatesReady) {
-      throw new Error('Forge needs a fresh task refresh before it can prepare today.');
+      throw new Error('Cove needs a fresh task refresh before it can prepare today.');
     }
     const readModel = await getDayPlanState();
     // The post-settlement refetch carries the fresh projection; acceptPlan
@@ -1067,7 +1067,7 @@ export default function useDayRitual({
   }, [acceptPlan, applyMorningBrief, candidatesReady]);
 
   // Marks one brief sales action approved, edited, or skipped. State only;
-  // Forge never sends anything. Optimistic, reconciled from the server reply.
+  // Cove never sends anything. Optimistic, reconciled from the server reply.
   const markBriefSalesAction = useCallback(async (
     actionIndex: number,
     state: MorningBriefSalesActionState,
@@ -1109,7 +1109,7 @@ export default function useDayRitual({
       setError(
         nextError instanceof Error
           ? nextError.message
-          : "Forge couldn't save that sales action.",
+          : "Cove couldn't save that sales action.",
       );
     }
   }, [morningBrief]);
@@ -1138,7 +1138,7 @@ export default function useDayRitual({
     } catch (nextError) {
       setBriefGeneration(undefined);
       setError(
-        nextError instanceof Error ? nextError.message : "Forge couldn't start the brief.",
+        nextError instanceof Error ? nextError.message : "Cove couldn't start the brief.",
       );
     } finally {
       setForcingBrief(false);

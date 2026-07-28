@@ -8,6 +8,7 @@ import type {
   DayPlanItem,
   DayPlanReadinessCode,
 } from "./types";
+import { coveConfigPath, coveEnv } from "../env";
 
 export function selectExecutionModel(item: DayPlanItem): DayPlanExecutionConfig["modelAlias"] {
   void item;
@@ -84,8 +85,8 @@ export function loadForgeExecutionEnvironment(
   } = {},
 ): ForgeExecutionEnvironment {
   const configPath = options.configPath ??
-    process.env.FORGE_EXECUTION_CONFIG ??
-    path.join(process.cwd(), "data", "forge-execution.json");
+    coveEnv("EXECUTION_CONFIG") ??
+    coveConfigPath(path.join(process.cwd(), "data"), "execution.json");
   const workspaces = new Map<string, ForgeExecutionWorkspace>();
 
   if (existsSync(configPath)) {
@@ -117,7 +118,7 @@ export function loadForgeExecutionEnvironment(
 
   return {
     autonomousEnabled:
-      options.autonomousEnabled ?? process.env.FORGE_CLAUDE_EXECUTION_ENABLED === "1",
+      options.autonomousEnabled ?? coveEnv("CLAUDE_EXECUTION_ENABLED") === "1",
     workspaces,
   };
 }

@@ -14,7 +14,7 @@ import {
   taskColumnKeyForName,
 } from "../tasks/columns";
 import {
-  forgeDataDir,
+  coveDataDir,
   loadOperatorProfile,
   operatorName,
   operatorProfilePath,
@@ -25,6 +25,7 @@ import type { DayPlanStore, SessionDigest } from "./store";
 import { localDateInTimezone, type BriefSourceInput } from "./brief";
 import { buildSettlementSummary, readDumpRelay, readSettlementRelay } from "./brief-relay";
 import { contentQuotaGap, followUpsDue, staleOpenItems } from "./gap-detectors";
+import { coveEnv } from "../env";
 
 const EXTERNAL_FETCH_TIMEOUT_MS = 10_000;
 // The operator's own zone, not a fixed one: this is the fallback used when
@@ -68,7 +69,7 @@ function legacyBrainPath(homeDir: string, filename: string): string {
 export function resolveBriefFileSourcePolicy(
   options: BriefFileSourcePolicyOptions = {},
 ): BriefFileSourcePolicy {
-  const dataDir = forgeDataDir(options.dataDir);
+  const dataDir = coveDataDir(options.dataDir);
   const homeDir = options.homeDir ?? homedir();
   const legacyGoals = legacyBrainPath(homeDir, "GOALS.md");
   const clientGoals = path.join(dataDir, "brief", "goals.md");
@@ -78,13 +79,13 @@ export function resolveBriefFileSourcePolicy(
   const jsonProfile = operatorProfilePath(dataDir);
 
   const explicitGoals = options.goalsPath?.trim();
-  const envGoals = nonEmptyEnv("FORGE_BRIEF_GOALS_PATH");
+  const envGoals = nonEmptyEnv("COVE_BRIEF_GOALS_PATH");
   const explicitSprintMemo = options.sprintMemoPath?.trim();
-  const envSprintMemo = nonEmptyEnv("FORGE_BRIEF_SPRINT_MEMO_PATH");
+  const envSprintMemo = nonEmptyEnv("COVE_BRIEF_SPRINT_MEMO_PATH");
   const explicitOperatorProfile = options.operatorProfilePath?.trim();
-  const envOperatorProfile = nonEmptyEnv("FORGE_BRIEF_OPERATOR_PROFILE_PATH");
+  const envOperatorProfile = nonEmptyEnv("COVE_BRIEF_OPERATOR_PROFILE_PATH");
   const explicitLeadup = options.leadupPath?.trim();
-  const envLeadup = nonEmptyEnv("FORGE_BRIEF_LEADUP_PATH");
+  const envLeadup = nonEmptyEnv("COVE_BRIEF_LEADUP_PATH");
 
   const operatorPath = explicitOperatorProfile || envOperatorProfile ||
     (existsSync(legacyOperatorProfile) ? legacyOperatorProfile : jsonProfile);
@@ -125,7 +126,7 @@ export function briefCheckpointSources(
 }
 
 export function defaultSupernovaDir(homeDir = homedir()): string | undefined {
-  const configured = nonEmptyEnv("FORGE_SUPERNOVA_DIR");
+  const configured = nonEmptyEnv("COVE_SUPERNOVA_DIR");
   if (configured) return configured;
   const candidates = [
     path.join(homeDir, "Atlas", "Projects", "supernova-engine"),
@@ -134,19 +135,19 @@ export function defaultSupernovaDir(homeDir = homedir()): string | undefined {
   return candidates.find((candidate) => existsSync(candidate));
 }
 
-// Forge installs on port 3200 (see scripts/install-forge-local.sh), so the
+// Cove installs on port 3200 (see scripts/install-cove-local.sh), so the
 // task-snapshot fetch must default there or every installed brief would fail
 // with required_source_missing:task_snapshot.
 export function defaultBriefWebBase(): string {
-  return process.env.FORGE_BRIEF_WEB_BASE ?? "http://127.0.0.1:3200";
+  return coveEnv("BRIEF_WEB_BASE") ?? "http://127.0.0.1:3200";
 }
 
 // Per-source staleness thresholds in hours, each overridable through the
-// environment (for example FORGE_BRIEF_STALE_HOURS_GOALS=2160). Past the
+// environment (for example COVE_BRIEF_STALE_HOURS_GOALS=2160). Past the
 // threshold the source is reported "stale" in the manifest, the model is told,
 // and the freshness state participates in the input hash.
 function staleThresholdHours(id: string, fallback: number): number {
-  const override = Number(process.env[`FORGE_BRIEF_STALE_HOURS_${id.toUpperCase()}`]);
+  const override = Number(process.env[`COVE_BRIEF_STALE_HOURS_${id.toUpperCase()}`]);
   return Number.isFinite(override) && override > 0 ? override : fallback;
 }
 
@@ -168,7 +169,7 @@ export type MorningBriefSourceOptions = {
   targetLocalDate?: string;
   targetTimezone?: string;
   now?: Date;
-  // Loopback base URL of the Forge web app; the task snapshot goes through the
+  // Loopback base URL of the Cove web app; the task snapshot goes through the
   // same forge-rest surface the UI uses, so local and Supabase runtimes both work.
   webBaseUrl?: string;
   fetchImpl?: typeof fetch;
@@ -431,7 +432,7 @@ function meetingWatchHeartbeat(
   now: Date,
 ): { line: string; warning?: string } {
   const heartbeatPath = path.join(
-    forgeDataDir(dataDir),
+    coveDataDir(dataDir),
     "intake",
     "heartbeats.json",
   );
@@ -504,7 +505,7 @@ function progressReconcileHeartbeat(
   now: Date,
 ): { line: string; warning?: string } {
   const heartbeatPath = path.join(
-    forgeDataDir(dataDir),
+    coveDataDir(dataDir),
     "intake",
     "heartbeats.json",
   );
@@ -755,13 +756,13 @@ export function autonomyCheckinSource(input: {
     return {
       ...source,
       content:
-        "Groundwork has been running for two weeks. Want Forge to try completing whole tasks (you still review everything), or keep it at groundwork? Edit data/forge-autonomy.json: set checkin_answered true, and level stays 'groundwork' or, when full-task mode ships, 'full'. This appears in at most three briefs; editing checkin_answered to false and checkin_presented_count to 0 re-opens it.",
+        "Groundwork has been running for two weeks. Want Cove to try completing whole tasks (you still review everything), or keep it at groundwork? Edit data/cove-autonomy.json: set checkin_answered true, and level stays 'groundwork' or, when full-task mode ships, 'full'. This appears in at most three briefs; editing checkin_answered to false and checkin_presented_count to 0 re-opens it.",
       asOf: settings.first_groundwork_at ?? input.now.toISOString(),
     };
   } catch (error) {
     return {
       ...source,
-      content: `WARNING: Forge autonomy setting is unreadable (${
+      content: `WARNING: Cove autonomy setting is unreadable (${
         errorNote(error, "forge_autonomy_invalid").replace(/^error:/, "")
       }).`,
       asOf: input.now.toISOString(),
@@ -986,7 +987,7 @@ async function commitmentsSource(input: {
           updatedAt: typeof row.updated_at === "string" ? row.updated_at : "",
         }];
       });
-    const quotaValue = Number(process.env.FORGE_CONTENT_QUOTA_POSTS);
+    const quotaValue = Number(coveEnv("CONTENT_QUOTA_POSTS"));
     const quota = Number.isFinite(quotaValue) && quotaValue >= 0 ? quotaValue : 2;
     const supernovaDir = defaultSupernovaDir();
     const quotaGap = supernovaDir
@@ -1211,8 +1212,8 @@ async function calendarSource(
     maxChars: 3000,
     priority: 7,
   } as const;
-  const rawKey = process.env.FORGE_BRIEF_COMPOSIO_KEY?.trim();
-  const keyPath = process.env.FORGE_BRIEF_COMPOSIO_KEY_PATH?.trim()
+  const rawKey = coveEnv("BRIEF_COMPOSIO_KEY")?.trim();
+  const keyPath = coveEnv("BRIEF_COMPOSIO_KEY_PATH")?.trim()
     || path.join(homedir(), ".config", "edge-ai", "composio.key");
   const key = rawKey || readKeyFile(keyPath);
   if (!key) return { ...source, note: "not_configured" };
@@ -1464,7 +1465,7 @@ function formatDecisionResults(results: readonly unknown[]): string {
 // to a missing optional source instead of reaching for someone else's machine.
 export function memoryHubUrl(): string | undefined {
   const profileUrl = loadOperatorProfile()?.memory_hub_url;
-  const configured = nonEmptyEnv("FORGE_BRIEF_JARVIS_URL")
+  const configured = nonEmptyEnv("COVE_BRIEF_JARVIS_URL")
     ?? (typeof profileUrl === "string" && profileUrl.trim() ? profileUrl.trim() : undefined);
   return configured?.replace(/\/$/, "");
 }
@@ -1523,7 +1524,7 @@ async function memoryDecisionsSource(
   if (memoryPath) {
     return fileSource("memory_decisions", "RECENT_DECISIONS", memoryPath, sourceOptions);
   }
-  const tokenPath = process.env.FORGE_BRIEF_JARVIS_TOKEN_PATH?.trim()
+  const tokenPath = coveEnv("BRIEF_JARVIS_TOKEN_PATH")?.trim()
     || path.join(homedir(), ".config", "jarvis-v2", "hub_token");
   const token = readKeyFile(tokenPath);
   const hubUrl = memoryHubUrl();
@@ -1587,7 +1588,7 @@ export async function collectMorningBriefSources(
   const baseUrl = (options.webBaseUrl ?? defaultBriefWebBase()).replace(/\/$/, "");
   const timeoutMs = options.timeoutMs ?? 8000;
   const now = options.now ?? new Date();
-  const targetTimezone = options.targetTimezone ?? process.env.FORGE_BRIEF_TIMEZONE ?? defaultBriefTimezone();
+  const targetTimezone = options.targetTimezone ?? coveEnv("BRIEF_TIMEZONE") ?? defaultBriefTimezone();
   let targetLocalDate = options.targetLocalDate;
   if (!targetLocalDate) {
     try {
@@ -1598,7 +1599,7 @@ export async function collectMorningBriefSources(
       targetLocalDate = localDateInTimezone(now, defaultBriefTimezone());
     }
   }
-  const memoryPath = options.memoryDecisionsPath ?? process.env.FORGE_BRIEF_MEMORY_PATH;
+  const memoryPath = options.memoryDecisionsPath ?? coveEnv("BRIEF_MEMORY_PATH");
   const filePolicy = resolveBriefFileSourcePolicy({
     dataDir: options.dataDir,
     homeDir: options.homeDir,

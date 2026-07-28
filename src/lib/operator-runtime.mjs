@@ -1,25 +1,21 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { coveConfigPath, coveEnvTrimmed } from "./env-runtime.mjs";
 
 let cachedOperatorProfile;
 
-function trimmedEnv(name, env = process.env) {
-  const value = env[name]?.trim();
-  return value || undefined;
-}
-
-export function forgeDataDir(explicit) {
+export function coveDataDir(explicit) {
   if (explicit) return explicit;
-  const configured = trimmedEnv("FORGE_DATA_DIR");
+  const configured = coveEnvTrimmed("DATA_DIR");
   if (configured) return configured;
-  const dbPath = trimmedEnv("FORGE_DB_PATH");
+  const dbPath = coveEnvTrimmed("DB_PATH");
   return dbPath ? path.dirname(dbPath) : path.join(process.cwd(), "data");
 }
 
 export function operatorProfilePath(dataDir) {
-  return trimmedEnv("FORGE_PROFILE_PATH") ??
-    path.join(forgeDataDir(dataDir), "forge-profile.json");
+  return coveEnvTrimmed("PROFILE_PATH") ??
+    coveConfigPath(coveDataDir(dataDir), "profile.json");
 }
 
 export function loadOperatorProfile() {
@@ -51,7 +47,7 @@ export function loadOperatorProfile() {
 }
 
 export function operatorName() {
-  const envName = trimmedEnv("FORGE_OPERATOR_NAME");
+  const envName = coveEnvTrimmed("OPERATOR_NAME");
   if (envName) return envName;
   const profileName = loadOperatorProfile()?.name;
   return typeof profileName === "string" && profileName.trim()
@@ -71,14 +67,14 @@ function usableTimezone(value) {
 }
 
 /**
- * The operator's own timezone: FORGE_TIMEZONE, then the profile, then whatever
+ * The operator's own timezone: COVE_TIMEZONE (or the legacy FORGE_TIMEZONE), then the profile, then whatever
  * this Mac is set to. Anything that prints a date to the operator should use
  * this rather than a constant, or every install outside Pacific reads the wrong
  * day back to its owner.
  */
 export function operatorTimezone() {
   return (
-    usableTimezone(trimmedEnv("FORGE_TIMEZONE")) ??
+    usableTimezone(coveEnvTrimmed("TIMEZONE")) ??
     usableTimezone(loadOperatorProfile()?.timezone) ??
     usableTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone) ??
     "UTC"
@@ -86,7 +82,7 @@ export function operatorTimezone() {
 }
 
 export function workspaceRoot(options = {}) {
-  const configured = trimmedEnv("FORGE_BUDDY_WORKSPACE_ROOT", options.env);
+  const configured = coveEnvTrimmed("BUDDY_WORKSPACE_ROOT", options.env);
   if (configured) return configured;
   const legacy = path.join(options.homeDir ?? os.homedir(), "Atlas");
   return (options.exists ?? existsSync)(legacy) ? legacy : null;

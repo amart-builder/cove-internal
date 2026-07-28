@@ -501,11 +501,11 @@ test('buildSettlementSummary labels progress, not-moved carry, and carry streaks
 
 test('the outbox sweep exports succeeded rows missing a relay file and is idempotent', (t) => {
   const { store, dir } = fixture(t);
-  const prevTz = process.env.FORGE_BRIEF_TIMEZONE;
-  process.env.FORGE_BRIEF_TIMEZONE = TZ;
+  const prevTz = process.env.COVE_BRIEF_TIMEZONE;
+  process.env.COVE_BRIEF_TIMEZONE = TZ;
   t.after(() => {
-    if (prevTz === undefined) delete process.env.FORGE_BRIEF_TIMEZONE;
-    else process.env.FORGE_BRIEF_TIMEZONE = prevTz;
+    if (prevTz === undefined) delete process.env.COVE_BRIEF_TIMEZONE;
+    else process.env.COVE_BRIEF_TIMEZONE = prevTz;
   });
   succeededArtifact(store, briefJson(), { inputHash: 'sweep-1' });
   const now = new Date('2026-07-14T20:00:00.000Z'); // 13:00 PT → recent dates include 2026-07-14
@@ -987,11 +987,11 @@ test('a brief already consumed by a plan is pinned: no payload swap under the ar
 
 test('the scheduled lane publishes a queued attempt-status file at enqueue', (t) => {
   const { store, dir } = fixture(t);
-  const prevTz = process.env.FORGE_BRIEF_TIMEZONE;
-  process.env.FORGE_BRIEF_TIMEZONE = TZ;
+  const prevTz = process.env.COVE_BRIEF_TIMEZONE;
+  process.env.COVE_BRIEF_TIMEZONE = TZ;
   t.after(() => {
-    if (prevTz === undefined) delete process.env.FORGE_BRIEF_TIMEZONE;
-    else process.env.FORGE_BRIEF_TIMEZONE = prevTz;
+    if (prevTz === undefined) delete process.env.COVE_BRIEF_TIMEZONE;
+    else process.env.COVE_BRIEF_TIMEZONE = prevTz;
   });
   const now = new Date('2026-07-14T20:00:00.000Z'); // 13:00 PT
   const brief = enqueueDueMorningBrief(store, now, { relay: { dataDir: dir, host: 'mini' } });

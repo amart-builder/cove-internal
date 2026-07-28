@@ -140,7 +140,7 @@ export function executionReadinessMessage(
     return 'Together can only use Plan with Claude.';
   }
   if (readiness.codes.includes('execution_disabled')) {
-    return 'Hands-off work is not enabled on this Forge setup.';
+    return 'Hands-off work is not enabled on this Cove setup.';
   }
   if (readiness.codes.includes('definition_of_done_required')) {
     return 'Add a definition of done before hands-off work can start.';

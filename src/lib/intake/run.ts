@@ -39,6 +39,7 @@ import {
   type InboundTaskWriterOptions,
 } from "./task-writer";
 import { nativeNotificationArgs } from "./notification-transport.mjs";
+import { coveEnv, coveEnvTrimmed } from "../env";
 
 const MODULE_REPO_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -106,10 +107,10 @@ function resolvedOptions(options: ForgeIntakeOptions): ForgeIntakeOptions & {
     : MODULE_REPO_DIR;
   const dataDir = options.dataDir
     ? path.resolve(options.dataDir)
-    : process.env.FORGE_DATA_DIR?.trim()
-      ? path.resolve(process.env.FORGE_DATA_DIR)
-      : process.env.FORGE_DB_PATH?.trim()
-        ? path.dirname(path.resolve(process.env.FORGE_DB_PATH))
+    : coveEnvTrimmed("DATA_DIR")
+      ? path.resolve(coveEnvTrimmed("DATA_DIR")!)
+      : coveEnvTrimmed("DB_PATH")
+        ? path.dirname(path.resolve(coveEnvTrimmed("DB_PATH")!))
         : path.join(repoDir, "data");
   return { ...options, repoDir, dataDir };
 }
@@ -175,11 +176,11 @@ function runTriageCommand(
   const repoDir = options.repoDir ?? MODULE_REPO_DIR;
   const executable =
     options.claudePath ??
-    process.env.FORGE_CLAUDE_BIN ??
+    coveEnv("CLAUDE_BIN") ??
     path.join(os.homedir(), ".local", "bin", "claude");
   const emptyMcpConfig =
     options.emptyMcpConfigPath ??
-    path.join(repoDir, "scripts", "forge-empty-mcp.json");
+    path.join(repoDir, "scripts", "cove-empty-mcp.json");
   const spawnImpl = options.spawnImpl ?? spawn;
   return new Promise((resolve, reject) => {
     let child: ChildProcessWithoutNullStreams;
@@ -290,7 +291,7 @@ async function boardContext(options: ForgeIntakeOptions): Promise<BoardContext> 
   const fetchImpl = options.fetchImpl ?? fetch;
   const baseUrl = (
     options.webBaseUrl ??
-    process.env.FORGE_BRIEF_WEB_BASE ??
+    coveEnv("BRIEF_WEB_BASE") ??
     "http://127.0.0.1:3200"
   ).replace(/\/$/, "");
   const timeoutMs = options.fetchTimeoutMs ?? 10_000;
@@ -457,14 +458,14 @@ async function defaultNotifyNow(
   const [channelDelivered, nativeDelivered] = await Promise.all([
     runBestEffort(
       process.execPath,
-      [path.join(repoDir, "scripts", "forge-notify.mjs"), `Forge: ${title}`],
+      [path.join(repoDir, "scripts", "cove-notify.mjs"), `Cove: ${title}`],
       options,
     ),
     process.platform === "darwin"
       ? runBestEffort(
           "osascript",
           nativeNotificationArgs(title, {
-            title: "Forge",
+            title: "Cove",
             subtitle: "Needs attention",
           }),
           options,
@@ -485,7 +486,7 @@ async function notifyNativeOnly(
   await runBestEffort(
     "osascript",
     nativeNotificationArgs(title, {
-      title: "Forge",
+      title: "Cove",
       subtitle: "Needs attention",
     }),
     options,
@@ -652,7 +653,7 @@ export async function runForgeIntake(
       await resumePendingSurface(capture.event.task_id, runtimeOptions);
     } catch (error) {
       (runtimeOptions.writeError ?? console.error)(
-        `Forge intake surface remains queued: ${boundedReason(error)}`,
+        `Cove intake surface remains queued: ${boundedReason(error)}`,
       );
     }
     write(`TASK ${JSON.stringify({
@@ -726,7 +727,7 @@ export async function runForgeIntake(
       };
     } catch (fallbackError) {
       (runtimeOptions.writeError ?? console.error)(
-        `Forge intake fallback remains pending: ${boundedReason(fallbackError)}`,
+        `Cove intake fallback remains pending: ${boundedReason(fallbackError)}`,
       );
       return {
         exitCode: 0,
