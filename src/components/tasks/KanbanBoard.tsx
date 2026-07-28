@@ -36,6 +36,12 @@ import type {
   TaskColumn as SupabaseTaskColumn,
 } from '@/lib/data/types';
 import { useDataChanged } from '@/lib/data/refresh-bus';
+import {
+  LEGACY_BLOCKED_TASK_COLUMN_NAMES,
+  TASK_COLUMNS,
+  taskColumnKeyForName,
+  type TaskColumnKey,
+} from '@/lib/tasks/columns';
 import Column from './Column';
 import TaskCard from './TaskCard';
 import TaskDetail from './TaskDetail';
@@ -100,40 +106,11 @@ interface KanbanBoardContentProps {
 }
 
 const BLOCKED_TAG = 'blocked';
-
-const CANONICAL_COLUMNS = [
-  {
-    key: 'not-started',
-    name: 'Not Started',
-    aliases: ['Not Started', 'To Do'],
-    position: 0,
-  },
-  {
-    key: 'today',
-    name: 'Must happen today',
-    aliases: ['Must happen today', 'Needs to happen today', 'Today'],
-    position: 10,
-  },
-  {
-    key: 'in-progress',
-    name: 'In Flight / Waiting',
-    aliases: ['In Flight / Waiting', 'In Progress'],
-    position: 20,
-  },
-  {
-    key: 'done',
-    name: 'Done',
-    aliases: ['Done', 'Completed'],
-    position: 30,
-  },
-] as const;
-
-type ColumnStatus = (typeof CANONICAL_COLUMNS)[number]['key'];
+type ColumnStatus = TaskColumnKey;
 type TaskStatus = 'open' | 'done' | 'archived';
 type StatusFilter = 'all' | ColumnStatus | 'blocked';
 type PriorityFilter = 'all' | 'low' | 'medium' | 'high';
 const COLUMN_DROP_PREFIX = 'column-';
-const LEGACY_BLOCKED_COLUMN_NAMES = new Set(['Blocked', 'Waiting']);
 
 const pointerFirstCollisionDetection: CollisionDetection = (args) => {
   const pointerCollisions = pointerWithin(args);
@@ -362,7 +339,7 @@ function SupabaseKanbanBoard() {
 
   const ensureDefaultColumns = useCallback(async () => {
     const existingColumns = await listTaskColumns();
-    const missingColumns = CANONICAL_COLUMNS.filter(
+    const missingColumns = TASK_COLUMNS.filter(
       (canonical) =>
         !existingColumns.some((column) =>
           canonical.aliases.some((alias) => alias === column.name)
@@ -522,7 +499,7 @@ function KanbanBoardContent({
   }, [onSeed, seeded]);
 
   const rawColumns = columnsData;
-  const columns = CANONICAL_COLUMNS.map((canonical) => {
+  const columns = TASK_COLUMNS.map((canonical) => {
     const column = rawColumns.find((rawColumn) =>
       canonical.aliases.some((alias) => alias === rawColumn.name)
     );
@@ -533,20 +510,18 @@ function KanbanBoardContent({
 
   const columnIdToStatus = new Map<string, ColumnStatus>();
   for (const col of columns) {
-    const canonical =
-      CANONICAL_COLUMNS.find((item) => item.aliases.some((alias) => alias === col.name)) ?? CANONICAL_COLUMNS[0];
-    columnIdToStatus.set(col._id, canonical.key);
+    columnIdToStatus.set(col._id, taskColumnKeyForName(col.name) ?? 'not-started');
   }
 
   const inProgressColumn =
     columns.find((column) => columnIdToStatus.get(column._id) === 'in-progress');
   const legacyBlockedColumnIds = new Set(
     rawColumns
-      .filter((column) => LEGACY_BLOCKED_COLUMN_NAMES.has(column.name))
+      .filter((column) => LEGACY_BLOCKED_TASK_COLUMN_NAMES.has(column.name))
       .map((column) => column._id)
   );
   const notStartedColumn =
-    columns.find((column) => ['Not Started', 'To Do'].includes(column.name)) ?? columns[0];
+    columns.find((column) => columnIdToStatus.get(column._id) === 'not-started') ?? columns[0];
   const doneColumn =
     columns.find((column) => columnIdToStatus.get(column._id) === 'done');
 

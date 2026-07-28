@@ -18,13 +18,26 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-07-27T16:32:21-0700
-- **task:** guard symlink fix + composio parity
+- **since:** 2026-07-28T12:16:40-0700
+- **task:** Pre-launch systematic audit of Forge for first Jarvis Pro setup
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-07-27 (perimeter closed, Wednesday fix pass landed on both machines at 2667180)
+**Last updated:** 2026-07-28 (pre-install audit + P0 client-readiness fixes, uncommitted)
+
+## 2026-07-28 Pre-Gary-install audit + P0 fixes (working tree)
+
+Full 4-lane readiness audit (setup path, tasks, email/CRM, git state) + Sol red-team ahead of Wednesday's first client install. Verdict: product near-ready, distribution not. Fixes landed in this working tree (Sol built, independently verified: tsc clean, full suite 471/471 including the formerly flaky CSRF test):
+- **Column aliases unified** into `src/lib/tasks/columns.ts` (single source; 'Backlog' now a Not-Started alias everywhere). Was a live bug: KanbanBoard and brief-sources disagreed, so Backlog tasks could vanish from one surface. Seven consumers now share the const; regression test added.
+- **Fresh-install autonomy default: groundwork -> off.** A new client must opt in before background Claude writes into their tasks. Existing installs with forge-autonomy.json unaffected. SETUP.md documents groundwork as opt-in.
+- **SETUP.md Step 0 preflight** (Xcode CLT, Node 20+, git, headless `claude --version`) before clone; step 1 gated on it.
+- **templates/.env.example** now defaults local (was supabase) and drops stale/dead content (OpenClaw reference, dead FORGE_TAILSCALE_ALLOWED_EMAILS, unreferenced FORGE_VOICE_PATH, Mini-specific access advice).
+- **BUDDY-DEPLOY.md** LaunchAgent name corrected to `com.forge.local`.
+
+Blocking, needs Alex (both queued): (1) public distribution — do NOT flip this repo (committed STATUS.md carries email, Tailscale IP/hostname, Telegram chat id, client names, revenue; tracked plists/fixtures leak real usernames/paths); build an allowlist fresh-history public mirror from a frozen RC SHA instead, then test the mirror, THEN merge to main. SETUP.md clone URL must point at the mirror. (2) merge feature/arrival-guided-flow -> main + push (origin/main is 17 commits stale and missing all portability/security work).
+
+Still open for Wednesday: clean-machine dress rehearsal (VM or spare Mac; a fresh user account shares Homebrew/Node and proves little), one-page client handoff doc, first-value install runbook (get 3-5 real client priorities in BEFORE the first brief so it doesn't read generic; carry a tarball fallback), verify installer copies all five forge-* skills, check Composio free-tier limits. Meeting watcher is Alex-only (hardcoded name match) — never pitch to clients.
 
 ## Perimeter + Wednesday fixes (2026-07-27)
 
@@ -38,6 +51,8 @@ Day-plan loopback mode accepts hosts named in `FORGE_TAILSCALE_TRUSTED_HOSTS`. S
 **Fixed:** operator timezone resolution replacing hardcoded America/Los_Angeles in three files (new `operatorTimezone()`: FORGE_TIMEZONE > profile > machine); due dates stored at UTC midnight (local midnight showed the previous day at any UTC+ offset); `arrival_interacted_at` declared in CREATE TABLE so first boot can't race the ALTER; forge-rest refuses filterless PATCH/DELETE; TaskDetail re-seeds on `taskId` not `task` (every Buddy write was reverting in-progress typing); brief reports a required source missing when trimming empties it; `dataDir` passed to the source collector; stdin `error` listeners on both spawns (EPIPE was an uncaught exception, and in the buddy path that killed the whole Next server); buddy seed spawn pins `--tools`/`--strict-mcp-config`/`--mcp-config`/`--no-chrome`; missing chief-of-staff.md throws instead of silently substituting v4 stand-in instructions; legacy pre-Convex `tasks` table refused at startup with an actionable message.
 
 **Not a bug (checked, no change):** the CRM draft re-seed the review flagged. `ContactDetailPanel` is mounted with `key={selectedContact.id}`, so React remounts it per contact and the mount-time seeding is correct.
+
+**Test isolation fix (2026-07-27, uncommitted):** `forge-rest-route.test.mjs` failed 5/6 when the whole file ran (filterless-DELETE test got 403 instead of 400) but passed solo. Root cause: the CSRF token in `src/lib/quiet-current/store.ts` was cached in a module-level variable forever, and tsx loads a second copy of the store module when a test imports the route via its `[table]` bracket path (two caches, one went stale when `FORGE_DB_PATH` changed between tests). Fix: token cache is now keyed by the resolved token-file path, and minting uses a `wx` write that adopts the other writer's token on `EEXIST`, so all copies and processes converge on the same file. Verified 6/6 twenty times in a row, plus the 67 tests in the other store/CSRF suites and `tsc --noEmit`. Known pre-existing: 2 failures in `buddy-commands.test.mjs` (unresolved template placeholders) existed at HEAD, unrelated. Fixed same day: `buddy/CLAUDE.md.template` line 54 used `{{WORKSPACE_ROOT}}` outside the `<!--SPAWN-->` block, so the no-workspace render threw before substitution. Reworded the line to be workspace-agnostic (the absolute path was never actionable: Buddy's sandbox can't list directories, and the CLI error already returns real project names). Full suite 471/471.
 
 **Delete gate closed (2026-07-27).** The mint endpoint now requires `turnId` and an undisposed `pendingDeletes` entry on that turn's stored receipts, and reads the label from the receipt instead of the request body. Previously it parsed `turnId` and ignored it, so possessing the CSRF token was enough to mint a delete token for any allowed table and row, with no confirmation card ever rendered. Tests are mutation-verified: all three fail against the old mint.
 

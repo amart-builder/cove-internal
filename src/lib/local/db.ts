@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { FORGE_REST_TABLES } from "../data/forge-tables";
+import { TASK_COLUMNS } from "../tasks/columns";
 
 export type RestResult = { status: number; body?: unknown };
 
@@ -35,13 +36,11 @@ const BOOLEAN_COLUMNS: Record<string, string[]> = {
   commitments: ["confirmed"],
 };
 
-/** Default Kanban columns, matching the canonical board in KanbanBoard.tsx. */
-const DEFAULT_COLUMNS = [
-  { name: "Not Started", position: 0 },
-  { name: "Must happen today", position: 10 },
-  { name: "In Flight / Waiting", position: 20 },
-  { name: "Done", position: 30 },
-];
+/** Default Kanban columns, shared with every board consumer. */
+const DEFAULT_COLUMNS = TASK_COLUMNS.map(({ name, position }) => ({
+  name,
+  position,
+}));
 
 /** Only allow plain identifiers as column/table names (no SQL injection). */
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/i;

@@ -210,8 +210,6 @@ test('canonical intake captures first, triages once, writes project, and is idem
   assert.deepEqual(posts[0].tags, [
     'triaged',
     'autonomy-groundwork',
-    'groundwork-queued',
-    'groundwork-grade:groundwork',
   ]);
   assert.match(posts[0].description, /Offer: Want me to draft/);
   assert.match(posts[0].description, /Groundwork: Draft the scope/);
@@ -229,7 +227,7 @@ test('canonical intake captures first, triages once, writes project, and is idem
   assert.deepEqual(
     JSON.parse(readFileSync(path.join(dir, 'forge-autonomy.json'), 'utf8')),
     {
-      level: 'groundwork',
+      level: 'off',
       first_groundwork_at: null,
       checkin_answered: false,
       checkin_presented_count: 0,

@@ -61,7 +61,10 @@ const MAX_SUGGESTIONS = 500;
 const MAX_EVENTS = 2000;
 let testStorePath: string | undefined;
 let testNow: Date | undefined;
-let tokenCache: string | undefined;
+// Keyed by the token file's path: FORGE_DB_PATH/FORGE_DATA_DIR can change
+// between tests, and tsx can load two copies of this module. Tying the cache
+// to the file keeps every copy converging on the same on-disk token.
+let tokenCache: { file: string; token: string } | undefined;
 
 function nowDate(): Date {
   return testNow ? new Date(testNow) : new Date();
@@ -93,12 +96,12 @@ export function setQuietCurrentNowForTests(now?: Date): void {
 }
 
 export function getQuietCurrentCsrfToken(): string {
-  if (tokenCache) return tokenCache;
   const file = `${storePath()}.token`;
+  if (tokenCache?.file === file) return tokenCache.token;
   try {
     const existing = readFileSync(/* turbopackIgnore: true */ file, "utf8").trim();
     if (existing.length >= 32) {
-      tokenCache = existing;
+      tokenCache = { file, token: existing };
       return existing;
     }
   } catch (error) {
@@ -107,11 +110,28 @@ export function getQuietCurrentCsrfToken(): string {
 
   const token = randomUUID().replaceAll("-", "") + randomUUID().replaceAll("-", "");
   mkdirSync(/* turbopackIgnore: true */ path.dirname(file), { recursive: true });
-  writeFileSync(/* turbopackIgnore: true */ file, `${token}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  tokenCache = token;
+  try {
+    writeFileSync(/* turbopackIgnore: true */ file, `${token}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+      flag: "wx",
+    });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    // Another process (or module copy) minted first; adopt its token so every
+    // holder of this file agrees.
+    const minted = readFileSync(/* turbopackIgnore: true */ file, "utf8").trim();
+    if (minted.length >= 32) {
+      tokenCache = { file, token: minted };
+      return minted;
+    }
+    // The existing file is invalid (short or empty): replace it outright.
+    writeFileSync(/* turbopackIgnore: true */ file, `${token}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+  }
+  tokenCache = { file, token };
   return token;
 }
 

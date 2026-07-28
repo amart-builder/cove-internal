@@ -24,20 +24,20 @@ The Mini uses the same block with `FORGE_BUDDY_DEEPLINKS` set to `0`. `FORGE_BUD
 
 ## MacBook build and restart
 
-The MacBook service is `com.forge.web`. Run:
+The local installer creates the `com.forge.local` service. Run:
 
 ```bash
 cd /path/to/forge
 npm run build
 
-PLIST="$HOME/Library/LaunchAgents/com.forge.web.plist"
+PLIST="$HOME/Library/LaunchAgents/com.forge.local.plist"
 /usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:FORGE_DAY_PLAN_ACCESS_MODE loopback" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:FORGE_DAY_PLAN_ACCESS_MODE string loopback" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:FORGE_BUDDY_DEEPLINKS 1" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:FORGE_BUDDY_DEEPLINKS string 1" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:FORGE_BUDDY_APP_URL http://127.0.0.1:3200" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:FORGE_BUDDY_APP_URL string http://127.0.0.1:3200" "$PLIST"
 
-launchctl bootout "gui/$(id -u)/com.forge.web" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.forge.local" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
-launchctl kickstart -k "gui/$(id -u)/com.forge.web"
+launchctl kickstart -k "gui/$(id -u)/com.forge.local"
 ```
 
 ## Mac Mini build and restart

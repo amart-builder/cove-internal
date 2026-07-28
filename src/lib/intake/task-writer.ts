@@ -2,6 +2,7 @@ import { ensureForgeAutonomySettings } from "../autonomy/settings";
 import type { InboundEvent, Task } from "../data/types";
 import { localDateInTimezone } from "../day-plan/brief";
 import { operatorTimezone } from "../operator";
+import { taskColumnKeyForName, type TaskColumnKey } from "../tasks/columns";
 import type { TriageOutput } from "../triage/protocol";
 
 export type InboundTaskWriterOptions = {
@@ -304,7 +305,7 @@ function withoutProject(
 }
 
 async function columnId(
-  name: "Not Started" | "Must happen today",
+  key: Extract<TaskColumnKey, "not-started" | "today">,
   options: InboundTaskWriterOptions,
 ): Promise<string> {
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -321,10 +322,10 @@ async function columnId(
     value !== null &&
     typeof value === "object" &&
     !Array.isArray(value) &&
-    (value as Record<string, unknown>).name === name
+    taskColumnKeyForName(String((value as Record<string, unknown>).name)) === key
   ) as Record<string, unknown> | undefined;
   if (typeof match?.id !== "string") {
-    throw new Error(`inbound_${name.toLowerCase().replace(/\s+/g, "_")}_column_missing`);
+    throw new Error(`inbound_${key.replace(/-/g, "_")}_column_missing`);
   }
   return match.id;
 }
@@ -367,7 +368,7 @@ export async function createFallbackInboundTask(
   options: InboundTaskWriterOptions = {},
 ): Promise<string> {
   if (await inboundTaskExists(event.id, options)) return event.id;
-  const notStarted = await columnId("Not Started", options);
+  const notStarted = await columnId("not-started", options);
   const clock = options.now ?? (() => new Date());
   return createTask(event, {
     id: event.id,
@@ -395,7 +396,7 @@ export async function createCapturedInboundTask(
 ): Promise<string> {
   if (await inboundTaskExists(event.id, options)) return event.id;
   const targetColumn = await columnId(
-    input.column ?? "Not Started",
+    input.column === "Must happen today" ? "today" : "not-started",
     options,
   );
   return createTask(event, {
@@ -423,11 +424,11 @@ export async function createTriagedInboundTask(
   const dueToday =
     localDateInTimezone(new Date(triage.due_at), timezone) ===
     localDateInTimezone(now, timezone);
-  const columnName =
+  const columnKey =
     dueToday && (triage.surface === "now" || triage.priority === "high")
-      ? "Must happen today"
-      : "Not Started";
-  const targetColumn = await columnId(columnName, options);
+      ? "today"
+      : "not-started";
+  const targetColumn = await columnId(columnKey, options);
   const description = [
     triage.description,
     `Offer: ${triage.offer}`,

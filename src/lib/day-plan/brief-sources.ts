@@ -10,6 +10,10 @@ import type { Commitment, CommitmentKind } from "../data/types";
 import { countSpooledEvents } from "../intake/inbox";
 import { readProgressDigestRelays } from "../progress/relay";
 import {
+  LEGACY_BLOCKED_TASK_COLUMN_NAMES,
+  taskColumnKeyForName,
+} from "../tasks/columns";
+import {
   forgeDataDir,
   loadOperatorProfile,
   operatorName,
@@ -240,15 +244,13 @@ function taskTags(value: unknown): string[] {
 
 type ColumnRow = { id?: string; name?: string };
 
-const TODAY_ALIASES = new Set(["Must happen today", "Needs to happen today", "Today"]);
-const IN_FLIGHT_ALIASES = new Set(["In Flight / Waiting", "In Progress", "Waiting"]);
-const NOT_STARTED_ALIASES = new Set(["Not Started", "To Do", "Backlog"]);
-
 function columnBucket(name: string | undefined): string | undefined {
-  if (!name) return undefined;
-  if (TODAY_ALIASES.has(name)) return "today";
-  if (IN_FLIGHT_ALIASES.has(name)) return "in_flight";
-  if (NOT_STARTED_ALIASES.has(name)) return "not_started";
+  const key = taskColumnKeyForName(name);
+  if (key === "today") return "today";
+  if (key === "in-progress" || (name && LEGACY_BLOCKED_TASK_COLUMN_NAMES.has(name))) {
+    return "in_flight";
+  }
+  if (key === "not-started") return "not_started";
   return undefined;
 }
 

@@ -663,11 +663,21 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
             priority: 'medium',
             tags: [],
           },
+          {
+            id: 'backlog-1',
+            column_id: 'backlog',
+            title: 'Backlog item stays visible',
+            project: 'forge',
+            status: 'open',
+            priority: 'low',
+            tags: [],
+          },
         ]), { status: 200 });
       }
       if (value.includes('/api/forge-rest/task_columns')) {
         return new Response(JSON.stringify([
           { id: 'waiting', name: 'Waiting' },
+          { id: 'backlog', name: 'Backlog' },
         ]), { status: 200 });
       }
       return forgeRowsResponse(url);
@@ -692,6 +702,10 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
   assert.match(
     tasks.content,
     /\[in_flight\] id=waiting-1 "Waiting on signed scope" priority=medium project=client-delivery candidate_ok/,
+  );
+  assert.match(
+    tasks.content,
+    /\[not_started\] id=backlog-1 "Backlog item stays visible" priority=low project=forge/,
   );
 
   const warning = await collectMorningBriefSources({

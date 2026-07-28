@@ -51,7 +51,7 @@ Table notes:
 
 - `task_columns`: `id`, `name`, `position`, `is_default`.
 - `tasks`: `id`, `column_id`, `title`, `description`, `project`, `priority`, `due_at`, `tags`, `position`, `status`.
-- Every task has a `project`. Use an exact folder name from `{{WORKSPACE_ROOT}}/Projects`; general work uses `Atlas`.
+- Every task has a `project`. Use an exact project folder name from the workspace's `Projects` directory; general work uses `Atlas`.
 - Task priority is `low`, `medium`, or `high`. Status follows the existing row's value.
 - `tags` is JSON, not comma-separated text. Lower `position` values appear first.
 - `contacts`: `id`, `company_id`, `name`, `email`, `role`, `tier`, `tags`, `notes`.

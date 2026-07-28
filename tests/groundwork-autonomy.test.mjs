@@ -204,6 +204,15 @@ test("level off prevents queue reads and execution", async () => {
 
 test("successful groundwork attaches a bounded section, swaps tags, and starts the clock", async (t) => {
   const dir = fixture(t);
+  writeFileSync(
+    path.join(dir, "forge-autonomy.json"),
+    `${JSON.stringify({
+      level: "groundwork",
+      first_groundwork_at: null,
+      checkin_answered: false,
+      checkin_presented_count: 0,
+    })}\n`,
+  );
   const patches = [];
   const longOutput = `Plan\n${"x".repeat(5_000)}`;
   let current = task({
@@ -524,6 +533,12 @@ test("dry-run analyzes one task but writes no task or setting state", async (t) 
     dryRun: true,
     dataDir: dir,
     repoDir: dir,
+    readSettings: () => ({
+      level: "groundwork",
+      first_groundwork_at: null,
+      checkin_answered: false,
+      checkin_presented_count: 0,
+    }),
     listQueuedTasks: async () => [task()],
     runClaude: async () => "Dry-run groundwork.",
     updateTask: async () => {

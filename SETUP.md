@@ -8,7 +8,21 @@ If the user later chooses Supabase or Convex, designate one Forge installation a
 
 **Machine paths.** Never assume this machine is laid out like any other. When a step needs a folder path (the repo location, a coding workspace, where their documents live), find it on this machine yourself or ask the user, and record it where the step says to. Nothing in this repo hard-codes a person's folders, and nothing you write during setup should either, except into the local config files named below.
 
+## Step 0: Preflight the Mac
+
+Check the machine before cloning or installing anything, then set up whatever is missing yourself, right here in this session. Run every command you can on the operator's behalf. The operator should only ever have to do two things: click a macOS dialog, or type their password when the system asks. Tell them exactly what to expect before each of those moments. Never send them to a website to download something you can install with a command.
+
+1. **Xcode Command Line Tools:** run `xcode-select -p`. If it fails, run `xcode-select --install` yourself. A macOS dialog appears; tell the operator to click Install, that it can take several minutes, and that they need an administrator account. Wait, then re-run `xcode-select -p` to confirm.
+2. **Node 20 or newer:** run `node --version`. If Node is missing or older than 20:
+   - If `brew --version` works, run `brew install node` yourself.
+   - Otherwise install the official package yourself: find the current LTS macOS `.pkg` for this Mac's chip (`curl -s https://nodejs.org/dist/index.json` lists versions; Apple Silicon needs the arm64 pkg), download it with `curl` to a temp folder, and run `sudo installer -pkg <file> -target /`. Warn the operator first that the terminal will ask for their password, and that this is expected. Do not install Homebrew just to get Node.
+   - Re-run `node --version` in a fresh shell to confirm.
+3. **Git:** run `git --version`. It comes with the Command Line Tools, so fix step 1 if this check fails.
+4. **Headless Claude CLI:** run `claude --version` in a plain shell. Having the Claude app open is not enough. If the command fails, install it yourself with `npm install -g @anthropic-ai/claude-code` (Node from step 2 makes this work), then re-check. If `claude` is installed but not signed in, that gets proven and fixed at the "prove Claude works headless" step later; just note it now.
+
 ## 1. Clone and install
+
+Only continue after every Step 0 check passes.
 
 ```bash
 git clone https://github.com/amart-builder/forge.git ~/forge
@@ -16,7 +30,7 @@ cd ~/forge
 npm ci || npm install
 ```
 
-If the install fails while building `better-sqlite3`, install Apple's command line tools once with `xcode-select --install`, then run it again. Before moving on, prove the native module loads under the exact Node that will run Forge:
+Step 0 already confirmed the required build tools. Before moving on, prove the native module loads under the exact Node that will run Forge:
 
 ```bash
 node -e "require('better-sqlite3'); console.log('sqlite ok')"
@@ -114,6 +128,8 @@ When it opens, explain only this: "Solid work is committed. Pale work is a sugge
 **b. Capture by talking (already installed).** The setup script installed a skill so the user can just tell you in plain language what to remember: "remind me to call Joe Friday", "add prep the deck to my board", "I need to send the invoice by Tuesday". You put it on the board, choose a due date when they do not give one (from their current task load and the priorities in their `CLAUDE.md`), and set a reminder. Tell the user they can do this anytime.
 
 **c. Notifications are on.** Any task with a due time pops a native Mac notification when it is due, while the Mac is awake. Nothing to set up.
+
+**Groundwork autonomy is opt-in.** Groundwork lets background Claude do one bounded, read-only research or drafting pass and append a clearly marked draft to the operator's own task. It never sends anything, but it still changes task text, so fresh installs keep it off. Offer it in plain language during setup and enable it only if the operator says yes. They can opt in later by editing `data/forge-autonomy.json` and changing `"level": "off"` to `"level": "groundwork"`. Leave every other field unchanged. An existing install that already has this file keeps its current setting.
 
 **d. Text reminders (ask).** Ask the user: "Do you use Telegram or iMessage with Claude? If so, I can text you reminders, not just notify you on this Mac."
 

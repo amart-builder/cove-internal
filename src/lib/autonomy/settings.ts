@@ -20,7 +20,7 @@ export type ForgeAutonomySettings = {
 };
 
 export const DEFAULT_AUTONOMY_SETTINGS: ForgeAutonomySettings = {
-  level: "groundwork",
+  level: "off",
   first_groundwork_at: null,
   checkin_answered: false,
   checkin_presented_count: 0,

@@ -28,6 +28,7 @@ import {
   type ArrivalTaskStatus,
 } from '@/lib/quiet-current/arrival-cache';
 import { realTimeLabel } from '@/lib/quiet-current/presentation';
+import { taskColumnKeyForName, type TaskColumnKey } from '@/lib/tasks/columns';
 import { buildDayPlanCandidates } from '@/lib/day-plan/candidates';
 import {
   combineSurfaceErrors,
@@ -111,10 +112,6 @@ function defaultPlanningModel(item: DayPlanItem): 'fable' {
   return 'fable';
 }
 
-const TODAY_ALIASES = new Set(['Must happen today', 'Needs to happen today', 'Today']);
-const NOT_STARTED_ALIASES = new Set(['Not Started', 'To Do', 'Backlog']);
-const IN_FLIGHT_ALIASES = new Set(['In Flight / Waiting', 'In Progress']);
-const DONE_ALIASES = new Set(['Done', 'Completed']);
 const JARVIS_HELD_TAG = 'jarvis-held';
 const BLOCKED_TAG = 'blocked';
 const FOCUS_KEY = 'forge.quiet-current.focus';
@@ -152,8 +149,8 @@ function hasNormalizedTag(tags: string[], tag: string): boolean {
   return tags.some((candidate) => candidate.trim().toLowerCase() === tag);
 }
 
-function findColumn(columns: ColumnData[], aliases: Set<string>): ColumnData | undefined {
-  return columns.find((column) => aliases.has(column.name));
+function findColumn(columns: ColumnData[], key: TaskColumnKey): ColumnData | undefined {
+  return columns.find((column) => taskColumnKeyForName(column.name) === key);
 }
 
 function savedCurrentDescription(savedAt?: string): string {
@@ -385,8 +382,8 @@ function RestTodayView({ onOpenAllWork }: TodayViewProps) {
         ? tasksResult.value.map(normalizeRestTask)
         : tasksRef.current;
       const hasRequiredColumns = Boolean(
-        findColumn(normalizedColumns, TODAY_ALIASES) &&
-          findColumn(normalizedColumns, DONE_ALIASES),
+        findColumn(normalizedColumns, 'today') &&
+          findColumn(normalizedColumns, 'done'),
       );
 
       if (columnsResult.status === 'fulfilled' && !hasRequiredColumns) {
@@ -470,7 +467,7 @@ function RestTodayView({ onOpenAllWork }: TodayViewProps) {
     }
     if (!cached) return;
     const hasRequiredColumns = Boolean(
-      findColumn(cached.columns, TODAY_ALIASES) && findColumn(cached.columns, DONE_ALIASES),
+      findColumn(cached.columns, 'today') && findColumn(cached.columns, 'done'),
     );
     if (!hasRequiredColumns) return;
     hasCredibleDataRef.current = true;
@@ -687,10 +684,10 @@ function TodayExperience({
   // MorningArrival publishes its staged escape handler here so the hoisted layer can call it.
   const arrivalEscapeRef = useRef<(() => void) | null>(null);
 
-  const todayColumn = findColumn(columns, TODAY_ALIASES);
-  const notStartedColumn = findColumn(columns, NOT_STARTED_ALIASES);
-  const inFlightColumn = findColumn(columns, IN_FLIGHT_ALIASES);
-  const doneColumn = findColumn(columns, DONE_ALIASES);
+  const todayColumn = findColumn(columns, 'today');
+  const notStartedColumn = findColumn(columns, 'not-started');
+  const inFlightColumn = findColumn(columns, 'in-progress');
+  const doneColumn = findColumn(columns, 'done');
 
   const openTasks = useMemo(
     () =>

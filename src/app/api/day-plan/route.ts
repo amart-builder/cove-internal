@@ -54,6 +54,7 @@ import {
   publicKickoffSkip,
   publicUnreadyItem,
 } from "@/lib/day-plan/public-execution";
+import { taskColumnKeyForName } from "@/lib/tasks/columns";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -571,8 +572,6 @@ function readModelBriefGeneration(
   }
 }
 
-const DONE_COLUMN_NAMES = new Set(["Done", "Completed"]);
-
 async function completedPlanTaskIds(
   plan: DayPlan,
   fetchImpl: typeof fetch = fetch,
@@ -600,7 +599,7 @@ async function completedPlanTaskIds(
         ? value as Record<string, unknown>
         : undefined;
       return row && typeof row.id === "string" &&
-        typeof row.name === "string" && DONE_COLUMN_NAMES.has(row.name)
+        typeof row.name === "string" && taskColumnKeyForName(row.name) === "done"
         ? [row.id]
         : [];
     }),
