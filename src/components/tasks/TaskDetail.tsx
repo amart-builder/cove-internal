@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { getRuntimeMode } from '@/lib/runtime/mode';
 import EmailCardDetail from './EmailCardDetail';
 
 interface ColumnData {
@@ -18,6 +19,9 @@ interface TaskData {
   dueDate?: string;
   tags: string[];
   status?: 'open' | 'done' | 'archived';
+  proposedRecurrenceCadence?: string;
+  recurringTemplateId?: string;
+  occurrenceLocalDate?: string;
   blocked: boolean;
   position: number;
   createdAt: number;
@@ -43,6 +47,7 @@ interface TaskDetailProps {
   onDeleted: (id: string) => void;
   onSaveTask: (patch: UpdateTaskInput) => Promise<void>;
   onDeleteTask: () => Promise<void>;
+  onConfirmRecurrence?: (cadence: string) => Promise<void>;
 }
 
 function formatTimestamp(epoch: number): string {
@@ -76,6 +81,7 @@ export default function TaskDetail({
   onDeleted,
   onSaveTask,
   onDeleteTask,
+  onConfirmRecurrence,
 }: TaskDetailProps) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? '');
@@ -86,6 +92,8 @@ export default function TaskDetail({
   const [blocked, setBlocked] = useState(task.blocked);
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string>();
+  const [confirmingRecurrence, setConfirmingRecurrence] = useState(false);
+  const localMode = getRuntimeMode() === 'local';
 
   const backdropRef = useRef<HTMLDivElement>(null);
   const mouseDownTargetRef = useRef<EventTarget | null>(null);
@@ -97,7 +105,6 @@ export default function TaskDetail({
   // nothing about this task did, and each Buddy write triggers exactly that
   // reload through the refresh bus. Someone mid-sentence in the description
   // would watch it revert.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     setTitle(task.title);
     setDescription(task.description ?? '');
@@ -106,7 +113,7 @@ export default function TaskDetail({
     setTagsStr(visibleTags(task.tags).join(', '));
     setColumnId(task.columnId);
     setBlocked(task.blocked);
-  }, [taskId]);
+  }, [taskId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Only close if BOTH mousedown and mouseup (click) happened on the backdrop.
   // This prevents accidental close when drag-selecting text inside the modal
@@ -151,15 +158,41 @@ export default function TaskDetail({
   }
 
   async function handleDelete() {
-    if (!confirm('Delete this task? This cannot be undone.')) return;
-
+    if (!localMode && !window.confirm('Delete this task? This cannot be undone.')) {
+      return;
+    }
     setActionError(undefined);
     try {
       await onDeleteTask();
       onDeleted(taskId);
     } catch {
-      setActionError("Cove couldn't confirm that deletion. Refresh All Work to check the task, then try again.");
+      setActionError(
+        localMode
+          ? "Cove couldn't move that task to Recently deleted. Refresh All Work to check it, then try again."
+          : "Cove couldn't delete that task. Refresh All Work to check it, then try again.",
+      );
     }
+  }
+
+  async function handleConfirmRecurrence() {
+    if (!task.proposedRecurrenceCadence || !onConfirmRecurrence) return;
+    setConfirmingRecurrence(true);
+    setActionError(undefined);
+    try {
+      await onConfirmRecurrence(task.proposedRecurrenceCadence);
+    } catch {
+      setActionError("Cove couldn't make that rhythm. The task is unchanged.");
+    } finally {
+      setConfirmingRecurrence(false);
+    }
+  }
+
+  function recurrenceLabel(cadence: string): string {
+    if (cadence === 'daily') return 'daily';
+    if (cadence === 'weekdays') return 'weekday';
+    if (cadence.startsWith('weekly:')) return `weekly on ${cadence.slice(7)}`;
+    if (cadence.startsWith('monthly:')) return `monthly on day ${cadence.slice(8)}`;
+    return cadence;
   }
 
   // The daily "Emails: <date>" card renders its own interactive digest (grouped
@@ -212,6 +245,24 @@ export default function TaskDetail({
         </div>
 
         <div className="space-y-3">
+          {localMode && task.proposedRecurrenceCadence && !task.recurringTemplateId && (
+            <div className="rounded-md border border-accent-blue/20 bg-accent-blue/5 px-3 py-2.5">
+              <p className="text-xs font-medium text-foreground">
+                Make this a {recurrenceLabel(task.proposedRecurrenceCadence)} rhythm?
+              </p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Cove created only today&apos;s task. This starts future copies.
+              </p>
+              <button
+                type="button"
+                disabled={confirmingRecurrence}
+                onClick={() => void handleConfirmRecurrence()}
+                className="mt-2 rounded-full border border-accent-blue/30 px-2.5 py-1 text-[11px] font-medium text-accent-blue disabled:opacity-50"
+              >
+                {confirmingRecurrence ? 'Making rhythm…' : 'Make rhythm'}
+              </button>
+            </div>
+          )}
           <div>
             <label className="block text-[11px] text-muted-foreground mb-1">Title</label>
             <input

@@ -287,6 +287,20 @@ async function handleRequest(
   const runtimeMode = getRuntimeMode();
   if (
     runtimeMode === "local" &&
+    method === "DELETE" &&
+    unprefixedTable === "tasks" &&
+    (
+      request.headers.get("x-cove-hard-delete") !== "recently-deleted" ||
+      request.nextUrl.searchParams.get("status") !== "eq.archived"
+    )
+  ) {
+    return new NextResponse(
+      "Tasks can only be permanently deleted from Recently deleted.",
+      { status: 403 },
+    );
+  }
+  if (
+    runtimeMode === "local" &&
     COVE_CRM_COMPAT_TABLES.includes(
       unprefixedTable as typeof COVE_CRM_COMPAT_TABLES[number],
     ) &&

@@ -7,6 +7,7 @@ type ForgeRestOptions = {
   query?: Record<string, QueryValue>;
   body?: unknown;
   requireAuth?: boolean;
+  headers?: Record<string, string>;
 };
 
 type SupabaseRefreshResponse = {
@@ -140,6 +141,7 @@ async function request(table: string, options: ForgeRestOptions, token: string) 
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Prefer: "return=representation",
+      ...options.headers,
     },
     body:
       method === "GET" || options.body === undefined
@@ -161,6 +163,7 @@ async function serverRequest<T>(
     headers: {
       "Content-Type": "application/json",
       ...(csrfToken ? { "X-Forge-CSRF": csrfToken } : {}),
+      ...options.headers,
     },
     signal: controller.signal,
     body:

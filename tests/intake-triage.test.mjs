@@ -13,12 +13,17 @@ import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
 import { getEvent } from '../src/lib/intake/inbox.ts';
+import { openLocalDatabase } from '../src/lib/local/database.ts';
 import {
   buildTriagePrompt,
   runForgeIntake,
   triageRecordedEvent,
 } from '../src/lib/intake/run.ts';
-import { createTriagedInboundTask } from '../src/lib/intake/task-writer.ts';
+import {
+  createCapturedInboundTask,
+  createFallbackInboundTask,
+  createTriagedInboundTask,
+} from '../src/lib/intake/task-writer.ts';
 import {
   readTriageProtocol,
   TRIAGE_JSON_SCHEMA,
@@ -126,6 +131,163 @@ function forgeFetch(posts, options = {}) {
     throw new Error(`unexpected request: ${value}`);
   };
 }
+
+test('natural-language recurrence captures today once and only proposes the template', async (t) => {
+  const dir = fixture(t);
+  const posts = [];
+  const result = await runForgeIntake({
+    text: 'Post a customer clip every day.',
+    source: 'chat',
+    sourceId: 'recurrence-proposal',
+  }, {
+    dataDir: dir,
+    fetchImpl: forgeFetch(posts),
+    webBaseUrl: 'http://recurrence-proposal.test',
+    spawnImpl: claudeSpawn(validTriage({
+      due_at: '2026-08-10T09:00:00-07:00',
+      surface: 'board',
+      surface_at: null,
+    }), []),
+    now: () => new Date('2026-07-28T16:00:00.000Z'),
+    write: () => undefined,
+  });
+
+  assert.equal(result.proposedRecurrence, 'daily');
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].column_id, 'today');
+  assert.equal(posts[0].due_at, '2026-08-10T09:00:00-07:00');
+  assert.equal(posts[0].proposed_recurrence_cadence, 'daily');
+  assert.ok(posts[0].tags.includes('recurrence-proposed'));
+  const db = openLocalDatabase(path.join(dir, 'forge.db'));
+  try {
+    assert.equal(
+      db.prepare('SELECT count(*) AS n FROM recurring_templates').get().n,
+      0,
+    );
+  } finally {
+    db.close();
+  }
+});
+
+test('Supabase intake payloads stay pre-stage even when recurrence is proposed', async (t) => {
+  const dir = fixture(t);
+  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'supabase';
+  const event = {
+    id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    source: 'chat',
+    source_id: 'supabase-mode',
+    raw_text: 'Post a clip every day.',
+    machine: 'test',
+    state: 'pending',
+    task_id: null,
+    error: null,
+    attempts: 0,
+    created_at: '2026-07-28T16:00:00.000Z',
+    updated_at: '2026-07-28T16:00:00.000Z',
+  };
+  const now = () => new Date('2026-07-28T16:00:00.000Z');
+
+  const fallbackPosts = [];
+  await createFallbackInboundTask(event, {
+    dataDir: dir,
+    fetchImpl: forgeFetch(fallbackPosts),
+    webBaseUrl: 'http://supabase-fallback.test',
+    now,
+    proposedRecurrenceCadence: 'daily',
+  });
+  assert.equal(fallbackPosts[0].column_id, 'not-started');
+  assert.equal(fallbackPosts[0].due_at, '2026-07-29T09:00:00-07:00');
+  assert.deepEqual(fallbackPosts[0].tags, ['needs-triage']);
+  assert.equal('proposed_recurrence_cadence' in fallbackPosts[0], false);
+
+  const capturedPosts = [];
+  await createCapturedInboundTask({ ...event, id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }, {
+    title: 'Post a clip',
+    description: 'Captured.',
+    column: 'Not Started',
+  }, {
+    dataDir: dir,
+    fetchImpl: forgeFetch(capturedPosts),
+    webBaseUrl: 'http://supabase-captured.test',
+    now,
+    proposedRecurrenceCadence: 'daily',
+  });
+  assert.equal(capturedPosts[0].column_id, 'not-started');
+  assert.equal('due_at' in capturedPosts[0], false);
+  assert.deepEqual(capturedPosts[0].tags, ['needs-triage']);
+  assert.equal('proposed_recurrence_cadence' in capturedPosts[0], false);
+
+  const triagedPosts = [];
+  const triage = validTriage({
+    due_at: '2026-08-10T09:00:00-07:00',
+    surface: 'board',
+    priority: 'medium',
+  });
+  await createTriagedInboundTask({ ...event, id: 'ffffffff-ffff-4fff-8fff-ffffffffffff' }, triage, {
+    dataDir: dir,
+    fetchImpl: forgeFetch(triagedPosts),
+    webBaseUrl: 'http://supabase-triaged.test',
+    now,
+    proposedRecurrenceCadence: 'daily',
+  });
+  assert.equal(triagedPosts[0].column_id, 'not-started');
+  assert.equal(triagedPosts[0].due_at, triage.due_at);
+  assert.equal(triagedPosts[0].tags.includes('recurrence-proposed'), false);
+  assert.equal('proposed_recurrence_cadence' in triagedPosts[0], false);
+
+  const dryRun = await runForgeIntake({
+    text: 'Post a clip every day.',
+    source: 'chat',
+    sourceId: 'supabase-detection',
+    dryRun: true,
+  }, {
+    dataDir: dir,
+    now,
+    write: () => undefined,
+  });
+  assert.equal(dryRun.proposedRecurrence, undefined);
+});
+
+test('local proposed fallback and captured tasks use date-only due values', async (t) => {
+  const dir = fixture(t);
+  const event = {
+    id: 'abababab-abab-4bab-8bab-abababababab',
+    source: 'chat',
+    source_id: 'local-date-only',
+    raw_text: 'Stretch every day.',
+    machine: 'test',
+    state: 'pending',
+    task_id: null,
+    error: null,
+    attempts: 0,
+    created_at: '2026-07-28T16:00:00.000Z',
+    updated_at: '2026-07-28T16:00:00.000Z',
+  };
+  const options = {
+    dataDir: dir,
+    now: () => new Date('2026-07-28T16:00:00.000Z'),
+    proposedRecurrenceCadence: 'daily',
+  };
+  const fallbackPosts = [];
+  await createFallbackInboundTask(event, {
+    ...options,
+    fetchImpl: forgeFetch(fallbackPosts),
+    webBaseUrl: 'http://local-date-fallback.test',
+  });
+  assert.equal(fallbackPosts[0].due_at, '2026-07-28');
+
+  const capturedPosts = [];
+  await createCapturedInboundTask(
+    { ...event, id: 'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd' },
+    { title: 'Stretch', description: 'Captured.' },
+    {
+      ...options,
+      fetchImpl: forgeFetch(capturedPosts),
+      webBaseUrl: 'http://local-date-captured.test',
+    },
+  );
+  assert.equal(capturedPosts[0].due_at, '2026-07-28');
+});
 
 test('triage protocol is canonical, strict, and CLI parsing accepts text or files', (t) => {
   const dir = fixture(t);

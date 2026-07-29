@@ -19,6 +19,11 @@ export type Task = {
   position: number;
   status: "open" | "done" | "archived";
   source_type?: string;
+  archived_at?: string | null;
+  archived_from_status?: "open" | "done" | null;
+  proposed_recurrence_cadence?: string | null;
+  recurring_template_id?: string | null;
+  occurrence_local_date?: string | null;
   created_at?: string;
   updated_at?: string;
 };

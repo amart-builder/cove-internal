@@ -618,6 +618,7 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
             errors: 0,
             dead_letters: 0,
             disabled: false,
+            operator_unconfigured: true,
           },
         },
       },
@@ -706,6 +707,10 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
   assert.match(
     source.content,
     /Meeting watcher heartbeat: age=20m examined=3 matched=1 processed=1 errors=0 dead_letters=0\./,
+  );
+  assert.match(
+    source.content,
+    /Set your name in Setup so meeting follow-ups route to you\./,
   );
   const tasks = collected.sources.find((entry) => entry.id === 'task_snapshot');
   assert.match(
@@ -1464,6 +1469,8 @@ test('real source ids overwrite coverage fallbacks, while failed fetches remain 
       ['day_dump', 0],
       ['untriaged_inbound', 0],
       ['project_progress', 1],
+      ['recurring_rhythm', 5],
+      ['stale_tasks', 5],
       ['goals', 1],
       ['operator_profile', 2],
       ['leadup', 3],

@@ -30,6 +30,9 @@ import {
   normalizeMachineIdentity,
   resolveMachineIdentity,
 } from "../machine-identity.mjs";
+import { recurringRhythmSnapshot } from "../tasks/recurrence";
+import { detectStaleTasks } from "../tasks/stale";
+import { getRuntimeMode } from "../runtime/mode";
 
 const EXTERNAL_FETCH_TIMEOUT_MS = 10_000;
 // The operator's own zone, not a fixed one: this is the fallback used when
@@ -628,6 +631,31 @@ function meetingWatchHeartbeat(
   }
 }
 
+function meetingWatchOperatorSetupLine(
+  dataDir: string | undefined,
+  machineIdentity: { id: string; hostname: string } | undefined,
+): string | undefined {
+  if (!machineIdentity) return undefined;
+  try {
+    const parsed = JSON.parse(readFileSync(path.join(
+      coveDataDir(dataDir),
+      "intake",
+      "heartbeats.json",
+    ), "utf8")) as unknown;
+    const owner = backgroundLaneOwner(dataDir, "meeting_watch");
+    const heartbeat = machineHeartbeat(
+      parsed,
+      owner?.id ?? machineIdentity.id,
+      "meeting_watch",
+    );
+    return heartbeat?.operator_unconfigured === true
+      ? "Set your name in Setup so meeting follow-ups route to you."
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function progressReconcileHeartbeat(
   dataDir: string | undefined,
   now: Date,
@@ -777,6 +805,11 @@ async function inboundSource(input: {
     input.machineIdentity,
   );
   lines.push(heartbeat.line);
+  const operatorSetupLine = meetingWatchOperatorSetupLine(
+    input.dataDir,
+    input.machineIdentity,
+  );
+  if (operatorSetupLine) lines.push(operatorSetupLine);
   return {
     ...source,
     content: lines.join("\n"),
@@ -789,6 +822,77 @@ async function inboundSource(input: {
         }
       : {}),
   };
+}
+
+function recurringRhythmSource(input: {
+  dataDir?: string;
+  targetLocalDate: string;
+  targetTimezone: string;
+  now: Date;
+}): BriefSourceInput {
+  const base = {
+    id: "recurring_rhythm",
+    label: "RECURRING_RHYTHM",
+    required: false,
+    maxChars: 5000,
+    priority: 5,
+  } as const;
+  try {
+    const rhythms = recurringRhythmSnapshot({
+      dbPath: path.join(coveDataDir(input.dataDir), "forge.db"),
+      now: input.now,
+      timezone: input.targetTimezone,
+      localDate: input.targetLocalDate,
+    });
+    return {
+      ...base,
+      content: rhythms.length > 0
+        ? rhythms.map((rhythm) =>
+            `- ${compactLine(rhythm.title, 160)}` +
+            ` | cadence=${rhythm.cadence}` +
+            ` | current_streak=${rhythm.currentStreak}` +
+            ` | recent_misses=${rhythm.recentMisses.length > 0
+              ? rhythm.recentMisses.join(",")
+              : "none"}`
+          ).join("\n")
+        : "No active recurring rhythms.",
+      asOf: input.now.toISOString(),
+    };
+  } catch (error) {
+    return { ...base, note: errorNote(error, "recurring_rhythm_failed") };
+  }
+}
+
+function staleTasksSource(input: {
+  dataDir?: string;
+  now: Date;
+}): BriefSourceInput {
+  const base = {
+    id: "stale_tasks",
+    label: "STALE_TASKS",
+    required: false,
+    maxChars: 5000,
+    priority: 5,
+  } as const;
+  try {
+    const tasks = detectStaleTasks({
+      dbPath: path.join(coveDataDir(input.dataDir), "forge.db"),
+      dataDir: input.dataDir,
+      now: input.now,
+    });
+    return {
+      ...base,
+      content: tasks.length > 0
+        ? tasks.map((task) =>
+            `- id=${task.id} age_days=${task.ageDays}` +
+            ` column=${task.column} "${compactLine(task.title, 160)}"`
+          ).join("\n")
+        : "No stale tasks.",
+      asOf: input.now.toISOString(),
+    };
+  } catch (error) {
+    return { ...base, note: errorNote(error, "stale_tasks_failed") };
+  }
 }
 
 function projectProgressSource(input: {
@@ -1857,6 +1961,7 @@ export async function collectMorningBriefSources(
     now,
   });
 
+  const localMode = getRuntimeMode() === "local";
   const sources: BriefSourceInput[] = [
     dumpContent
       ? {
@@ -1888,6 +1993,20 @@ export async function collectMorningBriefSources(
       now,
       machineIdentity,
     }),
+    ...(localMode
+      ? [
+          recurringRhythmSource({
+            dataDir: options.dataDir,
+            targetLocalDate,
+            targetTimezone,
+            now,
+          }),
+          staleTasksSource({
+            dataDir: options.dataDir,
+            now,
+          }),
+        ]
+      : []),
     ...(autonomyCheckin ? [autonomyCheckin] : []),
     fileSource("goals", "GOALS", filePolicy.goals.path, {
       required: filePolicy.goals.required,
@@ -1955,6 +2074,7 @@ export async function collectMorningBriefSources(
       const candidateEligible =
         (bucket === "today" || bucket === "in_flight") &&
         !tags.includes("jarvis-held") &&
+        (!localMode || !tags.includes("recurring")) &&
         !title.startsWith("Emails:");
       if (candidateEligible) knownTaskIds.add(row.id);
       if (row.updated_at && row.updated_at > newestUpdate) newestUpdate = row.updated_at;

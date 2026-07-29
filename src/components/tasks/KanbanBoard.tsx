@@ -30,7 +30,9 @@ import {
   listTaskColumns,
   listTasks,
   updateTask as updateSupabaseTask,
+  restoreTask as restoreSupabaseTask,
 } from '@/lib/data/tasks';
+import { confirmTaskRecurrence } from '@/lib/data/recurrence';
 import type {
   Task as SupabaseTask,
   TaskColumn as SupabaseTaskColumn,
@@ -45,6 +47,7 @@ import {
 import Column from './Column';
 import TaskCard from './TaskCard';
 import TaskDetail from './TaskDetail';
+import RecentlyDeleted from './RecentlyDeleted';
 
 interface ColumnData {
   _id: string;
@@ -63,6 +66,9 @@ interface TaskData {
   dueDate?: string;
   tags: string[];
   status?: TaskStatus;
+  proposedRecurrenceCadence?: string;
+  recurringTemplateId?: string;
+  occurrenceLocalDate?: string;
   blocked: boolean;
   position: number;
   _creationTime: number;
@@ -103,6 +109,8 @@ interface KanbanBoardContentProps {
   onCreateTask: (input: CreateTaskInput) => Promise<void>;
   onUpdateTask: (id: string, patch: UpdateTaskInput, nextTasks?: TaskData[]) => Promise<void>;
   onDeleteTask: (id: string) => Promise<void>;
+  onRestoreTask?: (id: string) => Promise<void>;
+  onConfirmRecurrence?: (id: string, cadence: string) => Promise<void>;
 }
 
 const BLOCKED_TAG = 'blocked';
@@ -261,6 +269,9 @@ function normalizeSupabaseTask(task: SupabaseTask): TaskData {
     dueDate: toDateInput(task.due_at),
     tags,
     status: task.status,
+    proposedRecurrenceCadence: task.proposed_recurrence_cadence ?? undefined,
+    recurringTemplateId: task.recurring_template_id ?? undefined,
+    occurrenceLocalDate: task.occurrence_local_date ?? undefined,
     blocked: isTaskBlocked(tags),
     position: task.position,
     _creationTime: toEpoch(row.created_at),
@@ -313,6 +324,7 @@ function toSupabaseDueAt(value: string | null | undefined): string | null | unde
 }
 
 function SupabaseKanbanBoard() {
+  const localMode = getRuntimeMode() === 'local';
   const [columns, setColumns] = useState<ColumnData[]>([]);
   const [tasks, setTasks] = useState<TaskData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -456,6 +468,21 @@ function SupabaseKanbanBoard() {
           throw err;
         }
       }}
+      onRestoreTask={localMode
+        ? async (id) => {
+            const restored = await restoreSupabaseTask(id);
+            setTasks((currentTasks) => [
+              ...currentTasks.filter((task) => task._id !== id),
+              normalizeSupabaseTask(restored),
+            ]);
+          }
+        : undefined}
+      onConfirmRecurrence={localMode
+        ? async (id, cadence) => {
+            await confirmTaskRecurrence(id, cadence);
+            await reload();
+          }
+        : undefined}
     />
   );
 }
@@ -469,6 +496,8 @@ function KanbanBoardContent({
   onCreateTask,
   onUpdateTask,
   onDeleteTask,
+  onRestoreTask,
+  onConfirmRecurrence,
 }: KanbanBoardContentProps) {
 
   const [localTasks, setLocalTasks] = useState<TaskData[] | null>(null);
@@ -480,6 +509,11 @@ function KanbanBoardContent({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all');
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const [showRecentlyDeleted, setShowRecentlyDeleted] = useState(false);
+  const [archiveUndo, setArchiveUndo] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
 
   const [newTask, setNewTask] = useState({
     title: '',
@@ -560,6 +594,12 @@ function KanbanBoardContent({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasksData]);
+
+  useEffect(() => {
+    if (!archiveUndo) return;
+    const timeout = window.setTimeout(() => setArchiveUndo(null), 10000);
+    return () => window.clearTimeout(timeout);
+  }, [archiveUndo]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -818,8 +858,12 @@ function KanbanBoardContent({
     }
   }
 
-  function handleTaskDeleted() {
+  function handleTaskDeleted(id: string) {
+    const archived = tasks.find((task) => task._id === id);
     setDetailTaskId(null);
+    if (archived && onRestoreTask) {
+      setArchiveUndo({ id: archived._id, title: archived.title });
+    }
   }
 
   async function handleCompleteTask(taskId: string) {
@@ -921,6 +965,10 @@ function KanbanBoardContent({
     );
   }
 
+  if (showRecentlyDeleted && onRestoreTask) {
+    return <RecentlyDeleted onClose={() => setShowRecentlyDeleted(false)} />;
+  }
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-3 px-5 py-2.5 border-b transition-colors duration-200">
@@ -972,6 +1020,16 @@ function KanbanBoardContent({
             {filteredTasks.length}/{totalTasks}
           </span>
         </div>
+
+        {onRestoreTask && (
+          <button
+            type="button"
+            onClick={() => setShowRecentlyDeleted(true)}
+            className="ml-2 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+          >
+            Recently deleted
+          </button>
+        )}
 
         <button
           onClick={() => setShowAddForm(!showAddForm)}
@@ -1111,7 +1169,29 @@ function KanbanBoardContent({
           onDeleted={handleTaskDeleted}
           onSaveTask={handleSaveDetailTask}
           onDeleteTask={() => onDeleteTask(detailTaskId)}
+          onConfirmRecurrence={onConfirmRecurrence
+            ? async (cadence) => {
+                await onConfirmRecurrence(detailTaskId, cadence);
+              }
+            : undefined}
         />
+      )}
+
+      {archiveUndo && onRestoreTask && (
+        <div className="quiet-undo" role="status" aria-live="polite">
+          <span>“{archiveUndo.title}” moved to Recently deleted.</span>
+          <button
+            type="button"
+            onClick={() => {
+              const pending = archiveUndo;
+              setArchiveUndo(null);
+              void onRestoreTask(pending.id);
+            }}
+          >
+            Undo
+          </button>
+          <span className="quiet-undo-timer" aria-hidden="true" />
+        </div>
       )}
     </div>
   );

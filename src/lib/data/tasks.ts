@@ -1,4 +1,5 @@
 import { forgeRest } from "../supabase/rest";
+import { getRuntimeMode } from "../runtime/mode";
 import type { Task, TaskColumn } from "./types";
 
 const PROJECT_COLUMN_REPROBE_MS = 10 * 60_000;
@@ -48,8 +49,30 @@ export async function listTaskColumns(): Promise<TaskColumn[]> {
 export async function listTasks(): Promise<Task[]> {
   return forgeRest<Task[]>("tasks", {
     requireAuth: true,
-    query: { select: "*", order: "position.asc" },
+    query: {
+      select: "*",
+      ...(getRuntimeMode() === "local" ? { status: "neq.archived" } : {}),
+      order: "position.asc",
+    },
   });
+}
+
+export async function listArchivedTasks(): Promise<Task[]> {
+  if (getRuntimeMode() !== "local") {
+    throw new Error("Recently deleted is only available in local mode.");
+  }
+  const tasks = await forgeRest<Task[]>("tasks", {
+    requireAuth: true,
+    query: { select: "*", status: "eq.archived", order: "archived_at.desc" },
+  });
+  return tasks
+    .map((task) => ({
+      ...task,
+      archived_at: task.archived_at ?? task.updated_at ?? null,
+    }))
+    .sort((a, b) =>
+      String(b.archived_at ?? "").localeCompare(String(a.archived_at ?? ""))
+    );
 }
 
 export async function createTask(input: {
@@ -107,8 +130,60 @@ export async function updateTask(id: string, patch: Partial<Task>): Promise<Task
 }
 
 export async function deleteTask(id: string): Promise<void> {
+  if (getRuntimeMode() !== "local") {
+    await forgeRest<undefined>("tasks", {
+      method: "DELETE",
+      query: { id: `eq.${id}` },
+    });
+    return;
+  }
+  const rows = await forgeRest<Task[]>("tasks", {
+    requireAuth: true,
+    query: { select: "*", id: `eq.${id}`, status: "neq.archived", limit: "1" },
+  });
+  const task = rows[0];
+  if (!task) return;
+  await forgeRest<Task[]>("tasks", {
+    method: "PATCH",
+    query: { id: `eq.${id}` },
+    body: {
+      status: "archived",
+      archived_at: new Date().toISOString(),
+      archived_from_status: task.status === "done" ? "done" : "open",
+    },
+  });
+}
+
+export async function restoreTask(id: string): Promise<Task> {
+  if (getRuntimeMode() !== "local") {
+    throw new Error("Archived task restore is only available in local mode.");
+  }
+  const archived = await forgeRest<Task[]>("tasks", {
+    requireAuth: true,
+    query: { select: "*", id: `eq.${id}`, status: "eq.archived", limit: "1" },
+  });
+  const task = archived[0];
+  if (!task) throw new Error("Archived task not found.");
+  const rows = await forgeRest<Task[]>("tasks", {
+    method: "PATCH",
+    query: { id: `eq.${id}` },
+    body: {
+      status: task.archived_from_status === "done" ? "done" : "open",
+      archived_at: null,
+      archived_from_status: null,
+    },
+  });
+  if (!rows[0]) throw new Error("Archived task could not be restored.");
+  return rows[0];
+}
+
+export async function hardDeleteTask(id: string): Promise<void> {
+  if (getRuntimeMode() !== "local") {
+    throw new Error("Recently deleted is only available in local mode.");
+  }
   await forgeRest<undefined>("tasks", {
     method: "DELETE",
-    query: { id: `eq.${id}` },
+    query: { id: `eq.${id}`, status: "eq.archived" },
+    headers: { "X-Cove-Hard-Delete": "recently-deleted" },
   });
 }

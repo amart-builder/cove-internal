@@ -4,7 +4,11 @@ import path from "node:path";
 import { coveDataDir } from "../operator";
 import { coveEnv } from "../env";
 
-export type SuggestionKind = "create_task" | "returned_work" | "observed_progress";
+export type SuggestionKind =
+  | "create_task"
+  | "returned_work"
+  | "observed_progress"
+  | "stale_task";
 
 export type SuggestionState =
   | "proposed"
@@ -303,10 +307,18 @@ export function createWorkSuggestion(input: {
 }): WorkSuggestion {
   const kind = input.kind ?? "create_task";
   if (
-    (kind === "returned_work" || kind === "observed_progress") &&
+    (
+      kind === "returned_work" ||
+      kind === "observed_progress" ||
+      kind === "stale_task"
+    ) &&
     !input.targetTaskId
   ) {
-    throw new Error(`${kind === "returned_work" ? "Returned work" : "Observed progress"} requires an existing target task.`);
+    throw new Error(`${kind === "returned_work"
+      ? "Returned work"
+      : kind === "observed_progress"
+        ? "Observed progress"
+        : "A stale-task check"} requires an existing target task.`);
   }
   const store = readStore();
   const lifecycleChanged = refreshSuggestionLifecycle(store);

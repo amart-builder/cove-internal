@@ -40,6 +40,11 @@ import {
 } from "./task-writer";
 import { nativeNotificationArgs } from "./notification-transport.mjs";
 import { coveEnv, coveEnvTrimmed } from "../env";
+import {
+  detectRecurrenceIntent,
+  type RecurrenceCadence,
+} from "../tasks/recurrence";
+import { getRuntimeMode } from "../runtime/mode";
 
 const MODULE_REPO_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -92,6 +97,7 @@ export type ForgeIntakeResult = {
   spooled: boolean;
   fallback: boolean;
   error?: string;
+  proposedRecurrence?: RecurrenceCadence;
 };
 
 export function forgeIntakeRepoDir(): string {
@@ -562,7 +568,12 @@ export async function triageRecordedEvent(
   input: { taskId: string },
   options: ForgeIntakeOptions = {},
 ): Promise<boolean> {
-  const runtimeOptions = resolvedOptions(options);
+  const runtimeOptions = resolvedOptions({
+    ...options,
+    proposedRecurrenceCadence:
+      options.proposedRecurrenceCadence ??
+      detectRecurrenceIntent(event.raw_text),
+  });
   if (input.taskId !== event.id) throw new Error("triage_task_id_mismatch");
   if (await inboundTaskExists(event.id, runtimeOptions)) {
     await resumePendingSurface(event.id, runtimeOptions);
@@ -607,12 +618,19 @@ export async function runForgeIntake(
   input: ForgeIntakeInput,
   options: ForgeIntakeOptions = {},
 ): Promise<ForgeIntakeResult> {
-  const runtimeOptions = resolvedOptions(options);
-  const write = runtimeOptions.write ??
+  const baseRuntimeOptions = resolvedOptions(options);
+  const write = baseRuntimeOptions.write ??
     ((line: string) => process.stdout.write(`${line}\n`));
-  const now = (runtimeOptions.now ?? (() => new Date()))();
+  const now = (baseRuntimeOptions.now ?? (() => new Date()))();
   const text = input.text.trim();
   if (!text) throw new Error("intake_text_required");
+  const proposedRecurrence = getRuntimeMode() === "local"
+    ? detectRecurrenceIntent(text)
+    : undefined;
+  const runtimeOptions = {
+    ...baseRuntimeOptions,
+    proposedRecurrenceCadence: proposedRecurrence,
+  };
   const sourceId =
     input.sourceId?.trim() || derivedSourceId(input.source, text, now);
   const captureInput: RecordEventInput = {
@@ -633,6 +651,7 @@ export async function runForgeIntake(
       spooled: false,
       fallback: false,
       error: capture.event.error ?? "intake_capture_failed",
+      ...(proposedRecurrence ? { proposedRecurrence } : {}),
     };
   }
   if (capture.event.spooled === true) {
@@ -646,6 +665,7 @@ export async function runForgeIntake(
       existed: capture.existed,
       spooled: true,
       fallback: false,
+      ...(proposedRecurrence ? { proposedRecurrence } : {}),
     };
   }
   if (capture.existed && capture.event.task_id) {
@@ -667,6 +687,7 @@ export async function runForgeIntake(
       existed: true,
       spooled: false,
       fallback: false,
+      ...(proposedRecurrence ? { proposedRecurrence } : {}),
     };
   }
   if (input.dryRun) {
@@ -677,6 +698,7 @@ export async function runForgeIntake(
       existed: capture.existed,
       spooled: false,
       fallback: false,
+      ...(proposedRecurrence ? { proposedRecurrence } : {}),
     };
   }
 
@@ -698,6 +720,7 @@ export async function runForgeIntake(
       existed: capture.existed,
       spooled: false,
       fallback: false,
+      ...(proposedRecurrence ? { proposedRecurrence } : {}),
     };
   } catch (error) {
     const reason = boundedReason(error);
@@ -715,6 +738,7 @@ export async function runForgeIntake(
         existing: false,
         fallback: true,
         error: reason,
+        ...(proposedRecurrence ? { proposedRecurrence } : {}),
       })}`);
       return {
         exitCode: 0,
@@ -724,6 +748,7 @@ export async function runForgeIntake(
         spooled: false,
         fallback: true,
         error: reason,
+        ...(proposedRecurrence ? { proposedRecurrence } : {}),
       };
     } catch (fallbackError) {
       (runtimeOptions.writeError ?? console.error)(
@@ -736,6 +761,7 @@ export async function runForgeIntake(
         spooled: false,
         fallback: true,
         error: reason,
+        ...(proposedRecurrence ? { proposedRecurrence } : {}),
       };
     }
   }

@@ -1,4 +1,8 @@
-export type SuggestionKind = "create_task" | "returned_work" | "observed_progress";
+export type SuggestionKind =
+  | "create_task"
+  | "returned_work"
+  | "observed_progress"
+  | "stale_task";
 
 export type SuggestionState =
   | "proposed"

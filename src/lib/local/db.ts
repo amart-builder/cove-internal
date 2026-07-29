@@ -13,6 +13,7 @@ import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { COVE_REST_TABLES } from "../data/forge-tables";
 import { TASK_COLUMNS } from "../tasks/columns";
+import { syncRecurringOccurrenceForTask } from "../tasks/recurrence";
 import { recordFailureInDatabase } from "../reliability/failures";
 import { localDatabasePath, openLocalDatabase } from "./database";
 
@@ -253,9 +254,13 @@ function parseWhere(table: string, params: URLSearchParams): {
 
 function selectRows(table: string, params: URLSearchParams): RestResult {
   const db = getDb();
+  const effectiveParams = new URLSearchParams(params);
+  if (table === "tasks" && !effectiveParams.has("status")) {
+    effectiveParams.set("status", "neq.archived");
+  }
 
   let columns = "*";
-  const select = params.get("select");
+  const select = effectiveParams.get("select");
   if (select && select !== "*") {
     const cols = select
       .split(",")
@@ -265,7 +270,7 @@ function selectRows(table: string, params: URLSearchParams): RestResult {
   }
 
   let orderBy = "";
-  const order = params.get("order");
+  const order = effectiveParams.get("order");
   if (order) {
     const clauses: string[] = [];
     for (const part of order.split(",").map((p) => p.trim()).filter(Boolean)) {
@@ -280,18 +285,18 @@ function selectRows(table: string, params: URLSearchParams): RestResult {
   }
 
   let tail = "";
-  const limitRaw = params.get("limit");
+  const limitRaw = effectiveParams.get("limit");
   if (limitRaw !== null) {
     const limit = Number(limitRaw);
     if (Number.isInteger(limit) && limit >= 0) tail += ` LIMIT ${limit}`;
   }
-  const offsetRaw = params.get("offset");
+  const offsetRaw = effectiveParams.get("offset");
   if (offsetRaw !== null) {
     const offset = Number(offsetRaw);
     if (Number.isInteger(offset) && offset >= 0) tail += ` OFFSET ${offset}`;
   }
 
-  const { clause, args } = parseWhere(table, params);
+  const { clause, args } = parseWhere(table, effectiveParams);
   const sql = `SELECT ${columns} FROM "${table}"${clause}${orderBy}${tail}`;
   const rows = db.prepare(sql).all(...args) as Record<string, unknown>[];
   return { status: 200, body: rows.map((r) => decodeRow(table, r)) };
@@ -339,38 +344,67 @@ function updateRows(
     return { status: 400, body: "Refusing to update without a filter." };
   }
 
-  // Capture the matched primary keys before mutating so the returned
-  // representation is the rows this update actually changed, even when the
-  // update rewrites a column the filter tested (PostgREST RETURNING semantics).
-  // Re-selecting with the same clause after the update would drop exactly those
-  // rows, which breaks compare-and-swap callers that filter on the value they
-  // are about to overwrite.
-  const matchedIds = (
-    db.prepare(`SELECT id FROM "${table}"${clause}`).all(...args) as {
-      id: unknown;
-    }[]
-  ).map((r) => r.id);
-
+  const requestedKeys = Object.keys(payload as Record<string, unknown>);
   const row = encodeRow(table, { ...(payload as Record<string, unknown>) });
   delete row.id; // never reassign the primary key
   row.updated_at = nowIso();
-
-  const known = tableColumns(table);
-  const cols = Object.keys(row).filter((c) => known.has(c));
-  if (cols.length) {
-    const setSql = cols.map((c) => `"${c}" = ?`).join(", ");
-    db.prepare(`UPDATE "${table}" SET ${setSql}${clause}`).run(
-      ...cols.map((c) => row[c]),
-      ...args,
-    );
-  }
-
-  if (matchedIds.length === 0) return { status: 200, body: [] };
-  const placeholders = matchedIds.map(() => "?").join(", ");
-  const rows = db
-    .prepare(`SELECT * FROM "${table}" WHERE id IN (${placeholders})`)
-    .all(...matchedIds) as Record<string, unknown>[];
-  return { status: 200, body: rows.map((r) => decodeRow(table, r)) };
+  return db.transaction(() => {
+    // Capture the matched primary keys before mutating so the returned
+    // representation has PostgREST RETURNING semantics even when a filtered
+    // column changes.
+    const matchedIds = (
+      db.prepare(`SELECT id FROM "${table}"${clause}`).all(...args) as {
+        id: unknown;
+      }[]
+    ).map((matched) => matched.id);
+    if (
+      table === "tasks" &&
+      row.status === "archived" &&
+      row.archived_at === undefined
+    ) {
+      db.prepare(
+        `UPDATE tasks
+         SET archived_at = COALESCE(archived_at, ?),
+             archived_from_status = COALESCE(archived_from_status, status)
+         ${clause}`,
+      ).run(row.updated_at, ...args);
+    }
+    const known = tableColumns(table);
+    const cols = Object.keys(row).filter((column) => known.has(column));
+    if (cols.length) {
+      const setSql = cols.map((column) => `"${column}" = ?`).join(", ");
+      db.prepare(`UPDATE "${table}" SET ${setSql}${clause}`).run(
+        ...cols.map((column) => row[column]),
+        ...args,
+      );
+    }
+    const positionOnly = requestedKeys.length === 1 &&
+      requestedKeys[0] === "position";
+    if (table === "tasks" && matchedIds.length > 0 && !positionOnly) {
+      const updatedAt = typeof row.updated_at === "string"
+        ? row.updated_at
+        : nowIso();
+      const statusRows = db.prepare(
+        `SELECT id, status FROM tasks WHERE id IN (${
+          matchedIds.map(() => "?").join(", ")
+        })`,
+      ).all(...matchedIds) as Array<{ id: string; status: string | null }>;
+      for (const statusRow of statusRows) {
+        syncRecurringOccurrenceForTask(
+          db,
+          statusRow.id,
+          statusRow.status,
+          updatedAt,
+        );
+      }
+    }
+    if (matchedIds.length === 0) return { status: 200, body: [] };
+    const placeholders = matchedIds.map(() => "?").join(", ");
+    const rows = db
+      .prepare(`SELECT * FROM "${table}" WHERE id IN (${placeholders})`)
+      .all(...matchedIds) as Record<string, unknown>[];
+    return { status: 200, body: rows.map((result) => decodeRow(table, result)) };
+  }).immediate();
 }
 
 function deleteRows(table: string, params: URLSearchParams): RestResult {

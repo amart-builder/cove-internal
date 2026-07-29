@@ -33,6 +33,14 @@
 - Note for the plan: cloud-mode contacts keep the older isTrustedForgeRequest-only gate (behavior preservation); local mode has the tighter day-plan gate.
 - Stage 2 spike verdict RED recorded in the plan doc: staying on Composio (native connector can't run headless; scopes not narrowable; send not structurally excludable).
 
+## 2026-07-29 build wave Stage 5a: recurrence, stale watchdog, archive-with-undo (committed after BLOCK->SHIP cycle)
+
+- Recurring rhythms live in local mode: recurring_templates + DB-unique occurrences (double-spawn structurally impossible), deterministic spawner on the 5-min scheduler + app-open catch-up, second-current lane instances, settlement auto-expire (never Carry; carry is API-blocked for recurring), streaks/misses feed a recurring_rhythm brief source, natural language NEVER creates a template without an explicit confirm tap, RhythmManager in the lane header (pause/resume/stop/restart + Buddy verbs). Date-only due dates so reminders fire 9am local. Catch-up marks past open occurrences missed (bounded backfill, no pile-up); tz disagreements can't deadlock the spawner (shared profile-first operatorTimezone).
+- Stale-task watchdog (14d default, configurable) feeds a brief section + pale Quiet Current suggestion; "Keep it" touches the task. operator_unconfigured now surfaces in the brief.
+- Delete is archive-with-undo in local mode: Recently deleted view, 30-day purge (legacy settlement-Dropped rows stamped by migration 8 so the first sweep can't eat them), hard delete only from that view. FK enforcement now ON.
+- SUPABASE/CONVEX MODES UNTOUCHED BY DESIGN (review-verified byte-identical payloads): Alex's live install keeps pre-stage behavior everywhere; all new features light up when an install runs local mode. Alex-to-local migration is a separate decision, see morning summary.
+- Deferred to Stage 7 UI pass: RhythmManager popup inherits an 8px uppercase style from .current-jarvis-heading's unlayered span rule (globals.css:1131).
+
 ## 2026-07-29 build wave Stage 4: shared ingestion pipeline (committed after two review fix passes)
 
 - One meeting-notes pipeline behind a durable claim ledger keyed by Gmail message id: both doors (watcher + email-triage fallback bucket) claim before processing, expired leases recover, permanent failures dead-letter at 5 attempts with one deduped failure-inbox row. Tool-agnostic detection (Gemini/Granola/Fathom/Otter + custom) via data/cove-meetings.example.json; runtime config is UNTRACKED (SETUP writes it; Alex's forge-meetings.json keeps exact legacy behavior incl. Forge/Meeting-Processed label). CRM wiring live: waiting-on commitments get real contact_id, ambiguous people recorded without blocking, per-item stable content-hash keys so retries can't duplicate.

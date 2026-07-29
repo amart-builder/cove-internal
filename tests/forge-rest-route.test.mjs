@@ -172,6 +172,11 @@ test('a legacy tasks table upgrades in place instead of failing per query', asyn
       notified_at: null,
       created_at: null,
       updated_at: null,
+      archived_at: null,
+      archived_from_status: null,
+      proposed_recurrence_cadence: null,
+      recurring_template_id: null,
+      occurrence_local_date: null,
     }]);
   } finally {
     delete globalKey.__forgeDb;
@@ -237,7 +242,7 @@ test('local task migration adds project with the Atlas default and index', async
   }
 });
 
-test('the route rejects a filterless DELETE after CSRF passes, and still allows a targeted one', async (t) => {
+test('the route rejects broad deletes and limits task hard-delete to Recently deleted', async (t) => {
   // The CSRF gate runs first, so an unauthenticated probe never reaches this
   // guard. Authenticate properly to prove the guard itself is load-bearing.
   const dir = path.join(os.tmpdir(), `forge-rest-nofilter-${process.pid}-${Date.now()}`);
@@ -278,15 +283,32 @@ test('the route rejects a filterless DELETE after CSRF passes, and still allows 
   );
   assert.equal(shapedOnly.status, 400);
 
-  // A targeted delete must still go through.
-  const targeted = await DELETE(
+  // An arbitrary task DELETE is still blocked. Hard delete belongs only to
+  // the Recently deleted view and only for a row already archived.
+  const arbitraryTaskDelete = await DELETE(
     new NextRequest('http://localhost:3200/api/forge-rest/tasks?id=eq.does-not-exist', {
       method: 'DELETE',
       headers,
     }),
     { params: Promise.resolve({ table: 'tasks' }) },
   );
-  assert.notEqual(targeted.status, 400, 'a filtered delete must not be blocked');
+  assert.equal(arbitraryTaskDelete.status, 403);
+
+  const recentlyDeleted = await DELETE(
+    new NextRequest(
+      'http://localhost:3200/api/forge-rest/tasks?id=eq.does-not-exist&status=eq.archived',
+      {
+        method: 'DELETE',
+        headers: {
+          ...headers,
+          'x-cove-hard-delete': 'recently-deleted',
+        },
+      },
+    ),
+    { params: Promise.resolve({ table: 'tasks' }) },
+  );
+  assert.notEqual(recentlyDeleted.status, 400);
+  assert.notEqual(recentlyDeleted.status, 403);
 });
 
 test('supabase-mode contact requests bypass the local CRM compatibility branch', {

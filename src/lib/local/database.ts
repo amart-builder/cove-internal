@@ -13,6 +13,7 @@ export function openSqliteDatabase(
 ): Database.Database {
   if (file !== ":memory:") mkdirSync(path.dirname(file), { recursive: true });
   const db = new Database(file);
+  db.pragma("foreign_keys = ON");
   db.pragma("journal_mode = WAL");
   db.pragma("busy_timeout = 5000");
   return db;

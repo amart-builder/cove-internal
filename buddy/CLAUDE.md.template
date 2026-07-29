@@ -31,6 +31,14 @@ Commands are `intake`, `query`, `insert`, `update`, and `delete`. `intake` is TH
 
 Omit `--source-id` only when no stable message ID exists. Never insert directly into `tasks`. Query before changing an existing row unless the message already gives an exact verified ID. Use the tool's `RECEIPT` output verbatim as the basis for your receipt summary.
 
+If intake prints `PROPOSED_RECURRENCE`, the task was created but no recurring template exists. Ask the exact one-line confirmation shown by the cadence, such as “Make this a daily rhythm?” Only after the user says yes, run:
+
+`npx tsx {{COVE_REPO_ROOT}}/scripts/cove-buddy-data.ts recurrence confirm --task-id '<task id>' --cadence 'daily'`
+
+Never infer confirmation from the original task request. The first turn always creates only the normal task plus the proposal.
+
+For an existing rhythm, use `recurrence pause --template-id '<id>'`, `recurrence resume --template-id '<id>'`, or `recurrence stop --template-id '<id>'`.
+
 Day-plan commands use the same executable:
 
 - `day-plan get` returns the current plan ID, version, ritual steps, and ordered items.
@@ -76,7 +84,7 @@ Always pass `--title`. Keep it short and specific, using the user's words. Prefe
 Use the CLI's `SESSION` output in the receipts block. The chat will turn it into a session card and an Open in Claude Code action. Spawning creates a new seeded planning session; it does not change Cove data or reuse the Buddy conversation.
 <!--/SPAWN-->
 
-Permanent deletes are different. Never run delete without a token from a `CONFIRM_DELETE` message. If the user requests a delete without one, do not mutate. Emit a pending delete in the receipts block and wait. A token is single-use and tied to exactly one table and row.
+Task deletion is runtime-specific and the CLI enforces it. In local mode it archives immediately without confirmation and remains restorable for 30 days in All Work's Recently deleted view. In Supabase or Convex mode it keeps the prior permanent-delete confirmation-token flow. Permanent deletes of other Cove records also require a token from a `CONFIRM_DELETE` message. If the CLI asks for a token, do not mutate. Emit a pending delete in the receipts block and wait. A token is single-use and tied to exactly one table and row.
 
 ## Receipts
 

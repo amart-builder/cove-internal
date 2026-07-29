@@ -273,6 +273,112 @@ test('buddy data CLI refuses delete without a confirmation token before fetch', 
   assert.match(errors[0], /^ERROR {"message":"Permanent delete requires/);
 });
 
+test('buddy task delete archives without a token and never calls the delete endpoint', {
+  concurrency: false,
+}, async (t) => {
+  const previousRuntime = process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'local';
+  t.after(() => {
+    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+    else process.env.NEXT_PUBLIC_FORGE_RUNTIME = previousRuntime;
+  });
+  const calls = [];
+  const lines = [];
+  const fetchMock = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    if (calls.length === 1) return new Response('{"csrfToken":"token"}');
+    if (calls.length === 2) {
+      return new Response('[{"id":"t1","title":"Daily walk","status":"open"}]');
+    }
+    if (calls.length === 3) {
+      return new Response('[{"id":"t1","title":"Daily walk","status":"archived"}]');
+    }
+    return new Response('[]');
+  };
+  const code = await runBuddyDataCommand(
+    parseBuddyDataArgs(['delete', 'tasks', '--id', 't1']),
+    {
+      fetch: fetchMock,
+      appUrl: 'http://127.0.0.1:3200',
+      write: (line) => lines.push(line),
+    },
+  );
+  assert.equal(code, 0);
+  assert.equal(calls[2].init.method, 'PATCH');
+  assert.deepEqual(JSON.parse(calls[2].init.body), {
+    status: 'archived',
+    archived_at: JSON.parse(calls[2].init.body).archived_at,
+    archived_from_status: 'open',
+  });
+  assert.ok(Number.isFinite(Date.parse(JSON.parse(calls[2].init.body).archived_at)));
+  assert.equal(calls.some((call) => call.url.includes('confirm-delete/consume')), false);
+  assert.deepEqual(JSON.parse(lines[0].slice('RECEIPT '.length)), {
+    table: 'tasks',
+    action: 'update',
+    id: 't1',
+    summary: "Archived 'Daily walk'",
+  });
+});
+
+test('buddy Supabase task delete keeps the prior confirmation-token hard-delete flow', {
+  concurrency: false,
+}, async (t) => {
+  const previousRuntime = process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'supabase';
+  t.after(() => {
+    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+    else process.env.NEXT_PUBLIC_FORGE_RUNTIME = previousRuntime;
+  });
+  await assert.rejects(
+    runBuddyDataCommand(parseBuddyDataArgs(['delete', 'tasks', '--id', 't1']), {
+      fetch: async () => {
+        throw new Error('must reject before fetch');
+      },
+    }),
+    /Permanent delete requires a confirm token/,
+  );
+
+  const calls = [];
+  await runBuddyDataCommand(
+    parseBuddyDataArgs([
+      'delete', 'tasks', '--id', 't1', '--confirm-token', 'delete-token',
+    ]),
+    {
+      fetch: async (url, init = {}) => {
+        calls.push({ url: String(url), init });
+        if (calls.length === 1) return new Response('{"csrfToken":"csrf"}');
+        if (calls.length === 2) return new Response('[{"id":"t1","title":"Cloud task"}]');
+        if (calls.length === 3) return new Response('{"consumed":true}');
+        if (calls.length === 4) return new Response(null, { status: 204 });
+        return new Response('[]');
+      },
+      write: () => undefined,
+    },
+  );
+  assert.equal(calls[3].init.method, 'DELETE');
+  assert.equal(calls[3].init.body, undefined);
+  assert.equal(calls.some((call) => call.init.method === 'PATCH'), false);
+});
+
+test('buddy parses pause, resume, and stop rhythm verbs', () => {
+  assert.deepEqual(
+    parseBuddyDataArgs(['recurrence', 'pause', '--template-id', 'rhythm-1']),
+    {
+      action: 'recurrence-update',
+      templateId: 'rhythm-1',
+      operation: 'pause',
+    },
+  );
+  assert.equal(
+    parseBuddyDataArgs(['recurrence', 'resume', '--template-id', 'rhythm-1']).operation,
+    'resume',
+  );
+  assert.equal(
+    parseBuddyDataArgs(['recurrence', 'stop', '--template-id', 'rhythm-1']).operation,
+    'stop',
+  );
+});
+
 test('buddy data CLI emits one machine-readable receipt after a mocked mutation', async () => {
   const lines = [];
   const calls = [];

@@ -11,12 +11,14 @@ import {
 } from '../src/lib/day-plan/brief.ts';
 import { createDayPlanStore } from '../src/lib/day-plan/store.ts';
 import {
+  assertRecurringCarryAllowed,
   GET,
   POST,
   parseDayPlanPostBody,
 } from '../src/app/api/day-plan/route.ts';
 import { hasDayPlanRouteAccess, isLoopbackForgeRequest } from '../src/lib/request-security.ts';
 import { getQuietCurrentCsrfToken } from '../src/lib/quiet-current/store.ts';
+import { openLocalDatabase } from '../src/lib/local/database.ts';
 
 function candidate() {
   return buildDayPlanCandidates({
@@ -175,6 +177,44 @@ test('settlement truncates oversized day dumps without blocking the mutation and
       nextDayNote: 42,
     }),
     /nextDayNote must be text/,
+  );
+});
+
+test('day-plan route rejects Carry for recurring rhythm task cards', (t) => {
+  const dir = path.join(
+    os.tmpdir(),
+    `forge-recurring-carry-${process.pid}-${Date.now()}-${Math.random()}`,
+  );
+  mkdirSync(dir, { recursive: true });
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const dbPath = path.join(dir, 'forge.db');
+  const db = openLocalDatabase(dbPath);
+  try {
+    db.prepare(
+      `INSERT INTO tasks
+         (id, title, tags, status, recurring_template_id, occurrence_local_date,
+          created_at, updated_at)
+       VALUES ('task-rhythm', 'Daily reset', '["recurring"]', 'open',
+               'template-rhythm', '2026-07-10', ?, ?)`,
+    ).run(
+      '2026-07-10T16:00:00.000Z',
+      '2026-07-10T16:00:00.000Z',
+    );
+  } finally {
+    db.close();
+  }
+  const store = {
+    getPlan: () => ({
+      items: [{ id: 'item-rhythm', taskId: 'task-rhythm' }],
+    }),
+  };
+  assert.throws(
+    () => assertRecurringCarryAllowed(
+      store,
+      { planId: 'plan-rhythm', itemId: 'item-rhythm' },
+      dbPath,
+    ),
+    /cannot be carried/,
   );
 });
 

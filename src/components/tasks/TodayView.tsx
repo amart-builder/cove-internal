@@ -8,6 +8,7 @@ import {
   deleteTask as deleteRestTask,
   listTaskColumns,
   listTasks,
+  restoreTask as restoreRestTask,
   updateTask as updateRestTask,
 } from '@/lib/data/tasks';
 import type { Task as RestTask, TaskColumn as RestTaskColumn } from '@/lib/data/types';
@@ -53,6 +54,13 @@ import { OpenInClaudeCode, RunStatusChip } from './ClaudeRunIndicators';
 import ExecutionConfigPanel from './ExecutionConfigPanel';
 import CurrentCanvas, { type CurrentPoint, type Tributary } from './CurrentCanvas';
 import TaskDetail from './TaskDetail';
+import {
+  confirmTaskRecurrence,
+  listRecurringTemplates,
+} from '@/lib/data/recurrence';
+import { getRuntimeMode } from '@/lib/runtime/mode';
+import type { RecurringTemplate } from '@/lib/tasks/recurrence';
+import RhythmManager, { cadenceDisplay } from './RhythmManager';
 import useDayRitual from './useDayRitual';
 
 type TaskStatus = ArrivalTaskStatus;
@@ -135,6 +143,10 @@ function hasTag(task: TaskData, tag: string): boolean {
 
 function isEmailDigest(task: TaskData): boolean {
   return hasTag(task, 'email') && task.title.trim().startsWith('Emails:');
+}
+
+function isRecurringTask(task: TaskData): boolean {
+  return hasTag(task, 'recurring');
 }
 
 function withTag(tags: string[], tag: string): string[] {
@@ -233,6 +245,9 @@ function normalizeRestTask(task: RestTask): TaskData {
     dueAt: task.due_at ?? undefined,
     tags,
     status: task.status,
+    proposedRecurrenceCadence: task.proposed_recurrence_cadence ?? undefined,
+    recurringTemplateId: task.recurring_template_id ?? undefined,
+    occurrenceLocalDate: task.occurrence_local_date ?? undefined,
     blocked: hasNormalizedTag(tags, BLOCKED_TAG),
     position: task.position,
     createdAt: toEpoch(task.created_at),
@@ -634,7 +649,9 @@ function TodayExperience({
   deleteTask,
   onOpenAllWork,
 }: TodayExperienceProps) {
+  const localMode = getRuntimeMode() === 'local';
   const [suggestions, setSuggestions] = useState<WorkSuggestion[]>([]);
+  const [rhythmTemplates, setRhythmTemplates] = useState<RecurringTemplate[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(true);
   const [surfaceError, setSurfaceError] = useState<string>();
   const [settlementNote, setSettlementNote] = useState('');
@@ -703,9 +720,17 @@ function TodayExperience({
   const jarvisTasks = useMemo(
     () =>
       openTasks
-        .filter((task) => hasTag(task, JARVIS_HELD_TAG) || isEmailDigest(task))
-        .sort((left, right) => left.position - right.position),
-    [openTasks],
+        .filter(
+          (task) =>
+            hasTag(task, JARVIS_HELD_TAG) ||
+            isEmailDigest(task) ||
+            (localMode && isRecurringTask(task)),
+        )
+        .sort((left, right) =>
+          Number(isRecurringTask(right)) - Number(isRecurringTask(left)) ||
+          left.position - right.position
+        ),
+    [localMode, openTasks],
   );
 
   const commitments = useMemo(() => {
@@ -717,14 +742,15 @@ function TodayExperience({
         (task) =>
           activeColumnIds.has(task.columnId) &&
           !hasTag(task, JARVIS_HELD_TAG) &&
-          !isEmailDigest(task),
+          !isEmailDigest(task) &&
+          (!localMode || !isRecurringTask(task)),
       )
       .sort((left, right) => {
         const leftFlight = left.columnId === inFlightColumn?._id ? 0 : 1;
         const rightFlight = right.columnId === inFlightColumn?._id ? 0 : 1;
         return leftFlight - rightFlight || left.position - right.position;
       });
-  }, [inFlightColumn?._id, openTasks, todayColumn?._id]);
+  }, [inFlightColumn?._id, localMode, openTasks, todayColumn?._id]);
 
   const dayPlanCandidates = useMemo(() => {
     const refreshedAt = candidateEvidence?.refreshedAt ?? new Date(0).toISOString();
@@ -792,6 +818,10 @@ function TodayExperience({
   const detailTask = detailTaskId
     ? tasks.find((task) => task._id === detailTaskId) ?? null
     : null;
+  const cadenceByTemplateId = useMemo(
+    () => new Map(rhythmTemplates.map((template) => [template.id, template.cadence])),
+    [rhythmTemplates],
+  );
   const activeSuggestions = suggestions
     .filter((suggestion) => suggestion.state === 'proposed' || suggestion.state === 'refined')
     .sort((left, right) => {
@@ -816,9 +846,22 @@ function TodayExperience({
     }
   }, []);
 
+  const loadRhythms = useCallback(async () => {
+    if (!localMode) return;
+    try {
+      setRhythmTemplates(await listRecurringTemplates());
+    } catch {
+      setSurfaceError("Cove couldn't refresh rhythms. Your task current is unchanged.");
+    }
+  }, [localMode]);
+
   useEffect(() => {
     void loadSuggestions();
   }, [loadSuggestions]);
+
+  useEffect(() => {
+    void loadRhythms();
+  }, [loadRhythms]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(new Date()), 30000);
@@ -1075,6 +1118,7 @@ function TodayExperience({
     setSurfaceError(undefined);
     try {
       const result = await dayRitual.commitSettlement(completedHumanTaskIds, settlementNote);
+      await retry();
       setSettlementNote('');
       const reconciliations = result.pendingReconciliations ?? [];
       await reconcileDayPlanActions(reconciliations);
@@ -1097,7 +1141,7 @@ function TodayExperience({
           : "Cove couldn't finish reconciling the closed day.",
       );
     }
-  }, [candidateEvidence?.freshness, dayRitual, notStartedColumn, reconcileDayPlanActions, settlementNote]);
+  }, [candidateEvidence?.freshness, dayRitual, notStartedColumn, reconcileDayPlanActions, retry, settlementNote]);
 
   useEffect(() => {
     if (
@@ -1261,7 +1305,11 @@ function TodayExperience({
       ? tasks.find((task) => task._id === suggestion.targetTaskId)
       : undefined;
     if (
-      (suggestion.kind === 'returned_work' || suggestion.kind === 'observed_progress') &&
+      (
+        suggestion.kind === 'returned_work' ||
+        suggestion.kind === 'observed_progress' ||
+        suggestion.kind === 'stale_task'
+      ) &&
       !targetTask
     ) {
       setSurfaceError('The task this suggestion refers to no longer exists.');
@@ -1303,6 +1351,12 @@ function TodayExperience({
           await updateTask(targetTask._id, { status: 'done' });
         }
         focusTask(targetTask._id, 'observed_progress');
+      } else if (targetTask && suggestion.kind === 'stale_task') {
+        resolvedTaskId = targetTask._id;
+        if (source === 'explicit_accept') {
+          await updateTask(targetTask._id, {});
+        }
+        focusTask(targetTask._id, 'stale_task');
       } else {
         resolvedTaskId = await createTask({
           columnId: todayColumn._id,
@@ -1344,6 +1398,8 @@ function TodayExperience({
               ? source === 'explicit_accept'
                 ? 'Marked task done'
                 : 'Opened task'
+              : suggestion.kind === 'stale_task'
+                ? 'Kept task'
               : 'Added to your current',
         run: async () => {
           await reopenSuggestion(
@@ -1539,10 +1595,25 @@ function TodayExperience({
 
   async function deleteDetail() {
     if (!detailTask) return;
+    const archived = detailTask;
     try {
       await deleteTask(detailTask._id);
+      if (localMode) {
+        showUndo({
+          message: 'Moved to Recently deleted',
+          run: async () => {
+            await restoreRestTask(archived._id);
+            await retry();
+            setUndo(null);
+          },
+        });
+      }
     } catch (error) {
-      setSurfaceError("Cove couldn't confirm that deletion. Refresh All Work to check the task, then try again.");
+      setSurfaceError(
+        localMode
+          ? "Cove couldn't move that task to Recently deleted. Refresh All Work to check it, then try again."
+          : "Cove couldn't delete that task. Refresh All Work to check it, then try again.",
+      );
       throw error;
     }
   }
@@ -2241,6 +2312,14 @@ function TodayExperience({
             <div className="current-jarvis-heading">
               <span>Second current</span>
               <h2 id="jarvis-lane-title">Jarvis shelf</h2>
+              {localMode && (
+                <RhythmManager
+                  templates={rhythmTemplates}
+                  onChanged={async () => {
+                    await Promise.all([loadRhythms(), retry()]);
+                  }}
+                />
+              )}
               <i aria-hidden="true" />
             </div>
             <div className="current-jarvis-nodes">
@@ -2251,11 +2330,21 @@ function TodayExperience({
                       openExecutionSetup(task._id);
                     } else if (isEmailDigest(task)) {
                       setDetailTaskId(task._id);
+                    } else if (isRecurringTask(task)) {
+                      void completeTask(task);
                     } else {
                       focusTask(task._id, 'jarvis_current');
                     }
                   }}>
-                    <span>{isEmailDigest(task) ? 'Email brief ready' : 'Held for Jarvis'}</span>
+                    <span>
+                      {isEmailDigest(task)
+                        ? 'Email brief ready'
+                        : isRecurringTask(task)
+                          ? `${cadenceDisplay(
+                              cadenceByTemplateId.get(task.recurringTemplateId ?? '') ?? '',
+                            )} · tap to check off`
+                          : 'Held for Jarvis'}
+                    </span>
                     <strong>{task.title}</strong>
                     {boardExecutionByTaskId.get(task._id)?.run && (
                       <RunStatusChip
@@ -2318,8 +2407,18 @@ function TodayExperience({
                       {suggestion.kind === 'returned_work' && suggestion.reviewMaterial && <details className="quiet-returned-work"><summary>Read Jarvis&apos;s work</summary><pre>{suggestion.reviewMaterial}</pre></details>}
                       <small>Source: {suggestion.source}</small>
                       <div className="current-tributary-actions">
-                        <button type="button" onClick={() => void commitSuggestion(suggestion, 'explicit_accept')} className="quiet-pencil-action is-primary">{suggestion.kind === 'observed_progress' ? 'Mark done' : 'Accept'}</button>
-                        <button type="button" onClick={() => void commitSuggestion(suggestion, 'began_work')} className="quiet-pencil-action">{suggestion.kind === 'observed_progress' ? 'Open task' : 'Begin'}</button>
+                        <button type="button" onClick={() => void commitSuggestion(suggestion, 'explicit_accept')} className="quiet-pencil-action is-primary">
+                          {suggestion.kind === 'observed_progress'
+                            ? 'Mark done'
+                            : suggestion.kind === 'stale_task'
+                              ? 'Keep it'
+                              : 'Accept'}
+                        </button>
+                        <button type="button" onClick={() => void commitSuggestion(suggestion, 'began_work')} className="quiet-pencil-action">
+                          {suggestion.kind === 'observed_progress' || suggestion.kind === 'stale_task'
+                            ? 'Open task'
+                            : 'Begin'}
+                        </button>
                         <button type="button" onClick={() => { setEditingSuggestionId(suggestion.id); setSuggestionDraft({ title: suggestion.title, description: suggestion.description }); }} className="quiet-pencil-action">Edit</button>
                         {!suggestion.resurfacedFromDeferredAt && (
                           <button type="button" onClick={() => void deferSuggestion(suggestion)} className="quiet-pencil-action">Later</button>
@@ -2419,6 +2518,12 @@ function TodayExperience({
           onDeleted={() => setDetailTaskId(null)}
           onSaveTask={saveDetail}
           onDeleteTask={deleteDetail}
+          onConfirmRecurrence={localMode
+            ? async (cadence) => {
+                await confirmTaskRecurrence(detailTask._id, cadence);
+                await retry();
+              }
+            : undefined}
         />
       )}
       </div>

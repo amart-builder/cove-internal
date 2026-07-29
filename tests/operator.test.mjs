@@ -86,7 +86,7 @@ test('forge data directory prefers an explicit argument, then COVE_DATA_DIR', (t
   assert.equal(coveDataDir('/tmp/explicit-forge-data'), '/tmp/explicit-forge-data');
 });
 
-test('operatorTimezone prefers the env var, then the profile, then this machine', (t) => {
+test('operatorTimezone prefers the shared profile, then the env var, then this machine', (t) => {
   const { profilePath } = fixture(t);
   const previousZone = process.env.COVE_TIMEZONE;
   t.after(() => {
@@ -99,16 +99,19 @@ test('operatorTimezone prefers the env var, then the profile, then this machine'
   assert.equal(operatorTimezone(), 'America/New_York');
 
   process.env.COVE_TIMEZONE = 'Europe/Lisbon';
-  assert.equal(operatorTimezone(), 'Europe/Lisbon');
+  assert.equal(operatorTimezone(), 'America/New_York');
 
   // A garbage zone must not be handed to Intl, where it throws at format time
   // rather than here. It falls through to the next source instead.
   process.env.COVE_TIMEZONE = 'Not/AZone';
   assert.equal(operatorTimezone(), 'America/New_York');
 
+  writeFileSync(profilePath, JSON.stringify({ name: 'Jamie' }));
+  process.env.COVE_TIMEZONE = 'Europe/Lisbon';
+  assert.equal(operatorTimezone(), 'Europe/Lisbon');
+
   // With no env var and no usable profile value, fall back to this machine's
   // zone rather than a hardcoded one.
   delete process.env.COVE_TIMEZONE;
-  writeFileSync(profilePath, JSON.stringify({ name: 'Jamie' }));
   assert.equal(operatorTimezone(), Intl.DateTimeFormat().resolvedOptions().timeZone);
 });

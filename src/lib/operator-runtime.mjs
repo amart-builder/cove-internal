@@ -74,15 +74,16 @@ function usableTimezone(value) {
 }
 
 /**
- * The operator's own timezone: COVE_TIMEZONE (or the legacy FORGE_TIMEZONE), then the profile, then whatever
- * this Mac is set to. Anything that prints a date to the operator should use
+ * The operator's own timezone: the shared profile, then COVE_TIMEZONE (or the
+ * legacy FORGE_TIMEZONE), then whatever this Mac is set to. Anything that
+ * prints a date to the operator should use
  * this rather than a constant, or every install outside Pacific reads the wrong
  * day back to its owner.
  */
 export function operatorTimezone() {
   return (
-    usableTimezone(coveEnvTrimmed("TIMEZONE")) ??
     usableTimezone(loadOperatorProfile()?.timezone) ??
+    usableTimezone(coveEnvTrimmed("TIMEZONE")) ??
     usableTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone) ??
     "UTC"
   );

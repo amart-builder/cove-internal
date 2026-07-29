@@ -56,6 +56,9 @@ import {
 } from "@/lib/day-plan/public-execution";
 import { taskColumnKeyForName } from "@/lib/tasks/columns";
 import { coveEnv } from "../../../lib/env";
+import { getRuntimeMode } from "@/lib/runtime/mode";
+import { expireRecurringInstances } from "@/lib/tasks/recurrence";
+import { openLocalDatabase } from "@/lib/local/database";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -93,6 +96,45 @@ const SUPPORTS = new Set([
   "returned_work",
   "priority",
 ]);
+
+export function assertRecurringCarryAllowed(
+  store: Pick<DayPlanStore, "getPlan">,
+  input: Pick<DayPlanMutationInput, "planId" | "itemId">,
+  dbPath?: string,
+): void {
+  const plan = store.getPlan(input.planId);
+  const taskId = plan?.items.find((item) => item.id === input.itemId)?.taskId;
+  if (!taskId) return;
+  const db = openLocalDatabase(dbPath);
+  try {
+    const task = db.prepare(
+      "SELECT tags, recurring_template_id FROM tasks WHERE id = ?",
+    ).get(taskId) as {
+      tags: string | null;
+      recurring_template_id: string | null;
+    } | undefined;
+    let tags: unknown = [];
+    try {
+      tags = JSON.parse(task?.tags ?? "[]");
+    } catch {
+      tags = [];
+    }
+    const recurring = Boolean(task?.recurring_template_id) ||
+      (
+        Array.isArray(tags) &&
+        tags.some((tag) =>
+          typeof tag === "string" && tag.trim().toLowerCase() === "recurring"
+        )
+      );
+    if (recurring) {
+      throw new DayPlanInvalidTransition(
+        "Recurring rhythm instances expire at Settlement and cannot be carried.",
+      );
+    }
+  } finally {
+    db.close();
+  }
+}
 const TASK_SUPPORTS = new Set(["commitment", "deadline", "priority"]);
 const WHY_TODAY = new Set([
   "This is accepted work already in flight.",
@@ -769,6 +811,13 @@ export async function POST(request: NextRequest) {
         parsed.input.completedHumanTaskIds = undefined;
       }
     }
+    if (
+      parsed.action === "settlement_decide" &&
+      parsed.input.disposition === "carry" &&
+      getRuntimeMode() === "local"
+    ) {
+      assertRecurringCarryAllowed(store, parsed.input);
+    }
     const result = parsed.action === "ensure"
       ? store.ensureDayPlan(parsed.input)
       : parsed.action === "reconciliation_applied"
@@ -776,6 +825,15 @@ export async function POST(request: NextRequest) {
         : parsed.action === "task_mutation_applied"
           ? store.acknowledgeTaskMutation(parsed.mutationId)
         : store.mutateDayPlan(parsed.input);
+    if (
+      parsed.action === "settlement_commit" &&
+      getRuntimeMode() === "local" &&
+      "plan" in result
+    ) {
+      expireRecurringInstances({
+        localDate: result.plan.localDate,
+      });
+    }
     // Trigger-driven enqueues announce themselves to the relay as `queued`
     // immediately (see withQueuedAttemptStatus), closing the enqueue→claim
     // duplicate-generation window.

@@ -701,6 +701,92 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       `);
     },
   },
+  {
+    version: 7,
+    name: "task-rhythms-stale-and-archive",
+    up: (db) => {
+      const taskColumns = columns(db, "tasks");
+      if (!taskColumns.has("archived_at")) {
+        db.exec("ALTER TABLE tasks ADD COLUMN archived_at TEXT");
+      }
+      if (!taskColumns.has("archived_from_status")) {
+        db.exec("ALTER TABLE tasks ADD COLUMN archived_from_status TEXT");
+      }
+      if (!taskColumns.has("proposed_recurrence_cadence")) {
+        db.exec("ALTER TABLE tasks ADD COLUMN proposed_recurrence_cadence TEXT");
+      }
+      if (!taskColumns.has("recurring_template_id")) {
+        db.exec("ALTER TABLE tasks ADD COLUMN recurring_template_id TEXT");
+      }
+      if (!taskColumns.has("occurrence_local_date")) {
+        db.exec("ALTER TABLE tasks ADD COLUMN occurrence_local_date TEXT");
+      }
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS recurring_templates (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          description TEXT,
+          cadence TEXT NOT NULL,
+          active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+          paused_until TEXT,
+          last_spawned_local_date TEXT,
+          current_streak INTEGER NOT NULL DEFAULT 0,
+          last_missed_local_date TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS recurring_templates_active_idx
+          ON recurring_templates(active, paused_until);
+
+        CREATE TABLE IF NOT EXISTS recurring_occurrences (
+          id TEXT PRIMARY KEY,
+          template_id TEXT NOT NULL REFERENCES recurring_templates(id),
+          occurrence_local_date TEXT NOT NULL,
+          task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+          state TEXT NOT NULL
+            CHECK (state IN ('open','completed','missed')),
+          completed_at TEXT,
+          missed_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE (template_id, occurrence_local_date)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS recurring_occurrences_task_idx
+          ON recurring_occurrences(task_id)
+          WHERE task_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS recurring_occurrences_template_date_idx
+          ON recurring_occurrences(template_id, occurrence_local_date DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS tasks_recurring_occurrence_idx
+          ON tasks(recurring_template_id, occurrence_local_date)
+          WHERE recurring_template_id IS NOT NULL
+            AND occurrence_local_date IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS recurrence_runtime_state (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          timezone TEXT NOT NULL,
+          local_date TEXT NOT NULL,
+          timezone_hold_local_date TEXT,
+          updated_at TEXT NOT NULL
+        );
+      `);
+    },
+  },
+  {
+    version: 8,
+    name: "stamp-legacy-archived-tasks",
+    up: (db) => {
+      // Settlement "Drop" wrote status=archived with no archived_at long before
+      // Recently deleted existed. Stamp those rows at migration time so every
+      // legacy drop gets a full 30-day window in Recently deleted instead of
+      // being purged on the first sweep.
+      db.prepare(
+        `UPDATE tasks
+         SET archived_at = ?
+         WHERE status = 'archived'
+           AND (archived_at IS NULL OR archived_at = '')`,
+      ).run(new Date().toISOString());
+    },
+  },
 ];
 
 export function runLocalMigrations(

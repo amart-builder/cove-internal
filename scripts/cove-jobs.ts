@@ -4,6 +4,11 @@ import { fileURLToPath } from "node:url";
 import { coveEnv } from "../src/lib/env";
 import { createSqliteBackup } from "../src/lib/reliability/backup";
 import { JobScheduler } from "../src/lib/reliability/jobs";
+import {
+  enqueueDailyTaskMaintenance,
+  registerTaskMaintenanceHandlers,
+} from "../src/lib/tasks/maintenance";
+import { getRuntimeMode } from "../src/lib/runtime/mode";
 
 function localDateKey(date: Date): string {
   const year = date.getFullYear();
@@ -47,7 +52,12 @@ function schedulerWithHandlers(dbPath: string, backupDir: string): JobScheduler 
       },
     };
   });
-  return scheduler;
+  return getRuntimeMode() === "local"
+    ? registerTaskMaintenanceHandlers(scheduler, {
+        dbPath,
+        dataDir: path.dirname(dbPath),
+      })
+    : scheduler;
 }
 
 async function main(): Promise<number> {
@@ -66,6 +76,11 @@ async function main(): Promise<number> {
 
   const scheduler = schedulerWithHandlers(dbPath, backupDir);
   try {
+    if (command === "run") {
+      if (getRuntimeMode() === "local") {
+        enqueueDailyTaskMaintenance(scheduler);
+      }
+    }
     if (command === "enqueue-backup") {
       const now = new Date();
       const enqueued = scheduler.enqueue({

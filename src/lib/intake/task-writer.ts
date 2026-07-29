@@ -5,6 +5,7 @@ import { operatorTimezone } from "../operator";
 import { taskColumnKeyForName, type TaskColumnKey } from "../tasks/columns";
 import type { TriageOutput } from "../triage/protocol";
 import { coveEnv } from "../env";
+import { getRuntimeMode } from "../runtime/mode";
 
 export type InboundTaskWriterOptions = {
   dataDir?: string;
@@ -12,6 +13,7 @@ export type InboundTaskWriterOptions = {
   webBaseUrl?: string;
   fetchTimeoutMs?: number;
   now?: () => Date;
+  proposedRecurrenceCadence?: string;
 };
 
 const PROJECT_COLUMN_REPROBE_MS = 10 * 60_000;
@@ -369,16 +371,31 @@ export async function createFallbackInboundTask(
   options: InboundTaskWriterOptions = {},
 ): Promise<string> {
   if (await inboundTaskExists(event.id, options)) return event.id;
-  const notStarted = await columnId("not-started", options);
   const clock = options.now ?? (() => new Date());
+  const proposedCadence = getRuntimeMode() === "local"
+    ? options.proposedRecurrenceCadence
+    : undefined;
+  const recurrenceLocalDate = proposedCadence
+    ? localDateInTimezone(clock(), operatorTimezone())
+    : undefined;
+  const targetColumn = await columnId(
+    proposedCadence ? "today" : "not-started",
+    options,
+  );
   return createTask(event, {
     id: event.id,
-    column_id: notStarted,
+    column_id: targetColumn,
     title: event.raw_text.slice(0, 80) || `Inbound item from ${event.source}`,
     description: `${event.raw_text}\n\nArrived via ${event.source} and needs triage.`,
     priority: "medium",
-    due_at: fallbackInboundDueAt(clock()),
-    tags: ["needs-triage"],
+    due_at: recurrenceLocalDate ?? fallbackInboundDueAt(clock()),
+    tags: [
+      "needs-triage",
+      ...(proposedCadence ? ["recurrence-proposed"] : []),
+    ],
+    ...(proposedCadence
+      ? { proposed_recurrence_cadence: proposedCadence }
+      : {}),
     position: 0,
     source_type: "inbound_event",
   }, options);
@@ -396,10 +413,18 @@ export async function createCapturedInboundTask(
   options: InboundTaskWriterOptions = {},
 ): Promise<string> {
   if (await inboundTaskExists(event.id, options)) return event.id;
+  const proposedCadence = getRuntimeMode() === "local"
+    ? options.proposedRecurrenceCadence
+    : undefined;
   const targetColumn = await columnId(
-    input.column === "Must happen today" ? "today" : "not-started",
+    proposedCadence || input.column === "Must happen today"
+      ? "today"
+      : "not-started",
     options,
   );
+  const recurrenceLocalDate = proposedCadence
+    ? localDateInTimezone((options.now ?? (() => new Date()))(), operatorTimezone())
+    : undefined;
   return createTask(event, {
     id: event.id,
     column_id: targetColumn,
@@ -407,7 +432,14 @@ export async function createCapturedInboundTask(
     description: input.description,
     project: input.project ?? "Atlas",
     priority: input.priority ?? "medium",
-    tags: ["needs-triage"],
+    ...(recurrenceLocalDate ? { due_at: recurrenceLocalDate } : {}),
+    tags: [
+      "needs-triage",
+      ...(proposedCadence ? ["recurrence-proposed"] : []),
+    ],
+    ...(proposedCadence
+      ? { proposed_recurrence_cadence: proposedCadence }
+      : {}),
     position: 0,
     source_type: "inbound_event",
   }, options);
@@ -425,10 +457,16 @@ export async function createTriagedInboundTask(
   const dueToday =
     localDateInTimezone(new Date(triage.due_at), timezone) ===
     localDateInTimezone(now, timezone);
-  const columnKey =
-    dueToday && (triage.surface === "now" || triage.priority === "high")
-      ? "today"
-      : "not-started";
+  const proposedCadence = getRuntimeMode() === "local"
+    ? options.proposedRecurrenceCadence
+    : undefined;
+  const columnKey = proposedCadence ||
+      (
+        dueToday &&
+        (triage.surface === "now" || triage.priority === "high")
+      )
+    ? "today"
+    : "not-started";
   const targetColumn = await columnId(columnKey, options);
   const description = [
     triage.description,
@@ -456,10 +494,14 @@ export async function createTriagedInboundTask(
     tags: [
       "triaged",
       `autonomy-${triage.autonomy}`,
+      ...(proposedCadence ? ["recurrence-proposed"] : []),
       ...(queueGroundwork
         ? ["groundwork-queued", `groundwork-grade:${triage.autonomy}`]
         : []),
     ],
+    ...(proposedCadence
+      ? { proposed_recurrence_cadence: proposedCadence }
+      : {}),
     position: 0,
     source_type: "inbound_event",
   }, options);
