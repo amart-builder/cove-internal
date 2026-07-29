@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 
 import { existsSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { operatorName } from "../src/lib/operator-runtime.mjs";
 import { coveEnv } from "../src/lib/env-runtime.mjs";
+import { resolveLocalEmailContact } from "./lib/email-triage-contact.mjs";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -57,6 +60,13 @@ const emails = Array.isArray(input.emails) ? input.emails : [];
 const startedAt = new Date().toISOString();
 const provider = input.provider ?? "gmail";
 const accountEmail = input.account_email ?? coveEnv("OWNER_EMAIL") ?? null;
+const coveUrl = coveEnv("BUDDY_APP_URL") ?? "http://127.0.0.1:3200";
+const runtimeMode = process.env.NEXT_PUBLIC_FORGE_RUNTIME === "supabase"
+  ? "supabase"
+  : process.env.NEXT_PUBLIC_FORGE_RUNTIME === "convex"
+  ? "convex"
+  : "local";
+let crmCsrfToken;
 
 function table(name) {
   return tablePrefix && !name.startsWith(tablePrefix) ? `${tablePrefix}${name}` : name;
@@ -85,6 +95,95 @@ async function supabase(tableName, { method = "GET", query = {}, body } = {}) {
   const data = text ? JSON.parse(text) : null;
   if (!response.ok) throw new Error(`${method} ${table(tableName)} failed: ${JSON.stringify(data)}`);
   return data;
+}
+
+async function crmRequest(action, input) {
+  if (!crmCsrfToken) {
+    const tokenResponse = await fetch(
+      new URL("/api/crm?operation=list&limit=1", coveUrl),
+      { signal: AbortSignal.timeout(10_000) },
+    );
+    const tokenPayload = await tokenResponse.json();
+    if (!tokenResponse.ok || typeof tokenPayload.csrfToken !== "string") {
+      throw new Error(
+        `CRM token request failed: ${tokenPayload.error ?? tokenResponse.status}`,
+      );
+    }
+    crmCsrfToken = tokenPayload.csrfToken;
+  }
+  const response = await fetch(new URL("/api/crm", coveUrl), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Forge-CSRF": crmCsrfToken,
+    },
+    body: JSON.stringify({ action, input }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(`CRM ${action} failed: ${payload.error ?? response.status}`);
+  }
+  return payload;
+}
+
+function errorMessage(error) {
+  return (error instanceof Error ? error.message : String(error)).slice(0, 900);
+}
+
+async function recordContactResolutionFailure({
+  error,
+  senderEmail,
+  messageId,
+  threadId,
+  candidates,
+}) {
+  const loader = resolve(rootDir, "node_modules/tsx/dist/loader.mjs");
+  const recorder = resolve(rootDir, "scripts/cove-record-receipt.ts");
+  const fingerprint = createHash("sha256")
+    .update(senderEmail.trim().toLowerCase())
+    .digest("hex")
+    .slice(0, 20);
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      loader,
+      recorder,
+      "--source",
+      "email-triage-contact-resolution",
+      "--started-at",
+      new Date().toISOString(),
+      "--outcome",
+      "partial",
+      "--summary",
+      "Email triage continued without linking one sender because CRM resolution failed.",
+      "--failure-key",
+      `sender:${fingerprint}`,
+      "--failure-message",
+      `CRM contact resolution failed: ${errorMessage(error)}`,
+      "--actions-json",
+      JSON.stringify({
+        linked: false,
+        messageId,
+        threadId,
+        candidates,
+        error: errorMessage(error),
+      }),
+    ],
+    {
+      cwd: rootDir,
+      encoding: "utf8",
+      timeout: 10_000,
+    },
+  );
+  if (result.status !== 0) {
+    process.stderr.write(
+      `Could not record CRM contact resolution failure: ${
+        result.stderr?.trim() || `exit ${result.status}`
+      }\n`,
+    );
+  }
 }
 
 function pick(value, fallback = null) {
@@ -185,9 +284,19 @@ async function findExistingEmail(email) {
 async function resolveContact(email) {
   const senderEmail = pick(email.sender_email ?? email.senderEmail);
   if (!senderEmail) return null;
+  if (runtimeMode === "local") {
+    return resolveLocalEmailContact(email, {
+      crmRequest,
+      recordFailure: recordContactResolutionFailure,
+    });
+  }
 
   const existing = await supabase("contacts", {
-    query: { select: "id,company_id", email: `eq.${senderEmail}`, limit: "1" },
+    query: {
+      select: "id,company_id",
+      email: `eq.${senderEmail}`,
+      limit: "1",
+    },
   });
   if (existing[0]) return existing[0];
 
@@ -204,7 +313,10 @@ async function resolveContact(email) {
       source_id: pick(email.thread_id ?? email.threadId),
       source_payload: compactSourcePayload(email),
       last_inbound_at: pick(email.received_at ?? email.receivedAt, startedAt),
-      last_interaction_at: pick(email.received_at ?? email.receivedAt, startedAt),
+      last_interaction_at: pick(
+        email.received_at ?? email.receivedAt,
+        startedAt,
+      ),
     },
   });
   return created;
@@ -316,20 +428,45 @@ async function main() {
         },
       });
 
-      await supabase("contact_activities", {
-        method: "POST",
-        body: {
-          owner_user_id: ownerUserId,
-          contact_id: item.contact_id,
-          company_id: item.company_id,
-          email_item_id: item.id,
-          activity_type: "email_received",
-          title: item.subject,
-          content: item.summary ?? item.body_excerpt,
-          direction: "inbound",
-          metadata: { provider, thread_id: item.thread_id, message_id: item.message_id },
-        },
-      });
+      if (runtimeMode === "local") {
+        if (contact) {
+          await crmRequest("append_activity", {
+            contactId: contact.id,
+            companyId: contact.company_id,
+            activityType: "email_received",
+            title: item.subject,
+            content: item.summary ?? item.body_excerpt,
+            direction: "inbound",
+            source: "email",
+            occurredAt: receivedAt,
+            metadata: {
+              provider,
+              thread_id: item.thread_id,
+              message_id: item.message_id,
+              email_item_id: item.id,
+            },
+          });
+        }
+      } else {
+        await supabase("contact_activities", {
+          method: "POST",
+          body: {
+            owner_user_id: ownerUserId,
+            contact_id: item.contact_id,
+            company_id: item.company_id,
+            email_item_id: item.id,
+            activity_type: "email_received",
+            title: item.subject,
+            content: item.summary ?? item.body_excerpt,
+            direction: "inbound",
+            metadata: {
+              provider,
+              thread_id: item.thread_id,
+              message_id: item.message_id,
+            },
+          },
+        });
+      }
 
       stats.processed += 1;
       if (classification === "action_item") stats.action += 1;

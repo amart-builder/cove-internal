@@ -1,6 +1,12 @@
-import { COVE_REST_TABLES } from "../data/forge-tables";
+import {
+  COVE_CRM_COMPAT_TABLES,
+  COVE_REST_TABLES,
+} from "../data/forge-tables";
 
-export const BUDDY_DELETE_TABLES = COVE_REST_TABLES;
+export const BUDDY_DELETE_TABLES = [
+  ...COVE_REST_TABLES,
+  ...COVE_CRM_COMPAT_TABLES,
+] as const;
 export const BUDDY_DATA_TABLES = [...BUDDY_DELETE_TABLES, "day_plan"] as const;
 
 export type BuddyDataTable = typeof BUDDY_DATA_TABLES[number];

@@ -53,6 +53,7 @@ export type Contact = {
   tags: string[];
   notes: string;
   last_interaction_at?: string | null;
+  provenance_source?: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -65,7 +66,9 @@ export type ContactActivity = {
   title: string | null;
   content: string | null;
   direction: "inbound" | "outbound" | "internal" | null;
+  metadata?: Record<string, unknown>;
   created_at: string;
+  updated_at?: string;
 };
 
 export type EmailItem = {

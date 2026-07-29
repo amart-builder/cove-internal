@@ -353,3 +353,33 @@ test('buddy data CLI does not claim a zero-row update succeeded', async () => {
       : new Response('[]', { status: 200 }) },
   ), /did not change a row/);
 });
+
+test('buddy contact insert explains ambiguous candidates from a 409', async () => {
+  let call = 0;
+  await assert.rejects(
+    runBuddyDataCommand(
+      parseBuddyDataArgs([
+        'insert',
+        'contacts',
+        '--json',
+        '{"name":"John Smith","email":"new@example.com"}',
+      ]),
+      {
+        fetch: async () => {
+          call += 1;
+          if (call === 1) {
+            return new Response('{"csrfToken":"token"}', { status: 200 });
+          }
+          return new Response(JSON.stringify({
+            error: 'Contact identity is ambiguous.',
+            candidates: [
+              { id: 'john-1', name: 'John Smith', email: 'one@example.com' },
+              { id: 'john-2', name: 'John Smith', email: 'two@example.com' },
+            ],
+          }), { status: 409 });
+        },
+      },
+    ),
+    /Possible matches: John Smith <one@example\.com> \(john-1\), John Smith <two@example\.com> \(john-2\)/,
+  );
+});

@@ -218,6 +218,21 @@ d. **Tell them how it works day to day**, in one breath: "Mention anyone to me a
 
 The `cove-contact` skill (installed with the others in step 4) does the filing: dedupes before creating, logs calls and meetings, keeps last-contact dates honest, and answers "who is X" from the record.
 
+**CRM backend selector.** Local installs default to the built-in SQLite CRM and
+need no config file. To make the choice explicit, create
+`data/cove-crm.json`:
+
+```json
+{
+  "backend": "local"
+}
+```
+
+The other accepted value is `"external"`. It is a setup marker, not a bundled
+adapter. External CRM adapters are wired per client at setup. Do not select it
+until that client's adapter is installed. Supabase and Convex runtime modes
+keep their existing CRM paths and do not use the local backend selector.
+
 ## 8. The finale: your first morning brief
 
 Everything real should be loaded now: goals, tasks, email, and contacts. Trigger a fresh morning-brief generation. Do not reuse the quiet smoke-test brief from step 4. Tell the user it takes about two minutes, wait with them while it runs, then open Morning Arrival and read the brief together.

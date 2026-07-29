@@ -1,5 +1,9 @@
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
+import {
+  normalizeContactEmail,
+  normalizeContactName,
+} from "../crm/identity";
 import { TASK_COLUMNS } from "../tasks/columns";
 
 export type LocalMigration = {
@@ -616,6 +620,48 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
     version: 4,
     name: "canonical-task-columns",
     up: (db) => canonicalizeTaskColumns(db, true),
+  },
+  {
+    version: 5,
+    name: "crm-identity-resolution",
+    up: (db) => {
+      const contactColumns = columns(db, "contacts");
+      if (!contactColumns.has("normalized_name")) {
+        db.exec("ALTER TABLE contacts ADD COLUMN normalized_name TEXT");
+      }
+      if (!contactColumns.has("normalized_email")) {
+        db.exec("ALTER TABLE contacts ADD COLUMN normalized_email TEXT");
+      }
+      if (!contactColumns.has("provenance_source")) {
+        db.exec("ALTER TABLE contacts ADD COLUMN provenance_source TEXT");
+      }
+
+      const rows = db.prepare(
+        "SELECT id, name, email FROM contacts",
+      ).all() as Array<{
+        id: string;
+        name: string | null;
+        email: string | null;
+      }>;
+      const update = db.prepare(
+        `UPDATE contacts
+         SET normalized_name = ?, normalized_email = ?
+         WHERE id = ?`,
+      );
+      for (const row of rows) {
+        update.run(
+          normalizeContactName(row.name ?? ""),
+          normalizeContactEmail(row.email ?? undefined),
+          row.id,
+        );
+      }
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS contacts_normalized_email_idx
+          ON contacts(normalized_email);
+        CREATE INDEX IF NOT EXISTS contacts_normalized_name_idx
+          ON contacts(normalized_name);
+      `);
+    },
   },
 ];
 

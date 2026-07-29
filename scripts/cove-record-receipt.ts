@@ -25,4 +25,6 @@ recordReceipt({
   actions,
   retryCount: Number(argument("retry-count") ?? 0),
   outcome,
+  failureKey: argument("failure-key"),
+  failureMessage: argument("failure-message"),
 });

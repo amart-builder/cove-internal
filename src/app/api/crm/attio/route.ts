@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { AttioCRMRecord, AttioObjectType } from "@/lib/data/attio-crm";
 import { isTrustedForgeRequest } from "@/lib/request-security";
+import { getRuntimeMode } from "@/lib/runtime/mode";
+import { EXTERNAL_CRM_MESSAGE } from "@/lib/crm";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -29,17 +31,23 @@ function boundedLimit(request: NextRequest): number {
   return Math.min(Math.floor(raw), 500);
 }
 
-async function queryAttioRecords(object: AttioObjectType, limit: number): Promise<AttioRecord[]> {
+async function queryAttioRecords(
+  object: AttioObjectType,
+  limit: number,
+): Promise<AttioRecord[]> {
   const key = getAttioKey();
-  const response = await fetch(`${ATTIO_API_BASE}/objects/${object}/records/query`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
+  const response = await fetch(
+    `${ATTIO_API_BASE}/objects/${object}/records/query`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ limit, offset: 0 }),
+      cache: "no-store",
     },
-    body: JSON.stringify({ limit, offset: 0 }),
-    cache: "no-store",
-  });
+  );
 
   if (!response.ok) {
     const message = await response.text();
@@ -143,7 +151,7 @@ function sourceAttributes(record: AttioRecord): string[] {
 
 function unique(valuesToDedupe: Array<string | undefined>): string[] {
   return Array.from(
-    new Set(valuesToDedupe.filter((value): value is string => Boolean(value)))
+    new Set(valuesToDedupe.filter((value): value is string => Boolean(value))),
   );
 }
 
@@ -159,7 +167,7 @@ function buildCompanyNameMap(records: AttioRecord[]): Map<string, string> {
 
 function normalizePeopleRecord(
   record: AttioRecord,
-  companyNames: Map<string, string>
+  companyNames: Map<string, string>,
 ): AttioCRMRecord {
   const id = record.id?.record_id ?? crypto.randomUUID();
   const company =
@@ -173,7 +181,8 @@ function normalizePeopleRecord(
   return {
     _id: `people:${id}`,
     objectType: "people",
-    name: text(record, "name") || text(record, "email_addresses") || "Unnamed person",
+    name: text(record, "name") || text(record, "email_addresses") ||
+      "Unnamed person",
     email: text(record, "email_addresses"),
     phone: text(record, "phone_numbers"),
     company,
@@ -183,7 +192,8 @@ function normalizePeopleRecord(
     notes: description,
     description,
     tier,
-    relationship: selectText(record, "relationship_status") || selectText(record, "lp_stage"),
+    relationship: selectText(record, "relationship_status") ||
+      selectText(record, "lp_stage"),
     relevant: selectText(record, "relevant"),
     tags: unique([
       tier,
@@ -240,11 +250,14 @@ function normalizeCompanyRecord(record: AttioRecord): AttioCRMRecord {
 }
 
 export async function GET(request: NextRequest) {
-  // This returns the whole CRM, so it needs the same host gate as every other
-  // read route. Without it any web page can reach the loopback server through
-  // DNS rebinding and read the contact list as same-origin JSON.
   if (!isTrustedForgeRequest(request)) {
     return new NextResponse("Untrusted request host.", { status: 403 });
+  }
+  if (getRuntimeMode() === "local") {
+    return NextResponse.json(
+      { error: EXTERNAL_CRM_MESSAGE },
+      { status: 501 },
+    );
   }
   if (!getAttioKey()) {
     return new NextResponse("ATTIO_API_KEY is not configured.", { status: 500 });
@@ -272,7 +285,7 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     return new NextResponse(
       err instanceof Error ? err.message : "Attio CRM request failed.",
-      { status: 502 }
+      { status: 502 },
     );
   }
 }

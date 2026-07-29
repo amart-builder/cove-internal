@@ -15,30 +15,54 @@ Turn what the user tells you about a person into a clean record in the local
 Cove CRM at `http://localhost:3200`, and answer questions back out of it.
 Confirm in one short, human sentence when done.
 
-## The three tables
+## The CRM door
 
-All through the local REST API, no auth:
+Read `NEXT_PUBLIC_FORGE_RUNTIME` from `.env.local` before choosing the data
+path. In `local` mode, all contact and relationship-history reads and writes go
+through `http://localhost:3200/api/crm`. Never call the generic table endpoint
+for `contacts` or `contact_activities` in local mode. In `supabase` or `convex`
+mode, keep using that install's existing CRM path; the local interface must
+never split a cloud install across two stores.
 
-- `contacts`: id, company_id, name, email, phone, role, linkedin, location,
-  how_we_met, tier (A/B/C), tags (array), notes, last_interaction_at.
-- `companies`: id, name, domain, website, industry, location, tags, notes.
-- `contact_activities`: id, contact_id, company_id, activity_type
-  (note | call | meeting | email), title, content, direction, created_at.
+For a non-local install, retain the pre-existing generic endpoints:
+`/api/forge-rest/contacts` and `/api/forge-rest/contact_activities`. The local
+`/api/crm` examples below apply only when runtime mode is `local`.
+
+Reads return a `csrfToken`. Send that token as `X-Forge-CSRF` on every POST.
+The CRM resolves identity before creating a person:
+
+```bash
+curl -s 'http://localhost:3200/api/crm?operation=list&search=sarah'
+```
 
 ## Capturing a person
 
-1. **Never create a duplicate.** Check first, by email if you have one, else by
-   name:
+1. **Never create a duplicate.** Ask the CRM to resolve or create. It checks
+   email first, then a normalized full name:
    ```bash
-   curl -s 'http://localhost:3200/api/forge-rest/contacts?name=ilike.*sarah*&select=id,name,email,company_id'
+   curl -s -X POST 'http://localhost:3200/api/crm' \
+     -H 'Content-Type: application/json' \
+     -H 'X-Forge-CSRF: <token from a CRM GET>' \
+     -d '{"action":"resolve","input":{"name":"Sarah Chen","email":"sarah@example.com","source":"manual"}}'
    ```
-   If they exist, PATCH the new facts onto the existing row instead.
-2. **Resolve the company.** If a company is mentioned, look it up in
-   `companies` the same way; create it if new (name is enough, add domain or
-   industry only if the user said them).
-3. **Create the contact** with only what the user actually said. Do not invent
-   emails, roles, or spellings. `how_we_met` is gold; capture it whenever the
-   user says where or how they met ("chamber event", "Brian's roofer").
+   A `matched` or `created` result contains the contact. An `ambiguous` result
+   contains candidates. Never pick one or create another record when the
+   result is ambiguous. Tell the user which matches need clarification.
+   On `matched`, send every newly stated fact to the `update` action for that
+   contact. PATCH role changes, a newly learned email, phone, company, notes,
+   or other stated facts instead of silently dropping them:
+   ```bash
+   curl -s -X POST 'http://localhost:3200/api/crm' \
+     -H 'Content-Type: application/json' \
+     -H 'X-Forge-CSRF: <token from a CRM GET>' \
+     -d '{"action":"update","input":{"contactId":"<matched id>","patch":{"role":"<new role>","email":"<new email>","phone":"<new phone>"}}}'
+   ```
+2. **Resolve the company.** Company CRUD still uses the local
+   `/api/forge-rest/companies` endpoint. Look it up first and create only when
+   it is new.
+3. **Save only stated facts.** Do not invent emails, roles, or spellings.
+   `howWeMet` is gold; capture it whenever the user says where or how they met
+   ("chamber event", "Brian's roofer").
 4. **If an interaction just happened** ("met her today", "great call with"),
    also log an activity (step below) and set `last_interaction_at` to now.
 
@@ -47,13 +71,14 @@ All through the local REST API, no auth:
 Find the contact, then:
 
 ```bash
-curl -s -X POST 'http://localhost:3200/api/forge-rest/contact_activities' \
+curl -s -X POST 'http://localhost:3200/api/crm' \
   -H 'Content-Type: application/json' \
-  -d '{"contact_id":"<id>","activity_type":"call","title":"<one line>","content":"<what happened, what was agreed>"}'
+  -H 'X-Forge-CSRF: <token from a CRM GET>' \
+  -d '{"action":"append_activity","input":{"contactId":"<id>","activityType":"call","title":"<one line>","content":"<what happened, what was agreed>","source":"manual"}}'
 ```
 
-Then PATCH the contact's `last_interaction_at` to now. The list in the CRM tab
-sorts by it, so this is what keeps the CRM honest.
+Appending the activity updates the contact's last-interaction time in the same
+transaction.
 
 ## Follow-ups
 
@@ -63,20 +88,21 @@ date, reminder. One capture, both systems updated.
 
 ## Answering questions
 
-"Who is Dana?" or "when did I last talk to Steve?": GET the contact, their
-company, and their activities (newest first), then answer in two or three plain
-sentences: who they are, the relationship context (how_we_met, notes), and the
-last interaction with its date. If nobody matches, say so and offer to add
-them.
+"Who is Dana?" or "when did I last talk to Steve?": search with
+`GET /api/crm?operation=list&search=dana`, then fetch the selected full record
+with `GET /api/crm?operation=get&id=<id>&limit=20`. Answer in two or three
+plain sentences: who they are, the relationship context, and the last
+interaction with its date. If nobody matches, say so and offer to add them.
 
 ## Importing existing contacts
 
 When the user hands over a CSV or contacts export: read it, map the obvious
-columns (name, email, phone, company, notes), skip rows with no name, dedupe by
-email against what is already in Cove, then POST the rest one by one. Create
-companies as you meet them. Report back plainly: how many imported, how many
-skipped as duplicates or unusable. For big files, confirm the column mapping
-with the user on the first few rows before running the lot.
+columns (name, email, phone, company, notes), skip rows with no name, then send
+each row through the `resolve` action with source `manual`. On `matched`, update
+the matched contact with new stated facts. Count `created`, `matched`,
+`ambiguous`, and unusable rows separately. Never turn an ambiguous import row
+into a new contact. Create companies as you meet them. For big files, confirm
+the column mapping with the user on the first few rows before running the lot.
 
 ## Reply
 

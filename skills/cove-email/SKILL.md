@@ -130,8 +130,11 @@ For each new thread:
 
 Judge fast: a real person asking for something is reply or action; an automated
 or promotional sender is almost always archived. Set `priority` 1 (high),
-2 (medium), 3 (low) weighing the user's stated priorities in `~/.claude/CLAUDE.md`
-and known contacts (`GET /api/forge-rest/contacts`).
+2 (medium), 3 (low) weighing the user's stated priorities in
+`~/.claude/CLAUDE.md` and known contacts. Check `NEXT_PUBLIC_FORGE_RUNTIME` in
+`.env.local`: local mode reads them from `GET /api/crm?operation=list`;
+non-local modes keep using that install's existing CRM source. Never read local
+SQLite for a Supabase or Convex install.
 
 Also mark a thread time-sensitive only when it has a real deadline within 24
 hours, a named person is explicitly blocked on the user, or it is a money,

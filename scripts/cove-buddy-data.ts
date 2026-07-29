@@ -1,7 +1,10 @@
 import path from "node:path";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { COVE_REST_TABLES } from "../src/lib/data/forge-tables";
+import {
+  COVE_CRM_COMPAT_TABLES,
+  COVE_REST_TABLES,
+} from "../src/lib/data/forge-tables";
 import {
   runForgeIntake,
   type ForgeIntakeInput,
@@ -12,7 +15,10 @@ export const COVE_BUDDY_REPO_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-export const COVE_BUDDY_TABLES = COVE_REST_TABLES;
+export const COVE_BUDDY_TABLES = [
+  ...COVE_REST_TABLES,
+  ...COVE_CRM_COMPAT_TABLES,
+] as const;
 type Table = typeof COVE_BUDDY_TABLES[number];
 type Action = "query" | "insert" | "update" | "delete";
 
@@ -164,6 +170,46 @@ function labelFor(row: unknown, fallback: string): string {
 async function responseJson(response: Response): Promise<unknown> {
   const text = await response.text();
   if (!response.ok) {
+    if (response.status === 409 && text) {
+      let payload: unknown;
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        payload = undefined;
+      }
+      if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+        const candidates = (payload as Record<string, unknown>).candidates;
+        if (Array.isArray(candidates)) {
+          const labels = candidates
+            .filter(
+              (value): value is Record<string, unknown> =>
+                Boolean(value) &&
+                typeof value === "object" &&
+                !Array.isArray(value),
+            )
+            .map((candidate) => {
+              const name = typeof candidate.name === "string"
+                ? candidate.name
+                : "Unnamed contact";
+              const email = typeof candidate.email === "string" &&
+                  candidate.email
+                ? ` <${candidate.email}>`
+                : "";
+              const id = typeof candidate.id === "string" && candidate.id
+                ? ` (${candidate.id})`
+                : "";
+              return `${name}${email}${id}`;
+            });
+          if (labels.length > 0) {
+            fail(
+              `Contact identity is ambiguous. Possible matches: ${
+                labels.join(", ")
+              }. Ask which person the user means.`,
+            );
+          }
+        }
+      }
+    }
     const limit = response.status === 409 ? 24_000 : 500;
     fail(`HTTP ${response.status}: ${text.slice(0, limit) || response.statusText}`);
   }

@@ -26,6 +26,13 @@
 
 **Last updated:** 2026-07-28 night (plan settled + sequenced; Gary install docs written; ONE click left: flip amart-builder/cove public)
 
+## 2026-07-29 build wave Stage 3: CRM interface (committed after BLOCK->SHIP review cycle)
+
+- src/lib/crm/ is now the one door for contacts: deterministic resolution (email wins; normalized name; ambiguous surfaces candidates and never creates or merges), provenance, activity history, meeting-activity helper for Stage 4. Local backend full; external backend is a stub by design (adapters wired per client at setup). data/cove-crm.json selects backend (documented in SETUP.md).
+- Independent review found 2 P0s, both fixed and re-verified: email-less contacts were merge magnets (now the first arriving email locks the row; different-email namesakes go ambiguous), and local-CRM routing ignored runtime mode (now fully gated on local mode; Alex's supabase-mode install keeps its exact prior paths, incl. the restored Attio CRMView). Also fixed: explicit manual add writes what the user typed, CJK mononyms creatable, exact email eq lookup, triage survives CRM failures per-contact, server-side contact search, null-name migration guard, Buddy ambiguity messaging.
+- Note for the plan: cloud-mode contacts keep the older isTrustedForgeRequest-only gate (behavior preservation); local mode has the tighter day-plan gate.
+- Stage 2 spike verdict RED recorded in the plan doc: staying on Composio (native connector can't run headless; scopes not narrowable; send not structurally excludable).
+
 ## 2026-07-28 late night: reliability spine Stage 1 (working tree, reviewed)
 
 - Local SQLite now migrates through one ordered `forge_schema_migrations` ledger. A populated copy of the live `data/forge.db` migrates to the same semantic schema as a fresh install with no foreign-key errors.

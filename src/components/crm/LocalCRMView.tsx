@@ -14,10 +14,10 @@ import {
 import type { Company, Contact, ContactActivity } from '@/lib/data/types';
 import { useDataChanged } from '@/lib/data/refresh-bus';
 
-// Local-mode CRM. Everything reads and writes through the /api/forge-rest
-// dispatcher (crm.ts), which talks to the on-machine SQLite store. No account,
-// no login. Two panes: a searchable contact list on the left, a detail panel on
-// the right that edits the selected contact and shows its activity timeline.
+// Local-mode CRM. Contacts and relationship history use the dedicated /api/crm
+// interface; company CRUD keeps the existing local REST path. No account, no
+// login. Two panes: a searchable contact list on the left, a detail panel on the
+// right that edits the selected contact and shows its activity timeline.
 
 function relativeDate(iso?: string | null): string {
   if (!iso) return 'No contact yet';
@@ -77,10 +77,10 @@ export default function LocalCRMView() {
   const [search, setSearch] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (query = '') => {
     try {
       const [contactRows, companyRows] = await Promise.all([
-        listContacts(),
+        listContacts(query.trim() || undefined),
         listCompanies(),
       ]);
       setError(undefined);
@@ -91,12 +91,18 @@ export default function LocalCRMView() {
     }
   }, []);
 
-  useDataChanged(['contacts', 'companies'], () => void load());
+  useDataChanged(
+    ['contacts', 'companies'],
+    () => void load(search),
+  );
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => void load(), 0);
+    const timeout = window.setTimeout(
+      () => void load(search),
+      search.trim() ? 200 : 0,
+    );
     return () => window.clearTimeout(timeout);
-  }, [load]);
+  }, [load, search]);
 
   const companyById = useMemo(() => {
     const map = new Map<string, Company>();
@@ -113,18 +119,8 @@ export default function LocalCRMView() {
   );
 
   const visibleContacts = useMemo(() => {
-    const rows = contacts ?? [];
-    const q = search.trim().toLowerCase();
-    const filtered = q
-      ? rows.filter((c) =>
-          [c.name, companyName(c), c.email ?? '', c.tags.join(' ')]
-            .join(' ')
-            .toLowerCase()
-            .includes(q),
-        )
-      : rows;
-    return [...filtered].sort(byLastInteractionDesc);
-  }, [contacts, search, companyName]);
+    return [...(contacts ?? [])].sort(byLastInteractionDesc);
+  }, [contacts]);
 
   const selectedContact = useMemo(
     () => (contacts ?? []).find((c) => c.id === selectedId) ?? null,
@@ -157,7 +153,7 @@ export default function LocalCRMView() {
           <p className="font-medium text-foreground">CRM could not load.</p>
           <p className="mt-1 text-muted-foreground">{error}</p>
           <button
-            onClick={() => void load()}
+            onClick={() => void load(search)}
             className="mt-3 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background"
           >
             Retry
@@ -226,7 +222,7 @@ export default function LocalCRMView() {
         <div className="flex-1 overflow-y-auto">
           {visibleContacts.length === 0 ? (
             <p className="px-5 py-10 text-center text-sm text-muted-foreground">
-              {contacts.length === 0
+              {!search.trim() && contacts.length === 0
                 ? 'No contacts yet. Add your first one to get started.'
                 : 'No contacts match this search.'}
             </p>

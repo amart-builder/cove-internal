@@ -1,9 +1,7 @@
 export const COVE_REST_TABLES = [
   "tasks",
   "task_columns",
-  "contacts",
   "companies",
-  "contact_activities",
   "email_items",
   "drafts",
   "email_action_log",
@@ -13,3 +11,8 @@ export const COVE_REST_TABLES = [
 ] as const;
 
 export type ForgeRestTable = typeof COVE_REST_TABLES[number];
+
+export const COVE_CRM_COMPAT_TABLES = [
+  "contacts",
+  "contact_activities",
+] as const;

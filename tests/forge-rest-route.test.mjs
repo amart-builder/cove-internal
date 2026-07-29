@@ -13,6 +13,7 @@ import {
 } from '../src/app/api/forge-rest/[table]/route.ts';
 import { getQuietCurrentCsrfToken } from '../src/lib/quiet-current/store.ts';
 import { handleLocalRest } from '../src/lib/local/db.ts';
+import { LocalCRMBackend } from '../src/lib/crm/index.ts';
 
 const context = { params: Promise.resolve({ table: 'not_a_forge_table' }) };
 
@@ -286,4 +287,100 @@ test('the route rejects a filterless DELETE after CSRF passes, and still allows 
     { params: Promise.resolve({ table: 'tasks' }) },
   );
   assert.notEqual(targeted.status, 400, 'a filtered delete must not be blocked');
+});
+
+test('supabase-mode contact requests bypass the local CRM compatibility branch', {
+  concurrency: false,
+}, async (t) => {
+  const previous = {
+    runtime: process.env.NEXT_PUBLIC_FORGE_RUNTIME,
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    key: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    prefix: process.env.COVE_TABLE_PREFIX,
+    fetch: globalThis.fetch,
+  };
+  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'supabase';
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key';
+  process.env.COVE_TABLE_PREFIX = 'forge_';
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    return new Response('[{"id":"cloud-contact","name":"Cloud Contact"}]', {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+  t.after(() => {
+    if (previous.runtime === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+    else process.env.NEXT_PUBLIC_FORGE_RUNTIME = previous.runtime;
+    if (previous.url === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    else process.env.NEXT_PUBLIC_SUPABASE_URL = previous.url;
+    if (previous.key === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    else process.env.SUPABASE_SERVICE_ROLE_KEY = previous.key;
+    if (previous.prefix === undefined) delete process.env.COVE_TABLE_PREFIX;
+    else process.env.COVE_TABLE_PREFIX = previous.prefix;
+    globalThis.fetch = previous.fetch;
+  });
+
+  const response = await GET(
+    new NextRequest('http://localhost:3200/api/forge-rest/contacts?select=*', {
+      headers: { host: 'localhost:3200', origin: 'http://localhost:3200' },
+    }),
+    { params: Promise.resolve({ table: 'contacts' }) },
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), [{
+    id: 'cloud-contact',
+    name: 'Cloud Contact',
+  }]);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0], /^https:\/\/supabase\.example\/rest\/v1\/forge_contacts/);
+});
+
+test('local email equality filter returns only the exact normalized email', {
+  concurrency: false,
+}, async (t) => {
+  const dir = path.join(os.tmpdir(), `forge-rest-crm-email-${process.pid}-${Date.now()}`);
+  mkdirSync(dir, { recursive: true });
+  const previousRuntime = process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+  const previousDbPath = process.env.COVE_DB_PATH;
+  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'local';
+  process.env.COVE_DB_PATH = path.join(dir, 'forge.db');
+  t.after(() => {
+    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+    else process.env.NEXT_PUBLIC_FORGE_RUNTIME = previousRuntime;
+    if (previousDbPath === undefined) delete process.env.COVE_DB_PATH;
+    else process.env.COVE_DB_PATH = previousDbPath;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const backend = new LocalCRMBackend({ dbPath: process.env.COVE_DB_PATH });
+  const decoy = backend.resolveOrCreateContact({
+    name: 'target@example.com Fan',
+    email: 'other@example.com',
+    tags: ['target@example.com'],
+    source: 'manual',
+  });
+  const exact = backend.resolveOrCreateContact({
+    name: 'Exact Person',
+    email: 'target@example.com',
+    source: 'manual',
+  });
+  backend.close();
+  assert.equal(decoy.status, 'created');
+  assert.equal(exact.status, 'created');
+
+  const response = await GET(
+    new NextRequest(
+      'http://localhost:3200/api/forge-rest/contacts?email=eq.target%40example.com',
+      { headers: { host: 'localhost:3200', origin: 'http://localhost:3200' } },
+    ),
+    { params: Promise.resolve({ table: 'contacts' }) },
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    (await response.json()).map((contact) => contact.id),
+    [exact.contact.id],
+  );
 });
