@@ -91,7 +91,7 @@ export function recordReceiptInDatabase(
   }
   const retryCount = Math.max(0, Math.trunc(input.retryCount ?? 0));
   db.prepare(
-    `INSERT INTO forge_receipts
+    `INSERT INTO cove_receipts
        (id, source, started_at, finished_at, summary, actions_json,
         retry_count, outcome, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -126,7 +126,7 @@ export function recordReceiptInDatabase(
     });
   }
   const row = db.prepare(
-    "SELECT * FROM forge_receipts WHERE id = ?",
+    "SELECT * FROM cove_receipts WHERE id = ?",
   ).get(id) as ReceiptRow;
   return decodeReceipt(row);
 }
@@ -156,13 +156,13 @@ export function listRecentReceipts(
     const offset = Math.max(0, Math.trunc(options.offset ?? 0));
     const rows = options.source
       ? db.prepare(
-          `SELECT * FROM forge_receipts
+          `SELECT * FROM cove_receipts
            WHERE source = ?
            ORDER BY finished_at DESC
            LIMIT ? OFFSET ?`,
         ).all(options.source, limit, offset)
       : db.prepare(
-          `SELECT * FROM forge_receipts
+          `SELECT * FROM cove_receipts
            ORDER BY finished_at DESC
            LIMIT ? OFFSET ?`,
         ).all(limit, offset);
@@ -181,6 +181,8 @@ export const ACTIVITY_SOURCES = [
   "buddy-feedback",
   "email-gmail-to-card",
   "email-card-to-gmail",
+  "email-surfaced",
+  "email-archive",
   "task-session",
   "email-commitments",
   "email-correspondence",
@@ -291,13 +293,13 @@ export function receiptActivity(receipt: Receipt): ReceiptActivity {
   if (receipt.source === "email-gmail-to-card") {
     return {
       id: receipt.id,
-      title: "Gmail follow-through",
+      title: "Email follow-through",
       detail: `${plural(
         count(actions.changedIds && Array.isArray(actions.changedIds)
           ? actions.changedIds.length
           : 0),
         "item",
-      )} checked off from Gmail.`,
+      )} handled in Gmail.`,
       occurredAt: receipt.finishedAt,
       needsAttention: receipt.outcome === "partial" || receipt.outcome === "failed",
     };
@@ -305,10 +307,31 @@ export function receiptActivity(receipt: Receipt): ReceiptActivity {
   if (receipt.source === "email-card-to-gmail") {
     return {
       id: receipt.id,
-      title: "Email card sync",
-      detail: "Your email card and Gmail were brought up to date.",
+      title: "Email archived",
+      detail: receipt.outcome === "success"
+        ? "The handled email was archived."
+        : "Gmail did not confirm the archive, so the email stayed open.",
       occurredAt: receipt.finishedAt,
       needsAttention: receipt.outcome === "partial" || receipt.outcome === "failed",
+    };
+  }
+  if (receipt.source === "email-surfaced") {
+    const bucket = text(actions.bucket);
+    return {
+      id: receipt.id,
+      title: bucket === "fyi" ? "Email update recorded" : "Email needs you",
+      detail: receipt.summary,
+      occurredAt: receipt.finishedAt,
+      needsAttention: receipt.outcome !== "success",
+    };
+  }
+  if (receipt.source === "email-archive") {
+    return {
+      id: receipt.id,
+      title: "Email archived",
+      detail: "A handled email was archived after Gmail confirmed it.",
+      occurredAt: receipt.finishedAt,
+      needsAttention: receipt.outcome !== "success",
     };
   }
   if (receipt.source === "task-session") {
@@ -451,7 +474,7 @@ export function listRecentReceiptActivity(
     }
     parameters.push(pageSize + 1);
     const rows = db.prepare(
-      `SELECT * FROM forge_receipts
+      `SELECT * FROM cove_receipts
        WHERE source IN (${placeholders})
        ${cursorClause}
        ORDER BY finished_at DESC, id DESC
@@ -477,7 +500,7 @@ export function buildReceiptDigest(
   const db = openLocalDatabase(options.dbPath);
   try {
     const sinceValue = db.prepare(
-      `SELECT finished_at FROM forge_receipts
+      `SELECT finished_at FROM cove_receipts
        WHERE source = 'morning-brief' AND outcome = 'success'
        ORDER BY finished_at DESC LIMIT 1`,
     ).pluck().get();
@@ -493,7 +516,7 @@ export function buildReceiptDigest(
     }
     const rows = db.prepare(
       `SELECT source, outcome, COUNT(*) AS count
-       FROM forge_receipts
+       FROM cove_receipts
        WHERE finished_at > ?
          AND source IN ('email-triage', 'meeting-intake', 'backup')
        GROUP BY source, outcome`,
@@ -538,7 +561,7 @@ export function hasReceiptForSourceStartedAt(input: {
   const db = openLocalDatabase(input.dbPath);
   try {
     return Boolean(db.prepare(
-      `SELECT 1 FROM forge_receipts
+      `SELECT 1 FROM cove_receipts
        WHERE source = ? AND started_at = ?
        LIMIT 1`,
     ).get(input.source, input.startedAt));

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-DB="${COVE_DB_PATH:-$REPO_DIR/data/forge.db}"
+DB="${COVE_DB_PATH:-$REPO_DIR/data/cove.db}"
 BACKUP_DIR="${COVE_BACKUP_DIR:-$REPO_DIR/data/backups}"
 ASSUME_YES=0
 
@@ -62,13 +62,13 @@ chmod 600 "$TEMP"
 
 STAMP="$(date +%Y%m%d-%H%M%S)-$$"
 if [ -f "$DB" ]; then
-  cp -p "$DB" "$BACKUP_DIR/recovery/forge-pre-restore-$STAMP.db"
+  cp -p "$DB" "$BACKUP_DIR/recovery/cove-pre-restore-$STAMP.db"
 fi
 if [ -f "$DB-wal" ]; then
-  cp -p "$DB-wal" "$BACKUP_DIR/recovery/forge-pre-restore-$STAMP.db-wal"
+  cp -p "$DB-wal" "$BACKUP_DIR/recovery/cove-pre-restore-$STAMP.db-wal"
 fi
 if [ -f "$DB-shm" ]; then
-  cp -p "$DB-shm" "$BACKUP_DIR/recovery/forge-pre-restore-$STAMP.db-shm"
+  cp -p "$DB-shm" "$BACKUP_DIR/recovery/cove-pre-restore-$STAMP.db-shm"
 fi
 
 # The prompt and archive copy can take time. Re-check immediately before the

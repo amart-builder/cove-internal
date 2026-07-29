@@ -4,10 +4,10 @@ import { fileURLToPath } from "node:url";
 import {
   COVE_CRM_COMPAT_TABLES,
   COVE_REST_TABLES,
-} from "../src/lib/data/forge-tables";
+} from "../src/lib/data/cove-tables";
 import {
-  runForgeIntake,
-  type ForgeIntakeInput,
+  runCoveIntake,
+  type CoveIntakeInput,
 } from "../src/lib/intake/run";
 import { coveEnv } from "../src/lib/env";
 import { getRuntimeMode } from "../src/lib/runtime/mode";
@@ -44,7 +44,7 @@ type SpawnSessionCommand = {
 } & ({ dir: string; project?: never } | { dir?: never; project: string });
 type IntakeCommand = {
   action: "intake";
-  input: ForgeIntakeInput;
+  input: CoveIntakeInput;
 };
 type RecurrenceCommand = {
   action: "recurrence-confirm";
@@ -255,14 +255,14 @@ export async function runBuddyDataCommand(
     fetch?: typeof fetch;
     appUrl?: string;
     write?: (line: string) => void;
-    runIntake?: typeof runForgeIntake;
+    runIntake?: typeof runCoveIntake;
   } = {},
 ): Promise<number> {
   const request = options.fetch ?? fetch;
   const write = options.write ?? ((line) => process.stdout.write(`${line}\n`));
   const appUrl = (options.appUrl ?? coveEnv("BUDDY_APP_URL") ?? "http://127.0.0.1:3200").replace(/\/$/, "");
   if (command.action === "intake") {
-    const result = await (options.runIntake ?? runForgeIntake)(command.input, {
+    const result = await (options.runIntake ?? runCoveIntake)(command.input, {
       fetchImpl: request,
       webBaseUrl: appUrl,
       repoDir: COVE_BUDDY_REPO_DIR,
@@ -306,7 +306,7 @@ export async function runBuddyDataCommand(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Forge-CSRF": (state as Record<string, unknown>).csrfToken as string,
+        "X-Cove-CSRF": (state as Record<string, unknown>).csrfToken as string,
       },
       body: JSON.stringify({
         action: "confirm",
@@ -338,7 +338,7 @@ export async function runBuddyDataCommand(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Forge-CSRF": (state as Record<string, unknown>).csrfToken as string,
+        "X-Cove-CSRF": (state as Record<string, unknown>).csrfToken as string,
       },
       body: JSON.stringify({
         action: "update",
@@ -372,7 +372,7 @@ export async function runBuddyDataCommand(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Forge-CSRF": (state as Record<string, unknown>).csrfToken as string,
+        "X-Cove-CSRF": (state as Record<string, unknown>).csrfToken as string,
       },
       body: JSON.stringify({
         ...(command.dir ? { dir: command.dir } : { project: command.project }),
@@ -426,7 +426,7 @@ export async function runBuddyDataCommand(
     if (typeof stateRecord.csrfToken !== "string") fail("Cove request token is unavailable");
     const applied = await responseJson(await request(`${appUrl}/api/day-plan/assistant-apply`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Forge-CSRF": stateRecord.csrfToken },
+      headers: { "Content-Type": "application/json", "X-Cove-CSRF": stateRecord.csrfToken },
       body: JSON.stringify(command.json),
     }));
     if (!applied || typeof applied !== "object" || Array.isArray(applied)) fail("day plan apply response is invalid");
@@ -436,7 +436,7 @@ export async function runBuddyDataCommand(
     return 0;
   }
   const tableCommand = command as TableCommand;
-  const base = `${appUrl}/api/forge-rest/${tableCommand.table}`;
+  const base = `${appUrl}/api/cove-rest/${tableCommand.table}`;
   if (tableCommand.action === "query") {
     const params = filterParams(tableCommand.filters);
     if (tableCommand.limit) params.set("limit", String(tableCommand.limit));
@@ -449,7 +449,7 @@ export async function runBuddyDataCommand(
     tableCommand.table === "tasks" &&
     getRuntimeMode() === "local";
   if (tableCommand.action === "delete" && !archivesTask && !tableCommand.confirmToken) {
-    fail("Permanent delete requires a confirm token. Emit a pendingDeletes forge-receipts entry and wait for the user to confirm.");
+    fail("Permanent delete requires a confirm token. Emit a pendingDeletes cove-receipts entry and wait for the user to confirm.");
   }
   const state = await responseJson(await request(`${appUrl}/api/day-plan`, { cache: "no-store" }));
   if (!state || typeof state !== "object" || Array.isArray(state) ||
@@ -480,7 +480,7 @@ export async function runBuddyDataCommand(
         : "DELETE",
     headers: {
       "Content-Type": "application/json",
-      "X-Forge-CSRF": csrfToken,
+      "X-Cove-CSRF": csrfToken,
       Prefer: "return=representation",
     },
     ...(archivesTask

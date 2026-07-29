@@ -18,7 +18,7 @@ import {
 function isolatedStore(t, initialClock = '2026-07-10T16:00:00.000Z') {
   const file = path.join(
     os.tmpdir(),
-    `forge-day-plan-${process.pid}-${Date.now()}-${Math.random()}.db`,
+    `cove-day-plan-${process.pid}-${Date.now()}-${Math.random()}.db`,
   );
   let clock = new Date(initialClock);
   const store = createDayPlanStore({ dbPath: file, now: () => new Date(clock) });
@@ -75,7 +75,7 @@ function mutate(store, plan, action, patch = {}) {
 }
 
 test('schema migration preserves existing SQLite data', (t) => {
-  const file = path.join(os.tmpdir(), `forge-day-plan-legacy-${process.pid}-${Date.now()}.db`);
+  const file = path.join(os.tmpdir(), `cove-day-plan-legacy-${process.pid}-${Date.now()}.db`);
   const legacy = new Database(file);
   legacy.exec('CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL)');
   legacy.prepare('INSERT INTO tasks (id, title) VALUES (?, ?)').run('legacy-task', 'Keep me');
@@ -519,11 +519,11 @@ test('settlement rejects progress details on carry and preserves the exact compl
 });
 
 test('settlement evidence marks only same-local-date gated execution rows as worked today', (t) => {
-  const previousRuntime = process.env.NEXT_PUBLIC_FORGE_RUNTIME;
-  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'supabase';
+  const previousRuntime = process.env.NEXT_PUBLIC_COVE_RUNTIME;
+  process.env.NEXT_PUBLIC_COVE_RUNTIME = 'supabase';
   t.after(() => {
-    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
-    else process.env.NEXT_PUBLIC_FORGE_RUNTIME = previousRuntime;
+    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_COVE_RUNTIME;
+    else process.env.NEXT_PUBLIC_COVE_RUNTIME = previousRuntime;
   });
   const { store } = isolatedStore(t);
   let plan = ensure(store).plan;

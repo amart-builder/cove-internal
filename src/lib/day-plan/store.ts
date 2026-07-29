@@ -49,9 +49,9 @@ import {
   assessDayPlanExecutionReadiness,
   dayPlanExecutionAuthorizationHash,
   dayPlanItemBriefHash,
-  loadForgeExecutionEnvironment,
+  loadCoveExecutionEnvironment,
   selectExecutionModel,
-  type ForgeExecutionEnvironment,
+  type CoveExecutionEnvironment,
 } from "./execution-readiness";
 import { applyAssistantProposal, validateAssistantProposal } from "./assistant-patch";
 import { arrivalAdditionOutcomeKey } from "./arrival-addition";
@@ -1043,7 +1043,7 @@ export type DayClosureFacts = {
 export function createDayPlanStore(options: {
   dbPath: string;
   now?: Clock;
-  executionEnvironment?: ForgeExecutionEnvironment | (() => ForgeExecutionEnvironment);
+  executionEnvironment?: CoveExecutionEnvironment | (() => CoveExecutionEnvironment);
   resolveProjectDirectory?: (hint: string) => string | null;
 }) {
   const db = openSqliteDatabase(options.dbPath);
@@ -1051,7 +1051,7 @@ export function createDayPlanStore(options: {
   const executionEnvironment = () =>
     typeof options.executionEnvironment === "function"
       ? options.executionEnvironment()
-      : options.executionEnvironment ?? loadForgeExecutionEnvironment();
+      : options.executionEnvironment ?? loadCoveExecutionEnvironment();
   const projectDirectoryResolver = options.resolveProjectDirectory ?? resolveProjectDirectory;
   db.pragma("foreign_keys = ON");
   for (const migration of DAY_PLAN_MIGRATIONS) {
@@ -3884,15 +3884,15 @@ export function createDayPlanStore(options: {
   };
 }
 
-type DayPlanGlobal = { __forgeDayPlanStore?: DayPlanStore };
+type DayPlanGlobal = { __coveDayPlanStore?: DayPlanStore };
 
 export function getDayPlanStore(): DayPlanStore {
   const global = globalThis as unknown as DayPlanGlobal;
-  if (!global.__forgeDayPlanStore) {
-    global.__forgeDayPlanStore = createDayPlanStore({
+  if (!global.__coveDayPlanStore) {
+    global.__coveDayPlanStore = createDayPlanStore({
       dbPath:
-        coveEnv("DB_PATH") ?? path.join(process.cwd(), "data", "forge.db"),
+        coveEnv("DB_PATH") ?? path.join(process.cwd(), "data", "cove.db"),
     });
   }
-  return global.__forgeDayPlanStore;
+  return global.__coveDayPlanStore;
 }

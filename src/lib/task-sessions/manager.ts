@@ -26,7 +26,7 @@ import {
   registerSpawnedChild,
 } from "../claude-execution/child-process-registry";
 import { parseExecutionResultSummary } from "../claude-execution/commands";
-import { markForgeOrchestratorSession } from "../claude-execution/orchestrator-session";
+import { markCoveOrchestratorSession } from "../claude-execution/orchestrator-session";
 import type {
   LaunchTaskSessionInput,
   TaskSessionPermissionMode,
@@ -301,7 +301,7 @@ export function createTaskSessionManager(
   const exists = dependencies.processExists ?? processExists;
   const commandForPid = dependencies.processCommand ?? processCommand;
   const signalGroup = dependencies.signalGroup ?? stopProcessGroup;
-  const markSession = dependencies.markSession ?? markForgeOrchestratorSession;
+  const markSession = dependencies.markSession ?? markCoveOrchestratorSession;
   const randomId = dependencies.randomId ?? randomUUID;
   const dataDir = coveDataDir(dependencies.dataDir ?? path.dirname(dependencies.dbPath));
   const claudePath = dependencies.claudePath ??
@@ -763,7 +763,7 @@ type TaskSessionGlobal = {
 export function getTaskSessionManager(): TaskSessionManager {
   const global = globalThis as unknown as TaskSessionGlobal;
   if (!global.__coveTaskSessionManager) {
-    const dbPath = coveEnv("DB_PATH") ?? path.join(process.cwd(), "data", "forge.db");
+    const dbPath = coveEnv("DB_PATH") ?? path.join(process.cwd(), "data", "cove.db");
     const serverGeneration = randomUUID();
     const bootId = currentBootId();
     const manager = createTaskSessionManager({

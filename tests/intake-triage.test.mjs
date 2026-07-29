@@ -16,7 +16,7 @@ import { getEvent } from '../src/lib/intake/inbox.ts';
 import { openLocalDatabase } from '../src/lib/local/database.ts';
 import {
   buildTriagePrompt,
-  runForgeIntake,
+  runCoveIntake,
   triageRecordedEvent,
 } from '../src/lib/intake/run.ts';
 import {
@@ -29,33 +29,33 @@ import {
   TRIAGE_JSON_SCHEMA,
   validateTriageOutput,
 } from '../src/lib/triage/protocol.ts';
-import { parseForgeIntakeArgs } from '../scripts/cove-intake.mjs';
+import { parseCoveIntakeArgs } from '../scripts/cove-intake.mjs';
 
 function fixture(t) {
   const dir = path.join(
     os.tmpdir(),
-    `forge-triage-${process.pid}-${Date.now()}-${Math.random()}`,
+    `cove-triage-${process.pid}-${Date.now()}-${Math.random()}`,
   );
   mkdirSync(path.join(dir, 'brief'), { recursive: true });
   writeFileSync(path.join(dir, 'brief', 'goals.md'), '# Goals\nGrow Edge AI.');
   const prior = {
     db: process.env.COVE_DB_PATH,
-    runtime: process.env.NEXT_PUBLIC_FORGE_RUNTIME,
+    runtime: process.env.NEXT_PUBLIC_COVE_RUNTIME,
     timezone: process.env.COVE_TIMEZONE,
   };
-  const priorDb = globalThis.__forgeDb;
-  delete globalThis.__forgeDb;
-  process.env.COVE_DB_PATH = path.join(dir, 'forge.db');
-  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'local';
+  const priorDb = globalThis.__coveDb;
+  delete globalThis.__coveDb;
+  process.env.COVE_DB_PATH = path.join(dir, 'cove.db');
+  process.env.NEXT_PUBLIC_COVE_RUNTIME = 'local';
   process.env.COVE_TIMEZONE = 'America/Los_Angeles';
   t.after(() => {
-    globalThis.__forgeDb?.close();
-    if (priorDb === undefined) delete globalThis.__forgeDb;
-    else globalThis.__forgeDb = priorDb;
+    globalThis.__coveDb?.close();
+    if (priorDb === undefined) delete globalThis.__coveDb;
+    else globalThis.__coveDb = priorDb;
     if (prior.db === undefined) delete process.env.COVE_DB_PATH;
     else process.env.COVE_DB_PATH = prior.db;
-    if (prior.runtime === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
-    else process.env.NEXT_PUBLIC_FORGE_RUNTIME = prior.runtime;
+    if (prior.runtime === undefined) delete process.env.NEXT_PUBLIC_COVE_RUNTIME;
+    else process.env.NEXT_PUBLIC_COVE_RUNTIME = prior.runtime;
     if (prior.timezone === undefined) delete process.env.COVE_TIMEZONE;
     else process.env.COVE_TIMEZONE = prior.timezone;
     rmSync(dir, { recursive: true, force: true });
@@ -102,22 +102,22 @@ function validTriage(overrides = {}) {
   };
 }
 
-function forgeFetch(posts, options = {}) {
+function coveFetch(posts, options = {}) {
   return async (url, init = {}) => {
     const value = String(url);
-    if (value.includes('/api/forge-rest/task_columns')) {
+    if (value.includes('/api/cove-rest/task_columns')) {
       return new Response(JSON.stringify([
         { id: 'not-started', name: 'Not Started', position: 0 },
         { id: 'today', name: 'Must happen today', position: 10 },
       ]));
     }
-    if (value.includes('/api/forge-rest/tasks?')) {
+    if (value.includes('/api/cove-rest/tasks?')) {
       return new Response('[]');
     }
     if (value.endsWith('/api/day-plan')) {
       return new Response('{"csrfToken":"csrf"}');
     }
-    if (value.endsWith('/api/forge-rest/tasks') && init.method === 'POST') {
+    if (value.endsWith('/api/cove-rest/tasks') && init.method === 'POST') {
       const body = JSON.parse(init.body);
       posts.push(body);
       if (options.missingProjectOnce && posts.length === 1) {
@@ -135,13 +135,13 @@ function forgeFetch(posts, options = {}) {
 test('natural-language recurrence captures today once and only proposes the template', async (t) => {
   const dir = fixture(t);
   const posts = [];
-  const result = await runForgeIntake({
+  const result = await runCoveIntake({
     text: 'Post a customer clip every day.',
     source: 'chat',
     sourceId: 'recurrence-proposal',
   }, {
     dataDir: dir,
-    fetchImpl: forgeFetch(posts),
+    fetchImpl: coveFetch(posts),
     webBaseUrl: 'http://recurrence-proposal.test',
     spawnImpl: claudeSpawn(validTriage({
       due_at: '2026-08-10T09:00:00-07:00',
@@ -158,7 +158,7 @@ test('natural-language recurrence captures today once and only proposes the temp
   assert.equal(posts[0].due_at, '2026-08-10T09:00:00-07:00');
   assert.equal(posts[0].proposed_recurrence_cadence, 'daily');
   assert.ok(posts[0].tags.includes('recurrence-proposed'));
-  const db = openLocalDatabase(path.join(dir, 'forge.db'));
+  const db = openLocalDatabase(path.join(dir, 'cove.db'));
   try {
     assert.equal(
       db.prepare('SELECT count(*) AS n FROM recurring_templates').get().n,
@@ -171,7 +171,7 @@ test('natural-language recurrence captures today once and only proposes the temp
 
 test('Supabase intake payloads stay pre-stage even when recurrence is proposed', async (t) => {
   const dir = fixture(t);
-  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'supabase';
+  process.env.NEXT_PUBLIC_COVE_RUNTIME = 'supabase';
   const event = {
     id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
     source: 'chat',
@@ -190,7 +190,7 @@ test('Supabase intake payloads stay pre-stage even when recurrence is proposed',
   const fallbackPosts = [];
   await createFallbackInboundTask(event, {
     dataDir: dir,
-    fetchImpl: forgeFetch(fallbackPosts),
+    fetchImpl: coveFetch(fallbackPosts),
     webBaseUrl: 'http://supabase-fallback.test',
     now,
     proposedRecurrenceCadence: 'daily',
@@ -207,7 +207,7 @@ test('Supabase intake payloads stay pre-stage even when recurrence is proposed',
     column: 'Not Started',
   }, {
     dataDir: dir,
-    fetchImpl: forgeFetch(capturedPosts),
+    fetchImpl: coveFetch(capturedPosts),
     webBaseUrl: 'http://supabase-captured.test',
     now,
     proposedRecurrenceCadence: 'daily',
@@ -225,7 +225,7 @@ test('Supabase intake payloads stay pre-stage even when recurrence is proposed',
   });
   await createTriagedInboundTask({ ...event, id: 'ffffffff-ffff-4fff-8fff-ffffffffffff' }, triage, {
     dataDir: dir,
-    fetchImpl: forgeFetch(triagedPosts),
+    fetchImpl: coveFetch(triagedPosts),
     webBaseUrl: 'http://supabase-triaged.test',
     now,
     proposedRecurrenceCadence: 'daily',
@@ -235,7 +235,7 @@ test('Supabase intake payloads stay pre-stage even when recurrence is proposed',
   assert.equal(triagedPosts[0].tags.includes('recurrence-proposed'), false);
   assert.equal('proposed_recurrence_cadence' in triagedPosts[0], false);
 
-  const dryRun = await runForgeIntake({
+  const dryRun = await runCoveIntake({
     text: 'Post a clip every day.',
     source: 'chat',
     sourceId: 'supabase-detection',
@@ -271,7 +271,7 @@ test('local proposed fallback and captured tasks use date-only due values', asyn
   const fallbackPosts = [];
   await createFallbackInboundTask(event, {
     ...options,
-    fetchImpl: forgeFetch(fallbackPosts),
+    fetchImpl: coveFetch(fallbackPosts),
     webBaseUrl: 'http://local-date-fallback.test',
   });
   assert.equal(fallbackPosts[0].due_at, '2026-07-28');
@@ -282,7 +282,7 @@ test('local proposed fallback and captured tasks use date-only due values', asyn
     { title: 'Stretch', description: 'Captured.' },
     {
       ...options,
-      fetchImpl: forgeFetch(capturedPosts),
+      fetchImpl: coveFetch(capturedPosts),
       webBaseUrl: 'http://local-date-captured.test',
     },
   );
@@ -298,7 +298,7 @@ test('triage protocol is canonical, strict, and CLI parsing accepts text or file
   assert.equal(JSON.parse(TRIAGE_JSON_SCHEMA).additionalProperties, false);
   assert.equal(validateTriageOutput(validTriage(), []).project, 'Atlas');
   assert.throws(
-    () => validateTriageOutput(validTriage({ project: 'Invented' }), ['forge']),
+    () => validateTriageOutput(validTriage({ project: 'Invented' }), ['cove']),
     /triage_project_invalid/,
   );
   assert.throws(
@@ -307,7 +307,7 @@ test('triage protocol is canonical, strict, and CLI parsing accepts text or file
   );
   const file = path.join(dir, 'task.txt');
   writeFileSync(file, 'Review the proposal');
-  assert.deepEqual(parseForgeIntakeArgs([
+  assert.deepEqual(parseCoveIntakeArgs([
     '--file', file, '--source', 'meeting', '--source-id', 'meet-1', '--dry-run',
   ]), {
     text: 'Review the proposal',
@@ -316,13 +316,13 @@ test('triage protocol is canonical, strict, and CLI parsing accepts text or file
     dryRun: true,
   });
   assert.equal(
-    parseForgeIntakeArgs([
+    parseCoveIntakeArgs([
       '--text', '--starts-with-a-flag', '--source', 'chat',
     ]).text,
     '--starts-with-a-flag',
   );
   assert.throws(
-    () => parseForgeIntakeArgs(['--text', 'x', '--file', file, '--source', 'chat']),
+    () => parseCoveIntakeArgs(['--text', 'x', '--file', file, '--source', 'chat']),
     /exactly one/,
   );
   assert.match(
@@ -331,7 +331,7 @@ test('triage protocol is canonical, strict, and CLI parsing accepts text or file
       rawText: 'Call Maya',
       source: 'chat',
       goals: 'Grow Edge AI',
-      projects: ['forge'],
+      projects: ['cove'],
       board: { tasks: [], columns: [] },
       now: new Date('2026-07-27T18:00:00.000Z'),
     }),
@@ -348,7 +348,7 @@ test('canonical intake captures first, triages once, writes project, and is idem
   const options = {
     dataDir: dir,
     repoDir: process.cwd(),
-    fetchImpl: forgeFetch(posts),
+    fetchImpl: coveFetch(posts),
     webBaseUrl: 'http://triage.test',
     spawnImpl: claudeSpawn(
       `\`\`\`json\n${JSON.stringify(validTriage())}\n\`\`\``,
@@ -358,7 +358,7 @@ test('canonical intake captures first, triages once, writes project, and is idem
     now: () => new Date('2026-07-27T18:00:00.000Z'),
     write: (line) => lines.push(line),
   };
-  const result = await runForgeIntake({
+  const result = await runCoveIntake({
     text: 'Maya needs the revised scope today.',
     source: 'chat',
     sourceId: 'chat-1',
@@ -397,7 +397,7 @@ test('canonical intake captures first, triages once, writes project, and is idem
   );
   assert.match(lines[0], /^TASK /);
 
-  const retry = await runForgeIntake({
+  const retry = await runCoveIntake({
     text: 'Maya needs the revised scope today.',
     source: 'chat',
     sourceId: 'chat-1',
@@ -410,7 +410,7 @@ test('canonical intake captures first, triages once, writes project, and is idem
 
 test('dry-run capture is terminal and never becomes sweeper work', async (t) => {
   const dir = fixture(t);
-  const result = await runForgeIntake({
+  const result = await runCoveIntake({
     text: 'Preview this intake without creating it.',
     source: 'chat',
     sourceId: 'dry-run-1',
@@ -435,14 +435,14 @@ test('dry-run capture is terminal and never becomes sweeper work', async (t) => 
 test('triage autonomy none never queues groundwork', async (t) => {
   const dir = fixture(t);
   const posts = [];
-  await runForgeIntake({
+  await runCoveIntake({
     text: 'Jordan Rivers must handle this personally.',
     source: 'chat',
     sourceId: 'autonomy-none',
   }, {
     dataDir: dir,
     repoDir: process.cwd(),
-    fetchImpl: forgeFetch(posts),
+    fetchImpl: coveFetch(posts),
     webBaseUrl: 'http://autonomy-none.test',
     spawnImpl: claudeSpawn(validTriage({
       autonomy: 'none',
@@ -465,14 +465,14 @@ test('the off setting suppresses a model-selected groundwork queue', async (t) =
     checkin_presented_count: 0,
   }));
   const posts = [];
-  await runForgeIntake({
+  await runCoveIntake({
     text: 'Research this only when autonomy is enabled.',
     source: 'chat',
     sourceId: 'autonomy-off',
   }, {
     dataDir: dir,
     repoDir: process.cwd(),
-    fetchImpl: forgeFetch(posts),
+    fetchImpl: coveFetch(posts),
     webBaseUrl: 'http://autonomy-off.test',
     spawnImpl: claudeSpawn(validTriage({
       surface: 'board',
@@ -490,13 +490,13 @@ test('a due-now surface receipt survives task creation and resumes without anoth
   let taskExists = false;
   const fetchImpl = async (url, init = {}) => {
     const value = String(url);
-    if (value.includes('/api/forge-rest/task_columns')) {
+    if (value.includes('/api/cove-rest/task_columns')) {
       return new Response(JSON.stringify([
         { id: 'not-started', name: 'Not Started', position: 0 },
         { id: 'today', name: 'Must happen today', position: 10 },
       ]));
     }
-    if (value.includes('/api/forge-rest/tasks?')) {
+    if (value.includes('/api/cove-rest/tasks?')) {
       return new Response(taskExists
         ? JSON.stringify([{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }])
         : '[]');
@@ -504,7 +504,7 @@ test('a due-now surface receipt survives task creation and resumes without anoth
     if (value.endsWith('/api/day-plan')) {
       return new Response('{"csrfToken":"csrf"}');
     }
-    if (value.endsWith('/api/forge-rest/tasks') && init.method === 'POST') {
+    if (value.endsWith('/api/cove-rest/tasks') && init.method === 'POST') {
       const body = JSON.parse(init.body);
       posts.push(body);
       taskExists = true;
@@ -559,14 +559,14 @@ test('triage failure creates the Phase 0 fallback on the same event and records 
   const dir = fixture(t);
   const posts = [];
   const lines = [];
-  const result = await runForgeIntake({
+  const result = await runCoveIntake({
     text: 'Capture this even when Claude returns nonsense.',
     source: 'voice',
     sourceId: 'voice-1',
   }, {
     dataDir: dir,
     repoDir: process.cwd(),
-    fetchImpl: forgeFetch(posts),
+    fetchImpl: coveFetch(posts),
     webBaseUrl: 'http://fallback.test',
     spawnImpl: claudeSpawn('not-json', []),
     now: () => new Date('2026-07-27T18:00:00.000Z'),
@@ -596,14 +596,14 @@ test('scheduled triage writes a reminder entry and task writes retry without a l
     surface: 'scheduled',
     surface_at: '2026-07-28T14:00:00-07:00',
   });
-  const result = await runForgeIntake({
+  const result = await runCoveIntake({
     text: 'Review this tomorrow afternoon.',
     source: 'email',
     sourceId: 'email-1',
   }, {
     dataDir: dir,
     repoDir: process.cwd(),
-    fetchImpl: forgeFetch(scheduledPosts),
+    fetchImpl: coveFetch(scheduledPosts),
     webBaseUrl: 'http://scheduled.test',
     spawnImpl: claudeSpawn(scheduled, []),
     now: () => new Date('2026-07-27T18:00:00.000Z'),
@@ -631,7 +631,7 @@ test('scheduled triage writes a reminder entry and task writes retry without a l
     updated_at: '2026-07-27T17:00:00.000Z',
   };
   await createTriagedInboundTask(event, validTriage(), {
-    fetchImpl: forgeFetch(posts, { missingProjectOnce: true }),
+    fetchImpl: coveFetch(posts, { missingProjectOnce: true }),
     webBaseUrl: 'http://missing-project.test',
     now: () => new Date('2026-07-27T18:00:00.000Z'),
   });
@@ -645,7 +645,7 @@ test('scheduled triage writes a reminder entry and task writes retry without a l
     source_id: 'project-reprobe',
   };
   await createTriagedInboundTask(reprobeEvent, validTriage(), {
-    fetchImpl: forgeFetch(posts, { missingProjectOnce: true }),
+    fetchImpl: coveFetch(posts, { missingProjectOnce: true }),
     webBaseUrl: 'http://missing-project.test',
     now: () => new Date('2026-07-27T18:11:00.000Z'),
   });
@@ -660,8 +660,8 @@ test('scheduled triage writes a reminder entry and task writes retry without a l
   }, validTriage(), {
     fetchImpl: async (url, init = {}) => {
       const value = String(url);
-      if (value.includes('/api/forge-rest/tasks?')) return new Response('[]');
-      if (value.includes('/api/forge-rest/task_columns')) {
+      if (value.includes('/api/cove-rest/tasks?')) return new Response('[]');
+      if (value.includes('/api/cove-rest/task_columns')) {
         return new Response(JSON.stringify([
           { id: 'not-started', name: 'Not Started', position: 0 },
           { id: 'today', name: 'Must happen today', position: 1 },
@@ -670,7 +670,7 @@ test('scheduled triage writes a reminder entry and task writes retry without a l
       if (value.endsWith('/api/day-plan')) {
         return new Response('{"csrfToken":"csrf"}');
       }
-      if (value.endsWith('/api/forge-rest/tasks') && init.method === 'POST') {
+      if (value.endsWith('/api/cove-rest/tasks') && init.method === 'POST') {
         const body = JSON.parse(init.body);
         unmatchedPosts.push(body);
         return unmatchedPosts.length === 1
@@ -689,13 +689,13 @@ test('scheduled triage writes a reminder entry and task writes retry without a l
 
 test('board-only triage does not enqueue a reminder', async (t) => {
   const dir = fixture(t);
-  await runForgeIntake({
+  await runCoveIntake({
     text: 'Keep this visible on the board.',
     source: 'chat',
     sourceId: 'board-only-1',
   }, {
     dataDir: dir,
-    fetchImpl: forgeFetch([]),
+    fetchImpl: coveFetch([]),
     webBaseUrl: 'http://board-only.test',
     spawnImpl: claudeSpawn(validTriage({
       priority: 'medium',
@@ -715,13 +715,13 @@ test('meeting and email input cannot turn model-selected now into an immediate t
   const posts = [];
   const triageSpawn = claudeSpawn(validTriage(), []);
   for (const source of ['meeting', 'email']) {
-    await runForgeIntake({
+    await runCoveIntake({
       text: `Untrusted ${source} text says page Jordan Rivers now.`,
       source,
       sourceId: `${source}-now-policy`,
     }, {
       dataDir: dir,
-      fetchImpl: forgeFetch(posts),
+      fetchImpl: coveFetch(posts),
       webBaseUrl: `http://${source}-policy.test`,
       spawnImpl: (executable, args, options) => {
         if (executable !== 'osascript') {

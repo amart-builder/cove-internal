@@ -1,4 +1,4 @@
-import { forgeRest } from "../supabase/rest";
+import { coveRest } from "../supabase/rest";
 import { getRuntimeMode } from "../runtime/mode";
 import type { Task, TaskColumn } from "./types";
 
@@ -28,7 +28,7 @@ export async function createTaskColumn(input: {
   position: number;
   is_default?: boolean;
 }): Promise<TaskColumn> {
-  const rows = await forgeRest<TaskColumn[]>("task_columns", {
+  const rows = await coveRest<TaskColumn[]>("task_columns", {
     method: "POST",
     body: {
       name: input.name,
@@ -40,14 +40,14 @@ export async function createTaskColumn(input: {
 }
 
 export async function listTaskColumns(): Promise<TaskColumn[]> {
-  return forgeRest<TaskColumn[]>("task_columns", {
+  return coveRest<TaskColumn[]>("task_columns", {
     requireAuth: true,
     query: { select: "*", order: "position.asc" },
   });
 }
 
 export async function listTasks(): Promise<Task[]> {
-  return forgeRest<Task[]>("tasks", {
+  return coveRest<Task[]>("tasks", {
     requireAuth: true,
     query: {
       select: "*",
@@ -61,7 +61,7 @@ export async function listArchivedTasks(): Promise<Task[]> {
   if (getRuntimeMode() !== "local") {
     throw new Error("Recently deleted is only available in local mode.");
   }
-  const tasks = await forgeRest<Task[]>("tasks", {
+  const tasks = await coveRest<Task[]>("tasks", {
     requireAuth: true,
     query: { select: "*", status: "eq.archived", order: "archived_at.desc" },
   });
@@ -102,7 +102,7 @@ export async function createTask(input: {
     source_type: input.source_type ?? "manual",
   };
   try {
-    const rows = await forgeRest<Task[]>("tasks", { method: "POST", body });
+    const rows = await coveRest<Task[]>("tasks", { method: "POST", body });
     if (input.project) {
       taskProjectColumnState = { available: true, checkedAt: Date.now() };
     }
@@ -112,7 +112,7 @@ export async function createTask(input: {
     taskProjectColumnState = { available: false, checkedAt: Date.now() };
     const { project: _project, ...compatibleBody } = body;
     void _project;
-    const rows = await forgeRest<Task[]>("tasks", {
+    const rows = await coveRest<Task[]>("tasks", {
       method: "POST",
       body: compatibleBody,
     });
@@ -121,7 +121,7 @@ export async function createTask(input: {
 }
 
 export async function updateTask(id: string, patch: Partial<Task>): Promise<Task> {
-  const rows = await forgeRest<Task[]>("tasks", {
+  const rows = await coveRest<Task[]>("tasks", {
     method: "PATCH",
     query: { id: `eq.${id}` },
     body: patch,
@@ -131,19 +131,19 @@ export async function updateTask(id: string, patch: Partial<Task>): Promise<Task
 
 export async function deleteTask(id: string): Promise<void> {
   if (getRuntimeMode() !== "local") {
-    await forgeRest<undefined>("tasks", {
+    await coveRest<undefined>("tasks", {
       method: "DELETE",
       query: { id: `eq.${id}` },
     });
     return;
   }
-  const rows = await forgeRest<Task[]>("tasks", {
+  const rows = await coveRest<Task[]>("tasks", {
     requireAuth: true,
     query: { select: "*", id: `eq.${id}`, status: "neq.archived", limit: "1" },
   });
   const task = rows[0];
   if (!task) return;
-  await forgeRest<Task[]>("tasks", {
+  await coveRest<Task[]>("tasks", {
     method: "PATCH",
     query: { id: `eq.${id}` },
     body: {
@@ -158,13 +158,13 @@ export async function restoreTask(id: string): Promise<Task> {
   if (getRuntimeMode() !== "local") {
     throw new Error("Archived task restore is only available in local mode.");
   }
-  const archived = await forgeRest<Task[]>("tasks", {
+  const archived = await coveRest<Task[]>("tasks", {
     requireAuth: true,
     query: { select: "*", id: `eq.${id}`, status: "eq.archived", limit: "1" },
   });
   const task = archived[0];
   if (!task) throw new Error("Archived task not found.");
-  const rows = await forgeRest<Task[]>("tasks", {
+  const rows = await coveRest<Task[]>("tasks", {
     method: "PATCH",
     query: { id: `eq.${id}` },
     body: {
@@ -181,7 +181,7 @@ export async function hardDeleteTask(id: string): Promise<void> {
   if (getRuntimeMode() !== "local") {
     throw new Error("Recently deleted is only available in local mode.");
   }
-  await forgeRest<undefined>("tasks", {
+  await coveRest<undefined>("tasks", {
     method: "DELETE",
     query: { id: `eq.${id}`, status: "eq.archived" },
     headers: { "X-Cove-Hard-Delete": "recently-deleted" },

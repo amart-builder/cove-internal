@@ -77,7 +77,7 @@ function rowForMessage(
   messageId: string,
 ): MessageIngestionDatabaseRow {
   const row = db.prepare(
-    "SELECT * FROM forge_message_ingestion WHERE message_id = ?",
+    "SELECT * FROM cove_message_ingestion WHERE message_id = ?",
   ).get(messageId) as MessageIngestionDatabaseRow | undefined;
   if (!row) throw new Error("Message ingestion claim disappeared.");
   return row;
@@ -115,7 +115,7 @@ export function claimMessageIngestion(input: {
   try {
     return db.transaction(() => {
       const inserted = db.prepare(
-        `INSERT OR IGNORE INTO forge_message_ingestion
+        `INSERT OR IGNORE INTO cove_message_ingestion
            (message_id, thread_id, source_door, detected_tool, status,
             lease_token, lease_until, attempts, processed_at, outcome,
             receipt_id, last_error, created_at, updated_at)
@@ -167,7 +167,7 @@ export function claimMessageIngestion(input: {
       }
 
       const recovered = db.prepare(
-        `UPDATE forge_message_ingestion
+        `UPDATE cove_message_ingestion
          SET status = 'processing',
              lease_token = ?,
              lease_until = ?,
@@ -235,7 +235,7 @@ export function completeMessageIngestion(input: {
         surfaceFailure: false,
       });
       db.prepare(
-        `UPDATE forge_message_ingestion
+        `UPDATE cove_message_ingestion
          SET status = 'processed',
              lease_token = NULL,
              lease_until = NULL,
@@ -254,7 +254,7 @@ export function completeMessageIngestion(input: {
         input.leaseToken,
       );
       db.prepare(
-        `UPDATE forge_failure_inbox
+        `UPDATE cove_failure_inbox
          SET dismissed_at = ?
          WHERE source = 'meeting-intake'
            AND source_id = ?
@@ -281,7 +281,7 @@ export function renewMessageIngestionLease(input: {
   const db = openLocalDatabase(input.dbPath);
   try {
     return db.prepare(
-      `UPDATE forge_message_ingestion
+      `UPDATE cove_message_ingestion
        SET lease_until = ?, updated_at = ?
        WHERE message_id = ?
          AND lease_token = ?
@@ -334,7 +334,7 @@ export function failMessageIngestion(input: {
           failureMessage: message,
         }).id;
         db.prepare(
-          `UPDATE forge_failure_inbox
+          `UPDATE cove_failure_inbox
            SET dismissed_at = ?
            WHERE source = 'meeting-intake'
              AND source_id = ?
@@ -354,7 +354,7 @@ export function failMessageIngestion(input: {
         });
       }
       db.prepare(
-        `UPDATE forge_message_ingestion
+        `UPDATE cove_message_ingestion
          SET status = ?,
              lease_token = NULL,
              lease_until = NULL,
@@ -388,7 +388,7 @@ export function getMessageIngestion(
   const db = openLocalDatabase(options.dbPath);
   try {
     const row = db.prepare(
-      "SELECT * FROM forge_message_ingestion WHERE message_id = ?",
+      "SELECT * FROM cove_message_ingestion WHERE message_id = ?",
     ).get(messageId) as MessageIngestionDatabaseRow | undefined;
     return row ? decodeRow(row) : undefined;
   } finally {

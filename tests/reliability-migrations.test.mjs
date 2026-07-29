@@ -319,7 +319,7 @@ test('a populated pre-migration database reaches the same schema as a fresh inst
     );
     assert.deepEqual(
       upgraded.prepare(
-        'SELECT version, name FROM forge_schema_migrations ORDER BY version',
+        'SELECT version, name FROM cove_schema_migrations ORDER BY version',
       ).all(),
       [
         ...LOCAL_MIGRATIONS.map(({ version, name }) => ({ version, name })),
@@ -378,7 +378,7 @@ test('forward migration canonicalizes columns after the first ledger was applied
     "UPDATE task_columns SET name = 'In Progress' WHERE name = 'In Flight / Waiting'",
   ).run();
   initial.prepare(
-    "DELETE FROM forge_schema_migrations WHERE version = 4",
+    "DELETE FROM cove_schema_migrations WHERE version = 4",
   ).run();
   initial.close();
 
@@ -409,10 +409,113 @@ test('migrations are transactional and idempotent', (t) => {
     runLocalMigrations(db);
     assert.equal(localSchemaFingerprint(db), before);
     assert.equal(
-      db.prepare('SELECT COUNT(*) FROM forge_schema_migrations').pluck().get(),
+      db.prepare('SELECT COUNT(*) FROM cove_schema_migrations').pluck().get(),
       LOCAL_MIGRATIONS.length,
     );
   } finally {
     db.close();
+  }
+});
+
+test('the Cove storage migration preserves a pre-rename Forge database', (t) => {
+  const file = tempDatabase(t, 'migration-forge-to-cove');
+  const canonical = openLocalDatabase(file);
+  canonical.prepare(
+    `INSERT INTO cove_jobs
+       (id, type, payload, priority, run_after, attempts, max_attempts,
+        status, idempotency_key, created_at)
+     VALUES
+       ('legacy-job', 'email_triage', '{}', 7, '2026-07-29T12:00:00.000Z',
+        0, 5, 'queued', 'legacy-job-key', '2026-07-29T12:00:00.000Z')`,
+  ).run();
+  canonical.prepare(
+    'DELETE FROM cove_schema_migrations WHERE version = 13',
+  ).run();
+  canonical.close();
+
+  const legacy = new Database(file);
+  legacy.exec(`
+    ALTER TABLE cove_jobs RENAME TO forge_jobs;
+    ALTER TABLE cove_receipts RENAME TO forge_receipts;
+    ALTER TABLE cove_failure_inbox RENAME TO forge_failure_inbox;
+    ALTER TABLE cove_message_ingestion RENAME TO forge_message_ingestion;
+    ALTER TABLE cove_email_messages RENAME TO forge_email_messages;
+    ALTER TABLE cove_gmail_operations RENAME TO forge_gmail_operations;
+    ALTER TABLE cove_schema_migrations RENAME TO forge_schema_migrations;
+
+    DROP INDEX cove_jobs_ready_idx;
+    DROP INDEX cove_jobs_lease_idx;
+    DROP INDEX cove_receipts_recent_idx;
+    DROP INDEX cove_receipts_source_idx;
+    DROP INDEX cove_failure_inbox_open_idx;
+    DROP INDEX cove_message_ingestion_status_lease_idx;
+    DROP INDEX cove_message_ingestion_receipt_idx;
+    DROP INDEX cove_email_messages_thread_date_idx;
+    DROP INDEX cove_email_messages_state_idx;
+    DROP INDEX cove_gmail_operations_one_active_thread;
+    DROP INDEX cove_gmail_operations_status_idx;
+
+    CREATE INDEX forge_jobs_ready_idx
+      ON forge_jobs(status, priority DESC, run_after);
+    CREATE INDEX forge_jobs_lease_idx
+      ON forge_jobs(status, lease_until);
+    CREATE INDEX forge_receipts_recent_idx
+      ON forge_receipts(finished_at DESC);
+    CREATE INDEX forge_receipts_source_idx
+      ON forge_receipts(source, finished_at DESC);
+    CREATE INDEX forge_failure_inbox_open_idx
+      ON forge_failure_inbox(dismissed_at, occurred_at DESC);
+    CREATE INDEX forge_message_ingestion_status_lease_idx
+      ON forge_message_ingestion(status, lease_until);
+    CREATE INDEX forge_message_ingestion_receipt_idx
+      ON forge_message_ingestion(receipt_id);
+    CREATE INDEX forge_email_messages_thread_date_idx
+      ON forge_email_messages(thread_id, internal_date);
+    CREATE INDEX forge_email_messages_state_idx
+      ON forge_email_messages(state, updated_at);
+    CREATE UNIQUE INDEX forge_gmail_operations_one_active_thread
+      ON forge_gmail_operations(thread_id)
+      WHERE status IN ('pending','uncertain');
+    CREATE INDEX forge_gmail_operations_status_idx
+      ON forge_gmail_operations(status, updated_at);
+  `);
+  legacy.close();
+
+  const upgraded = openLocalDatabase(file);
+  try {
+    const names = upgraded.prepare(
+      `SELECT type, name
+       FROM sqlite_schema
+       WHERE name LIKE 'forge_%' OR name LIKE 'cove_%'
+       ORDER BY type, name`,
+    ).all();
+    assert.equal(names.some(({ name }) => name.startsWith('forge_')), false);
+    for (const name of [
+      'cove_jobs',
+      'cove_receipts',
+      'cove_failure_inbox',
+      'cove_message_ingestion',
+      'cove_email_messages',
+      'cove_gmail_operations',
+      'cove_schema_migrations',
+      'cove_jobs_ready_idx',
+      'cove_gmail_operations_one_active_thread',
+    ]) {
+      assert.ok(names.some((object) => object.name === name), `${name} exists`);
+    }
+    assert.equal(
+      upgraded.prepare(
+        "SELECT priority FROM cove_jobs WHERE id = 'legacy-job'",
+      ).pluck().get(),
+      7,
+    );
+    assert.deepEqual(
+      upgraded.prepare(
+        'SELECT version, name FROM cove_schema_migrations WHERE version = 13',
+      ).get(),
+      { version: 13, name: 'canonical-cove-storage' },
+    );
+  } finally {
+    upgraded.close();
   }
 });

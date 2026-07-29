@@ -1,5 +1,7 @@
 # Morning summary: the Cove build wave is done
 
+> Historical snapshot. The Composio decision below was superseded later on 2026-07-29 by the direct restricted Google Workspace gateway in `docs/email-architecture-redesign.md`.
+
 Alex, all 8 stages built, reviewed, and pushed overnight. The suite grew from 481 to 656 tests, all green, and the production build is clean. Every stage went through the loop we agreed on: Sol builds, a fresh Opus reviewer attacks it, fixes cycle until the reviewer says ship, then I verify against checks Sol never saw, commit, and push. After the last stage, one more fresh reviewer walked the whole wave end to end looking for seams between the stages; the two things it found that would have tripped Gary's install (a stale installer message and a backup check that could not pass on day one) are fixed and included.
 
 ## What shipped
@@ -23,7 +25,7 @@ The independent reviewer BLOCKed three stages before they shipped. The two worth
 
 ## Your one click (before Monday)
 
-github.com/amart-builder/cove is still PRIVATE, and it does not have this week's work yet. Before Gary's install: push the new forge main to the cove mirror, then flip it public. The runbook (docs/gary-install-runbook-2026-08-03.md) now has both steps at the top, updated for Monday.
+github.com/amart-builder/cove is still PRIVATE, and it does not have this week's work yet. Before Gary's install: push the new cove main to the cove mirror, then flip it public. The runbook (docs/gary-install-runbook-2026-08-03.md) now has both steps at the top, updated for Monday.
 
 ## One decision, no rush
 

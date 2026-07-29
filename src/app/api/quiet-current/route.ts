@@ -10,7 +10,7 @@ import {
   type SuggestionPriority,
   type SuggestionState,
 } from "@/lib/quiet-current/store";
-import { isTrustedForgeRequest } from "@/lib/request-security";
+import { isTrustedCoveRequest } from "@/lib/request-security";
 import { consumeProgressSuggestionRelays } from "@/lib/progress/relay";
 import { coveEnv } from "../../../lib/env";
 import { getRuntimeMode } from "@/lib/runtime/mode";
@@ -59,7 +59,7 @@ function ingestProgressSuggestionRelays(): void {
 
 export async function GET(request: NextRequest) {
   try {
-    if (!isTrustedForgeRequest(request)) {
+    if (!isTrustedCoveRequest(request)) {
       return NextResponse.json({ error: "Untrusted request host." }, { status: 403 });
     }
     ingestProgressSuggestionRelays();
@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    if (!isTrustedForgeRequest(request)) {
+    if (!isTrustedCoveRequest(request)) {
       return NextResponse.json({ error: "Untrusted request host." }, { status: 403 });
     }
     ingestProgressSuggestionRelays();
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
     const action = stringValue(body.action, "action", { required: true, max: 40 });
 
     if (action !== "suggest") {
-      const suppliedToken = request.headers.get("x-forge-csrf");
+      const suppliedToken = request.headers.get("x-cove-csrf");
       if (!suppliedToken || suppliedToken !== getQuietCurrentCsrfToken()) {
         return NextResponse.json({ error: "Cove request token is missing." }, { status: 403 });
       }

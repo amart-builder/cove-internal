@@ -1,7 +1,7 @@
 import {
   COVE_CRM_COMPAT_TABLES,
   COVE_REST_TABLES,
-} from "../data/forge-tables";
+} from "../data/cove-tables";
 import type { DayPlanAssistantOperation } from "../day-plan/types";
 
 export const BUDDY_DELETE_TABLES = [
@@ -60,7 +60,7 @@ export type BuddyReceipts = {
   feedback?: BuddyFeedbackReceipt;
 };
 
-const RECEIPTS_BLOCK = /```forge-receipts\s*\r?\n([\s\S]*?)\r?\n```/;
+const RECEIPTS_BLOCK = /```cove-receipts\s*\r?\n([\s\S]*?)\r?\n```/;
 export const MAX_BUDDY_RECEIPT_ITEMS = 50;
 export const MAX_BUDDY_RECEIPTS_BYTES = 32 * 1024;
 const TABLES = new Set<string>(BUDDY_DATA_TABLES);

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { latestCoveHealthSnapshot } from "@/lib/health/collector";
-import { isTrustedForgeRequest } from "@/lib/request-security";
+import { isTrustedCoveRequest } from "@/lib/request-security";
 import { getRuntimeMode } from "@/lib/runtime/mode";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  if (!isTrustedForgeRequest(request)) {
+  if (!isTrustedCoveRequest(request)) {
     return NextResponse.json({ error: "Untrusted request host." }, { status: 403 });
   }
   if (getRuntimeMode() !== "local") {

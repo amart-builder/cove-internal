@@ -57,7 +57,7 @@ export function recordFailureInDatabase(
   }
   const id = randomUUID();
   db.prepare(
-    `INSERT INTO forge_failure_inbox
+    `INSERT INTO cove_failure_inbox
        (id, source, source_id, message, details_json, occurred_at, dismissed_at, created_at)
      VALUES (?, ?, ?, ?, ?, ?, NULL, ?)
      ON CONFLICT(source, source_id) DO UPDATE SET
@@ -75,7 +75,7 @@ export function recordFailureInDatabase(
     occurredAt,
   );
   const row = db.prepare(
-    "SELECT * FROM forge_failure_inbox WHERE source = ? AND source_id = ?",
+    "SELECT * FROM cove_failure_inbox WHERE source = ? AND source_id = ?",
   ).get(input.source.slice(0, 120), input.sourceId.slice(0, 240)) as FailureRow;
   return decodeFailure(row);
 }
@@ -98,7 +98,7 @@ export function dismissFailure(
   const db = openLocalDatabase(options.dbPath);
   try {
     const result = db.prepare(
-      `UPDATE forge_failure_inbox
+      `UPDATE cove_failure_inbox
        SET dismissed_at = ?
        WHERE id = ? AND dismissed_at IS NULL`,
     ).run(options.dismissedAt ?? new Date().toISOString(), id);
@@ -116,7 +116,7 @@ export function resolveFailure(
   const db = openLocalDatabase(options.dbPath);
   try {
     db.prepare(
-      `UPDATE forge_failure_inbox
+      `UPDATE cove_failure_inbox
        SET dismissed_at = ?
        WHERE source = ? AND source_id = ? AND dismissed_at IS NULL`,
     ).run(options.resolvedAt ?? new Date().toISOString(), source, sourceId);
@@ -133,7 +133,7 @@ export function listFailures(
     const limit = Math.min(200, Math.max(1, options.limit ?? 50));
     const where = options.includeDismissed ? "" : "WHERE dismissed_at IS NULL";
     const rows = db.prepare(
-      `SELECT * FROM forge_failure_inbox
+      `SELECT * FROM cove_failure_inbox
        ${where}
        ORDER BY occurred_at DESC
        LIMIT ?`,

@@ -69,7 +69,7 @@ export type IntakeSource =
   | "email"
   | "voice";
 
-export type ForgeIntakeInput = {
+export type CoveIntakeInput = {
   text: string;
   source: IntakeSource;
   sourceId?: string;
@@ -78,7 +78,7 @@ export type ForgeIntakeInput = {
 
 type SpawnImpl = typeof spawn;
 
-export type ForgeIntakeOptions = InboundTaskWriterOptions & {
+export type CoveIntakeOptions = InboundTaskWriterOptions & {
   dataDir?: string;
   repoDir?: string;
   claudePath?: string;
@@ -89,7 +89,7 @@ export type ForgeIntakeOptions = InboundTaskWriterOptions & {
   notifyNow?: (title: string) => Promise<void>;
 };
 
-export type ForgeIntakeResult = {
+export type CoveIntakeResult = {
   exitCode: 0 | 1;
   event: InboundEvent;
   taskId?: string;
@@ -100,11 +100,11 @@ export type ForgeIntakeResult = {
   proposedRecurrence?: RecurrenceCadence;
 };
 
-export function forgeIntakeRepoDir(): string {
+export function coveIntakeRepoDir(): string {
   return MODULE_REPO_DIR;
 }
 
-function resolvedOptions(options: ForgeIntakeOptions): ForgeIntakeOptions & {
+function resolvedOptions(options: CoveIntakeOptions): CoveIntakeOptions & {
   repoDir: string;
   dataDir: string;
 } {
@@ -177,7 +177,7 @@ function signalChild(
 
 function runTriageCommand(
   prompt: string,
-  options: ForgeIntakeOptions,
+  options: CoveIntakeOptions,
 ): Promise<string> {
   const repoDir = options.repoDir ?? MODULE_REPO_DIR;
   const executable =
@@ -293,7 +293,7 @@ function missingProjectColumn(error: unknown): boolean {
   );
 }
 
-async function boardContext(options: ForgeIntakeOptions): Promise<BoardContext> {
+async function boardContext(options: CoveIntakeOptions): Promise<BoardContext> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const baseUrl = (
     options.webBaseUrl ??
@@ -303,7 +303,7 @@ async function boardContext(options: ForgeIntakeOptions): Promise<BoardContext> 
   const timeoutMs = options.fetchTimeoutMs ?? 10_000;
   const columns = await fetchJsonRows(
     fetchImpl,
-    `${baseUrl}/api/forge-rest/task_columns?select=id,name,position&order=position.asc`,
+    `${baseUrl}/api/cove-rest/task_columns?select=id,name,position&order=position.asc`,
     timeoutMs,
   );
   const baseTaskQuery =
@@ -312,14 +312,14 @@ async function boardContext(options: ForgeIntakeOptions): Promise<BoardContext> 
   try {
     tasks = await fetchJsonRows(
       fetchImpl,
-      `${baseUrl}/api/forge-rest/tasks?select=id,column_id,title,description,priority,due_at,status,project&${baseTaskQuery}`,
+      `${baseUrl}/api/cove-rest/tasks?select=id,column_id,title,description,priority,due_at,status,project&${baseTaskQuery}`,
       timeoutMs,
     );
   } catch (error) {
     if (!missingProjectColumn(error)) throw error;
     tasks = await fetchJsonRows(
       fetchImpl,
-      `${baseUrl}/api/forge-rest/tasks?select=id,column_id,title,description,priority,due_at,status&${baseTaskQuery}`,
+      `${baseUrl}/api/cove-rest/tasks?select=id,column_id,title,description,priority,due_at,status&${baseTaskQuery}`,
       timeoutMs,
     );
   }
@@ -419,7 +419,7 @@ function writeScheduledReminder(
 function runBestEffort(
   executable: string,
   args: string[],
-  options: ForgeIntakeOptions,
+  options: CoveIntakeOptions,
 ): Promise<boolean> {
   return new Promise((resolve) => {
     let child: ChildProcess;
@@ -458,7 +458,7 @@ function runBestEffort(
 
 async function defaultNotifyNow(
   title: string,
-  options: ForgeIntakeOptions,
+  options: CoveIntakeOptions,
 ): Promise<void> {
   const repoDir = options.repoDir ?? MODULE_REPO_DIR;
   const [channelDelivered, nativeDelivered] = await Promise.all([
@@ -486,7 +486,7 @@ async function defaultNotifyNow(
 
 async function notifyNativeOnly(
   title: string,
-  options: ForgeIntakeOptions,
+  options: CoveIntakeOptions,
 ): Promise<void> {
   if (process.platform !== "darwin") return;
   await runBestEffort(
@@ -525,7 +525,7 @@ function enforceSurfacePolicy(
 async function surfaceTriage(
   taskId: string,
   triage: TriageOutput,
-  options: ForgeIntakeOptions,
+  options: CoveIntakeOptions,
 ): Promise<void> {
   if (triage.surface === "now") {
     await (options.notifyNow
@@ -541,7 +541,7 @@ async function surfaceTriage(
 
 async function resumePendingSurface(
   taskId: string,
-  options: ForgeIntakeOptions,
+  options: CoveIntakeOptions,
 ): Promise<void> {
   const file = scheduledReminderPath(options.dataDir, taskId);
   if (!existsSync(file)) return;
@@ -566,7 +566,7 @@ async function resumePendingSurface(
 export async function triageRecordedEvent(
   event: InboundEvent,
   input: { taskId: string },
-  options: ForgeIntakeOptions = {},
+  options: CoveIntakeOptions = {},
 ): Promise<boolean> {
   const runtimeOptions = resolvedOptions({
     ...options,
@@ -614,10 +614,10 @@ export async function triageRecordedEvent(
   return true;
 }
 
-export async function runForgeIntake(
-  input: ForgeIntakeInput,
-  options: ForgeIntakeOptions = {},
-): Promise<ForgeIntakeResult> {
+export async function runCoveIntake(
+  input: CoveIntakeInput,
+  options: CoveIntakeOptions = {},
+): Promise<CoveIntakeResult> {
   const baseRuntimeOptions = resolvedOptions(options);
   const write = baseRuntimeOptions.write ??
     ((line: string) => process.stdout.write(`${line}\n`));

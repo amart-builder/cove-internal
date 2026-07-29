@@ -27,7 +27,7 @@ import {
 
 function fixture(t) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'cove-recurrence-'));
-  const dbPath = path.join(dir, 'forge.db');
+  const dbPath = path.join(dir, 'cove.db');
   const db = openLocalDatabase(dbPath);
   db.close();
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -525,13 +525,13 @@ test('app-open maintenance is scheduled once per local day without blocking rend
 test('bulk position-only task patches skip recurrence synchronization', (t) => {
   const { dbPath } = fixture(t);
   const previousDbPath = process.env.COVE_DB_PATH;
-  const previousGlobalDb = globalThis.__forgeDb;
+  const previousGlobalDb = globalThis.__coveDb;
   process.env.COVE_DB_PATH = dbPath;
-  delete globalThis.__forgeDb;
+  delete globalThis.__coveDb;
   t.after(() => {
-    globalThis.__forgeDb?.close();
-    if (previousGlobalDb === undefined) delete globalThis.__forgeDb;
-    else globalThis.__forgeDb = previousGlobalDb;
+    globalThis.__coveDb?.close();
+    if (previousGlobalDb === undefined) delete globalThis.__coveDb;
+    else globalThis.__coveDb = previousGlobalDb;
     if (previousDbPath === undefined) delete process.env.COVE_DB_PATH;
     else process.env.COVE_DB_PATH = previousDbPath;
   });

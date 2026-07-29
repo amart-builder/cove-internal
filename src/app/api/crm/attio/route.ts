@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { AttioCRMRecord, AttioObjectType } from "@/lib/data/attio-crm";
-import { isTrustedForgeRequest } from "@/lib/request-security";
+import { isTrustedCoveRequest } from "@/lib/request-security";
 import { getRuntimeMode } from "@/lib/runtime/mode";
 import { EXTERNAL_CRM_MESSAGE } from "@/lib/crm";
 
@@ -250,7 +250,7 @@ function normalizeCompanyRecord(record: AttioRecord): AttioCRMRecord {
 }
 
 export async function GET(request: NextRequest) {
-  if (!isTrustedForgeRequest(request)) {
+  if (!isTrustedCoveRequest(request)) {
     return new NextResponse("Untrusted request host.", { status: 403 });
   }
   if (getRuntimeMode() === "local") {

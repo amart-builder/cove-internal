@@ -33,7 +33,7 @@ function fixture(t) {
     `cove-meeting-ingestion-${process.pid}-${Date.now()}-${Math.random()}`,
   );
   mkdirSync(dir, { recursive: true });
-  const dbPath = path.join(dir, "forge.db");
+  const dbPath = path.join(dir, "cove.db");
   const crm = new LocalCRMBackend({ dbPath, now: () => START });
   t.after(() => {
     crm.close();
@@ -47,7 +47,7 @@ function pipelineOptions(files, overrides = {}) {
     sourceDoor: "watcher",
     dbPath: files.dbPath,
     dataDir: files.dir,
-    baseUrl: "http://forge.test",
+    baseUrl: "http://cove.test",
     now: () => START,
     crmBackend: files.crm,
     extractFollowUps: async () => [{
@@ -168,7 +168,7 @@ test("waiting-on writes receive and persist the resolved contact id", async (t) 
     {
       sourceId: "gmail-contact:0",
       meetingTitle: "Client planning",
-      baseUrl: "http://forge.test",
+      baseUrl: "http://cove.test",
       contactId: "contact-real-1",
     },
     {
@@ -283,21 +283,15 @@ test("reordered retry parsing keeps stable item ids and cannot duplicate writes"
   );
 });
 
-test("email skill sends detector matches absent from watcher lists to FYI", () => {
+test("email skill delegates Gmail work to the deterministic runner and preserves the meeting marker", () => {
   const skill = readFileSync(
     new URL("../skills/cove-email/SKILL.md", import.meta.url),
     "utf8",
   );
-  assert.match(
-    skill,
-    /A detector match is `meeting_notes` ONLY when one of the thread's\s+message ids is in that handled-id set\./,
-  );
-  assert.match(
-    skill,
-    /detector-matched thread whose ids are absent from both lists is \*\*fyi\*\*/,
-  );
-  assert.match(skill, /apply `Cove\/FYI` \+ `Cove\/Triaged`/);
-  assert.match(skill, /write the normal FYI row/);
+  assert.match(skill, /npm run email:triage/);
+  assert.match(skill, /do not replace the command with an agent-led inbox pass/i);
+  assert.match(skill, /`Cove\/Meeting-Processed` remains reserved/);
+  assert.doesNotMatch(skill, /Cove\/(?:Reply|Action|FYI|Archived|Done)/);
 });
 
 test("normal single-Mac install registers watcher and progress lanes outside --mini", () => {

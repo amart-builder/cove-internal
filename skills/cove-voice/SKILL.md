@@ -14,21 +14,20 @@ Goal: produce `~/.claude/voice.md`, a short profile of how THIS user writes
 email, learned from their own sent mail and tuned with their feedback. Cove's
 email drafting reads it so replies sound like them, not like an assistant.
 
-Email must already be connected (Composio Gmail; see the Email step in
+Email must already be connected through Cove's restricted Google gateway (see the Email step in
 `SETUP.md`). If it is not, set that up first.
 
 ## 1. Read their real sent mail
-Use the Composio Gmail tools (`COMPOSIO_SEARCH_TOOLS` then
-`COMPOSIO_MULTI_EXECUTE_TOOL`):
+Run the trusted bounded sample reader:
 
-- `GMAIL_FETCH_EMAILS`, `query` = `in:sent after:YYYY/MM/DD` for the last 30
-  days, `verbose=true`, `max_results=40`. Page with `nextPageToken` if needed.
-- If you get fewer than ~15 substantive messages, widen the window to 60 then 90
-  days and fetch again.
-- Keep only real writing by them: skip forwards, one-liners ("thanks!", "got
-  it"), auto-replies, and calendar notices. For each kept message, strip the
-  quoted thread underneath their reply (everything after a line like
-  "On <date> ... wrote:") so you study only what they actually typed.
+```bash
+./node_modules/.bin/tsx scripts/cove-voice-samples.ts
+```
+
+It reads at most 60 sent messages, strips quoted chains, and returns at most 30
+bounded writing samples. Do not use a Gmail tool, raw credential, or generic
+Google request instead.
+
 - If even 90 days gives you fewer than ~5 substantive messages (a brand-new
   account, or someone who rarely emails), do not invent a voice. Write a minimal
   `~/.claude/voice.md` saying there is not enough sent mail yet, to use their

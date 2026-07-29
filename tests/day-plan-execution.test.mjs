@@ -14,15 +14,15 @@ import {
   publicExecutionRun,
 } from '../src/lib/day-plan/public-execution.ts';
 
-const PREVIOUS_RUNTIME = process.env.NEXT_PUBLIC_FORGE_RUNTIME;
-test.before(() => { process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'supabase'; });
+const PREVIOUS_RUNTIME = process.env.NEXT_PUBLIC_COVE_RUNTIME;
+test.before(() => { process.env.NEXT_PUBLIC_COVE_RUNTIME = 'supabase'; });
 test.after(() => {
-  if (PREVIOUS_RUNTIME === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
-  else process.env.NEXT_PUBLIC_FORGE_RUNTIME = PREVIOUS_RUNTIME;
+  if (PREVIOUS_RUNTIME === undefined) delete process.env.NEXT_PUBLIC_COVE_RUNTIME;
+  else process.env.NEXT_PUBLIC_COVE_RUNTIME = PREVIOUS_RUNTIME;
 });
 
 function setup(t, executionEnvironment = { autonomousEnabled: false, workspaces: new Map() }) {
-  const file = path.join(os.tmpdir(), `forge-execution-${process.pid}-${Date.now()}-${Math.random()}.db`);
+  const file = path.join(os.tmpdir(), `cove-execution-${process.pid}-${Date.now()}-${Math.random()}.db`);
   const store = createDayPlanStore({
     dbPath: file,
     now: () => new Date('2026-07-10T16:00:00.000Z'),
@@ -173,7 +173,7 @@ test('enqueued runs use the latest progress snapshot for the task within 14 days
 });
 
 test('plan-review runs persist the resolved project directory for execution and resume', (t) => {
-  const file = path.join(os.tmpdir(), `forge-execution-project-${process.pid}-${Date.now()}.db`);
+  const file = path.join(os.tmpdir(), `cove-execution-project-${process.pid}-${Date.now()}.db`);
   const projectDir = '/private/tmp/atlas-projects/beacon-engine';
   const hints = [];
   let resolvedProjectDir = projectDir;
@@ -222,7 +222,7 @@ test('plan-review runs persist the resolved project directory for execution and 
   assert.equal(buildExecutionCommand({
     claudePath: '/fake/claude',
     emptyMcpConfigPath: '/tmp/empty-mcp.json',
-    fallbackCwd: '/forge',
+    fallbackCwd: '/cove',
     run,
   }).cwd, projectDir);
   assert.match(
@@ -250,7 +250,7 @@ test('Together can never be configured for autonomous execution', (t) => {
       mutationId: 'configure:together:auto',
       mode: 'autonomous',
       modelAlias: 'sonnet',
-      workspaceId: 'forge',
+      workspaceId: 'cove',
       budgetUsd: 1,
     }),
     (error) => error instanceof DayPlanInvalidTransition,
@@ -539,12 +539,12 @@ test('reopening arrival quiesces queued and running agent work before a fresh re
 });
 
 test('autonomous readiness requires enablement, allowlisted clean Git, DoD, opt-in, and budget', (t) => {
-  const repo = path.join(os.tmpdir(), `forge-ready-repo-${process.pid}-${Date.now()}`);
+  const repo = path.join(os.tmpdir(), `cove-ready-repo-${process.pid}-${Date.now()}`);
   mkdirSync(repo);
   writeFileSync(path.join(repo, 'README.md'), 'fixture\n');
   execFileSync('/usr/bin/git', ['-C', repo, 'init', '-q']);
-  execFileSync('/usr/bin/git', ['-C', repo, '-c', 'user.name=Cove Test', '-c', 'user.email=forge@example.test', 'add', 'README.md']);
-  execFileSync('/usr/bin/git', ['-C', repo, '-c', 'user.name=Cove Test', '-c', 'user.email=forge@example.test', 'commit', '-qm', 'fixture']);
+  execFileSync('/usr/bin/git', ['-C', repo, '-c', 'user.name=Cove Test', '-c', 'user.email=cove@example.test', 'add', 'README.md']);
+  execFileSync('/usr/bin/git', ['-C', repo, '-c', 'user.name=Cove Test', '-c', 'user.email=cove@example.test', 'commit', '-qm', 'fixture']);
   t.after(() => rmSync(repo, { recursive: true, force: true }));
   const environment = {
     autonomousEnabled: true,
@@ -618,12 +618,12 @@ test('browser execution payloads omit local paths and process identifiers', () =
 
 test('authorization revisions cancel queued runs for mode, model, budget, and workspace changes', (t) => {
   function gitRepo(label) {
-    const repo = path.join(os.tmpdir(), `forge-auth-${label}-${process.pid}-${Date.now()}`);
+    const repo = path.join(os.tmpdir(), `cove-auth-${label}-${process.pid}-${Date.now()}`);
     mkdirSync(repo);
     writeFileSync(path.join(repo, 'README.md'), `${label}\n`);
     execFileSync('/usr/bin/git', ['-C', repo, 'init', '-q']);
-    execFileSync('/usr/bin/git', ['-C', repo, '-c', 'user.name=Cove Test', '-c', 'user.email=forge@example.test', 'add', 'README.md']);
-    execFileSync('/usr/bin/git', ['-C', repo, '-c', 'user.name=Cove Test', '-c', 'user.email=forge@example.test', 'commit', '-qm', 'fixture']);
+    execFileSync('/usr/bin/git', ['-C', repo, '-c', 'user.name=Cove Test', '-c', 'user.email=cove@example.test', 'add', 'README.md']);
+    execFileSync('/usr/bin/git', ['-C', repo, '-c', 'user.name=Cove Test', '-c', 'user.email=cove@example.test', 'commit', '-qm', 'fixture']);
     t.after(() => rmSync(repo, { recursive: true, force: true }));
     return repo;
   }

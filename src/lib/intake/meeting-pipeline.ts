@@ -12,7 +12,7 @@ import {
   meetingFollowUpText,
 } from "./meeting-followups.mjs";
 import { recordEvent, resolveEvent } from "./inbox";
-import { runForgeIntake } from "./run";
+import { runCoveIntake } from "./run";
 import {
   claimMessageIngestion,
   completeMessageIngestion,
@@ -67,7 +67,7 @@ export type MeetingPipelineOptions = {
     options?: Record<string, unknown>,
   ) => Promise<MeetingFollowUp[]>;
   isOperatorOwnedImpl?: (owner: string) => boolean;
-  runIntakeImpl?: typeof runForgeIntake;
+  runIntakeImpl?: typeof runCoveIntake;
   recordEventImpl?: typeof recordEvent;
   resolveEventImpl?: typeof resolveEvent;
   writeCommitmentImpl?: typeof writeWaitingCommitment;
@@ -134,11 +134,11 @@ export async function writeWaitingCommitment(
   const timeoutMs = options.fetchTimeoutMs ?? 10_000;
   const id = deterministicUuid(`meeting-waiting:${context.sourceId}`);
   const lookup = await fetchImpl(
-    `${context.baseUrl}/api/forge-rest/commitments?select=id,contact_id&id=eq.${encodeURIComponent(id)}&limit=1`,
+    `${context.baseUrl}/api/cove-rest/commitments?select=id,contact_id&id=eq.${encodeURIComponent(id)}&limit=1`,
     { signal: AbortSignal.timeout(timeoutMs), cache: "no-store" },
   );
   if (!lookup.ok) {
-    throw new Error(`forge-rest commitments lookup ${lookup.status}`);
+    throw new Error(`cove-rest commitments lookup ${lookup.status}`);
   }
   const rows = await lookup.json() as unknown;
   const existing = Array.isArray(rows) &&
@@ -151,12 +151,12 @@ export async function writeWaitingCommitment(
     if (context.contactId && !existing.contact_id) {
       const token = await csrfToken(fetchImpl, context.baseUrl, timeoutMs);
       const updated = await fetchImpl(
-        `${context.baseUrl}/api/forge-rest/commitments?id=eq.${encodeURIComponent(id)}`,
+        `${context.baseUrl}/api/cove-rest/commitments?id=eq.${encodeURIComponent(id)}`,
         {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
-            "X-Forge-CSRF": token,
+            "X-Cove-CSRF": token,
           },
           body: JSON.stringify({ contact_id: context.contactId }),
           signal: AbortSignal.timeout(timeoutMs),
@@ -165,7 +165,7 @@ export async function writeWaitingCommitment(
       );
       if (!updated.ok) {
         throw new Error(
-          `forge-rest commitments contact link ${updated.status}`,
+          `cove-rest commitments contact link ${updated.status}`,
         );
       }
     }
@@ -173,12 +173,12 @@ export async function writeWaitingCommitment(
   }
   const token = await csrfToken(fetchImpl, context.baseUrl, timeoutMs);
   const response = await fetchImpl(
-    `${context.baseUrl}/api/forge-rest/commitments`,
+    `${context.baseUrl}/api/cove-rest/commitments`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Forge-CSRF": token,
+        "X-Cove-CSRF": token,
       },
       body: JSON.stringify({
         id,
@@ -207,14 +207,14 @@ export async function writeWaitingCommitment(
   if (!response.ok) {
     const body = await response.text();
     const retry = await fetchImpl(
-      `${context.baseUrl}/api/forge-rest/commitments?select=id&id=eq.${encodeURIComponent(id)}&limit=1`,
+      `${context.baseUrl}/api/cove-rest/commitments?select=id&id=eq.${encodeURIComponent(id)}&limit=1`,
       { signal: AbortSignal.timeout(timeoutMs), cache: "no-store" },
     );
     if (retry.ok && ((await retry.json() as unknown[])?.length ?? 0) > 0) {
       return id;
     }
     throw new Error(
-      `forge-rest commitments ${response.status}: ${body.slice(0, 300)}`,
+      `cove-rest commitments ${response.status}: ${body.slice(0, 300)}`,
     );
   }
   return id;
@@ -233,7 +233,7 @@ async function acknowledgeMeetingItem(
   const text = meetingFollowUpText(item, context.meetingTitle);
   const owns = options.isOperatorOwnedImpl ?? isOperatorOwned;
   if (owns(item.owner)) {
-    const result = await (options.runIntakeImpl ?? runForgeIntake)(
+    const result = await (options.runIntakeImpl ?? runCoveIntake)(
       {
         text,
         source: "meeting",

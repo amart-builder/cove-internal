@@ -19,10 +19,7 @@ import {
   meetingFollowUpText,
   parseNextSteps,
 } from "../src/lib/intake/meeting-followups.mjs";
-import {
-  createComposioExecutor,
-  writeWaitingCommitment,
-} from "./cove-meeting-watch.mjs";
+import { writeWaitingCommitment } from "./cove-meeting-watch.mjs";
 import { coveEnv } from "../src/lib/env-runtime.mjs";
 
 export { parseNextSteps };
@@ -31,10 +28,10 @@ const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
 require("tsx/cjs");
 const { recordEvent, resolveEvent } = require("../src/lib/intake/inbox.ts");
+const { createGoogleWorkspaceGateway } = require("../src/lib/workspace/google/gateway.ts");
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dataDir = coveEnv("DATA_DIR")?.trim() || path.join(repoDir, "data");
 const intakeScript = path.join(repoDir, "scripts", "cove-intake.mjs");
-const composio = createComposioExecutor({ cwd: repoDir });
 
 function arg(name) {
   const index = process.argv.indexOf(name);
@@ -88,13 +85,15 @@ async function loadNotes() {
   if (acquisitionState === "failed") {
     throw new Error("Meeting document could not be captured before fetch.");
   }
-  const data = await composio(
-    "GOOGLEDOCS_GET_DOCUMENT_PLAINTEXT",
-    { document_id: docId },
-  );
+  const documents = createGoogleWorkspaceGateway({ dataDir }).documents;
+  if (!documents) throw new Error("Google Docs is not connected.");
+  const text = await documents.getDocumentPlainText({
+    documentId: docId,
+    maxChars: 500_000,
+  });
   return {
-    title: data.title ?? docId,
-    text: data.plain_text ?? "",
+    title: docId,
+    text,
     occurrenceId: `doc:${docId}`,
     acquisition: acquisitionState === "db" ? acquisition.event : undefined,
   };

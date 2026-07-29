@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 
-const EVENT_NAME = 'forge:data-changed';
+const EVENT_NAME = 'cove:data-changed';
 
 export function emitDataChanged(tables: string[]): void {
   if (typeof window === 'undefined') return;

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import {
   groundworkCheckinDue,
-  readForgeAutonomySettings,
+  readCoveAutonomySettings,
   recordGroundworkCheckinPresentation,
 } from "../autonomy/settings";
 import type { Commitment, CommitmentKind } from "../data/types";
@@ -39,6 +39,11 @@ import { recurringRhythmSnapshot } from "../tasks/recurrence";
 import { detectStaleTasks } from "../tasks/stale";
 import { getRuntimeMode } from "../runtime/mode";
 import { buildReceiptDigest } from "../reliability/receipts";
+import {
+  createGoogleWorkspaceGateway,
+  workspaceConfigPath,
+  type WorkspaceGateway,
+} from "../workspace";
 
 const EXTERNAL_FETCH_TIMEOUT_MS = 10_000;
 // The operator's own zone, not a fixed one: this is the fallback used when
@@ -46,7 +51,6 @@ const EXTERNAL_FETCH_TIMEOUT_MS = 10_000;
 // targets the wrong calendar day. Read per call, because the profile that
 // supplies it is written during setup, after this module first loads.
 const defaultBriefTimezone = () => operatorTimezone();
-const COMPOSIO_MCP_URL = "https://connect.composio.dev/mcp";
 const ATTIO_PEOPLE_QUERY_URL = "https://api.attio.com/v2/objects/people/records/query";
 
 export type BriefFileSourcePolicyEntry = {
@@ -180,17 +184,18 @@ export type MorningBriefSourceOptions = {
   targetTimezone?: string;
   now?: Date;
   // Loopback base URL of the Cove web app; the task snapshot goes through the
-  // same forge-rest surface the UI uses, so local and Supabase runtimes both work.
+  // same cove-rest surface the UI uses, so local and Supabase runtimes both work.
   webBaseUrl?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
-  // Overrides the relay data directory (defaults to the forge.db directory).
+  // Overrides the relay data directory (defaults to the cove.db directory).
   // Tests point this at a temp dir to exercise the settlement relay fallback.
   dataDir?: string;
   machineIdentity?: {
     id: string;
     hostname: string;
   };
+  workspaceGateway?: Pick<WorkspaceGateway, "calendar">;
 };
 
 function readKeyFile(filePath: string): string | null {
@@ -436,12 +441,12 @@ export async function fetchRows(
   query = "select=*&order=position.asc",
 ): Promise<unknown[]> {
   const response = await fetchImpl(
-    `${baseUrl}/api/forge-rest/${table}?${query}`,
+    `${baseUrl}/api/cove-rest/${table}?${query}`,
     { signal: AbortSignal.timeout(timeoutMs), cache: "no-store" },
   );
-  if (!response.ok) throw new Error(`forge-rest ${table} ${response.status}`);
+  if (!response.ok) throw new Error(`cove-rest ${table} ${response.status}`);
   const rows = (await response.json()) as unknown;
-  if (!Array.isArray(rows)) throw new Error(`forge-rest ${table} shape`);
+  if (!Array.isArray(rows)) throw new Error(`cove-rest ${table} shape`);
   return rows;
 }
 
@@ -878,7 +883,7 @@ function recurringRhythmSource(input: {
   } as const;
   try {
     const rhythms = recurringRhythmSnapshot({
-      dbPath: path.join(coveDataDir(input.dataDir), "forge.db"),
+      dbPath: path.join(coveDataDir(input.dataDir), "cove.db"),
       now: input.now,
       timezone: input.targetTimezone,
       localDate: input.targetLocalDate,
@@ -915,7 +920,7 @@ function recentActivitySource(input: {
   } as const;
   try {
     const digest = buildReceiptDigest({
-      dbPath: path.join(coveDataDir(input.dataDir), "forge.db"),
+      dbPath: path.join(coveDataDir(input.dataDir), "cove.db"),
     });
     return {
       ...base,
@@ -940,7 +945,7 @@ function staleTasksSource(input: {
   } as const;
   try {
     const tasks = detectStaleTasks({
-      dbPath: path.join(coveDataDir(input.dataDir), "forge.db"),
+      dbPath: path.join(coveDataDir(input.dataDir), "cove.db"),
       dataDir: input.dataDir,
       now: input.now,
     });
@@ -1085,7 +1090,7 @@ export function autonomyCheckinSource(input: {
     priority: 1,
   } as const;
   try {
-    const settings = readForgeAutonomySettings({
+    const settings = readCoveAutonomySettings({
       dataDir: input.dataDir,
       createIfMissing: false,
     });
@@ -1101,10 +1106,10 @@ export function autonomyCheckinSource(input: {
     return {
       ...source,
       content: `WARNING: Cove autonomy setting is unreadable (${
-        errorNote(error, "forge_autonomy_invalid").replace(/^error:/, "")
+        errorNote(error, "cove_autonomy_invalid").replace(/^error:/, "")
       }).`,
       asOf: input.now.toISOString(),
-      note: "error:forge_autonomy_invalid",
+      note: "error:cove_autonomy_invalid",
     };
   }
 }
@@ -1460,7 +1465,7 @@ export async function emailQueueSource(input: {
     freshness: "current",
   };
   try {
-    // These tables have no position column. Explicit queries keep forge-rest
+    // These tables have no position column. Explicit queries keep cove-rest
     // from applying its default position ordering to columns that do not exist.
     const [itemRows, draftRows] = await Promise.all([
       fetchRows(
@@ -1976,41 +1981,13 @@ function formatCalendarEvents(
   ].join("\n");
 }
 
-function parseCalendarItems(sse: string): CalendarEvent[] {
-  const dataLines = sse
-    .split(/\r?\n/)
-    .map((line) => /^data:\s?(.*)$/.exec(line)?.[1])
-    .filter((line): line is string => line !== undefined);
-  if (dataLines.length === 0) throw new Error("calendar MCP response missing data");
-  const frames = dataLines.map((line) => {
-    try {
-      return asRecord(JSON.parse(line));
-    } catch {
-      return undefined;
-    }
-  });
-  const rpc = [...frames]
-    .reverse()
-    .find((frame) => frame?.id === 2 || (frame && "result" in frame)) ?? frames.at(-1);
-  if (!rpc) throw new Error("calendar MCP response invalid");
-  const result = asRecord(rpc?.result);
-  const content = Array.isArray(result?.content) ? result.content : [];
-  const text = asRecord(content[0])?.text;
-  if (typeof text !== "string") throw new Error("calendar MCP response missing text");
-  const toolPayload = asRecord(JSON.parse(text));
-  const data = asRecord(toolPayload?.data);
-  const results = Array.isArray(data?.results) ? data.results : [];
-  const response = asRecord(asRecord(results[0])?.response);
-  const responseData = asRecord(response?.data);
-  if (!Array.isArray(responseData?.items)) throw new Error("calendar MCP items missing");
-  return responseData.items as CalendarEvent[];
-}
-
 async function calendarSource(
-  fetchImpl: typeof fetch,
+  _fetchImpl: typeof fetch,
   targetLocalDate: string,
   targetTimezone: string,
   now: Date,
+  dataDir?: string,
+  injectedGateway?: Pick<WorkspaceGateway, "calendar">,
 ): Promise<BriefSourceInput> {
   const source = {
     id: "calendar",
@@ -2019,76 +1996,43 @@ async function calendarSource(
     maxChars: 5000,
     priority: 7,
   } as const;
-  const rawKey = coveEnv("BRIEF_COMPOSIO_KEY")?.trim();
-  const keyPath = coveEnv("BRIEF_COMPOSIO_KEY_PATH")?.trim()
-    || path.join(homedir(), ".config", "edge-ai", "composio.key");
-  const key = rawKey || readKeyFile(keyPath);
-  if (!key) return { ...source, note: "not_configured" };
+  const resolvedDataDir = coveDataDir(dataDir);
+  if (!injectedGateway && !existsSync(workspaceConfigPath(resolvedDataDir))) {
+    return { ...source, note: "not_configured" };
+  }
   try {
-    const baseHeaders = {
-      "content-type": "application/json",
-      accept: "application/json, text/event-stream",
-      "x-consumer-api-key": key,
-    };
-    const initialized = await fetchImpl(COMPOSIO_MCP_URL, {
-      method: "POST",
-      headers: baseHeaders,
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: "2025-03-26",
-          capabilities: {},
-          clientInfo: { name: "forge-brief", version: "1.0" },
-        },
-      }),
-      signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
-    });
-    const sessionId = initialized.headers.get("mcp-session-id");
-    await initialized.text();
-    if (!initialized.ok) throw new Error(`calendar initialize ${initialized.status}`);
-    if (!sessionId) throw new Error("calendar MCP session missing");
     const startBounds = calendarDayBounds(targetLocalDate, targetTimezone);
     const endBounds = calendarDayBounds(
       addCalendarDays(targetLocalDate, 7),
       targetTimezone,
     );
-    const called = await fetchImpl(COMPOSIO_MCP_URL, {
-      method: "POST",
-      headers: { ...baseHeaders, "mcp-session-id": sessionId },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 2,
-        method: "tools/call",
-        params: {
-          name: "COMPOSIO_MULTI_EXECUTE_TOOL",
-          arguments: {
-            tools: [
-              {
-                tool_slug: "GOOGLECALENDAR_EVENTS_LIST",
-                arguments: {
-                  calendarId: "primary",
-                  timeMin: startBounds.timeMin,
-                  timeMax: endBounds.timeMin,
-                  singleEvents: true,
-                  orderBy: "startTime",
-                },
-              },
-            ],
-          },
-        },
-      }),
-      signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
+    const calendar = injectedGateway?.calendar ??
+      createGoogleWorkspaceGateway({ dataDir: resolvedDataDir }).calendar;
+    if (!calendar) return { ...source, note: "not_configured" };
+    const events = await calendar.listEvents({
+      timeMin: startBounds.timeMin,
+      timeMax: endBounds.timeMin,
+      timeZone: targetTimezone,
+      maxResults: 250,
     });
-    if (!called.ok) throw new Error(`calendar tools call ${called.status}`);
+    const formatted: CalendarEvent[] = events.map((event) => ({
+      summary: event.summary,
+      start: /^\d{4}-\d{2}-\d{2}$/.test(event.start)
+        ? { date: event.start }
+        : { dateTime: event.start },
+      end: /^\d{4}-\d{2}-\d{2}$/.test(event.end)
+        ? { date: event.end }
+        : { dateTime: event.end },
+      attendees: event.attendees.map((attendee) => ({
+        email: attendee.email,
+        self: attendee.self,
+        responseStatus: attendee.responseStatus,
+      })),
+      hangoutLink: event.meetingUrl || undefined,
+    }));
     return {
       ...source,
-      content: formatCalendarEvents(
-        parseCalendarItems(await called.text()),
-        targetTimezone,
-        targetLocalDate,
-      ),
+      content: formatCalendarEvents(formatted, targetTimezone, targetLocalDate),
       asOf: now.toISOString(),
     };
   } catch (error) {
@@ -2447,7 +2391,14 @@ export async function collectMorningBriefSources(
 
   // Start independent external reads together. Each helper catches its own
   // failures so an optional integration can never reject the full collection.
-  const calendarPromise = calendarSource(fetchImpl, targetLocalDate, targetTimezone, now);
+  const calendarPromise = calendarSource(
+    fetchImpl,
+    targetLocalDate,
+    targetTimezone,
+    now,
+    options.dataDir,
+    options.workspaceGateway,
+  );
   const crmPromise = crmSource(fetchImpl, now, targetTimezone);
   const memoryPromise = memoryDecisionsSource(fetchImpl, memoryPath, now);
   const commitmentsPromise = commitmentsSource({
@@ -2700,7 +2651,7 @@ export async function collectMorningBriefSources(
         (bucket === "today" || bucket === "in_flight") &&
         !tags.includes("jarvis-held") &&
         (!localMode || !tags.includes("recurring")) &&
-        !title.startsWith("Emails:");
+        !tags.includes("email-current");
       if (candidateEligible) knownTaskIds.add(row.id);
       if (row.updated_at && row.updated_at > newestUpdate) newestUpdate = row.updated_at;
       lines.push(
@@ -2712,7 +2663,7 @@ export async function collectMorningBriefSources(
           (row.updated_at ? ` updated=${row.updated_at}` : "") +
           (row.description ? ` :: ${compactLine(row.description, 240)}` : ""),
       );
-      if (title.startsWith("Emails:")) {
+      if (tags.includes("email-current")) {
         emailBrief = {
           ...emailBrief,
           content: `${title}\n${compactLine(row.description, 2400)}`,

@@ -1,10 +1,10 @@
-import { forgeRest } from "../supabase/rest";
+import { coveRest } from "../supabase/rest";
 import { getRuntimeMode } from "../runtime/mode";
 import { getDayPlanCsrfToken } from "./day-plan";
 import type { Draft, EmailActionLog, EmailItem, EmailTriageRun } from "./types";
 
 export async function listEmailItems(status = "pending"): Promise<EmailItem[]> {
-  return forgeRest<EmailItem[]>("email_items", {
+  return coveRest<EmailItem[]>("email_items", {
     requireAuth: true,
     query: {
       select: "*",
@@ -15,7 +15,7 @@ export async function listEmailItems(status = "pending"): Promise<EmailItem[]> {
 }
 
 export async function listAllEmailItems(): Promise<EmailItem[]> {
-  return forgeRest<EmailItem[]>("email_items", {
+  return coveRest<EmailItem[]>("email_items", {
     requireAuth: true,
     query: {
       select: "*",
@@ -25,7 +25,7 @@ export async function listAllEmailItems(): Promise<EmailItem[]> {
 }
 
 export async function listDrafts(status = "needs_review"): Promise<Draft[]> {
-  return forgeRest<Draft[]>("drafts", {
+  return coveRest<Draft[]>("drafts", {
     requireAuth: true,
     query: {
       select: "*",
@@ -36,7 +36,7 @@ export async function listDrafts(status = "needs_review"): Promise<Draft[]> {
 }
 
 export async function listEmailActionLog(): Promise<EmailActionLog[]> {
-  return forgeRest<EmailActionLog[]>("email_action_log", {
+  return coveRest<EmailActionLog[]>("email_action_log", {
     requireAuth: true,
     query: {
       select: "*",
@@ -47,7 +47,7 @@ export async function listEmailActionLog(): Promise<EmailActionLog[]> {
 }
 
 export async function getLatestEmailSummary(): Promise<string> {
-  const rows = await forgeRest<EmailTriageRun[]>("email_triage_runs", {
+  const rows = await coveRest<EmailTriageRun[]>("email_triage_runs", {
     requireAuth: true,
     query: {
       select: "id,summary,created_at",
@@ -62,7 +62,7 @@ export async function updateEmailItem(
   id: string,
   patch: Partial<EmailItem>,
 ): Promise<EmailItem> {
-  const rows = await forgeRest<EmailItem[]>("email_items", {
+  const rows = await coveRest<EmailItem[]>("email_items", {
     method: "PATCH",
     query: { id: `eq.${id}` },
     body: patch,
@@ -72,15 +72,16 @@ export async function updateEmailItem(
 
 export async function archiveEmailItemFromCard(id: string): Promise<void> {
   if (getRuntimeMode() !== "local") {
-    await updateEmailItem(id, { status: "actioned" });
-    return;
+    throw new Error(
+      "Email can only be marked handled after the connected Gmail account confirms the archive.",
+    );
   }
   const csrfToken = await getDayPlanCsrfToken();
   const response = await fetch("/api/email/automation", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Forge-CSRF": csrfToken,
+      "X-Cove-CSRF": csrfToken,
     },
     body: JSON.stringify({ action: "card_archive", emailItemId: id }),
   });
@@ -93,7 +94,7 @@ export async function archiveEmailItemFromCard(id: string): Promise<void> {
 }
 
 export async function updateDraft(id: string, patch: Partial<Draft>): Promise<Draft> {
-  const rows = await forgeRest<Draft[]>("drafts", {
+  const rows = await coveRest<Draft[]>("drafts", {
     method: "PATCH",
     query: { id: `eq.${id}` },
     body: patch,

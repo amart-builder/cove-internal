@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "provider": "google-api",
+  "profile_id": "primary",
+  "account_email": "you@example.com",
+  "oauth_client_id": "your-google-desktop-client.apps.googleusercontent.com",
+  "capabilities": {
+    "mail": true,
+    "calendar": true,
+    "documents": true
+  },
+  "calendar_id": "primary",
+  "triage_times": [
+    "09:00",
+    "15:00"
+  ],
+  "timezone": "America/Los_Angeles",
+  "weekdays_only": false,
+  "gmail": {
+    "support_draft_recipients": [
+      "support@example.com"
+    ]
+  }
+}

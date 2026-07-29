@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS forge_commitments (
+CREATE TABLE IF NOT EXISTS cove_commitments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   kind text NOT NULL CHECK (kind IN ('follow_up', 'promise', 'waiting_on', 'open_decision', 'overnight_request', 'idea')),
   title text NOT NULL,
@@ -18,8 +18,8 @@ CREATE TABLE IF NOT EXISTS forge_commitments (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS forge_commitments_status_due_at_idx
-  ON forge_commitments (status, due_at);
+CREATE INDEX IF NOT EXISTS cove_commitments_status_due_at_idx
+  ON cove_commitments (status, due_at);
 
-CREATE INDEX IF NOT EXISTS forge_commitments_status_review_at_idx
-  ON forge_commitments (status, review_at);
+CREATE INDEX IF NOT EXISTS cove_commitments_status_review_at_idx
+  ON cove_commitments (status, review_at);

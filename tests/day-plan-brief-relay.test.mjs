@@ -70,10 +70,10 @@ function briefJson() {
 }
 
 function fixture(t) {
-  const dir = path.join(os.tmpdir(), `forge-relay-${process.pid}-${Date.now()}-${Math.random()}`);
+  const dir = path.join(os.tmpdir(), `cove-relay-${process.pid}-${Date.now()}-${Math.random()}`);
   mkdirSync(dir, { recursive: true });
   let nowIso = CLOCK;
-  const store = createDayPlanStore({ dbPath: path.join(dir, 'forge.db'), now: () => new Date(nowIso) });
+  const store = createDayPlanStore({ dbPath: path.join(dir, 'cove.db'), now: () => new Date(nowIso) });
   t.after(() => {
     store.close();
     rmSync(dir, { recursive: true, force: true });

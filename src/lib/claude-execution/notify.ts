@@ -143,7 +143,7 @@ export function createExecutionNotifier(dependencies: ExecutionNotifierDependenc
       ? [
           "-title", copy.title,
           "-message", copy.body,
-          "-group", `forge-${input.runId}`,
+          "-group", `cove-${input.runId}`,
           "-open", openUrl,
         ]
       : [

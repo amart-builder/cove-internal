@@ -31,18 +31,18 @@ import {
 function fixture(t) {
   const dir = path.join(
     os.tmpdir(),
-    `forge-inbound-${process.pid}-${Date.now()}-${Math.random()}`,
+    `cove-inbound-${process.pid}-${Date.now()}-${Math.random()}`,
   );
   mkdirSync(dir, { recursive: true });
   const previous = new Map([
     ['COVE_DB_PATH', process.env.COVE_DB_PATH],
-    ['NEXT_PUBLIC_FORGE_RUNTIME', process.env.NEXT_PUBLIC_FORGE_RUNTIME],
+    ['NEXT_PUBLIC_COVE_RUNTIME', process.env.NEXT_PUBLIC_COVE_RUNTIME],
     ['NEXT_PUBLIC_SUPABASE_URL', process.env.NEXT_PUBLIC_SUPABASE_URL],
     ['SUPABASE_SERVICE_ROLE_KEY', process.env.SUPABASE_SERVICE_ROLE_KEY],
     ['COVE_TIMEZONE', process.env.COVE_TIMEZONE],
   ]);
-  process.env.COVE_DB_PATH = path.join(dir, 'forge.db');
-  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'local';
+  process.env.COVE_DB_PATH = path.join(dir, 'cove.db');
+  process.env.NEXT_PUBLIC_COVE_RUNTIME = 'local';
   process.env.COVE_TIMEZONE = 'America/Los_Angeles';
   t.after(() => {
     for (const [name, value] of previous) {
@@ -61,7 +61,7 @@ async function crashWhileHoldingSpoolLock(t, spoolFile) {
     .slice(0, 24);
   const lockDb = path.join(
     os.tmpdir(),
-    `forge-intake-spool-lock-${lockKey}.sqlite`,
+    `cove-intake-spool-lock-${lockKey}.sqlite`,
   );
   const child = spawn(
     process.execPath,
@@ -118,7 +118,7 @@ test('inbound capture is idempotent locally and preserves outage spool capture t
   assert.equal(resolved.attempts, 1);
   assert.deepEqual(await listUnresolved({ olderThanMinutes: 0 }), []);
 
-  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'supabase';
+  process.env.NEXT_PUBLIC_COVE_RUNTIME = 'supabase';
   delete process.env.NEXT_PUBLIC_SUPABASE_URL;
   delete process.env.SUPABASE_SERVICE_ROLE_KEY;
   const outage = await recordEvent({
@@ -167,7 +167,7 @@ test('inbound capture is idempotent locally and preserves outage spool capture t
   assert.equal(deterministic.event.id, deterministicId);
   assert.equal(countSpooledEvents(dir), 3);
 
-  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'local';
+  process.env.NEXT_PUBLIC_COVE_RUNTIME = 'local';
   assert.deepEqual(await drainSpoolFiles(dir), { processed: 3, remaining: 0 });
   assert.equal(countSpooledEvents(dir), 0);
   assert.equal((await getEvent(deterministicId)).id, deterministicId);
@@ -184,7 +184,7 @@ test('inbound capture is idempotent locally and preserves outage spool capture t
 
 test('a failed caller can dismiss its pending spool receipt without leaving a ghost task', async (t) => {
   const dir = fixture(t);
-  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'supabase';
+  process.env.NEXT_PUBLIC_COVE_RUNTIME = 'supabase';
   delete process.env.NEXT_PUBLIC_SUPABASE_URL;
   delete process.env.SUPABASE_SERVICE_ROLE_KEY;
   const input = {
@@ -202,7 +202,7 @@ test('a failed caller can dismiss its pending spool receipt without leaving a gh
   }, { dataDir: dir });
   assert.equal(countSpooledEvents(dir), 1);
 
-  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'local';
+  process.env.NEXT_PUBLIC_COVE_RUNTIME = 'local';
   await drainSpoolFiles(dir);
   const event = await getEvent(input.id);
   assert.equal(event.state, 'dismissed');
@@ -226,10 +226,10 @@ test('fallback processing uses deterministic tasks and backs retries off before 
   const posts = [];
   const fetchImpl = async (url, init = {}) => {
     const value = String(url);
-    if (value.includes('/api/forge-rest/tasks?')) {
+    if (value.includes('/api/cove-rest/tasks?')) {
       return new Response('[]', { status: 200 });
     }
-    if (value.includes('/api/forge-rest/task_columns')) {
+    if (value.includes('/api/cove-rest/task_columns')) {
       return new Response(JSON.stringify([
         { id: 'not-started', name: 'Not Started', position: 0 },
       ]), { status: 200 });
@@ -237,7 +237,7 @@ test('fallback processing uses deterministic tasks and backs retries off before 
     if (value.endsWith('/api/day-plan')) {
       return new Response(JSON.stringify({ csrfToken: 'csrf' }), { status: 200 });
     }
-    if (value.endsWith('/api/forge-rest/tasks') && init.method === 'POST') {
+    if (value.endsWith('/api/cove-rest/tasks') && init.method === 'POST') {
       posts.push(JSON.parse(init.body));
       return new Response(JSON.stringify([posts.at(-1)]), { status: 201 });
     }
@@ -245,7 +245,7 @@ test('fallback processing uses deterministic tasks and backs retries off before 
   };
   assert.equal(await processOneInboundEvent(captured.event, {
     fetchImpl,
-    webBaseUrl: 'http://forge.test',
+    webBaseUrl: 'http://cove.test',
     now: () => clock,
   }), true);
   assert.equal(posts.length, 1);
@@ -271,7 +271,7 @@ test('fallback processing uses deterministic tasks and backs retries off before 
   };
   const failureOptions = {
     fetchImpl: failingFetch,
-    webBaseUrl: 'http://forge.test',
+    webBaseUrl: 'http://cove.test',
     now: () => clock,
   };
   assert.equal(
@@ -304,7 +304,7 @@ test('fallback processing uses deterministic tasks and backs retries off before 
     );
     assert.equal(await processOneInboundEvent(doomed.event, {
       fetchImpl: failingFetch,
-      webBaseUrl: 'http://forge.test',
+      webBaseUrl: 'http://cove.test',
       now: () => clock,
     }), false);
     failed = await getEvent(doomed.event.id);
@@ -364,7 +364,7 @@ test('attempt bumps are atomic and smart triage reuses the event id', async (t) 
   assert.equal((await getEvent(atomic.event.id)).attempts, 2);
   assert.match(
     readFileSync(
-      new URL('../scripts/sql/2026-07-28-forge-inbound-events.sql', import.meta.url),
+      new URL('../scripts/sql/2026-07-28-cove-inbound-events.sql', import.meta.url),
       'utf8',
     ),
     /attempts = attempts \+ 1/,
@@ -377,10 +377,10 @@ test('attempt bumps are atomic and smart triage reuses the event id', async (t) 
     createdAt: new Date(now.getTime() - 31 * 60_000).toISOString(),
   });
   const taskIds = new Set();
-  const previousRuntime = process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+  const previousRuntime = process.env.NEXT_PUBLIC_COVE_RUNTIME;
   t.after(() => {
-    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
-    else process.env.NEXT_PUBLIC_FORGE_RUNTIME = previousRuntime;
+    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_COVE_RUNTIME;
+    else process.env.NEXT_PUBLIC_COVE_RUNTIME = previousRuntime;
   });
   t.mock.method(console, 'error', () => {});
   let triageCalls = 0;
@@ -389,7 +389,7 @@ test('attempt bumps are atomic and smart triage reuses the event id', async (t) 
     assert.equal(input.taskId, event.id);
     taskIds.add(input.taskId);
     if (triageCalls === 1) {
-      process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'supabase';
+      process.env.NEXT_PUBLIC_COVE_RUNTIME = 'supabase';
       delete process.env.NEXT_PUBLIC_SUPABASE_URL;
       delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     }
@@ -399,7 +399,7 @@ test('attempt bumps are atomic and smart triage reuses the event id', async (t) 
     triageEvent,
     now: () => now,
   }), false);
-  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'local';
+  process.env.NEXT_PUBLIC_COVE_RUNTIME = 'local';
   assert.equal(await processOneInboundEvent(smart.event, {
     triageEvent,
     now: () => now,

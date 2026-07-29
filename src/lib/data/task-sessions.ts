@@ -59,7 +59,7 @@ export async function launchTaskSessionRun(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Forge-CSRF": await getDayPlanCsrfToken(),
+      "X-Cove-CSRF": await getDayPlanCsrfToken(),
     },
     body: JSON.stringify({ action: "launch", ...input }),
     cache: "no-store",

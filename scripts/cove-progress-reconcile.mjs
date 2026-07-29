@@ -567,7 +567,7 @@ function supabaseConfig(env = process.env) {
   const url = env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
   const key = env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("Supabase task credentials are unavailable.");
-  const prefix = coveEnv("TABLE_PREFIX", env) ?? env.NEXT_PUBLIC_FORGE_TABLE_PREFIX ?? "";
+  const prefix = coveEnv("TABLE_PREFIX", env) ?? env.NEXT_PUBLIC_COVE_TABLE_PREFIX ?? "";
   return { url, key, table: `${prefix}tasks` };
 }
 
@@ -987,7 +987,7 @@ export async function runProgressReconcile(options = {}) {
   const startedAt = now();
   const dryRun = options.dryRun === true;
   const dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
-  const statePath = options.statePath ?? path.join(dataDir, "forge-progress-state.json");
+  const statePath = options.statePath ?? path.join(dataDir, "cove-progress-state.json");
   const heartbeatPath = options.heartbeatPath ??
     path.join(dataDir, "intake", "heartbeats.json");
   const pingDir = options.pingDir ?? path.join(dataDir, "session-pings");
@@ -1052,7 +1052,7 @@ export async function runProgressReconcile(options = {}) {
     if (!dryRun) {
       store = options.store ?? createDayPlanStore({
         dbPath: options.dbPath ?? coveEnv("DB_PATH") ??
-          path.join(dataDir, "forge.db"),
+          path.join(dataDir, "cove.db"),
         now,
       });
     }

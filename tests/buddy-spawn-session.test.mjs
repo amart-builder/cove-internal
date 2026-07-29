@@ -16,9 +16,9 @@ import { createBuddyStore } from '../src/lib/buddy/store.ts';
 import { getQuietCurrentCsrfToken } from '../src/lib/quiet-current/store.ts';
 
 test('spawn-session route gates requests and confines real directories to ~/Atlas', async (t) => {
-  const root = path.join(os.tmpdir(), `forge-buddy-spawn-${process.pid}-${Date.now()}`);
-  const store = createBuddyStore({ dbPath: path.join(root, 'forge.db') });
-  const home = '/Users/forge-test';
+  const root = path.join(os.tmpdir(), `cove-buddy-spawn-${process.pid}-${Date.now()}`);
+  const store = createBuddyStore({ dbPath: path.join(root, 'cove.db') });
+  const home = '/Users/cove-test';
   const previousMode = process.env.COVE_DAY_PLAN_ACCESS_MODE;
   const previousQuietFile = process.env.COVE_QUIET_CURRENT_FILE;
   const previousDeepLinks = process.env.COVE_BUDDY_DEEPLINKS;
@@ -45,7 +45,7 @@ test('spawn-session route gates requests and confines real directories to ~/Atla
     headers: {
       host: '127.0.0.1:3200',
       'content-type': 'application/json',
-      'x-forge-csrf': token,
+      'x-cove-csrf': token,
       ...headers,
     },
     body: JSON.stringify({ prompt: 'Plan the work', title: 'Plan it', ...body }),
@@ -62,7 +62,7 @@ test('spawn-session route gates requests and confines real directories to ~/Atla
   const untrusted = await handleSpawnSessionPost(request(`${home}/Atlas/app`, { host: 'evil.example' }), baseDeps);
   assert.equal(untrusted.status, 403);
   const noCsrfRequest = request(`${home}/Atlas/app`);
-  noCsrfRequest.headers.delete('x-forge-csrf');
+  noCsrfRequest.headers.delete('x-cove-csrf');
   assert.equal((await handleSpawnSessionPost(noCsrfRequest, baseDeps)).status, 403);
   const noWorkspace = await handleSpawnSessionPost(request(`${home}/Atlas/app`), {
     ...baseDeps,

@@ -4,7 +4,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-DB="${COVE_DB_PATH:-$REPO_DIR/data/forge.db}"
+DB="${COVE_DB_PATH:-$REPO_DIR/data/cove.db}"
 
 if [ ! -f "$DB" ]; then
   echo "No database at $DB yet; nothing to back up."

@@ -33,8 +33,8 @@ test('CRM reads and writes require the configured remote session credential', {
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   withEnv(t, {
     COVE_DATA_DIR: dir,
-    COVE_DB_PATH: path.join(dir, 'forge.db'),
-    NEXT_PUBLIC_FORGE_RUNTIME: 'local',
+    COVE_DB_PATH: path.join(dir, 'cove.db'),
+    NEXT_PUBLIC_COVE_RUNTIME: 'local',
     COVE_DAY_PLAN_ACCESS_MODE: 'session',
     COVE_DAY_PLAN_REMOTE_TOKEN: 'session-secret',
   });
@@ -46,7 +46,7 @@ test('CRM reads and writes require the configured remote session credential', {
 
   const allowedRead = await GET(new NextRequest(
     'http://127.0.0.1:3200/api/crm?operation=list',
-    { headers: { 'X-Forge-Day-Plan-Session': 'session-secret' } },
+    { headers: { 'X-Cove-Day-Plan-Session': 'session-secret' } },
   ));
   assert.equal(allowedRead.status, 200);
   const payload = await allowedRead.json();
@@ -59,7 +59,7 @@ test('CRM reads and writes require the configured remote session credential', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Forge-CSRF': payload.csrfToken,
+        'X-Cove-CSRF': payload.csrfToken,
       },
       body: JSON.stringify({
         action: 'resolve',
@@ -81,8 +81,8 @@ test('explicit_create writes a second same-name contact with all manual facts', 
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   withEnv(t, {
     COVE_DATA_DIR: dir,
-    COVE_DB_PATH: path.join(dir, 'forge.db'),
-    NEXT_PUBLIC_FORGE_RUNTIME: 'local',
+    COVE_DB_PATH: path.join(dir, 'cove.db'),
+    NEXT_PUBLIC_COVE_RUNTIME: 'local',
     COVE_DAY_PLAN_ACCESS_MODE: undefined,
   });
 
@@ -96,7 +96,7 @@ test('explicit_create writes a second same-name contact with all manual facts', 
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Forge-CSRF': csrfToken,
+        'X-Cove-CSRF': csrfToken,
       },
       body: JSON.stringify({ action, input }),
     },
@@ -133,7 +133,7 @@ test('the local CRM route refuses to split a supabase runtime into SQLite', {
   concurrency: false,
 }, async (t) => {
   withEnv(t, {
-    NEXT_PUBLIC_FORGE_RUNTIME: 'supabase',
+    NEXT_PUBLIC_COVE_RUNTIME: 'supabase',
     COVE_DAY_PLAN_ACCESS_MODE: undefined,
   });
   const response = await GET(new NextRequest(
@@ -148,7 +148,7 @@ test('the legacy Attio route remains active outside local runtime mode', {
 }, async (t) => {
   const previousFetch = globalThis.fetch;
   withEnv(t, {
-    NEXT_PUBLIC_FORGE_RUNTIME: 'supabase',
+    NEXT_PUBLIC_COVE_RUNTIME: 'supabase',
     ATTIO_API_KEY: 'attio-key',
   });
   const calls = [];

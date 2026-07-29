@@ -18,7 +18,7 @@ function fixture(t) {
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   return {
     dir,
-    dbPath: path.join(dir, 'forge.db'),
+    dbPath: path.join(dir, 'cove.db'),
   };
 }
 
@@ -65,11 +65,10 @@ test('feedback uses the connected Gmail draft lane but never a send lane', async
     JSON.stringify({ support_email: 'support@example.test' }),
   );
   writeFileSync(
-    path.join(dir, 'cove-email.json'),
+    path.join(dir, 'cove-workspace.json'),
     JSON.stringify({
-      connector: 'composio',
+      provider: 'google-api',
       account_email: 'owner@example.test',
-      connected_account_id: 'gmail_test',
     }),
   );
   let captured;
@@ -84,18 +83,17 @@ test('feedback uses the connected Gmail draft lane but never a send lane', async
   });
   assert.equal(feedback.mode, 'gmail_draft');
   assert.equal(feedback.draftId, 'draft_123');
-  assert.equal(captured.connection.connectedAccountId, 'gmail_test');
+  assert.equal(captured.connection.accountEmail, 'owner@example.test');
   assert.match(captured.message.body, /small layout bug/);
 });
 
 test('feedback with no configured support address never attempts a Gmail draft', async (t) => {
   const { dir, dbPath } = fixture(t);
   writeFileSync(
-    path.join(dir, 'cove-email.json'),
+    path.join(dir, 'cove-workspace.json'),
     JSON.stringify({
-      connector: 'composio',
+      provider: 'google-api',
       account_email: 'owner@example.test',
-      connected_account_id: 'gmail_test',
     }),
   );
   let attempted = false;
@@ -125,11 +123,10 @@ test('a failed Gmail draft is distinguished from a disconnected inbox', async (t
     JSON.stringify({ support_email: 'support@example.test' }),
   );
   writeFileSync(
-    path.join(dir, 'cove-email.json'),
+    path.join(dir, 'cove-workspace.json'),
     JSON.stringify({
-      connector: 'composio',
+      provider: 'google-api',
       account_email: 'owner@example.test',
-      connected_account_id: 'gmail_test',
     }),
   );
   const feedback = await prepareBuddyFeedback({
@@ -137,7 +134,7 @@ test('a failed Gmail draft is distinguished from a disconnected inbox', async (t
     dataDir: dir,
     dbPath,
     createDraft: async () => {
-      throw new Error('Composio unavailable');
+      throw new Error('Google unavailable');
     },
   });
   assert.equal(feedback.mode, 'copy');

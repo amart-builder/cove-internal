@@ -8,7 +8,7 @@ import {
 } from "../scripts/lib/cove-arrival-schedule.mjs";
 
 const baseConfig = {
-  forge_url: "http://localhost:3200/something?ignored=yes",
+  cove_url: "http://localhost:3200/something?ignored=yes",
   timezone: "America/Los_Angeles",
   arrival_time: "08:00",
   weekdays: [1, 2, 3, 4, 5],
@@ -39,7 +39,7 @@ function decide(at, currentPlan, options = {}) {
 
 test("config validation fixes the polled and opened routes to the Cove origin", () => {
   const config = validateArrivalConfig(baseConfig);
-  assert.equal(config.forge_url, "http://localhost:3200");
+  assert.equal(config.cove_url, "http://localhost:3200");
   assert.equal(config.day_plan_url, "http://localhost:3200/api/day-plan");
   assert.equal(config.tasks_url, "http://localhost:3200/tasks");
 });
@@ -51,10 +51,10 @@ test("malformed JSON and unsafe config values are rejected", () => {
   assert.throws(() => validateArrivalConfig({ ...baseConfig, weekdays: [0, 1] }), /weekdays/);
   assert.throws(() => validateArrivalConfig({ ...baseConfig, weekdays: [1, 1] }), /weekdays/);
   assert.throws(
-    () => validateArrivalConfig({ ...baseConfig, forge_url: "https://user:secret@example.com" }),
+    () => validateArrivalConfig({ ...baseConfig, cove_url: "https://user:secret@example.com" }),
     /credentials/,
   );
-  assert.throws(() => validateArrivalConfig({ ...baseConfig, forge_url: "file:///tmp/forge" }), /http/);
+  assert.throws(() => validateArrivalConfig({ ...baseConfig, cove_url: "file:///tmp/cove" }), /http/);
   assert.throws(() => validateArrivalConfig({ ...baseConfig, quiet_dates: ["2026-02-30"] }), /quiet_dates/);
 });
 

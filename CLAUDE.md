@@ -8,7 +8,7 @@ Grep when you don't know the exact identifier yet.
 
 **This worktree is pinned** via the `.gbrain-source` file in the repo root;
 `gbrain` commands run from anywhere under this worktree route to the
-`gstack-code-forge` source automatically.
+`gstack-code-cove` source automatically.
 
 Prefer gbrain when:
 - "Where is X handled?" and you have distinctive terms:

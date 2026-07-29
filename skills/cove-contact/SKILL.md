@@ -17,7 +17,7 @@ Confirm in one short, human sentence when done.
 
 ## The CRM door
 
-Read `NEXT_PUBLIC_FORGE_RUNTIME` from `.env.local` before choosing the data
+Read `NEXT_PUBLIC_COVE_RUNTIME` from `.env.local` before choosing the data
 path. In `local` mode, all contact and relationship-history reads and writes go
 through `http://localhost:3200/api/crm`. Never call the generic table endpoint
 for `contacts` or `contact_activities` in local mode. In `supabase` or `convex`
@@ -25,10 +25,10 @@ mode, keep using that install's existing CRM path; the local interface must
 never split a cloud install across two stores.
 
 For a non-local install, retain the pre-existing generic endpoints:
-`/api/forge-rest/contacts` and `/api/forge-rest/contact_activities`. The local
+`/api/cove-rest/contacts` and `/api/cove-rest/contact_activities`. The local
 `/api/crm` examples below apply only when runtime mode is `local`.
 
-Reads return a `csrfToken`. Send that token as `X-Forge-CSRF` on every POST.
+Reads return a `csrfToken`. Send that token as `X-Cove-CSRF` on every POST.
 The CRM resolves identity before creating a person:
 
 ```bash
@@ -42,7 +42,7 @@ curl -s 'http://localhost:3200/api/crm?operation=list&search=sarah'
    ```bash
    curl -s -X POST 'http://localhost:3200/api/crm' \
      -H 'Content-Type: application/json' \
-     -H 'X-Forge-CSRF: <token from a CRM GET>' \
+     -H 'X-Cove-CSRF: <token from a CRM GET>' \
      -d '{"action":"resolve","input":{"name":"Sarah Chen","email":"sarah@example.com","source":"manual"}}'
    ```
    A `matched` or `created` result contains the contact. An `ambiguous` result
@@ -54,11 +54,11 @@ curl -s 'http://localhost:3200/api/crm?operation=list&search=sarah'
    ```bash
    curl -s -X POST 'http://localhost:3200/api/crm' \
      -H 'Content-Type: application/json' \
-     -H 'X-Forge-CSRF: <token from a CRM GET>' \
+     -H 'X-Cove-CSRF: <token from a CRM GET>' \
      -d '{"action":"update","input":{"contactId":"<matched id>","patch":{"role":"<new role>","email":"<new email>","phone":"<new phone>"}}}'
    ```
 2. **Resolve the company.** Company CRUD still uses the local
-   `/api/forge-rest/companies` endpoint. Look it up first and create only when
+   `/api/cove-rest/companies` endpoint. Look it up first and create only when
    it is new.
 3. **Save only stated facts.** Do not invent emails, roles, or spellings.
    `howWeMet` is gold; capture it whenever the user says where or how they met
@@ -73,7 +73,7 @@ Find the contact, then:
 ```bash
 curl -s -X POST 'http://localhost:3200/api/crm' \
   -H 'Content-Type: application/json' \
-  -H 'X-Forge-CSRF: <token from a CRM GET>' \
+  -H 'X-Cove-CSRF: <token from a CRM GET>' \
   -d '{"action":"append_activity","input":{"contactId":"<id>","activityType":"call","title":"<one line>","content":"<what happened, what was agreed>","source":"manual"}}'
 ```
 

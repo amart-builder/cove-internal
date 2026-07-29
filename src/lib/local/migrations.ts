@@ -310,7 +310,7 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       // The first local database used `columns`; map its aliases through the
       // shared canonical lane vocabulary before rebuilding task rows.
       db.exec(`
-        CREATE TEMP TABLE forge_legacy_column_map (
+        CREATE TEMP TABLE cove_legacy_column_map (
           legacy_id TEXT PRIMARY KEY,
           target_id TEXT NOT NULL
         )
@@ -329,7 +329,7 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
          VALUES (?, ?, ?, 1, ?, ?)`,
       );
       const insertMap = db.prepare(
-        "INSERT INTO forge_legacy_column_map (legacy_id, target_id) VALUES (?, ?)",
+        "INSERT INTO cove_legacy_column_map (legacy_id, target_id) VALUES (?, ?)",
       );
       for (const legacy of legacyColumns) {
         const canonical = canonicalColumn(legacy.name);
@@ -361,10 +361,10 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
           UPDATE tasks
           SET column_id = (
             SELECT target_id
-            FROM forge_legacy_column_map
+            FROM cove_legacy_column_map
             WHERE legacy_id = tasks.column_id
           )
-          WHERE column_id IN (SELECT legacy_id FROM forge_legacy_column_map)
+          WHERE column_id IN (SELECT legacy_id FROM cove_legacy_column_map)
         `);
       }
 
@@ -401,7 +401,7 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
           DROP TABLE tasks_migration_legacy;
         `);
       }
-      db.exec("DROP TABLE forge_legacy_column_map");
+      db.exec("DROP TABLE cove_legacy_column_map");
       db.exec("UPDATE tasks SET project = 'Atlas' WHERE project IS NULL");
       db.exec(
         "CREATE INDEX IF NOT EXISTS tasks_project_status_idx ON tasks(project, status)",
@@ -562,7 +562,7 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
     version: 3,
     name: "reliability-spine",
     up: (db) => db.exec(`
-      CREATE TABLE IF NOT EXISTS forge_jobs (
+      CREATE TABLE IF NOT EXISTS cove_jobs (
         id TEXT PRIMARY KEY,
         type TEXT NOT NULL,
         payload TEXT NOT NULL DEFAULT '{}',
@@ -579,12 +579,12 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
         finished_at TEXT,
         last_error TEXT
       );
-      CREATE INDEX IF NOT EXISTS forge_jobs_ready_idx
-        ON forge_jobs(status, priority DESC, run_after);
-      CREATE INDEX IF NOT EXISTS forge_jobs_lease_idx
-        ON forge_jobs(status, lease_until);
+      CREATE INDEX IF NOT EXISTS cove_jobs_ready_idx
+        ON cove_jobs(status, priority DESC, run_after);
+      CREATE INDEX IF NOT EXISTS cove_jobs_lease_idx
+        ON cove_jobs(status, lease_until);
 
-      CREATE TABLE IF NOT EXISTS forge_receipts (
+      CREATE TABLE IF NOT EXISTS cove_receipts (
         id TEXT PRIMARY KEY,
         source TEXT NOT NULL,
         started_at TEXT NOT NULL,
@@ -596,12 +596,12 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
           CHECK (outcome IN ('success','partial','failed','skipped')),
         created_at TEXT NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS forge_receipts_recent_idx
-        ON forge_receipts(finished_at DESC);
-      CREATE INDEX IF NOT EXISTS forge_receipts_source_idx
-        ON forge_receipts(source, finished_at DESC);
+      CREATE INDEX IF NOT EXISTS cove_receipts_recent_idx
+        ON cove_receipts(finished_at DESC);
+      CREATE INDEX IF NOT EXISTS cove_receipts_source_idx
+        ON cove_receipts(source, finished_at DESC);
 
-      CREATE TABLE IF NOT EXISTS forge_failure_inbox (
+      CREATE TABLE IF NOT EXISTS cove_failure_inbox (
         id TEXT PRIMARY KEY,
         source TEXT NOT NULL,
         source_id TEXT NOT NULL,
@@ -612,8 +612,8 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
         created_at TEXT NOT NULL,
         UNIQUE (source, source_id)
       );
-      CREATE INDEX IF NOT EXISTS forge_failure_inbox_open_idx
-        ON forge_failure_inbox(dismissed_at, occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS cove_failure_inbox_open_idx
+        ON cove_failure_inbox(dismissed_at, occurred_at DESC);
     `),
   },
   {
@@ -676,7 +676,7 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
           ON contact_activities(source_ref)
           WHERE source_ref IS NOT NULL;
 
-        CREATE TABLE IF NOT EXISTS forge_message_ingestion (
+        CREATE TABLE IF NOT EXISTS cove_message_ingestion (
           message_id TEXT PRIMARY KEY,
           thread_id TEXT NOT NULL,
           source_door TEXT NOT NULL
@@ -694,10 +694,10 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS forge_message_ingestion_status_lease_idx
-          ON forge_message_ingestion(status, lease_until);
-        CREATE INDEX IF NOT EXISTS forge_message_ingestion_receipt_idx
-          ON forge_message_ingestion(receipt_id);
+        CREATE INDEX IF NOT EXISTS cove_message_ingestion_status_lease_idx
+          ON cove_message_ingestion(status, lease_until);
+        CREATE INDEX IF NOT EXISTS cove_message_ingestion_receipt_idx
+          ON cove_message_ingestion(receipt_id);
       `);
     },
   },
@@ -883,19 +883,394 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       `);
     },
   },
+  {
+    version: 12,
+    name: "deterministic-email-state",
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE email_items ADD COLUMN workflow_state TEXT NOT NULL DEFAULT 'legacy'
+          CHECK (workflow_state IN (
+            'legacy','observed','classifying','open',
+            'finalizing','terminal','failed'
+          ));
+        ALTER TABLE email_items ADD COLUMN bucket TEXT
+          CHECK (bucket IN ('reply','action','fyi','noise'));
+        ALTER TABLE email_items ADD COLUMN thread_version INTEGER NOT NULL DEFAULT 0
+          CHECK (thread_version >= 0);
+        ALTER TABLE email_items ADD COLUMN latest_inbound_message_id TEXT;
+        ALTER TABLE email_items ADD COLUMN latest_gmail_history_id TEXT;
+        ALTER TABLE email_items ADD COLUMN gmail_draft_id TEXT;
+        ALTER TABLE email_items ADD COLUMN draft_body_hash TEXT;
+        ALTER TABLE email_items ADD COLUMN surfaced_message_id TEXT;
+        ALTER TABLE email_items ADD COLUMN surfaced_at TEXT;
+        ALTER TABLE email_items ADD COLUMN surface_receipt_id TEXT;
+        ALTER TABLE email_items ADD COLUMN completion_reason TEXT;
+      `);
+
+      const rows = db.prepare(
+        `SELECT id, thread_id, message_id, status, received_at, updated_at,
+                source_payload
+         FROM email_items
+         WHERE thread_id IS NOT NULL
+         ORDER BY thread_id,
+           CASE WHEN status IN ('pending','archiving') THEN 0 ELSE 1 END,
+           COALESCE(received_at, '') DESC,
+           COALESCE(updated_at, '') DESC,
+           id`,
+      ).all() as Array<{
+        id: string;
+        thread_id: string;
+        message_id: string | null;
+        status: string;
+        received_at: string | null;
+        updated_at: string | null;
+        source_payload: string | null;
+      }>;
+      const winners = new Map<string, string>();
+      const winnerForDuplicate = db.prepare(
+        "SELECT id FROM email_items WHERE thread_id = ? LIMIT 1",
+      );
+      const repointDrafts = db.prepare(
+        "UPDATE drafts SET email_item_id = ? WHERE email_item_id = ?",
+      );
+      const repointActions = db.prepare(
+        "UPDATE email_action_log SET email_item_id = ? WHERE email_item_id = ?",
+      );
+      const dismissDuplicate = db.prepare(
+        `UPDATE email_items
+         SET thread_id = NULL, status = 'dismissed', workflow_state = 'legacy',
+             source_payload = ?, updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
+         WHERE id = ?`,
+      );
+      for (const row of rows) {
+        const winner = winners.get(row.thread_id);
+        if (!winner) {
+          winners.set(row.thread_id, row.id);
+          continue;
+        }
+        const metadata = (() => {
+          try {
+            const parsed = row.source_payload ? JSON.parse(row.source_payload) : {};
+            return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+              ? parsed as Record<string, unknown>
+              : {};
+          } catch {
+            return {};
+          }
+        })();
+        repointDrafts.run(winner, row.id);
+        repointActions.run(winner, row.id);
+        dismissDuplicate.run(
+          JSON.stringify({ ...metadata, merged_into_id: winner }),
+          row.id,
+        );
+      }
+      // Keep this lookup referenced so migration failures surface before indexes
+      // on unusual legacy databases with malformed thread identifiers.
+      for (const threadId of winners.keys()) winnerForDuplicate.get(threadId);
+
+      db.exec(`
+        CREATE TABLE cove_email_messages (
+          message_id TEXT PRIMARY KEY,
+          thread_id TEXT NOT NULL,
+          email_item_id TEXT NOT NULL REFERENCES email_items(id),
+          gmail_history_id TEXT,
+          internal_date TEXT,
+          direction TEXT NOT NULL CHECK (direction IN ('inbound','outbound')),
+          state TEXT NOT NULL CHECK (
+            state IN ('observed','classifying','processed','failed','superseded')
+          ),
+          classification_json TEXT,
+          model_version TEXT,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          observed_at TEXT NOT NULL,
+          processed_at TEXT,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX cove_email_messages_thread_date_idx
+          ON cove_email_messages(thread_id, internal_date);
+        CREATE INDEX cove_email_messages_state_idx
+          ON cove_email_messages(state, updated_at);
+
+        CREATE TABLE cove_gmail_operations (
+          id TEXT PRIMARY KEY,
+          email_item_id TEXT NOT NULL REFERENCES email_items(id),
+          thread_id TEXT NOT NULL,
+          expected_message_id TEXT NOT NULL
+            REFERENCES cove_email_messages(message_id),
+          expected_thread_version INTEGER NOT NULL CHECK (expected_thread_version > 0),
+          kind TEXT NOT NULL CHECK (kind IN ('upsert_draft','archive_messages')),
+          operation_key TEXT NOT NULL UNIQUE,
+          payload_json TEXT NOT NULL DEFAULT '{}',
+          status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (status IN ('pending','uncertain','succeeded','superseded','dead')),
+          job_id TEXT,
+          remote_id TEXT,
+          result_json TEXT,
+          last_error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT
+        );
+        CREATE UNIQUE INDEX cove_gmail_operations_one_active_thread
+          ON cove_gmail_operations(thread_id)
+          WHERE status IN ('pending','uncertain');
+        CREATE INDEX cove_gmail_operations_status_idx
+          ON cove_gmail_operations(status, updated_at);
+      `);
+
+      const managedRows = db.prepare(
+        `SELECT id, thread_id, message_id, status, received_at, created_at,
+                updated_at, source_payload
+         FROM email_items
+         WHERE thread_id IS NOT NULL`,
+      ).all() as Array<{
+        id: string;
+        thread_id: string;
+        message_id: string | null;
+        status: string;
+        received_at: string | null;
+        created_at: string | null;
+        updated_at: string | null;
+        source_payload: string | null;
+      }>;
+      const backfillItem = db.prepare(
+        `UPDATE email_items
+         SET workflow_state = ?, bucket = ?, thread_version = 1,
+             latest_inbound_message_id = ?, gmail_draft_id = ?,
+             surfaced_message_id = ?, surfaced_at = ?
+         WHERE id = ?`,
+      );
+      const insertMessage = db.prepare(
+        `INSERT OR IGNORE INTO cove_email_messages
+           (message_id, thread_id, email_item_id, internal_date, direction,
+            state, classification_json, attempts, observed_at, processed_at,
+            updated_at)
+         VALUES (?, ?, ?, ?, 'inbound', 'processed', NULL, 0, ?, ?, ?)`,
+      );
+      for (const row of managedRows) {
+        let metadata: Record<string, unknown> = {};
+        try {
+          const parsed = row.source_payload ? JSON.parse(row.source_payload) : {};
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            metadata = parsed as Record<string, unknown>;
+          }
+        } catch {
+          // Malformed legacy metadata remains preserved in source_payload.
+        }
+        const rawBucket = metadata.bucket;
+        const bucket = rawBucket === "reply" || rawBucket === "action" ||
+            rawBucket === "fyi" || rawBucket === "noise"
+          ? rawBucket
+          : rawBucket === "archived"
+            ? "noise"
+            : null;
+        const terminal = ["actioned", "reviewed", "archived", "dismissed"].includes(row.status);
+        const timestamp = row.updated_at ?? row.received_at ?? row.created_at ??
+          new Date(0).toISOString();
+        const draftId = typeof metadata.gmail_draft_id === "string"
+          ? metadata.gmail_draft_id
+          : typeof metadata.draft_id === "string"
+            ? metadata.draft_id
+            : null;
+        backfillItem.run(
+          terminal ? "terminal" : "open",
+          bucket,
+          row.message_id,
+          draftId,
+          row.message_id,
+          timestamp,
+          row.id,
+        );
+        if (row.message_id) {
+          insertMessage.run(
+            row.message_id,
+            row.thread_id,
+            row.id,
+            row.received_at,
+            timestamp,
+            timestamp,
+            timestamp,
+          );
+        }
+      }
+
+      db.exec(`
+        CREATE UNIQUE INDEX email_items_thread_id_unique
+          ON email_items(thread_id) WHERE thread_id IS NOT NULL;
+        CREATE UNIQUE INDEX email_items_latest_inbound_unique
+          ON email_items(latest_inbound_message_id)
+          WHERE latest_inbound_message_id IS NOT NULL;
+      `);
+
+      const emailTasks = db.prepare(
+        `SELECT id, title, tags, status, created_at, updated_at
+         FROM tasks
+         WHERE title LIKE 'Emails:%' OR tags LIKE '%"email-current"%'
+         ORDER BY
+           CASE WHEN tags LIKE '%"email-current"%' THEN 0 ELSE 1 END,
+           COALESCE(updated_at, created_at, '') DESC,
+           id`,
+      ).all() as Array<{
+        id: string;
+        title: string;
+        tags: string | null;
+        status: string;
+        created_at: string | null;
+        updated_at: string | null;
+      }>;
+      if (emailTasks.length > 0) {
+        const canonical = emailTasks[0];
+        let tags: string[] = [];
+        try {
+          const parsed = canonical.tags ? JSON.parse(canonical.tags) : [];
+          tags = Array.isArray(parsed)
+            ? parsed.filter((value): value is string => typeof value === "string")
+            : [];
+        } catch {
+          // Keep the rolling identity even when a legacy tag field is malformed.
+        }
+        tags = [...new Set([...tags, "email", "email-current"])];
+        const pending = db.prepare(
+          "SELECT 1 FROM email_items WHERE status = 'pending' LIMIT 1",
+        ).get();
+        db.prepare(
+          `UPDATE tasks
+           SET title = 'Email', tags = ?, status = ?,
+               source_type = 'email', updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
+           WHERE id = ?`,
+        ).run(JSON.stringify(tags), pending ? "open" : "done", canonical.id);
+        const closeLegacy = db.prepare(
+          `UPDATE tasks
+           SET status = 'done', updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
+           WHERE id = ? AND status = 'open'`,
+        );
+        for (const legacy of emailTasks.slice(1)) closeLegacy.run(legacy.id);
+      } else if (managedRows.some((row) => row.status === "pending" || row.status === "archiving")) {
+        const todayColumn = db.prepare(
+          `SELECT id FROM task_columns
+           WHERE lower(name) IN ('must happen today','needs to happen today','today')
+           ORDER BY position, id LIMIT 1`,
+        ).get() as { id: string } | undefined;
+        const timestamp = new Date().toISOString();
+        db.prepare(
+          `INSERT INTO tasks
+             (id, column_id, title, description, priority, tags, project,
+              position, status, source_type, remind_native, remind_text,
+              created_at, updated_at)
+           VALUES (?, ?, 'Email',
+             'Replies and actions that still need you. Gmail Inbox is the source of truth.',
+             'high', '["email","email-current"]', 'Cove', -1000, 'open',
+             'email', 0, 0, ?, ?)`,
+        ).run(
+          randomUUID(),
+          todayColumn?.id ?? null,
+          timestamp,
+          timestamp,
+        );
+      }
+    },
+  },
+  {
+    version: 13,
+    name: "canonical-cove-storage",
+    foreignKeysOff: true,
+    up: (db) => {
+      const tableExists = (name: string) => Boolean(db.prepare(
+        "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?",
+      ).get(name));
+      const legacyTables = [
+        ["forge_jobs", "cove_jobs"],
+        ["forge_receipts", "cove_receipts"],
+        ["forge_failure_inbox", "cove_failure_inbox"],
+        ["forge_message_ingestion", "cove_message_ingestion"],
+        ["forge_email_messages", "cove_email_messages"],
+        ["forge_gmail_operations", "cove_gmail_operations"],
+      ] as const;
+      for (const [legacyName, coveName] of legacyTables) {
+        const legacyExists = tableExists(legacyName);
+        const coveExists = tableExists(coveName);
+        if (legacyExists && coveExists) {
+          throw new Error(
+            `Cannot migrate ${legacyName}: ${coveName} already exists.`,
+          );
+        }
+        if (legacyExists) {
+          db.exec(`ALTER TABLE "${legacyName}" RENAME TO "${coveName}"`);
+        }
+      }
+
+      db.exec(`
+        DROP INDEX IF EXISTS forge_jobs_ready_idx;
+        DROP INDEX IF EXISTS forge_jobs_lease_idx;
+        DROP INDEX IF EXISTS forge_receipts_recent_idx;
+        DROP INDEX IF EXISTS forge_receipts_source_idx;
+        DROP INDEX IF EXISTS forge_failure_inbox_open_idx;
+        DROP INDEX IF EXISTS forge_message_ingestion_status_lease_idx;
+        DROP INDEX IF EXISTS forge_message_ingestion_receipt_idx;
+        DROP INDEX IF EXISTS forge_email_messages_thread_date_idx;
+        DROP INDEX IF EXISTS forge_email_messages_state_idx;
+        DROP INDEX IF EXISTS forge_gmail_operations_one_active_thread;
+        DROP INDEX IF EXISTS forge_gmail_operations_status_idx;
+
+        CREATE INDEX IF NOT EXISTS cove_jobs_ready_idx
+          ON cove_jobs(status, priority DESC, run_after);
+        CREATE INDEX IF NOT EXISTS cove_jobs_lease_idx
+          ON cove_jobs(status, lease_until);
+        CREATE INDEX IF NOT EXISTS cove_receipts_recent_idx
+          ON cove_receipts(finished_at DESC);
+        CREATE INDEX IF NOT EXISTS cove_receipts_source_idx
+          ON cove_receipts(source, finished_at DESC);
+        CREATE INDEX IF NOT EXISTS cove_failure_inbox_open_idx
+          ON cove_failure_inbox(dismissed_at, occurred_at DESC);
+        CREATE INDEX IF NOT EXISTS cove_message_ingestion_status_lease_idx
+          ON cove_message_ingestion(status, lease_until);
+        CREATE INDEX IF NOT EXISTS cove_message_ingestion_receipt_idx
+          ON cove_message_ingestion(receipt_id);
+        CREATE INDEX IF NOT EXISTS cove_email_messages_thread_date_idx
+          ON cove_email_messages(thread_id, internal_date);
+        CREATE INDEX IF NOT EXISTS cove_email_messages_state_idx
+          ON cove_email_messages(state, updated_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS cove_gmail_operations_one_active_thread
+          ON cove_gmail_operations(thread_id)
+          WHERE status IN ('pending','uncertain');
+        CREATE INDEX IF NOT EXISTS cove_gmail_operations_status_idx
+          ON cove_gmail_operations(status, updated_at);
+      `);
+    },
+  },
 ];
 
-export function runLocalMigrations(
-  db: Database.Database,
-  now: () => Date = () => new Date(),
-): void {
+function migrationTableExists(db: Database.Database, name: string): boolean {
+  return Boolean(db.prepare(
+    "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?",
+  ).get(name));
+}
+
+function ensureMigrationLedger(db: Database.Database): void {
+  if (
+    !migrationTableExists(db, "cove_schema_migrations") &&
+    migrationTableExists(db, "forge_schema_migrations")
+  ) {
+    db.exec(
+      "ALTER TABLE forge_schema_migrations RENAME TO cove_schema_migrations",
+    );
+  }
   db.exec(`
-    CREATE TABLE IF NOT EXISTS forge_schema_migrations (
+    CREATE TABLE IF NOT EXISTS cove_schema_migrations (
       version INTEGER PRIMARY KEY,
       name TEXT NOT NULL,
       applied_at TEXT NOT NULL
     )
   `);
+}
+
+export function runLocalMigrations(
+  db: Database.Database,
+  now: () => Date = () => new Date(),
+): void {
+  ensureMigrationLedger(db);
   for (const migration of LOCAL_MIGRATIONS) {
     applyLocalMigration(db, migration, now);
   }
@@ -906,15 +1281,9 @@ export function applyLocalMigration(
   migration: LocalMigration,
   now: () => Date = () => new Date(),
 ): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS forge_schema_migrations (
-      version INTEGER PRIMARY KEY,
-      name TEXT NOT NULL,
-      applied_at TEXT NOT NULL
-    )
-  `);
+  ensureMigrationLedger(db);
   const alreadyApplied = db.prepare(
-    "SELECT 1 FROM forge_schema_migrations WHERE version = ?",
+    "SELECT 1 FROM cove_schema_migrations WHERE version = ?",
   );
   if (alreadyApplied.get(migration.version)) return;
 
@@ -937,7 +1306,7 @@ export function applyLocalMigration(
       if (alreadyApplied.get(migration.version)) return;
       migration.up(db);
       db.prepare(
-        "INSERT INTO forge_schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
+        "INSERT INTO cove_schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
       ).run(migration.version, migration.name, now().toISOString());
     }).immediate();
   } finally {

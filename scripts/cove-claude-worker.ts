@@ -38,7 +38,7 @@ async function main(): Promise<number> {
   if (!existsSync(claudePath)) {
     return 4;
   }
-  const dbPath = coveEnv("DB_PATH") ?? path.join(repoDir, "data", "forge.db");
+  const dbPath = coveEnv("DB_PATH") ?? path.join(repoDir, "data", "cove.db");
   if (lane === "groundwork") {
     const shutdown = new AbortController();
     const stop = () => shutdown.abort();

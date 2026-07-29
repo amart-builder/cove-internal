@@ -4,7 +4,7 @@ Internal. For Alex on install day. The client-facing page is docs/gary-handoff-o
 
 ## Before you leave the house
 
-1. **Refresh the mirror repo.** github.com/amart-builder/cove must carry the latest main from the build wave (the week of 2026-07-28 shipped the setup script, Buddy replan, feedback, and the UI pass). Push the current forge main to the cove mirror before anything else.
+1. **Refresh the mirror repo.** github.com/amart-builder/cove must carry the latest main from the build wave (the week of 2026-07-28 shipped the setup script, Buddy replan, feedback, and the UI pass). Push the current cove main to the cove mirror before anything else.
 2. **Flip the mirror repo public.** github.com/amart-builder/cove is still PRIVATE. Settings > General > Danger Zone > Change visibility. Without this, Gary's clone fails at step one.
 3. **Test the clone logged out.** In a private browser window, open https://github.com/amart-builder/cove. If you can see it, Gary's Mac can clone it.
 4. **Carry the fallback.** Zip a fresh clone of the mirror onto a USB stick or AirDrop-able folder. If Gary's network or GitHub acts up, you unzip to ~/cove and continue from Step 1 of SETUP.
@@ -17,7 +17,7 @@ Internal. For Alex on install day. The client-facing page is docs/gary-handoff-o
 3. **The interview is the product.** When setup asks about Gary (name, timezone, goals, who matters to him), slow down here. Thin answers make a thin brief. The setup agent checks this, but you check it too.
 4. **Meeting notes step:** setup asks what tool he uses for notes and wires the watcher. If he uses nothing, the email fallback covers him. Don't skip the pitch: this is how follow-ups become automatic.
 5. **CRM step:** setup asks what he uses today. If he has one, let the agent research whether it can connect. Connect if possible, copy his data in if not.
-6. **Email:** he connects Gmail through Composio (the native connector comes later, after our spike). Confirm the two triage runs are scheduled and that he understands drafts only, never sends.
+6. **Email:** connect Gmail, Calendar, and Drive through Cove's direct Google Workspace OAuth setup in `SETUP.md`. Confirm the two triage runs are scheduled and that he understands drafts only, never sends.
 
 ## The finale (do not rush this)
 

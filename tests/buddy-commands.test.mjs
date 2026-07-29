@@ -13,11 +13,11 @@ import {
   renderBuddyInstructionDoc,
 } from '../src/lib/buddy/commands.ts';
 
-const buddyDataDir = path.join(os.tmpdir(), `forge-buddy-command-${process.pid}-${Date.now()}`);
+const buddyDataDir = path.join(os.tmpdir(), `cove-buddy-command-${process.pid}-${Date.now()}`);
 const previousDbPath = process.env.COVE_DB_PATH;
 test.before(() => {
   mkdirSync(buddyDataDir, { recursive: true });
-  process.env.COVE_DB_PATH = path.join(buddyDataDir, 'forge.db');
+  process.env.COVE_DB_PATH = path.join(buddyDataDir, 'cove.db');
 });
 test.after(() => {
   if (previousDbPath === undefined) delete process.env.COVE_DB_PATH;

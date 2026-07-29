@@ -1,11 +1,15 @@
 import Database from "better-sqlite3";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { coveEnv } from "../env";
 import { runLocalMigrations } from "./migrations";
 
 export function localDatabasePath(): string {
-  return coveEnv("DB_PATH") || path.join(process.cwd(), "data", "forge.db");
+  const configured = coveEnv("DB_PATH");
+  if (configured) return configured;
+  const canonical = path.join(process.cwd(), "data", "cove.db");
+  const legacy = path.join(process.cwd(), "data", "forge.db");
+  return existsSync(canonical) || !existsSync(legacy) ? canonical : legacy;
 }
 
 export function openSqliteDatabase(

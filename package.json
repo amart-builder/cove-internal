@@ -9,7 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "tsc --noEmit && tsx --test tests/*.test.mjs",
-    "email:triage": "node scripts/run-email-triage.mjs"
+    "email:triage": "tsx scripts/cove-email-runner.ts"
   },
   "dependencies": {
     "@auth/core": "^0.37.4",

@@ -66,7 +66,7 @@ function accessError(request: NextRequest, csrf: boolean): NextResponse | undefi
   if (!hasDayPlanRouteAccess(request)) {
     return NextResponse.json({ error: "Untrusted request host." }, { status: 403 });
   }
-  if (csrf && request.headers.get("x-forge-csrf") !== getQuietCurrentCsrfToken()) {
+  if (csrf && request.headers.get("x-cove-csrf") !== getQuietCurrentCsrfToken()) {
     return NextResponse.json({ error: "Cove request token is missing." }, { status: 403 });
   }
 }

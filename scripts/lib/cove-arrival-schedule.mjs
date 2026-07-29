@@ -73,27 +73,27 @@ export function validateArrivalConfig(value) {
     throw new Error("quiet_dates must contain unique YYYY-MM-DD calendar dates.");
   }
 
-  if (typeof input.forge_url !== "string" || !input.forge_url.trim()) {
-    throw new Error("forge_url must be an http or https URL.");
+  if (typeof input.cove_url !== "string" || !input.cove_url.trim()) {
+    throw new Error("cove_url must be an http or https URL.");
   }
-  let forgeUrl;
+  let coveUrl;
   try {
-    forgeUrl = new URL(input.forge_url.trim());
+    coveUrl = new URL(input.cove_url.trim());
   } catch {
-    throw new Error("forge_url must be an http or https URL.");
+    throw new Error("cove_url must be an http or https URL.");
   }
   if (
-    !["http:", "https:"].includes(forgeUrl.protocol) ||
-    forgeUrl.username ||
-    forgeUrl.password
+    !["http:", "https:"].includes(coveUrl.protocol) ||
+    coveUrl.username ||
+    coveUrl.password
   ) {
-    throw new Error("forge_url must use http or https and cannot contain credentials.");
+    throw new Error("cove_url must use http or https and cannot contain credentials.");
   }
 
   return {
-    forge_url: forgeUrl.origin,
-    tasks_url: new URL("/tasks", forgeUrl.origin).toString(),
-    day_plan_url: new URL("/api/day-plan", forgeUrl.origin).toString(),
+    cove_url: coveUrl.origin,
+    tasks_url: new URL("/tasks", coveUrl.origin).toString(),
+    day_plan_url: new URL("/api/day-plan", coveUrl.origin).toString(),
     timezone,
     arrival_time: input.arrival_time,
     weekdays: [...input.weekdays],

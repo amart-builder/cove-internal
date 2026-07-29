@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { coveEnv } from "../src/lib/env";
@@ -13,6 +14,16 @@ import {
   collectCoveHealth,
   enqueueDueHealthCollection,
 } from "../src/lib/health/collector";
+import {
+  createGmailOperationHandler,
+  reconcileDeadEmailJobs,
+} from "../src/lib/email/gmail-outbox";
+import {
+  createEmailArtifactHandler,
+  createEmailClassificationHandler,
+} from "../src/lib/email/classification-job";
+import { createGoogleWorkspaceGateway, workspaceConfigPath } from "../src/lib/workspace";
+import { readWorkspaceConfig } from "../src/lib/workspace";
 
 function localDateKey(date: Date): string {
   const year = date.getFullYear();
@@ -21,9 +32,14 @@ function localDateKey(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function voiceGuide(): string {
+  const file = path.join(os.homedir(), ".claude", "voice.md");
+  return existsSync(file) ? readFileSync(file, "utf8").slice(0, 12_000) : "";
+}
+
 function paths(): { dbPath: string; backupDir: string } {
   const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  const dbPath = coveEnv("DB_PATH") ?? path.join(repoDir, "data", "forge.db");
+  const dbPath = coveEnv("DB_PATH") ?? path.join(repoDir, "data", "cove.db");
   return {
     dbPath,
     backupDir: coveEnv("BACKUP_DIR") ?? path.join(path.dirname(dbPath), "backups"),
@@ -32,6 +48,25 @@ function paths(): { dbPath: string; backupDir: string } {
 
 function schedulerWithHandlers(dbPath: string, backupDir: string): JobScheduler {
   const scheduler = new JobScheduler({ dbPath });
+  const dataDir = path.dirname(dbPath);
+  if (existsSync(workspaceConfigPath(dataDir))) {
+    const gateway = createGoogleWorkspaceGateway({ dataDir });
+    const workspace = readWorkspaceConfig(dataDir);
+    scheduler.register("gmail-operation", createGmailOperationHandler({
+      gateway: gateway.mail,
+      dbPath,
+    }));
+    scheduler.register("email-classify", createEmailClassificationHandler({
+      gateway: gateway.mail,
+      accountEmail: workspace.accountEmail,
+      dbPath,
+      voice: voiceGuide,
+    }));
+    scheduler.register("email-artifacts", createEmailArtifactHandler({
+      dbPath,
+      dataDir,
+    }));
+  }
   scheduler.register("backup", async (job) => {
     const requestedAt = (
       job.payload &&
@@ -124,6 +159,7 @@ async function main(): Promise<number> {
       if (!process.argv.includes("--run")) return 0;
     }
     const result = await scheduler.runAvailable({ concurrency: 1, maxJobs: 25 });
+    reconcileDeadEmailJobs({ dbPath });
     process.stdout.write(`${JSON.stringify(result)}\n`);
     return 0;
   } finally {

@@ -18,7 +18,7 @@ Create `data/cove-arrival.json` (the entire `data/` directory is already gitigno
 
 ```json
 {
-  "forge_url": "http://localhost:3200",
+  "cove_url": "http://localhost:3200",
   "timezone": "America/Los_Angeles",
   "arrival_time": "08:00",
   "weekdays": [1, 2, 3, 4, 5],
@@ -30,7 +30,7 @@ Weekdays use ISO numbers: Monday is 1 and Sunday is 7. Times are 24-hour `HH:MM`
 
 For an isolated test, `COVE_ARRIVAL_CONFIG` may contain inline JSON or the path to another config file. The configured URL is reduced to its origin. Polling is always `<origin>/api/day-plan`, and the only browser target is `<origin>/tasks`. URLs with credentials or a non-HTTP protocol are rejected.
 
-The day-plan route denies access when no server-owned access mode is configured. For this local experiment, bind Cove to `127.0.0.1` and set `COVE_DAY_PLAN_ACCESS_MODE=loopback`; the mode is safe only because the server is actually reachable through loopback. A non-loopback deployment must instead set `COVE_DAY_PLAN_ACCESS_MODE=session` and `COVE_DAY_PLAN_REMOTE_TOKEN`, then use a trusted proxy or browser integration to inject the matching `X-Forge-Day-Plan-Session` header. The current browser client does not inject that header, so remote Morning Arrival stays disabled until that trusted path is deliberately built.
+The day-plan route denies access when no server-owned access mode is configured. For this local experiment, bind Cove to `127.0.0.1` and set `COVE_DAY_PLAN_ACCESS_MODE=loopback`; the mode is safe only because the server is actually reachable through loopback. A non-loopback deployment must instead set `COVE_DAY_PLAN_ACCESS_MODE=session` and `COVE_DAY_PLAN_REMOTE_TOKEN`, then use a trusted proxy or browser integration to inject the matching `X-Cove-Day-Plan-Session` header. The current browser client does not inject that header, so remote Morning Arrival stays disabled until that trusted path is deliberately built.
 
 The repository's local installer now writes the loopback mode into its loopback-bound Cove LaunchAgent. An already-installed plist does not update itself; rebuild and rerun the installer before local dogfood, then verify the generated agent contains both the `127.0.0.1` bind and `COVE_DAY_PLAN_ACCESS_MODE=loopback`.
 
@@ -54,7 +54,7 @@ Live opening requires the explicit flag:
 node scripts/cove-arrival-spike.mjs --live-open
 ```
 
-Only a successful `/usr/bin/open <origin>/tasks` call gets a receipt. The receipt is atomically replaced at `data/forge-arrival-receipts.json` with mode `0600`. `data/forge-arrival-spike.lock` prevents overlapping minute pulses and is removed after each run. Runtime logs contain only a timestamp, an optional plan/event key, and a result. Manual runs log to stdout.
+Only a successful `/usr/bin/open <origin>/tasks` call gets a receipt. The receipt is atomically replaced at `data/cove-arrival-receipts.json` with mode `0600`. `data/cove-arrival-spike.lock` prevents overlapping minute pulses and is removed after each run. Runtime logs contain only a timestamp, an optional plan/event key, and a result. Manual runs log to stdout.
 
 ## launchd experiment shape
 

@@ -20,8 +20,8 @@ import { coveConfigPath, coveEnv } from "../src/lib/env-runtime.mjs";
 
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dataDir = path.join(repoDir, "data");
-const receiptPath = path.join(dataDir, "forge-arrival-receipts.json");
-const lockPath = path.join(dataDir, "forge-arrival-spike.lock");
+const receiptPath = path.join(dataDir, "cove-arrival-receipts.json");
+const lockPath = path.join(dataDir, "cove-arrival-spike.lock");
 const defaultConfigPath = coveConfigPath(dataDir, "arrival.json");
 const MAX_RECEIPT_BYTES = 1024 * 1024;
 const LOCK_STALE_MS = 5 * 60 * 1000;

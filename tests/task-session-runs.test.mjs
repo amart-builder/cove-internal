@@ -54,7 +54,7 @@ function fixture(t, options = {}) {
     os.tmpdir(),
     `cove-task-session-${process.pid}-${Date.now()}-${Math.random()}`,
   );
-  const dbPath = path.join(dir, 'forge.db');
+  const dbPath = path.join(dir, 'cove.db');
   const children = [];
   const spawnCalls = [];
   let nextPid = 41000;
@@ -546,7 +546,7 @@ test('task session API is local-only and cloud modes never touch the manager', a
         host: 'localhost:3200',
         origin: 'http://localhost:3200',
         'content-type': 'application/json',
-        'x-forge-csrf': getQuietCurrentCsrfToken(),
+        'x-cove-csrf': getQuietCurrentCsrfToken(),
       },
       body: JSON.stringify({
         action: 'launch',

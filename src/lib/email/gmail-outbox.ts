@@ -1,0 +1,415 @@
+import type Database from "better-sqlite3";
+import { createHash } from "node:crypto";
+import { openLocalDatabase } from "../local/database";
+import type { ScheduledJob } from "../reliability/jobs";
+import { recordReceiptInDatabase } from "../reliability/receipts";
+import type { RestrictedMailGateway } from "../workspace";
+import { WorkspaceGatewayError } from "../workspace";
+import { ensureRollingEmailCardInDatabase } from "./state-machine";
+
+type OperationRow = {
+  id: string;
+  email_item_id: string;
+  thread_id: string;
+  expected_message_id: string;
+  expected_thread_version: number;
+  kind: "upsert_draft" | "archive_messages";
+  operation_key: string;
+  payload_json: string;
+  status: "pending" | "uncertain" | "succeeded" | "superseded" | "dead";
+  remote_id: string | null;
+  expected_internal_date: string | null;
+};
+
+function operation(db: Database.Database, id: string): OperationRow | undefined {
+  return db.prepare(
+    `SELECT operation.*, message.internal_date AS expected_internal_date
+     FROM cove_gmail_operations operation
+     JOIN cove_email_messages message
+       ON message.message_id = operation.expected_message_id
+     WHERE operation.id = ?`,
+  ).get(id) as OperationRow | undefined;
+}
+
+function numericDate(value: string | null | undefined): bigint {
+  try {
+    return BigInt(value || "0");
+  } catch {
+    return BigInt(0);
+  }
+}
+
+function jobOperationId(job: ScheduledJob): string {
+  if (!job.payload || typeof job.payload !== "object" || Array.isArray(job.payload)) {
+    throw new Error("Gmail operation job payload is invalid.");
+  }
+  const value = (job.payload as Record<string, unknown>).operationId;
+  if (typeof value !== "string" || !value) {
+    throw new Error("Gmail operation id is missing.");
+  }
+  return value;
+}
+
+function currentVersion(db: Database.Database, row: OperationRow): boolean {
+  const current = db.prepare(
+    `SELECT 1 FROM email_items
+     WHERE id = ? AND thread_id = ? AND thread_version = ?
+       AND latest_inbound_message_id = ?`,
+  ).get(
+    row.email_item_id,
+    row.thread_id,
+    row.expected_thread_version,
+    row.expected_message_id,
+  );
+  return Boolean(current);
+}
+
+function parsedPayload(row: OperationRow): Record<string, unknown> {
+  try {
+    const value = JSON.parse(row.payload_json) as unknown;
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function headerValue(
+  message: Awaited<ReturnType<RestrictedMailGateway["getMessage"]>>,
+  name: string,
+): string {
+  return message.headers.find(
+    (header) => header.name.toLowerCase() === name.toLowerCase(),
+  )?.value ?? "";
+}
+
+async function findOperationDraft(
+  gateway: RestrictedMailGateway,
+  row: OperationRow,
+): Promise<{
+  draft: { id: string; messageId: string; threadId: string };
+  exactOperation: boolean;
+} | undefined> {
+  let pageToken: string | undefined;
+  const seenPageTokens = new Set<string>();
+  let sameThreadDraft: { id: string; messageId: string; threadId: string } | undefined;
+  do {
+    const page = await gateway.listDrafts({ pageToken, maxResults: 500 });
+    for (const draft of page.drafts) {
+      if (draft.threadId !== row.thread_id) continue;
+      sameThreadDraft ??= draft;
+      const message = await gateway.getMessage({
+        messageId: draft.messageId,
+        format: "metadata",
+      });
+      if (headerValue(message, "X-Cove-Operation-Id") === row.operation_key) {
+        return { draft, exactOperation: true };
+      }
+    }
+    pageToken = page.nextPageToken;
+    if (pageToken && seenPageTokens.has(pageToken)) {
+      throw new WorkspaceGatewayError({
+        code: "provider_contract",
+        operation: "gmail_list_drafts",
+        safeMessage: "Google returned a repeated drafts page.",
+      });
+    }
+    if (pageToken) seenPageTokens.add(pageToken);
+  } while (pageToken);
+  return sameThreadDraft
+    ? { draft: sameThreadDraft, exactOperation: false }
+    : undefined;
+}
+
+export function createGmailOperationHandler(input: {
+  gateway: RestrictedMailGateway;
+  dbPath?: string;
+  now?: () => Date;
+}) {
+  return async (job: ScheduledJob): Promise<{
+    summary: string;
+    actions: unknown;
+  }> => {
+    const now = (input.now ?? (() => new Date()))().toISOString();
+    const operationId = jobOperationId(job);
+    let row: OperationRow;
+    const inspect = openLocalDatabase(input.dbPath);
+    try {
+      const found = operation(inspect, operationId);
+      if (!found) throw new Error("Gmail operation was not found.");
+      if (found.status === "succeeded" || found.status === "superseded") {
+        return {
+          summary: "Gmail operation was already complete.",
+          actions: { operationId, status: found.status },
+        };
+      }
+      if (!currentVersion(inspect, found)) {
+        inspect.prepare(
+          `UPDATE cove_gmail_operations
+           SET status = 'superseded', updated_at = ?, completed_at = ?
+           WHERE id = ? AND status IN ('pending','uncertain')`,
+        ).run(now, now, found.id);
+        return {
+          summary: "A newer email superseded the pending Gmail operation.",
+          actions: { operationId, status: "superseded" },
+        };
+      }
+      row = found;
+    } finally {
+      inspect.close();
+    }
+
+    const payload = parsedPayload(row);
+    let remoteId: string | null = row.remote_id;
+    let draftBodyVerified = false;
+    let preservedExistingDraft = false;
+    try {
+      if (row.kind === "archive_messages") {
+        const requestedMessageIds = Array.isArray(payload.messageIds)
+          ? payload.messageIds.filter((value): value is string => typeof value === "string")
+          : [];
+        if (requestedMessageIds.length === 0) {
+          throw new Error("Archive operation has no messages.");
+        }
+        const thread = await input.gateway.getThread({
+          threadId: row.thread_id,
+          format: "metadata",
+        });
+        const cutoff = numericDate(row.expected_internal_date);
+        const requested = new Set(requestedMessageIds);
+        const messageIds = thread.messages
+          .filter((message) =>
+            message.labelIds.includes("INBOX") &&
+            (cutoff > BigInt(0)
+              ? numericDate(message.internalDate) <= cutoff
+              : requested.has(message.id))
+          )
+          .map((message) => message.id);
+        for (let index = 0; index < messageIds.length; index += 100) {
+          await input.gateway.archiveMessages({
+            messageIds: messageIds.slice(index, index + 100),
+          });
+        }
+      } else {
+        const existing = await findOperationDraft(input.gateway, row);
+        if (existing) {
+          remoteId = existing.draft.id;
+          draftBodyVerified = existing.exactOperation;
+          preservedExistingDraft = !existing.exactOperation;
+        } else if (row.status === "uncertain") {
+          throw new WorkspaceGatewayError({
+            code: "unknown_write_outcome",
+            operation: "gmail_create_reply_draft",
+            safeMessage: "Cove could not prove whether Google received the draft, so it will not create another.",
+          });
+        } else {
+          if (typeof payload.body !== "string" || !payload.body.trim()) {
+            throw new Error("Draft operation has no body.");
+          }
+          const created = await input.gateway.createReplyDraft({
+            threadId: row.thread_id,
+            sourceMessageId: row.expected_message_id,
+            body: payload.body,
+            idempotencyKey: row.operation_key,
+          });
+          remoteId = created.id;
+          draftBodyVerified = true;
+        }
+      }
+    } catch (error) {
+      if (error instanceof WorkspaceGatewayError && error.code === "unknown_write_outcome") {
+        const db = openLocalDatabase(input.dbPath);
+        try {
+          db.prepare(
+            `UPDATE cove_gmail_operations
+             SET status = 'uncertain', last_error = ?, updated_at = ?
+             WHERE id = ? AND status IN ('pending','uncertain')`,
+          ).run(error.message.slice(0, 2_000), now, row.id);
+        } finally {
+          db.close();
+        }
+      }
+      throw error;
+    }
+
+    const finalize = openLocalDatabase(input.dbPath);
+    try {
+      return finalize.transaction(() => {
+        const current = operation(finalize, row.id);
+        if (!current || !currentVersion(finalize, current)) {
+          if (current) {
+            finalize.prepare(
+              `UPDATE cove_gmail_operations
+               SET status = 'superseded', updated_at = ?, completed_at = ?
+               WHERE id = ?`,
+            ).run(now, now, current.id);
+          }
+          return {
+            summary: "A newer email superseded the completed Gmail operation.",
+            actions: { operationId, status: "superseded" },
+          };
+        }
+        finalize.prepare(
+          `UPDATE cove_gmail_operations
+           SET status = 'succeeded', remote_id = ?, result_json = ?,
+               last_error = NULL, updated_at = ?, completed_at = ?
+           WHERE id = ?`,
+        ).run(
+          remoteId,
+          JSON.stringify({
+            remoteId,
+            draftBodyVerified,
+            preservedExistingDraft,
+          }),
+          now,
+          now,
+          current.id,
+        );
+        if (current.kind === "archive_messages") {
+          finalize.prepare(
+            `UPDATE email_items
+             SET workflow_state = 'terminal', status = 'actioned',
+                 actioned_at = ?, updated_at = ?
+             WHERE id = ? AND thread_version = ?`,
+          ).run(now, now, current.email_item_id, current.expected_thread_version);
+          recordReceiptInDatabase(finalize, {
+            source: "email-archive",
+            startedAt: now,
+            finishedAt: now,
+            summary: "Handled email was archived after Gmail confirmed the change.",
+            actions: {
+              emailItemId: current.email_item_id,
+              threadId: current.thread_id,
+              operationId: current.id,
+            },
+            outcome: "success",
+          });
+        } else {
+          const body = typeof payload.body === "string" ? payload.body : "";
+          finalize.prepare(
+            `UPDATE email_items
+             SET workflow_state = 'open', status = 'pending',
+                 gmail_draft_id = ?, draft_body_hash = ?,
+                 recommended_action = CASE WHEN ? = 1
+                   THEN 'Review the existing Gmail draft against the latest message'
+                   ELSE recommended_action END,
+                 surfaced_message_id = ?, surfaced_at = ?, updated_at = ?
+             WHERE id = ? AND thread_version = ?`,
+          ).run(
+            remoteId,
+            draftBodyVerified
+              ? createHash("sha256").update(body).digest("hex")
+              : null,
+            preservedExistingDraft ? 1 : 0,
+            current.expected_message_id,
+            now,
+            now,
+            current.email_item_id,
+            current.expected_thread_version,
+          );
+          const receipt = recordReceiptInDatabase(finalize, {
+            source: "email-surfaced",
+            startedAt: now,
+            finishedAt: now,
+            summary: preservedExistingDraft
+              ? "An existing Gmail draft was preserved and needs review against the latest message."
+              : "A reply draft is ready in Gmail and appears on the rolling Email card.",
+            actions: {
+              emailItemId: current.email_item_id,
+              threadId: current.thread_id,
+              operationId: current.id,
+              draftId: remoteId,
+              draftBodyVerified,
+              preservedExistingDraft,
+            },
+            outcome: "success",
+          });
+          finalize.prepare(
+            "UPDATE email_items SET surface_receipt_id = ? WHERE id = ?",
+          ).run(receipt.id, current.email_item_id);
+        }
+        const open = Boolean(finalize.prepare(
+          "SELECT 1 FROM email_items WHERE status = 'pending' LIMIT 1",
+        ).get());
+        ensureRollingEmailCardInDatabase(finalize, { now, open });
+        finalize.prepare(
+          `UPDATE cove_failure_inbox
+           SET dismissed_at = ?
+           WHERE source = 'job' AND source_id = ? AND dismissed_at IS NULL`,
+        ).run(now, job.id);
+        return {
+          summary: current.kind === "archive_messages"
+            ? "Archived handled email."
+            : preservedExistingDraft
+              ? "Preserved the existing thread draft and flagged it for review."
+              : "Prepared reply draft without creating a duplicate.",
+          actions: {
+            operationId: current.id,
+            kind: current.kind,
+            remoteId,
+            draftBodyVerified,
+            preservedExistingDraft,
+          },
+        };
+      }).immediate();
+    } finally {
+      finalize.close();
+    }
+  };
+}
+
+export function reconcileDeadEmailJobs(input: {
+  dbPath?: string;
+  now?: Date;
+} = {}): { operations: number; classifications: number } {
+  const now = (input.now ?? new Date()).toISOString();
+  const db = openLocalDatabase(input.dbPath);
+  try {
+    return db.transaction(() => {
+      const deadOperations = db.prepare(
+        `SELECT operation.id, operation.email_item_id
+         FROM cove_gmail_operations operation
+         JOIN cove_jobs job ON job.id = operation.job_id
+         WHERE job.status = 'dead'
+           AND operation.status IN ('pending','uncertain')`,
+      ).all() as Array<{ id: string; email_item_id: string }>;
+      for (const operation of deadOperations) {
+        db.prepare(
+          `UPDATE cove_gmail_operations
+           SET status = 'dead', updated_at = ?, completed_at = ? WHERE id = ?`,
+        ).run(now, now, operation.id);
+        db.prepare(
+          `UPDATE email_items
+           SET workflow_state = 'failed', status = 'pending', updated_at = ?
+           WHERE id = ? AND workflow_state != 'terminal'`,
+        ).run(now, operation.email_item_id);
+      }
+      const deadClassifications = db.prepare(
+        `SELECT message.message_id, message.email_item_id
+         FROM cove_email_messages message
+         JOIN cove_jobs job
+           ON job.idempotency_key = 'email-classify:' || message.message_id
+         WHERE job.status = 'dead'
+           AND message.state IN ('observed','classifying','failed')`,
+      ).all() as Array<{ message_id: string; email_item_id: string }>;
+      for (const message of deadClassifications) {
+        db.prepare(
+          `UPDATE cove_email_messages
+           SET state = 'failed', updated_at = ? WHERE message_id = ?`,
+        ).run(now, message.message_id);
+        db.prepare(
+          `UPDATE email_items
+           SET workflow_state = 'failed', status = 'pending', updated_at = ?
+           WHERE id = ? AND workflow_state != 'terminal'`,
+        ).run(now, message.email_item_id);
+      }
+      return {
+        operations: deadOperations.length,
+        classifications: deadClassifications.length,
+      };
+    }).immediate();
+  } finally {
+    db.close();
+  }
+}

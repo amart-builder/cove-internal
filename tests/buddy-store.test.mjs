@@ -7,7 +7,7 @@ import Database from 'better-sqlite3';
 import { createBuddyStore, getBuddyStore } from '../src/lib/buddy/store.ts';
 
 function setup(t) {
-  const file = path.join(os.tmpdir(), `forge-buddy-${process.pid}-${Date.now()}-${Math.random()}.db`);
+  const file = path.join(os.tmpdir(), `cove-buddy-${process.pid}-${Date.now()}-${Math.random()}.db`);
   let now = new Date('2026-07-15T20:00:00.000Z');
   const store = createBuddyStore({ dbPath: file, now: () => now });
   t.after(() => {
@@ -99,7 +99,7 @@ test('pending delete tokens are exact, expiring, and single-use', (t) => {
 });
 
 test('store initialization immediately fails running turns from an earlier process', (t) => {
-  const file = path.join(os.tmpdir(), `forge-buddy-restart-${process.pid}-${Date.now()}-${Math.random()}.db`);
+  const file = path.join(os.tmpdir(), `cove-buddy-restart-${process.pid}-${Date.now()}-${Math.random()}.db`);
   const firstNow = new Date('2026-07-15T20:00:00.000Z');
   const first = createBuddyStore({
     dbPath: file,
@@ -127,7 +127,7 @@ test('store initialization immediately fails running turns from an earlier proce
 });
 
 test('store initialization preserves a running turn started after this process', (t) => {
-  const file = path.join(os.tmpdir(), `forge-buddy-hmr-${process.pid}-${Date.now()}-${Math.random()}.db`);
+  const file = path.join(os.tmpdir(), `cove-buddy-hmr-${process.pid}-${Date.now()}-${Math.random()}.db`);
   const first = createBuddyStore({
     dbPath: file,
     now: () => new Date('2026-07-15T20:01:00.000Z'),
@@ -154,7 +154,7 @@ test('store initialization preserves a running turn started after this process',
 });
 
 test('store initialization retains the newest 500 turns and removes old auxiliary rows', (t) => {
-  const file = path.join(os.tmpdir(), `forge-buddy-retention-${process.pid}-${Date.now()}-${Math.random()}.db`);
+  const file = path.join(os.tmpdir(), `cove-buddy-retention-${process.pid}-${Date.now()}-${Math.random()}.db`);
   const initial = createBuddyStore({
     dbPath: file,
     now: () => new Date('2026-07-15T20:00:00.000Z'),
@@ -211,7 +211,7 @@ test('store initialization retains the newest 500 turns and removes old auxiliar
 });
 
 test('Buddy store migrates legacy tables that are missing current columns', (t) => {
-  const file = path.join(os.tmpdir(), `forge-buddy-legacy-${process.pid}-${Date.now()}-${Math.random()}.db`);
+  const file = path.join(os.tmpdir(), `cove-buddy-legacy-${process.pid}-${Date.now()}-${Math.random()}.db`);
   const legacy = new Database(file);
   legacy.exec(`
     CREATE TABLE buddy_state (id INTEGER PRIMARY KEY, created_at TEXT NOT NULL);
@@ -256,21 +256,21 @@ test('Buddy store migrates legacy tables that are missing current columns', (t) 
 
 test('getBuddyStore replaces an HMR-stale singleton whose API predates completeTurn', (t) => {
   const previousPath = process.env.COVE_DB_PATH;
-  const previousStore = globalThis.__forgeBuddyStore;
-  const currentFile = path.join(os.tmpdir(), `forge-buddy-current-${process.pid}-${Date.now()}.db`);
-  const staleFile = path.join(os.tmpdir(), `forge-buddy-stale-${process.pid}-${Date.now()}.db`);
+  const previousStore = globalThis.__coveBuddyStore;
+  const currentFile = path.join(os.tmpdir(), `cove-buddy-current-${process.pid}-${Date.now()}.db`);
+  const staleFile = path.join(os.tmpdir(), `cove-buddy-stale-${process.pid}-${Date.now()}.db`);
   const staleStore = createBuddyStore({ dbPath: staleFile });
   delete staleStore.completeTurn;
-  globalThis.__forgeBuddyStore = staleStore;
-  delete globalThis.__forgeBuddyStoreVersion;
+  globalThis.__coveBuddyStore = staleStore;
+  delete globalThis.__coveBuddyStoreVersion;
   process.env.COVE_DB_PATH = currentFile;
   t.after(() => {
-    const currentStore = globalThis.__forgeBuddyStore;
+    const currentStore = globalThis.__coveBuddyStore;
     if (currentStore && currentStore !== staleStore) currentStore.close();
     if (staleStore.getBuddyState) staleStore.close();
-    if (previousStore) globalThis.__forgeBuddyStore = previousStore;
-    else delete globalThis.__forgeBuddyStore;
-    delete globalThis.__forgeBuddyStoreVersion;
+    if (previousStore) globalThis.__coveBuddyStore = previousStore;
+    else delete globalThis.__coveBuddyStore;
+    delete globalThis.__coveBuddyStoreVersion;
     if (previousPath === undefined) delete process.env.COVE_DB_PATH;
     else process.env.COVE_DB_PATH = previousPath;
     for (const file of [currentFile, staleFile]) {

@@ -6,7 +6,7 @@ import test from 'node:test';
 import { resolveProjectDirectory } from '../src/lib/atlas-projects.ts';
 
 test('Atlas project resolver handles exact, unique fuzzy, ambiguous, missing, and traversal hints', (t) => {
-  const fixture = path.join(os.tmpdir(), `forge-atlas-projects-${process.pid}-${Date.now()}`);
+  const fixture = path.join(os.tmpdir(), `cove-atlas-projects-${process.pid}-${Date.now()}`);
   const home = path.join(fixture, 'home');
   const projectsRoot = path.join(home, 'Atlas', 'Projects');
   for (const name of ['AI', 'Pilot Memory', 'Pilot Pro', 'Beacon-Engine']) {

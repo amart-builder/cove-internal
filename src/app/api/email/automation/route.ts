@@ -3,10 +3,8 @@ import {
   archiveEmailItemFromCard,
   captureEmailCommitments,
   getEmailCRMContext,
-  reconcileGmailToCard,
   recordEmailCorrespondence,
   type EmailCommitmentInput,
-  type GmailThreadObservation,
 } from "@/lib/email/automation";
 import { getQuietCurrentCsrfToken } from "@/lib/quiet-current/store";
 import { hasDayPlanRouteAccess } from "@/lib/request-security";
@@ -38,32 +36,6 @@ function text(
     throw new Error(`${name} is too long.`);
   }
   return result;
-}
-
-function boolean(value: unknown, name: string): boolean {
-  if (typeof value !== "boolean") throw new Error(`${name} must be true or false.`);
-  return value;
-}
-
-function observations(value: unknown): GmailThreadObservation[] {
-  if (!Array.isArray(value) || value.length > 500) {
-    throw new Error("observations must be an array of at most 500 items.");
-  }
-  return value.map((item) => {
-    const row = record(item, "observation");
-    return {
-      emailItemId: text(row.emailItemId, "emailItemId", {
-        required: true,
-        max: 200,
-      })!,
-      threadId: text(row.threadId, "threadId", {
-        required: true,
-        max: 500,
-      })!,
-      inInbox: boolean(row.inInbox, "inInbox"),
-      userReplied: boolean(row.userReplied, "userReplied"),
-    };
-  });
 }
 
 function commitments(value: unknown): EmailCommitmentInput[] {
@@ -114,7 +86,7 @@ export async function POST(request: NextRequest) {
       { status: 403 },
     );
   }
-  if (request.headers.get("x-forge-csrf") !== getQuietCurrentCsrfToken()) {
+  if (request.headers.get("x-cove-csrf") !== getQuietCurrentCsrfToken()) {
     return NextResponse.json(
       { error: "Cove request token is missing." },
       { status: 403 },
@@ -129,11 +101,6 @@ export async function POST(request: NextRequest) {
           required: true,
           max: 200,
         })!,
-      }));
-    }
-    if (action === "reconcile") {
-      return NextResponse.json(await reconcileGmailToCard({
-        observations: observations(body.observations),
       }));
     }
     if (action === "capture_commitments") {

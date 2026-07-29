@@ -95,7 +95,7 @@ export default function FailureInbox({ receiptsEnabled }: { receiptsEnabled: boo
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Forge-CSRF": csrfToken,
+          "X-Cove-CSRF": csrfToken,
         },
         body: JSON.stringify({ id }),
       });

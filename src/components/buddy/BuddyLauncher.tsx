@@ -71,7 +71,7 @@ export default function BuddyLauncher() {
         .buddy-idle .buddy-eyes { transform-origin: 32px 45px; animation: buddy-blink 5.4s ease-in-out infinite; }
         .buddy-working svg { animation: buddy-work .85s ease-in-out infinite; transform-origin: 32px 64px; }
         .buddy-working .buddy-eyes, .buddy-open .buddy-eyes { transform: translateY(-2px); }
-        .buddy-droop svg { animation: buddy-droop 3s var(--ease-out-forge) both; transform-origin: 32px 64px; }
+        .buddy-droop svg { animation: buddy-droop 3s var(--ease-out-cove) both; transform-origin: 32px 64px; }
         @media (prefers-reduced-motion: reduce) {
           .buddy-idle svg, .buddy-idle .buddy-eyes, .buddy-working svg, .buddy-droop svg { animation: none; transform: none; }
         }

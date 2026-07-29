@@ -198,7 +198,7 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
       const token = await ensureCsrf();
       response = await fetch('/api/buddy/turn', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Forge-CSRF': token },
+        headers: { 'Content-Type': 'application/json', 'X-Cove-CSRF': token },
         body: JSON.stringify({ text: text.trim(), pageContext, ...(override ? { override } : {}) }),
         cache: 'no-store',
       });
@@ -305,7 +305,7 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
     const token = await ensureCsrf();
     const response = await fetch('/api/buddy/confirm-delete', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Forge-CSRF': token },
+      headers: { 'Content-Type': 'application/json', 'X-Cove-CSRF': token },
       body: JSON.stringify({ turnId, table: pending.table, id: pending.id, label: pending.label }),
       cache: 'no-store',
     });
@@ -319,7 +319,7 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
     if (!deleted) throw new Error('Buddy did not confirm that the row was deleted. You can try again.');
     const resolved = await fetch('/api/buddy/confirm-delete', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Forge-CSRF': token },
+      headers: { 'Content-Type': 'application/json', 'X-Cove-CSRF': token },
       body: JSON.stringify({ action: 'resolve', turnId, table: pending.table, id: pending.id }),
       cache: 'no-store',
     });
@@ -334,7 +334,7 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
     const token = await ensureCsrf();
     const response = await fetch('/api/buddy/confirm-delete', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Forge-CSRF': token },
+      headers: { 'Content-Type': 'application/json', 'X-Cove-CSRF': token },
       body: JSON.stringify({ action: 'dismiss', turnId, table: pending.table, id: pending.id }),
       cache: 'no-store',
     });
@@ -353,7 +353,7 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Forge-CSRF': token,
+        'X-Cove-CSRF': token,
         'X-Cove-Buddy-Turn': turnId,
       },
       body: JSON.stringify({
@@ -400,7 +400,7 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
     const token = await ensureCsrf();
     const response = await fetch('/api/buddy/session', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Forge-CSRF': token },
+      headers: { 'Content-Type': 'application/json', 'X-Cove-CSRF': token },
       body: JSON.stringify({ action: 'reset' }),
       cache: 'no-store',
     });

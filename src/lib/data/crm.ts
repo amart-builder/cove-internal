@@ -1,5 +1,5 @@
 import { getDayPlanCsrfToken } from "./day-plan";
-import { forgeRest } from "../supabase/rest";
+import { coveRest } from "../supabase/rest";
 import type { Company, Contact, ContactActivity } from "./types";
 import { getRuntimeMode } from "../runtime/mode";
 
@@ -47,7 +47,7 @@ async function crmPost<T>(action: string, input: unknown): Promise<T> {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Forge-CSRF": csrfToken,
+      "X-Cove-CSRF": csrfToken,
     },
     body: JSON.stringify({ action, input }),
     signal: AbortSignal.timeout(10_000),
@@ -61,7 +61,7 @@ async function crmPost<T>(action: string, input: unknown): Promise<T> {
 
 export async function listContacts(search?: string): Promise<Contact[]> {
   if (getRuntimeMode() !== "local") {
-    return forgeRest<Contact[]>("contacts", {
+    return coveRest<Contact[]>("contacts", {
       query: {
         select: "*",
         order: "name.asc",
@@ -77,14 +77,14 @@ export async function listContacts(search?: string): Promise<Contact[]> {
 }
 
 export async function listCompanies(): Promise<Company[]> {
-  return forgeRest<Company[]>("companies", {
+  return coveRest<Company[]>("companies", {
     query: { select: "*", order: "name.asc" },
   });
 }
 
 export async function getContact(id: string): Promise<Contact | null> {
   if (getRuntimeMode() !== "local") {
-    const rows = await forgeRest<Contact[]>("contacts", {
+    const rows = await coveRest<Contact[]>("contacts", {
       query: { select: "*", id: `eq.${id}`, limit: 1 },
     });
     return rows[0] ?? null;
@@ -98,7 +98,7 @@ export async function getContact(id: string): Promise<Contact | null> {
 }
 
 export async function getCompany(id: string): Promise<Company | null> {
-  const rows = await forgeRest<Company[]>("companies", {
+  const rows = await coveRest<Company[]>("companies", {
     query: { select: "*", id: `eq.${id}`, limit: 1 },
   });
   return rows[0] ?? null;
@@ -114,7 +114,7 @@ export async function createContact(input: {
   tags?: string[];
 }): Promise<Contact> {
   if (getRuntimeMode() !== "local") {
-    const rows = await forgeRest<Contact[]>("contacts", {
+    const rows = await coveRest<Contact[]>("contacts", {
       method: "POST",
       body: {
         name: input.name,
@@ -149,7 +149,7 @@ export async function createCompany(input: {
   location?: string;
   tags?: string[];
 }): Promise<Company> {
-  const rows = await forgeRest<Company[]>("companies", {
+  const rows = await coveRest<Company[]>("companies", {
     method: "POST",
     body: {
       name: input.name,
@@ -168,7 +168,7 @@ export async function updateContact(
   patch: Partial<Contact>,
 ): Promise<Contact> {
   if (getRuntimeMode() !== "local") {
-    const rows = await forgeRest<Contact[]>("contacts", {
+    const rows = await coveRest<Contact[]>("contacts", {
       method: "PATCH",
       query: { id: `eq.${id}` },
       body: patch,
@@ -186,7 +186,7 @@ export async function updateCompany(
   id: string,
   patch: Partial<Company>,
 ): Promise<Company> {
-  const rows = await forgeRest<Company[]>("companies", {
+  const rows = await coveRest<Company[]>("companies", {
     method: "PATCH",
     query: { id: `eq.${id}` },
     body: patch,
@@ -196,7 +196,7 @@ export async function updateCompany(
 
 export async function deleteContact(id: string): Promise<void> {
   if (getRuntimeMode() !== "local") {
-    await forgeRest<undefined>("contacts", {
+    await coveRest<undefined>("contacts", {
       method: "DELETE",
       query: { id: `eq.${id}` },
     });
@@ -206,7 +206,7 @@ export async function deleteContact(id: string): Promise<void> {
 }
 
 export async function deleteCompany(id: string): Promise<void> {
-  await forgeRest<undefined>("companies", {
+  await coveRest<undefined>("companies", {
     method: "DELETE",
     query: { id: `eq.${id}` },
   });
@@ -214,7 +214,7 @@ export async function deleteCompany(id: string): Promise<void> {
 
 export async function listContactActivities(contactId: string): Promise<ContactActivity[]> {
   if (getRuntimeMode() !== "local") {
-    return forgeRest<ContactActivity[]>("contact_activities", {
+    return coveRest<ContactActivity[]>("contact_activities", {
       query: {
         select: "*",
         contact_id: `eq.${contactId}`,
@@ -237,7 +237,7 @@ export async function createContactActivity(input: {
   content?: string;
 }): Promise<ContactActivity> {
   if (getRuntimeMode() !== "local") {
-    const rows = await forgeRest<ContactActivity[]>("contact_activities", {
+    const rows = await coveRest<ContactActivity[]>("contact_activities", {
       method: "POST",
       body: {
         contact_id: input.contact_id,

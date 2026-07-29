@@ -705,7 +705,7 @@ export async function POST(request: NextRequest) {
   if (!hasDayPlanRouteAccess(request)) {
     return NextResponse.json({ error: "Untrusted request host." }, { status: 403 });
   }
-  const suppliedToken = request.headers.get("x-forge-csrf");
+  const suppliedToken = request.headers.get("x-cove-csrf");
   if (!suppliedToken || suppliedToken !== getQuietCurrentCsrfToken()) {
     return NextResponse.json({ error: "Cove request token is missing." }, { status: 403 });
   }

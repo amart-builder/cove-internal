@@ -54,7 +54,7 @@ const MACHINE = { id: MACHINE_ID, hostname: "test-mac.local" };
 function fixture(t) {
   const dir = path.join(
     os.tmpdir(),
-    `forge-progress-${process.pid}-${Date.now()}-${Math.random()}`,
+    `cove-progress-${process.pid}-${Date.now()}-${Math.random()}`,
   );
   mkdirSync(dir, { recursive: true });
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -148,9 +148,13 @@ test("cwd project mapping tolerates both machines, nesting, and non-project path
   );
   assert.equal(
     projectFromCwd(
-      "/Users/operator/Atlas/Projects/astack/forge/scripts",
+      "/Users/operator/Atlas/Projects/astack/cove/scripts",
+      {
+        existsImpl: (candidate) =>
+          candidate.endsWith("/Atlas/Projects/astack/cove/.git"),
+      },
     ),
-    "forge",
+    "cove",
   );
   assert.equal(projectFromCwd("/Users/operator/Atlas/brain"), "Atlas");
   assert.equal(projectFromCwd("/tmp"), "Atlas");
@@ -161,17 +165,17 @@ test("Claude transcript directory encoding matches absolute cwd punctuation", (t
   const projectsDir = path.join(dir, ".claude", "projects");
   assert.equal(
     transcriptDirectoryForCwd(
-      "/Users/operator/Atlas/Projects/astack/forge",
+      "/Users/operator/Atlas/Projects/astack/cove",
       { projectsDir },
     ),
-    path.join(projectsDir, "-Users-operator-Atlas-Projects-astack-forge"),
+    path.join(projectsDir, "-Users-operator-Atlas-Projects-astack-cove"),
   );
   assert.equal(
     transcriptDirectoryForCwd(
-      "/Users/operator/Atlas/Projects/astack/forge/",
+      "/Users/operator/Atlas/Projects/astack/cove/",
       { projectsDir },
     ),
-    path.join(projectsDir, "-Users-operator-Atlas-Projects-astack-forge-"),
+    path.join(projectsDir, "-Users-operator-Atlas-Projects-astack-cove-"),
   );
   assert.equal(
     transcriptDirectoryForCwd("/opt/client-work/repo", { projectsDir }),
@@ -193,7 +197,7 @@ test("Claude transcript directory encoding matches absolute cwd punctuation", (t
 test("transcript discovery uses raw cwd directories, the 24-hour window, and newest three", (t) => {
   const dir = fixture(t);
   const projectsDir = path.join(dir, ".claude", "projects");
-  const cwd = "/Users/operator/Atlas/Projects/astack/forge";
+  const cwd = "/Users/operator/Atlas/Projects/astack/cove";
   const transcriptDir = transcriptDirectoryForCwd(cwd, { projectsDir });
   mkdirSync(transcriptDir, { recursive: true });
   const files = [
@@ -338,7 +342,7 @@ test("transcript redaction covers every secret pattern and leaves clean text unc
     assert.equal(redactTranscriptText(input), expected);
   }
   const fileEvidence =
-    "Read /Users/alexanderjmartin/Atlas/Projects/astack/forge/src/lib/day-plan/brief-sources.ts and patched it.";
+    "Read /Users/alexanderjmartin/Atlas/Projects/astack/cove/src/lib/day-plan/brief-sources.ts and patched it.";
   assert.equal(redactTranscriptText(fileEvidence), fileEvidence);
   // Slash-bearing secrets still redact even though "/" is excluded from the opaque-run class.
   const webhook =
@@ -388,7 +392,7 @@ test("prompt budget drops transcript wrap-ups oldest first", () => {
     ],
   };
   const prepared = prepareProgressAnalysisInput({
-    project: "forge",
+    project: "cove",
     tasks: [],
     evidence,
   });
@@ -403,17 +407,17 @@ test("prompt budget drops transcript wrap-ups oldest first", () => {
 
 test("cwd mapping selects the deepest bounded git repo and rejects hostile segments", (t) => {
   const root = fixture(t);
-  mkdirSync(path.join(root, "Projects", "astack", "forge", ".git"), {
+  mkdirSync(path.join(root, "Projects", "astack", "cove", ".git"), {
     recursive: true,
   });
   assert.deepEqual(
     resolvePingProject(
-      "/Users/operator/Atlas/Projects/astack/forge/src",
+      "/Users/operator/Atlas/Projects/astack/cove/src",
       { atlasRoot: root },
     ),
     {
-      project: "forge",
-      projectDir: path.join(root, "Projects", "astack", "forge"),
+      project: "cove",
+      projectDir: path.join(root, "Projects", "astack", "cove"),
     },
   );
   assert.equal(
@@ -484,7 +488,7 @@ test("ping reader ignores conflicts and old files while counting malformed lines
   const dir = fixture(t);
   writeFileSync(
     path.join(dir, "mbp-2026-07-27.jsonl"),
-    `${JSON.stringify(ping("forge", 10))}\nnot-json\n`,
+    `${JSON.stringify(ping("cove", 10))}\nnot-json\n`,
   );
   writeFileSync(
     path.join(dir, "mbp.sync-conflict-1-2026-07-27.jsonl"),
@@ -496,17 +500,17 @@ test("ping reader ignores conflicts and old files while counting malformed lines
   );
   const result = readPingFiles(dir, { now: NOW });
   assert.equal(result.pings.length, 1);
-  assert.equal(result.pings[0].session_id, "mbp-forge-10");
+  assert.equal(result.pings[0].session_id, "mbp-cove-10");
   assert.equal(result.malformed, 1);
 });
 
 test("Supabase task fetch maps and bounds only the fields the model needs", async () => {
   let requested;
-  const tasks = await fetchOpenProjectTasks("forge", {
+  const tasks = await fetchOpenProjectTasks("cove", {
     supabase: {
       url: "https://example.supabase.co",
       key: "secret",
-      table: "forge_tasks",
+      table: "cove_tasks",
     },
     fetchImpl: async (url) => {
       requested = String(url);
@@ -514,7 +518,7 @@ test("Supabase task fetch maps and bounds only the fields the model needs", asyn
         id: "task-1",
         title: "T".repeat(350),
         description: "D".repeat(2500),
-        project: "forge",
+        project: "cove",
         status: "open",
         due_at: NOW.toISOString(),
         priority: "high",
@@ -523,8 +527,8 @@ test("Supabase task fetch maps and bounds only the fields the model needs", asyn
       }]));
     },
   });
-  assert.match(requested, /forge_tasks/);
-  assert.match(requested, /project=eq(?:%2E|\.)forge/);
+  assert.match(requested, /cove_tasks/);
+  assert.match(requested, /project=eq(?:%2E|\.)cove/);
   assert.equal(tasks[0].title.length, 300);
   assert.equal(tasks[0].description.length, 2000);
   assert.deepEqual(tasks[0].tags, ["one", "two"]);
@@ -532,7 +536,7 @@ test("Supabase task fetch maps and bounds only the fields the model needs", asyn
 
 test("new evidence requires a new ping timestamp or changed git head", () => {
   const group = {
-    pings: [ping("forge", 10), ping("forge", 20)],
+    pings: [ping("cove", 10), ping("cove", 20)],
   };
   const prior = {
     evidence: {
@@ -544,7 +548,7 @@ test("new evidence requires a new ping timestamp or changed git head", () => {
   assert.equal(hasNewProjectEvidence(group, "new-head", prior), true);
   assert.equal(
     hasNewProjectEvidence(
-      { pings: [...group.pings, ping("forge", 25)] },
+      { pings: [...group.pings, ping("cove", 25)] },
       "same-head",
       prior,
     ),
@@ -556,7 +560,7 @@ test("noise floor keeps two-ping projects and one-ping projects due today", () =
   const groups = groupRecentPings([
     ping("catalyst", 10),
     ping("catalyst", 20),
-    ping("forge", 15),
+    ping("cove", 15),
   ], NOW);
   assert.equal(
     shouldProcessProject(
@@ -569,7 +573,7 @@ test("noise floor keeps two-ping projects and one-ping projects due today", () =
   );
   assert.equal(
     shouldProcessProject(
-      groups.get("forge"),
+      groups.get("cove"),
       [{ due_at: "2026-07-28T03:30:00.000Z" }],
       "2026-07-27",
       "America/Los_Angeles",
@@ -578,7 +582,7 @@ test("noise floor keeps two-ping projects and one-ping projects due today", () =
   );
   assert.equal(
     shouldProcessProject(
-      groups.get("forge"),
+      groups.get("cove"),
       [{ due_at: "2026-07-29T03:30:00.000Z" }],
       "2026-07-27",
       "America/Los_Angeles",
@@ -637,13 +641,13 @@ test("session digest retention keeps the latest 20 rows per project", (t) => {
     store.recordSessionDigest({
       id: `digest-${index}`,
       runAt: new Date(NOW.getTime() + index * 1_000).toISOString(),
-      project: "forge",
+      project: "cove",
       summary: `Run ${index}`,
       perTask: [],
       evidence: { index },
     });
   }
-  const rows = store.listSessionDigests({ project: "forge", limit: 100 });
+  const rows = store.listSessionDigests({ project: "cove", limit: 100 });
   assert.equal(rows.length, 20);
   assert.equal(rows[0].id, "digest-24");
   assert.equal(rows.at(-1).id, "digest-5");
@@ -654,7 +658,7 @@ test("digest relay is write-once and readable by a machine without the Mini stor
   const digest = {
     id: "progress-0123456789abcdef0123456789abcdef",
     runAt: NOW.toISOString(),
-    project: "forge",
+    project: "cove",
     summary: "Cove moved forward.",
     perTask: [],
     evidence: { fingerprint: "fingerprint-1" },
@@ -823,7 +827,7 @@ test("transcript stage errors fall back to the existing project evidence", async
     dryRun: true,
     dataDir: dir,
     now: () => NOW,
-    readPings: () => [ping("forge", 10), ping("forge", 20)],
+    readPings: () => [ping("cove", 10), ping("cove", 20)],
     fetchTasks: async () => [],
     gitEvidence: async () => ({ lines: [], head: "head-1" }),
     readCurrentState: () => "",
@@ -841,7 +845,7 @@ test("transcript stage errors fall back to the existing project evidence", async
   assert.equal(result.summary.errors, 0);
   assert.equal(result.summary.projects.length, 1);
   assert.equal(stderr.length, 1);
-  assert.match(stderr[0], /forge transcript evidence skipped: unreadable transcript directory\n$/);
+  assert.match(stderr[0], /cove transcript evidence skipped: unreadable transcript directory\n$/);
 });
 
 test("one project failure does not freeze another project's cursor", async (t) => {
@@ -903,7 +907,7 @@ test("one project failure does not freeze another project's cursor", async (t) =
 
 test("unchanged evidence skips Claude and the full task fetch", async (t) => {
   const dir = fixture(t);
-  const pings = [ping("forge", 10), ping("forge", 20)];
+  const pings = [ping("cove", 10), ping("cove", 20)];
   let taskFetches = 0;
   let analyses = 0;
   const result = await runProgressReconcile({
@@ -941,7 +945,7 @@ test("noise-floor rejection happens before the full task fetch", async (t) => {
     dryRun: true,
     dataDir: dir,
     now: () => NOW,
-    readPings: () => [ping("forge", 10)],
+    readPings: () => [ping("cove", 10)],
     hasDueToday: async () => false,
     fetchTasks: async () => {
       fullFetches += 1;

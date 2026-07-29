@@ -6,7 +6,7 @@ export type CoveEnvironment = Record<string, string | undefined>;
 /**
  * Typed face of env-runtime.mjs. The plain-node scripts import the .mjs twin
  * directly; everything under src/ goes through here. See env-runtime.mjs for
- * why both COVE_* and FORGE_* are honoured.
+ * why both COVE_* and the legacy FORGE_* names are honoured.
  */
 
 export function coveEnv(

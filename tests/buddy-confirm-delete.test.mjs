@@ -10,18 +10,18 @@ import { getBuddyStore } from '../src/lib/buddy/store.ts';
 import { getQuietCurrentCsrfToken } from '../src/lib/quiet-current/store.ts';
 
 function setup(t) {
-  const root = path.join(os.tmpdir(), `forge-buddy-confirm-${process.pid}-${Date.now()}-${Math.random()}`);
+  const root = path.join(os.tmpdir(), `cove-buddy-confirm-${process.pid}-${Date.now()}-${Math.random()}`);
   const previousMode = process.env.COVE_DAY_PLAN_ACCESS_MODE;
   const previousDb = process.env.COVE_DB_PATH;
   const previousQuietFile = process.env.COVE_QUIET_CURRENT_FILE;
   const quietFile = `buddy-confirm-${process.pid}-${Date.now()}-${Math.random()}.json`;
   process.env.COVE_DAY_PLAN_ACCESS_MODE = 'loopback';
-  process.env.COVE_DB_PATH = path.join(root, 'forge.db');
+  process.env.COVE_DB_PATH = path.join(root, 'cove.db');
   process.env.COVE_QUIET_CURRENT_FILE = quietFile;
   t.after(() => {
-    globalThis.__forgeBuddyStore?.close();
-    delete globalThis.__forgeBuddyStore;
-    delete globalThis.__forgeBuddyStoreVersion;
+    globalThis.__coveBuddyStore?.close();
+    delete globalThis.__coveBuddyStore;
+    delete globalThis.__coveBuddyStoreVersion;
     if (previousMode === undefined) delete process.env.COVE_DAY_PLAN_ACCESS_MODE;
     else process.env.COVE_DAY_PLAN_ACCESS_MODE = previousMode;
     if (previousDb === undefined) delete process.env.COVE_DB_PATH;
@@ -54,7 +54,7 @@ function mintRequest(body) {
     headers: {
       host: '127.0.0.1:3200',
       'content-type': 'application/json',
-      'x-forge-csrf': getQuietCurrentCsrfToken(),
+      'x-cove-csrf': getQuietCurrentCsrfToken(),
     },
     body: JSON.stringify(body),
   });

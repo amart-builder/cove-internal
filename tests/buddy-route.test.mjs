@@ -12,7 +12,7 @@ import { createBuddyStore } from '../src/lib/buddy/store.ts';
 import { BUDDY_MAX_TURN_MS } from '../src/lib/buddy/timing.ts';
 
 function setup(t) {
-  const file = path.join(os.tmpdir(), `forge-buddy-route-${process.pid}-${Date.now()}-${Math.random()}.db`);
+  const file = path.join(os.tmpdir(), `cove-buddy-route-${process.pid}-${Date.now()}-${Math.random()}.db`);
   let now = new Date('2026-07-15T20:00:00.000Z');
   const store = createBuddyStore({ dbPath: file, now: () => now });
   t.after(() => {
@@ -172,7 +172,7 @@ test('a resumed context overflow compacts into a fresh session and retries once'
         sessions: [{ sessionId: 'retry-session', dir: '/tmp/retry', title: 'Retry session' }],
         errors: [],
       });
-      const resultText = 'Retried answer\n```forge-receipts\n' + JSON.stringify({
+      const resultText = 'Retried answer\n```cove-receipts\n' + JSON.stringify({
         changes: [
           { table: 'tasks', action: 'update', id: 'initial-write', summary: 'Initial write' },
           { table: 'tasks', action: 'update', id: 'retry-write', summary: 'Retry write' },
@@ -224,7 +224,7 @@ test('a successful run strips and persists receipt metadata before sending done'
       });
       const done = {
         kind: 'done',
-        resultText: 'Done\n```forge-receipts\n{"changes":[{"table":"tasks","action":"update","id":"t1","summary":"Moved Gym"}],"pendingDeletes":[]}\n```',
+        resultText: 'Done\n```cove-receipts\n{"changes":[{"table":"tasks","action":"update","id":"t1","summary":"Moved Gym"}],"pendingDeletes":[]}\n```',
         sessionId: 'receipt-session', costUsd: 0.02, isError: false,
       };
       onEvent(done);
@@ -251,7 +251,7 @@ test('a model change claim without a matching CLI receipt is not persisted or se
     buildCommand: () => ({ executable: 'claude', args: [], stdin: '' }),
     runCommand: async () => ({
       kind: 'done',
-      resultText: 'Deleted it\n```forge-receipts\n{"changes":[{"table":"contacts","action":"delete","id":"c1","summary":"Deleted Jane"}],"pendingDeletes":[]}\n```',
+      resultText: 'Deleted it\n```cove-receipts\n{"changes":[{"table":"contacts","action":"delete","id":"c1","summary":"Deleted Jane"}],"pendingDeletes":[]}\n```',
       sessionId: 'unbacked-receipt-session', costUsd: 0.02, isError: false,
     }),
     send: (event) => events.push(event),

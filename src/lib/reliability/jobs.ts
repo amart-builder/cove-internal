@@ -51,6 +51,15 @@ type JobRow = {
 
 type ClaimedJob = ScheduledJob & { leaseToken: string };
 
+export type EnqueueJobInput = {
+  type: string;
+  payload?: unknown;
+  priority?: number;
+  runAfter?: Date | string;
+  maxAttempts?: number;
+  idempotencyKey: string;
+};
+
 function decodeJob(row: JobRow): ScheduledJob {
   let payload: unknown = {};
   try {
@@ -80,6 +89,50 @@ function errorText(error: unknown): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 2000) || "Job failed.";
+}
+
+export function enqueueJobInDatabase(
+  db: Database.Database,
+  input: EnqueueJobInput,
+  nowDate: Date,
+): { job: ScheduledJob; inserted: boolean } {
+  const type = input.type.trim();
+  const idempotencyKey = input.idempotencyKey.trim();
+  if (!type) throw new Error("Job type is required.");
+  if (!idempotencyKey) throw new Error("Job idempotency key is required.");
+  const payload = JSON.stringify(input.payload ?? {});
+  if (payload.length > 100_000) {
+    throw new Error("Job payload exceeds 100000 characters.");
+  }
+  const now = nowDate.toISOString();
+  const runAfter = input.runAfter instanceof Date
+    ? input.runAfter.toISOString()
+    : input.runAfter ?? now;
+  const maxAttempts = Math.min(
+    20,
+    Math.max(1, Math.trunc(input.maxAttempts ?? 5)),
+  );
+  const key = idempotencyKey.slice(0, 300);
+  const result = db.prepare(
+    `INSERT INTO cove_jobs
+       (id, type, payload, priority, run_after, attempts, max_attempts,
+        status, idempotency_key, created_at)
+     VALUES (?, ?, ?, ?, ?, 0, ?, 'queued', ?, ?)
+     ON CONFLICT(idempotency_key) DO NOTHING`,
+  ).run(
+    randomUUID(),
+    type,
+    payload,
+    Math.trunc(input.priority ?? 0),
+    runAfter,
+    maxAttempts,
+    key,
+    now,
+  );
+  const row = db.prepare(
+    "SELECT * FROM cove_jobs WHERE idempotency_key = ?",
+  ).get(key) as JobRow;
+  return { job: decodeJob(row), inserted: result.changes === 1 };
 }
 
 export class JobScheduler {
@@ -121,55 +174,13 @@ export class JobScheduler {
     return this;
   }
 
-  enqueue(input: {
-    type: string;
-    payload?: unknown;
-    priority?: number;
-    runAfter?: Date | string;
-    maxAttempts?: number;
-    idempotencyKey: string;
-  }): { job: ScheduledJob; inserted: boolean } {
-    const type = input.type.trim();
-    const idempotencyKey = input.idempotencyKey.trim();
-    if (!type) throw new Error("Job type is required.");
-    if (!idempotencyKey) throw new Error("Job idempotency key is required.");
-    const payload = JSON.stringify(input.payload ?? {});
-    if (payload.length > 100_000) {
-      throw new Error("Job payload exceeds 100000 characters.");
-    }
-    const now = this.now().toISOString();
-    const runAfter = input.runAfter instanceof Date
-      ? input.runAfter.toISOString()
-      : input.runAfter ?? now;
-    const maxAttempts = Math.min(
-      20,
-      Math.max(1, Math.trunc(input.maxAttempts ?? 5)),
-    );
-    const result = this.db.prepare(
-      `INSERT INTO forge_jobs
-         (id, type, payload, priority, run_after, attempts, max_attempts,
-          status, idempotency_key, created_at)
-       VALUES (?, ?, ?, ?, ?, 0, ?, 'queued', ?, ?)
-       ON CONFLICT(idempotency_key) DO NOTHING`,
-    ).run(
-      randomUUID(),
-      type,
-      payload,
-      Math.trunc(input.priority ?? 0),
-      runAfter,
-      maxAttempts,
-      idempotencyKey.slice(0, 300),
-      now,
-    );
-    const row = this.db.prepare(
-      "SELECT * FROM forge_jobs WHERE idempotency_key = ?",
-    ).get(idempotencyKey.slice(0, 300)) as JobRow;
-    return { job: decodeJob(row), inserted: result.changes === 1 };
+  enqueue(input: EnqueueJobInput): { job: ScheduledJob; inserted: boolean } {
+    return enqueueJobInDatabase(this.db, input, this.now());
   }
 
   getJob(id: string): ScheduledJob | undefined {
     const row = this.db.prepare(
-      "SELECT * FROM forge_jobs WHERE id = ?",
+      "SELECT * FROM cove_jobs WHERE id = ?",
     ).get(id) as JobRow | undefined;
     return row ? decodeJob(row) : undefined;
   }
@@ -177,12 +188,12 @@ export class JobScheduler {
   listJobs(status?: JobStatus): ScheduledJob[] {
     const rows = status
       ? this.db.prepare(
-          `SELECT * FROM forge_jobs
+          `SELECT * FROM cove_jobs
            WHERE status = ?
            ORDER BY priority DESC, run_after ASC, created_at ASC`,
         ).all(status)
       : this.db.prepare(
-          `SELECT * FROM forge_jobs
+          `SELECT * FROM cove_jobs
            ORDER BY priority DESC, run_after ASC, created_at ASC`,
         ).all();
     return (rows as JobRow[]).map(decodeJob);
@@ -201,16 +212,16 @@ export class JobScheduler {
     const receiptCutoff = new Date(now - 90 * 24 * 60 * 60_000).toISOString();
     this.db.transaction(() => {
       this.db.prepare(
-        `DELETE FROM forge_jobs
+        `DELETE FROM cove_jobs
          WHERE status IN ('done','dead')
            AND COALESCE(finished_at, created_at) < ?`,
       ).run(jobCutoff);
       this.db.prepare(
-        `DELETE FROM forge_failure_inbox
+        `DELETE FROM cove_failure_inbox
          WHERE dismissed_at IS NOT NULL AND dismissed_at < ?`,
       ).run(jobCutoff);
       this.db.prepare(
-        "DELETE FROM forge_receipts WHERE finished_at < ?",
+        "DELETE FROM cove_receipts WHERE finished_at < ?",
       ).run(receiptCutoff);
     })();
   }
@@ -218,7 +229,7 @@ export class JobScheduler {
   private recoverExpiredLeases(): { recovered: number; dead: number } {
     const now = this.now();
     const expired = this.db.prepare(
-      `SELECT * FROM forge_jobs
+      `SELECT * FROM cove_jobs
        WHERE status = 'leased' AND lease_until <= ?
        ORDER BY lease_until ASC`,
     ).all(now.toISOString()) as JobRow[];
@@ -237,7 +248,7 @@ export class JobScheduler {
           now.getTime() + this.backoff(row.attempts),
         ).toISOString();
         const result = this.db.prepare(
-          `UPDATE forge_jobs
+          `UPDATE cove_jobs
            SET status = ?, run_after = ?, lease_until = NULL, lease_token = NULL,
                finished_at = ?, last_error = ?
            WHERE id = ? AND status = 'leased' AND lease_token = ?`,
@@ -300,7 +311,7 @@ export class JobScheduler {
     const leaseUntil = new Date(now.getTime() + this.leaseMs).toISOString();
     return this.db.transaction(() => {
       const row = this.db.prepare(
-        `SELECT * FROM forge_jobs
+        `SELECT * FROM cove_jobs
          WHERE status IN ('queued','failed')
            AND run_after <= ?
            AND attempts < max_attempts
@@ -310,14 +321,39 @@ export class JobScheduler {
       if (!row) return undefined;
       const leaseToken = randomUUID();
       const result = this.db.prepare(
-        `UPDATE forge_jobs
+        `UPDATE cove_jobs
          SET status = 'leased', lease_until = ?, lease_token = ?,
              attempts = attempts + 1
          WHERE id = ? AND status IN ('queued','failed')`,
       ).run(leaseUntil, leaseToken, row.id);
       if (result.changes !== 1) return undefined;
       const claimed = this.db.prepare(
-        "SELECT * FROM forge_jobs WHERE id = ?",
+        "SELECT * FROM cove_jobs WHERE id = ?",
+      ).get(row.id) as JobRow;
+      return { ...decodeJob(claimed), leaseToken };
+    }).immediate();
+  }
+
+  private claimById(id: string): ClaimedJob | undefined {
+    const now = this.now();
+    const leaseUntil = new Date(now.getTime() + this.leaseMs).toISOString();
+    return this.db.transaction(() => {
+      const row = this.db.prepare(
+        `SELECT * FROM cove_jobs
+         WHERE id = ? AND status IN ('queued','failed')
+           AND run_after <= ? AND attempts < max_attempts`,
+      ).get(id, now.toISOString()) as JobRow | undefined;
+      if (!row) return undefined;
+      const leaseToken = randomUUID();
+      const result = this.db.prepare(
+        `UPDATE cove_jobs
+         SET status = 'leased', lease_until = ?, lease_token = ?,
+             attempts = attempts + 1
+         WHERE id = ? AND status IN ('queued','failed')`,
+      ).run(leaseUntil, leaseToken, row.id);
+      if (result.changes !== 1) return undefined;
+      const claimed = this.db.prepare(
+        "SELECT * FROM cove_jobs WHERE id = ?",
       ).get(row.id) as JobRow;
       return { ...decodeJob(claimed), leaseToken };
     }).immediate();
@@ -358,7 +394,7 @@ export class JobScheduler {
           this.now().getTime() + this.leaseMs,
         ).toISOString();
         this.db.prepare(
-          `UPDATE forge_jobs
+          `UPDATE cove_jobs
            SET lease_until = ?
            WHERE id = ? AND status = 'leased' AND lease_token = ?`,
         ).run(leaseUntil, job.id, job.leaseToken);
@@ -379,7 +415,7 @@ export class JobScheduler {
       const finishedAt = this.now().toISOString();
       const updated = this.db.transaction(() => {
         const result = this.db.prepare(
-          `UPDATE forge_jobs
+          `UPDATE cove_jobs
            SET status = 'done', lease_until = NULL, lease_token = NULL,
                finished_at = ?, last_error = NULL
            WHERE id = ? AND status = 'leased' AND lease_token = ?`,
@@ -412,7 +448,7 @@ export class JobScheduler {
           outcome: "success",
         });
         this.db.prepare(
-          `UPDATE forge_failure_inbox
+          `UPDATE cove_failure_inbox
            SET dismissed_at = ?
            WHERE source = 'job' AND source_id = ? AND dismissed_at IS NULL`,
         ).run(finishedAt, job.id);
@@ -430,7 +466,7 @@ export class JobScheduler {
       ).toISOString();
       const updated = this.db.transaction(() => {
         const result = this.db.prepare(
-          `UPDATE forge_jobs
+          `UPDATE cove_jobs
            SET status = ?, run_after = ?, lease_until = NULL, lease_token = NULL,
                finished_at = ?, last_error = ?
            WHERE id = ? AND status = 'leased' AND lease_token = ?`,
@@ -551,5 +587,17 @@ export class JobScheduler {
       Array.from({ length: concurrency }, () => worker()),
     );
     return result;
+  }
+
+  async runJob(id: string): Promise<"done" | "failed" | "dead" | "lost" | "unavailable"> {
+    this.recoverExpiredLeases();
+    const job = this.claimById(id);
+    if (!job) return "unavailable";
+    try {
+      return await this.execute(job);
+    } catch (error) {
+      this.recordRunnerFailure(error, job);
+      return "failed";
+    }
   }
 }

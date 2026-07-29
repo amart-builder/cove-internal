@@ -16,7 +16,6 @@
  * parses matches but writes no labels, intake rows, commitments, state, or
  * heartbeat.
  */
-import { execFile } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -28,7 +27,6 @@ import {
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import {
   extractMeetingFollowUps,
   isOperatorConfigured,
@@ -61,14 +59,16 @@ const {
 const {
   recordReceipt,
 } = require("../src/lib/reliability/receipts.ts");
+const {
+  createGoogleWorkspaceGateway,
+} = require("../src/lib/workspace/google/gateway.ts");
 
-const execFileAsync = promisify(execFile);
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaultDataDir = coveEnv("DATA_DIR")?.trim() ||
   path.join(repoDir, "data");
 const DEFAULT_CONFIG_PATH = coveConfigPath(defaultDataDir, "meetings.json");
-const DEFAULT_EMAIL_CONFIG_PATH = coveConfigPath(defaultDataDir, "email.json");
-const DEFAULT_STATE_PATH = path.join(defaultDataDir, "forge-meeting-state.json");
+const DEFAULT_EMAIL_CONFIG_PATH = path.join(defaultDataDir, "cove-workspace.json");
+const DEFAULT_STATE_PATH = path.join(defaultDataDir, "cove-meeting-state.json");
 const DEFAULT_HEARTBEAT_PATH = path.join(defaultDataDir, "intake", "heartbeats.json");
 const MAX_PROCESSED_IDS = 500;
 const MAX_FAILURES = 500;
@@ -113,15 +113,18 @@ export function loadMeetingConfig(file = DEFAULT_CONFIG_PATH) {
 
 function loadEmailConfig(file = DEFAULT_EMAIL_CONFIG_PATH) {
   const parsed = objectValue(readJson(file));
-  if (typeof parsed?.account_email !== "string" || !parsed.account_email.trim()) {
-    throw new Error("cove-email.json is missing account_email.");
+  if (
+    parsed?.provider !== "google-api" ||
+    typeof parsed?.account_email !== "string" ||
+    !parsed.account_email.trim()
+  ) {
+    throw new Error("cove-workspace.json is missing a connected Google account.");
   }
   return {
     accountEmail: parsed.account_email.trim(),
-    forgeUrl: typeof parsed.forge_url === "string" && parsed.forge_url.trim()
-      ? parsed.forge_url.trim().replace(/\/$/, "")
+    coveUrl: typeof parsed.cove_url === "string" && parsed.cove_url.trim()
+      ? parsed.cove_url.trim().replace(/\/$/, "")
       : "http://127.0.0.1:3200",
-    labels: objectValue(parsed.labels) ?? {},
   };
 }
 
@@ -185,63 +188,6 @@ export function writeMeetingHeartbeat(file, heartbeat, identity) {
   });
 }
 
-export function createComposioExecutor(options = {}) {
-  const execImpl = options.execFileImpl
-    ? promisify(options.execFileImpl)
-    : execFileAsync;
-  const executionDir = options.cwd ?? repoDir;
-  return async (tool, params) => {
-    try {
-      const result = await execImpl(
-        // Composio installs to ~/.composio, which launchd agents do not have on
-        // their PATH, so a bare "composio" is ENOENT in every scheduled lane.
-        options.composioPath
-          ?? process.env.COVE_COMPOSIO_BIN
-          ?? process.env.FORGE_COMPOSIO_BIN
-          ?? "composio",
-        ["execute", tool, "-d", JSON.stringify(params)],
-        {
-          cwd: executionDir,
-          env: options.env ?? process.env,
-          maxBuffer: 12 * 1024 * 1024,
-          timeout: options.timeoutMs ?? 60_000,
-        },
-      );
-      const stdout = typeof result === "string" ? result : result.stdout;
-      let parsed = JSON.parse(stdout);
-      const assertSuccessful = (value) => {
-        if (value?.successful === false || value?.success === false) {
-          throw new Error(
-            `Composio ${tool} failed: ${JSON.stringify(value.error ?? value).slice(0, 500)}`,
-          );
-        }
-      };
-      assertSuccessful(parsed);
-      if (parsed?.storedInFile) {
-        if (
-          typeof parsed.outputFilePath !== "string" ||
-          !parsed.outputFilePath.trim()
-        ) {
-          throw new Error("Composio stored response omitted outputFilePath.");
-        }
-        const outputPath = path.isAbsolute(parsed.outputFilePath)
-          ? parsed.outputFilePath
-          : path.resolve(executionDir, parsed.outputFilePath);
-        if (!existsSync(outputPath)) {
-          throw new Error(`Composio output file does not exist: ${outputPath}`);
-        }
-        parsed = JSON.parse(readFileSync(outputPath, "utf8"));
-        assertSuccessful(parsed);
-      }
-      return parsed?.data ?? parsed;
-    } catch (error) {
-      const wrapped = new Error(`Composio ${tool}: ${boundedError(error)}`);
-      wrapped.composio = true;
-      throw wrapped;
-    }
-  };
-}
-
 function arrayAt(value, keys) {
   let current = value;
   for (const key of keys) current = objectValue(current)?.[key];
@@ -256,30 +202,6 @@ function messageRows(payload) {
     arrayAt(payload, ["data", "messages"]) ??
     arrayAt(payload, ["data", "items"]) ??
     [];
-}
-
-function nextPageToken(payload) {
-  const row = objectValue(payload);
-  const nested = objectValue(row?.data);
-  const token = row?.nextPageToken ?? row?.next_page_token ??
-    nested?.nextPageToken ?? nested?.next_page_token;
-  return typeof token === "string" && token ? token : undefined;
-}
-
-function gmailMessage(value) {
-  const row = objectValue(value);
-  if (!row) return undefined;
-  const id = row.id ?? row.message_id ?? row.messageId;
-  const threadId = row.thread_id ?? row.threadId;
-  const sender = row.sender ?? row.from ?? row.sender_email ?? row.senderEmail;
-  if (typeof id !== "string" || !id) return undefined;
-  return {
-    id,
-    threadId: typeof threadId === "string" && threadId ? threadId : id,
-    sender: typeof sender === "string" ? sender : "",
-    subject: typeof row.subject === "string" ? row.subject : "",
-    raw: row,
-  };
 }
 
 function decodeBase64Url(value) {
@@ -413,21 +335,36 @@ function nestedHeader(value, keys, seen = new Set()) {
   return "";
 }
 
-async function fetchMatchingMessages(composio, accountEmail, query) {
+function mailHeader(message, name) {
+  return message.headers?.find(
+    (entry) => entry.name?.toLowerCase() === name.toLowerCase(),
+  )?.value ?? "";
+}
+
+async function fetchMatchingMessages(mail, _accountEmail, query) {
   const messages = [];
   const seenTokens = new Set();
   let pageToken;
   for (let page = 0; page < MAX_GMAIL_PAGES; page += 1) {
-    const payload = await composio("GMAIL_FETCH_EMAILS", {
-      user_id: accountEmail,
+    const payload = await mail.listMessages({
       query,
-      verbose: true,
-      include_payload: false,
-      max_results: 100,
-      ...(pageToken ? { page_token: pageToken } : {}),
+      maxResults: 100,
+      ...(pageToken ? { pageToken } : {}),
     });
-    messages.push(...messageRows(payload).map(gmailMessage).filter(Boolean));
-    const nextToken = nextPageToken(payload);
+    for (const listed of payload.messages) {
+      const message = await mail.getMessage({
+        messageId: listed.id,
+        format: "metadata",
+      });
+      messages.push({
+        id: message.id,
+        threadId: message.threadId,
+        sender: mailHeader(message, "From"),
+        subject: mailHeader(message, "Subject"),
+        raw: message,
+      });
+    }
+    const nextToken = payload.nextPageToken;
     if (!nextToken) {
       pageToken = undefined;
       break;
@@ -446,45 +383,29 @@ async function fetchMatchingMessages(composio, accountEmail, query) {
   return [...unique.values()];
 }
 
-async function fetchMessageBody(composio, accountEmail, messageId) {
-  return composio("GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID", {
-    user_id: accountEmail,
-    message_id: messageId,
+async function fetchMessageBody(mail, _accountEmail, messageId) {
+  const message = await mail.getMessage({
+    messageId,
     format: "full",
   });
+  return {
+    id: message.id,
+    threadId: message.threadId,
+    body: message.text,
+    headers: message.headers,
+    sender: mailHeader(message, "From"),
+    subject: mailHeader(message, "Subject"),
+  };
 }
 
-async function processedLabelId(composio, emailConfig, labelName) {
-  const cached = emailConfig.labels[labelName];
-  if (typeof cached === "string" && cached) return cached;
-  const listed = await composio("GMAIL_LIST_LABELS", {
-    user_id: emailConfig.accountEmail,
-  });
-  const labels = arrayAt(listed, ["labels"]) ??
-    arrayAt(listed, ["data", "labels"]) ??
-    (Array.isArray(listed) ? listed : []);
-  const existing = labels.find((value) => objectValue(value)?.name === labelName);
-  const existingId = objectValue(existing)?.id;
-  if (typeof existingId === "string" && existingId) return existingId;
-  const created = await composio("GMAIL_CREATE_LABEL", {
-    user_id: emailConfig.accountEmail,
-    label_name: labelName,
-  });
-  const createdRow = objectValue(created);
-  const id = createdRow?.id ?? objectValue(createdRow?.label)?.id ??
-    objectValue(createdRow?.data)?.id;
-  if (typeof id !== "string" || !id) {
-    throw new Error(`Could not resolve Gmail label id for ${labelName}.`);
-  }
-  return id;
+async function processedLabelId(mail, _emailConfig, labelName) {
+  return (await mail.ensureCoveLabel({ name: labelName })).name;
 }
 
-async function applyProcessedLabel(composio, accountEmail, threadId, labelId) {
-  await composio("GMAIL_MODIFY_THREAD_LABELS", {
-    user_id: accountEmail,
-    thread_id: threadId,
-    add_label_ids: [labelId],
-    remove_label_ids: [],
+async function applyProcessedLabel(mail, _accountEmail, threadId, labelName) {
+  await mail.modifyThreadLabels({
+    threadId,
+    addNames: [labelName],
   });
 }
 
@@ -499,15 +420,14 @@ export async function runMeetingWatch(options = {}) {
   const runtimeDataDir = options.dataDir ?? path.dirname(configPath);
   const dbPath = options.dbPath ||
     coveEnvTrimmed("DB_PATH") ||
-    path.join(runtimeDataDir, "forge.db");
+    path.join(runtimeDataDir, "cove.db");
   const dryRun = options.dryRun === true;
   let disabled = false;
   let machineIdentity = options.machineIdentity
     ? normalizeMachineIdentity(options.machineIdentity)
     : undefined;
-  const composio = options.composio ?? createComposioExecutor({
-    cwd: options.repoDir ?? repoDir,
-  });
+  const mail = options.gateway ??
+    createGoogleWorkspaceGateway({ dataDir: runtimeDataDir }).mail;
   const summary = {
     dry_run: dryRun,
     examined: 0,
@@ -594,7 +514,7 @@ export async function runMeetingWatch(options = {}) {
     const query =
       `(${config.query}) ${config.window} -label:"${processedLabelQuery}"`;
     const messages = await fetchMatchingMessages(
-      composio,
+      mail,
       emailConfig.accountEmail,
       query,
     );
@@ -623,7 +543,7 @@ export async function runMeetingWatch(options = {}) {
       !processed.has(message.id) && !deadLetterIds.has(message.id)
     );
     let labelId;
-    let composioFailed = false;
+    let workspaceFailed = false;
 
     for (const message of candidates) {
       let zeroItems = false;
@@ -632,7 +552,7 @@ export async function runMeetingWatch(options = {}) {
       try {
         const priorFailure = objectValue(failures[message.id]);
         const fetchedMessage = await fetchMessageBody(
-          composio,
+          mail,
           emailConfig.accountEmail,
           message.id,
         );
@@ -712,7 +632,7 @@ export async function runMeetingWatch(options = {}) {
             dbPath,
             repoDir: options.repoDir ?? repoDir,
             dataDir: runtimeDataDir,
-            baseUrl: emailConfig.forgeUrl,
+            baseUrl: emailConfig.coveUrl,
             now,
             fetchImpl: options.fetchImpl ?? fetch,
             fetchTimeoutMs: options.fetchTimeoutMs ?? 10_000,
@@ -753,12 +673,12 @@ export async function runMeetingWatch(options = {}) {
         }
 
         labelId ??= await processedLabelId(
-          composio,
+          mail,
           emailConfig,
           config.processedLabel,
         );
         await (options.applyLabel ?? applyProcessedLabel)(
-          composio,
+          mail,
           emailConfig.accountEmail,
           message.threadId,
           labelId,
@@ -811,8 +731,8 @@ export async function runMeetingWatch(options = {}) {
           summary.dead_letters = deadLetters.length;
           persistState();
         }
-        if (error?.composio === true) {
-          composioFailed = true;
+        if (error?.name === "WorkspaceGatewayError") {
+          workspaceFailed = true;
           break;
         }
       }
@@ -822,7 +742,7 @@ export async function runMeetingWatch(options = {}) {
       persistState();
       writeMeetingHeartbeat(heartbeatPath, heartbeat(), machineIdentity);
     }
-    return { exitCode: composioFailed ? 1 : 0, summary };
+    return { exitCode: workspaceFailed ? 1 : 0, summary };
   } catch (error) {
     summary.errors += 1;
     summary.error_messages.push({ error: boundedError(error) });
@@ -863,7 +783,7 @@ export async function main(args = process.argv.slice(2), options = {}) {
       (options.recordRunReceiptImpl ?? recordReceipt)({
         dbPath: options.dbPath ||
           coveEnvTrimmed("DB_PATH") ||
-          path.join(defaultDataDir, "forge.db"),
+          path.join(defaultDataDir, "cove.db"),
         source: "meeting-watch",
         startedAt,
         summary: outcome === "success"

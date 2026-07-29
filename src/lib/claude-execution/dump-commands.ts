@@ -152,7 +152,7 @@ export function buildDayDumpPrompt(input: {
   const name = operatorName();
   const timezone = operatorTimezone();
   return [
-    "/forge-day-dump",
+    "/cove-day-dump",
     "You convert one evening brain dump into a bounded commitment-ledger extraction. You never take action and never write storage.",
     `DUMP_LOCAL_DATE=${input.targetLocalDate}`,
     `DUMP_TIMEZONE=${timezone}`,

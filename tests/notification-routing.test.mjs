@@ -16,7 +16,7 @@ import { remoteIMessageArgs } from '../src/lib/intake/notification-transport.mjs
 function fixture(t) {
   const dir = path.join(
     os.tmpdir(),
-    `forge-notification-routing-${process.pid}-${Date.now()}-${Math.random()}`,
+    `cove-notification-routing-${process.pid}-${Date.now()}-${Math.random()}`,
   );
   const bin = path.join(dir, 'bin');
   mkdirSync(bin, { recursive: true });
@@ -64,7 +64,7 @@ test('remote iMessage failure falls back to native notification but reports non-
 });
 
 test('remote iMessage argv safely quotes hostile AppleScript and shell text', () => {
-  const hostile = "He said \"go\" `whoami` $(touch /tmp/forge-pwned) and it's urgent";
+  const hostile = "He said \"go\" `whoami` $(touch /tmp/cove-pwned) and it's urgent";
   const args = remoteIMessageArgs(
     'operator@100.64.0.9',
     '+13105550123',
@@ -79,7 +79,7 @@ test('remote iMessage argv safely quotes hostile AppleScript and shell text', ()
   ]);
   assert.match(args[5], /^osascript -e '/);
   assert.match(args[5], /`whoami`/);
-  assert.match(args[5], /\$\(touch \/tmp\/forge-pwned\)/);
+  assert.match(args[5], /\$\(touch \/tmp\/cove-pwned\)/);
   assert.equal(args[5].includes(`'"'"'`), true);
   assert.equal(args[5].endsWith("'"), true);
 });
@@ -87,7 +87,7 @@ test('remote iMessage argv safely quotes hostile AppleScript and shell text', ()
 test('the reminders tick fires and removes a due scheduled intake entry', (t) => {
   const { dir, bin, calls } = fixture(t);
   const config = path.join(dir, 'config.json');
-  const dbPath = path.join(dir, 'forge.db');
+  const dbPath = path.join(dir, 'cove.db');
   const reminders = path.join(dir, 'reminders');
   const entry = path.join(reminders, 'scheduled-task-1.json');
   mkdirSync(reminders);
@@ -118,7 +118,7 @@ test('the reminders tick retains a due entry when every delivery path fails', (t
   const { dir, bin } = fixture(t);
   writeFileSync(path.join(bin, 'osascript'), '#!/bin/sh\nexit 1\n');
   const config = path.join(dir, 'config.json');
-  const dbPath = path.join(dir, 'forge.db');
+  const dbPath = path.join(dir, 'cove.db');
   const reminders = path.join(dir, 'reminders');
   const entry = path.join(reminders, 'scheduled-task-2.json');
   mkdirSync(reminders);
@@ -147,7 +147,7 @@ test('the reminders tick retains a due entry when every delivery path fails', (t
 test('a failed remote iMessage keeps the receipt even when native succeeds', (t) => {
   const { dir, bin, calls } = fixture(t);
   const config = path.join(dir, 'config.json');
-  const dbPath = path.join(dir, 'forge.db');
+  const dbPath = path.join(dir, 'cove.db');
   const reminders = path.join(dir, 'reminders');
   const entry = path.join(reminders, 'scheduled-task-3.json');
   mkdirSync(reminders);

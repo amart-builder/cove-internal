@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS forge_inbound_events (
+CREATE TABLE IF NOT EXISTS cove_inbound_events (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   source text NOT NULL,
   source_id text NOT NULL,
@@ -13,20 +13,20 @@ CREATE TABLE IF NOT EXISTS forge_inbound_events (
   UNIQUE (source, source_id)
 );
 
-CREATE INDEX IF NOT EXISTS forge_inbound_events_state_created_at_idx
-  ON forge_inbound_events (state, created_at);
+CREATE INDEX IF NOT EXISTS cove_inbound_events_state_created_at_idx
+  ON cove_inbound_events (state, created_at);
 
-CREATE OR REPLACE FUNCTION forge_resolve_inbound_event(
+CREATE OR REPLACE FUNCTION cove_resolve_inbound_event(
   p_id uuid,
   p_state text,
   p_task_id uuid,
   p_error text,
   p_updated_at timestamptz
 )
-RETURNS SETOF forge_inbound_events
+RETURNS SETOF cove_inbound_events
 LANGUAGE sql
 AS $$
-  UPDATE forge_inbound_events
+  UPDATE cove_inbound_events
   SET
     state = p_state,
     task_id = p_task_id,

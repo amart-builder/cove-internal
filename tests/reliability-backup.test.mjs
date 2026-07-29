@@ -25,7 +25,7 @@ test('backup and restore round trip preserves rows and schema', async (t) => {
     os.tmpdir(),
     `cove-backup-${process.pid}-${Date.now()}-${Math.random()}`,
   );
-  const dbPath = path.join(root, 'forge.db');
+  const dbPath = path.join(root, 'cove.db');
   const backupDir = path.join(root, 'backups');
   mkdirSync(root, { recursive: true });
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -88,7 +88,7 @@ test('backup rotation keeps the newest fourteen snapshots', async (t) => {
     os.tmpdir(),
     `cove-backup-rotation-${process.pid}-${Date.now()}-${Math.random()}`,
   );
-  const dbPath = path.join(root, 'forge.db');
+  const dbPath = path.join(root, 'cove.db');
   const backupDir = path.join(root, 'backups');
   mkdirSync(root, { recursive: true });
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -106,9 +106,9 @@ test('backup rotation keeps the newest fourteen snapshots', async (t) => {
       now: new Date(Date.UTC(2026, 6, 28, 12, 0, index)),
     });
   }
-  const backups = readdirSync(backupDir).filter((name) => /^forge-\d{14}\.db$/.test(name));
+  const backups = readdirSync(backupDir).filter((name) => /^cove-\d{14}\.db$/.test(name));
   assert.equal(backups.length, 14);
-  assert.equal(backups.includes('forge-20260728120000.db'), false);
+  assert.equal(backups.includes('cove-20260728120000.db'), false);
   assert.equal(existsSync(legacyBackup), false);
 });
 
@@ -117,7 +117,7 @@ test('online backup includes rows still present in a live WAL', async (t) => {
     os.tmpdir(),
     `cove-backup-wal-${process.pid}-${Date.now()}-${Math.random()}`,
   );
-  const dbPath = path.join(root, 'forge.db');
+  const dbPath = path.join(root, 'cove.db');
   const backupDir = path.join(root, 'backups');
   mkdirSync(root, { recursive: true });
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -159,7 +159,7 @@ test('restore refuses while another process has the database open', async (t) =>
     os.tmpdir(),
     `cove-restore-open-${process.pid}-${Date.now()}-${Math.random()}`,
   );
-  const dbPath = path.join(root, 'forge.db');
+  const dbPath = path.join(root, 'cove.db');
   const backupDir = path.join(root, 'backups');
   mkdirSync(root, { recursive: true });
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -200,7 +200,7 @@ test('restore refuses while another process has the WAL open', async (t) => {
     os.tmpdir(),
     `cove-restore-wal-open-${process.pid}-${Date.now()}-${Math.random()}`,
   );
-  const dbPath = path.join(root, 'forge.db');
+  const dbPath = path.join(root, 'cove.db');
   const backupDir = path.join(root, 'backups');
   mkdirSync(root, { recursive: true });
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -234,7 +234,7 @@ test('restore rechecks liveness immediately before the atomic swap', async (t) =
     os.tmpdir(),
     `cove-restore-recheck-${process.pid}-${Date.now()}-${Math.random()}`,
   );
-  const dbPath = path.join(root, 'forge.db');
+  const dbPath = path.join(root, 'cove.db');
   const backupDir = path.join(root, 'backups');
   const fakeBin = path.join(root, 'bin');
   const lsofState = path.join(root, 'lsof-count');
@@ -293,7 +293,7 @@ test('backup entry point works from a foreign cwd with launchd PATH', (t) => {
     os.tmpdir(),
     `cove-backup-entry-${process.pid}-${Date.now()}-${Math.random()}`,
   );
-  const dbPath = path.join(root, 'forge.db');
+  const dbPath = path.join(root, 'cove.db');
   const backupDir = path.join(root, 'backups');
   mkdirSync(root, { recursive: true });
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -316,7 +316,7 @@ test('backup entry point works from a foreign cwd with launchd PATH', (t) => {
     `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
   );
   assert.equal(
-    readdirSync(backupDir).filter((name) => /^forge-\d{14}\.db$/.test(name)).length,
+    readdirSync(backupDir).filter((name) => /^cove-\d{14}\.db$/.test(name)).length,
     1,
   );
   assert.equal(listRecentReceipts({ dbPath, source: 'backup' }).length, 1);
@@ -328,7 +328,7 @@ test('restore rejects a non-SQLite input before replacing the database', (t) => 
     os.tmpdir(),
     `cove-restore-invalid-${process.pid}-${Date.now()}-${Math.random()}`,
   );
-  const dbPath = path.join(root, 'forge.db');
+  const dbPath = path.join(root, 'cove.db');
   const invalid = path.join(root, 'not-a-backup.db');
   mkdirSync(root, { recursive: true });
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -348,7 +348,7 @@ test('restore rejects a non-SQLite input before replacing the database', (t) => 
   try {
     assert.equal(
       unchanged.prepare(
-        "SELECT COUNT(*) FROM sqlite_schema WHERE name = 'forge_jobs'",
+        "SELECT COUNT(*) FROM sqlite_schema WHERE name = 'cove_jobs'",
       ).pluck().get(),
       1,
     );

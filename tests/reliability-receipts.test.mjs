@@ -116,8 +116,10 @@ test('every recent activity source has a dedicated plain-English branch', () => 
     backup: 'Backup',
     'morning-brief': 'Morning brief',
     'buddy-feedback': 'Feedback',
-    'email-gmail-to-card': 'Gmail follow-through',
-    'email-card-to-gmail': 'Email card sync',
+    'email-gmail-to-card': 'Email follow-through',
+    'email-card-to-gmail': 'Email archived',
+    'email-surfaced': 'Email needs you',
+    'email-archive': 'Email archived',
     'task-session': 'Claude session',
     'email-commitments': 'Promises captured from email',
     'email-correspondence': 'People history updated',
@@ -274,16 +276,16 @@ test('failure API stays disabled outside local mode without creating local data'
     os.tmpdir(),
     `cove-failure-disabled-${process.pid}-${Date.now()}-${Math.random()}`,
   );
-  const dbPath = path.join(root, 'forge.db');
-  const previousRuntime = process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+  const dbPath = path.join(root, 'cove.db');
+  const previousRuntime = process.env.NEXT_PUBLIC_COVE_RUNTIME;
   const previousDb = process.env.COVE_DB_PATH;
   const previousData = process.env.COVE_DATA_DIR;
-  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'supabase';
+  process.env.NEXT_PUBLIC_COVE_RUNTIME = 'supabase';
   process.env.COVE_DB_PATH = dbPath;
   process.env.COVE_DATA_DIR = root;
   t.after(() => {
-    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
-    else process.env.NEXT_PUBLIC_FORGE_RUNTIME = previousRuntime;
+    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_COVE_RUNTIME;
+    else process.env.NEXT_PUBLIC_COVE_RUNTIME = previousRuntime;
     if (previousDb === undefined) delete process.env.COVE_DB_PATH;
     else process.env.COVE_DB_PATH = previousDb;
     if (previousData === undefined) delete process.env.COVE_DATA_DIR;
@@ -310,7 +312,7 @@ test('failure API enforces trusted hosts and CSRF before dismissing', async (t) 
     os.tmpdir(),
     `cove-failure-route-${process.pid}-${Date.now()}-${Math.random()}`,
   );
-  const dbPath = path.join(root, 'forge.db');
+  const dbPath = path.join(root, 'cove.db');
   const previousDb = process.env.COVE_DB_PATH;
   const previousData = process.env.COVE_DATA_DIR;
   process.env.COVE_DB_PATH = dbPath;
@@ -348,7 +350,7 @@ test('failure API enforces trusted hosts and CSRF before dismissing', async (t) 
     body: JSON.stringify({ id: failure.id }),
     headers: {
       'Content-Type': 'application/json',
-      'X-Forge-CSRF': payload.csrfToken,
+      'X-Cove-CSRF': payload.csrfToken,
     },
   }));
   assert.equal(dismissed.status, 200);

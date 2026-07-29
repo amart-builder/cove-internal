@@ -19,7 +19,7 @@ import {
 
 function fixture(t) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'cove-stale-archive-'));
-  const dbPath = path.join(dir, 'forge.db');
+  const dbPath = path.join(dir, 'cove.db');
   const previous = process.env.COVE_DB_PATH;
   process.env.COVE_DB_PATH = dbPath;
   const db = openLocalDatabase(dbPath);
@@ -227,7 +227,7 @@ test('every active task consumer either uses the shared hidden-by-default REST p
   assert.match(brief, /row\.status !== "open"/);
   assert.match(today, /task\.status !== 'archived'/);
   assert.match(today, /suggestion\.kind === 'stale_task'[\s\S]*source === 'explicit_accept'[\s\S]*updateTask\(targetTask\._id, \{\}\)/);
-  assert.match(buddy, /api\/forge-rest/);
+  assert.match(buddy, /api\/cove-rest/);
   assert.match(reminders, /status = 'open'/);
   assert.match(detail, /!localMode && !window\.confirm\(/);
   assert.match(detail, /localMode && task\.proposedRecurrenceCadence/);

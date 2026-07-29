@@ -87,7 +87,7 @@ export const send = mutation({
   args: { id: v.id("emailItems") },
   handler: async (ctx, args) => {
     // NOTE: Convex mode does not actually send mail. Real sending lives in the
-    // local/Supabase path (/api/email/send-draft -> Composio). This only marks
+    // local path (restricted Google gateway). This only marks
     // the item handled. Do not use Convex mode for email until this calls a
     // sender, or it will report success without sending.
     await ctx.db.patch(args.id, {

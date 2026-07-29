@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
   if (!hasDayPlanRouteAccess(request)) {
     return NextResponse.json({ error: "CRM access is not allowed." }, { status: 403 });
   }
-  if (request.headers.get("x-forge-csrf") !== getQuietCurrentCsrfToken()) {
+  if (request.headers.get("x-cove-csrf") !== getQuietCurrentCsrfToken()) {
     return NextResponse.json(
       { error: "Cove request token is missing." },
       { status: 403 },

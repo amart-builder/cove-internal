@@ -26,7 +26,7 @@ import {
 } from "../src/lib/day-plan/brief-sources.ts";
 import {
   listGroundworkQueuedTasks,
-  updateTaskThroughForgeRest,
+  updateTaskThroughCoveRest,
 } from "../src/lib/intake/task-writer.ts";
 import { handleLocalRest } from "../src/lib/local/db.ts";
 
@@ -35,7 +35,7 @@ const NOW = new Date("2026-07-28T18:00:00.000Z");
 function fixture(t) {
   const dir = path.join(
     os.tmpdir(),
-    `forge-groundwork-${process.pid}-${Date.now()}-${Math.random()}`,
+    `cove-groundwork-${process.pid}-${Date.now()}-${Math.random()}`,
   );
   mkdirSync(dir, { recursive: true });
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -171,7 +171,7 @@ test("queue fetch orders oldest first and returns only groundwork-tagged tasks",
     task({ id: "not-queued", tags: ["triaged"] }),
   ];
   const queued = await listGroundworkQueuedTasks({
-    webBaseUrl: "http://forge.test",
+    webBaseUrl: "http://cove.test",
     fetchImpl: async (url) => {
       requestUrl = String(url);
       return new Response(JSON.stringify(rows));
@@ -258,11 +258,11 @@ test("successful groundwork attaches a bounded section, swaps tags, and starts t
   const patch = patches[1].patch;
   const section = patch.description.slice(
     patch.description.indexOf("## Groundwork (Cove)"),
-    patch.description.indexOf("<!-- /forge-groundwork -->") +
-      "<!-- /forge-groundwork -->".length,
+    patch.description.indexOf("<!-- /cove-groundwork -->") +
+      "<!-- /cove-groundwork -->".length,
   );
   assert.equal(section.length, 4_000);
-  assert.match(section, /\[Groundwork truncated by Cove\.\]\n\n<!-- \/forge-groundwork -->$/);
+  assert.match(section, /\[Groundwork truncated by Cove\.\]\n\n<!-- \/cove-groundwork -->$/);
   assert.match(patch.description, /^Jordan Rivers's latest edit\./);
   assert.match(
     patch.description,
@@ -287,7 +287,7 @@ test("successful groundwork attaches a bounded section, swaps tags, and starts t
       "Before\n\n## Groundwork (Cove)\n\nOld\n\n## User Notes\n\nKeep me",
       "New",
     ),
-    "Before\n\n## Groundwork (Cove)\n\nNew\n\n<!-- /forge-groundwork -->\n\n## User Notes\n\nKeep me",
+    "Before\n\n## Groundwork (Cove)\n\nNew\n\n<!-- /cove-groundwork -->\n\n## User Notes\n\nKeep me",
   );
 });
 
@@ -459,18 +459,18 @@ test("claim write failures consume the durable two-attempt budget", async (t) =>
 
 test("task-writer PATCH uses tag containment as a compare-and-swap guard", async () => {
   let patchUrl = "";
-  const result = await updateTaskThroughForgeRest(
+  const result = await updateTaskThroughCoveRest(
     "task-1",
     { tags: ["jarvis-held"] },
     {
-      webBaseUrl: "http://forge.test",
+      webBaseUrl: "http://cove.test",
       fetchImpl: async (url, init = {}) => {
         if (String(url).endsWith("/api/day-plan")) {
           return Response.json({ csrfToken: "test-token" });
         }
         patchUrl = String(url);
         assert.equal(init.method, "PATCH");
-        assert.equal(init.headers["X-Forge-CSRF"], "test-token");
+        assert.equal(init.headers["X-Cove-CSRF"], "test-token");
         return Response.json([]);
       },
     },
@@ -484,13 +484,13 @@ test("task-writer PATCH uses tag containment as a compare-and-swap guard", async
 test("local task CAS supports PostgREST tag containment", (t) => {
   const dir = fixture(t);
   const previousPath = process.env.COVE_DB_PATH;
-  const previousDb = globalThis.__forgeDb;
-  process.env.COVE_DB_PATH = path.join(dir, "forge.db");
-  delete globalThis.__forgeDb;
+  const previousDb = globalThis.__coveDb;
+  process.env.COVE_DB_PATH = path.join(dir, "cove.db");
+  delete globalThis.__coveDb;
   t.after(() => {
-    globalThis.__forgeDb?.close();
-    delete globalThis.__forgeDb;
-    if (previousDb !== undefined) globalThis.__forgeDb = previousDb;
+    globalThis.__coveDb?.close();
+    delete globalThis.__coveDb;
+    if (previousDb !== undefined) globalThis.__coveDb = previousDb;
     if (previousPath === undefined) delete process.env.COVE_DB_PATH;
     else process.env.COVE_DB_PATH = previousPath;
   });

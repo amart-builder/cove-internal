@@ -59,7 +59,7 @@ export default function TabNav() {
   return (
     <nav className="quiet-main-nav flex h-12 items-center gap-1 border-b px-4 sm:px-6" aria-label="Main navigation">
       <span className="mr-4 flex items-center gap-2 text-sm font-semibold tracking-[-0.02em] text-foreground sm:mr-7">
-        <span className="quiet-forge-mark" aria-hidden="true" />
+        <span className="quiet-cove-mark" aria-hidden="true" />
         Cove
       </span>
       <div className="flex items-center h-full">

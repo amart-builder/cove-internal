@@ -65,10 +65,10 @@ function resolutionWire(overrides = {}) {
 }
 
 function fixture(t) {
-  const dir = path.join(os.tmpdir(), `forge-day-dump-${process.pid}-${Date.now()}-${Math.random()}`);
+  const dir = path.join(os.tmpdir(), `cove-day-dump-${process.pid}-${Date.now()}-${Math.random()}`);
   mkdirSync(dir, { recursive: true });
   const store = createDayPlanStore({
-    dbPath: path.join(dir, 'forge.db'),
+    dbPath: path.join(dir, 'cove.db'),
     now: () => new Date(CLOCK),
   });
   writeFileSync(path.join(dir, 'empty-mcp.json'), '{"mcpServers":{}}');
@@ -165,7 +165,7 @@ function workerOptions(dir, store, overrides = {}) {
     now: () => new Date(CLOCK),
     dumpTimeoutMs: 5_000,
     dumpFetchTimeoutMs: 5_000,
-    webBaseUrl: 'http://forge.test',
+    webBaseUrl: 'http://cove.test',
     // Scopes the dump relay write to the fixture. Without it the write falls
     // back to the ambient data dir and the suite overwrites the real relay
     // file in data/, which is exactly what happened the first time.
@@ -174,25 +174,25 @@ function workerOptions(dir, store, overrides = {}) {
   };
 }
 
-function fakeForgeFetch(insertStatuses = [201, 201], posts = [], options = {}) {
+function fakeCoveFetch(insertStatuses = [201, 201], posts = [], options = {}) {
   let insertIndex = 0;
   const patches = options.patches ?? [];
   const rows = options.commitments ?? [];
   return async (url, init = {}) => {
     const value = String(url);
-    if (value.includes('/api/forge-rest/commitments') && !init.method) {
+    if (value.includes('/api/cove-rest/commitments') && !init.method) {
       const id = new URL(value).searchParams.get('id')?.replace(/^eq\./, '');
       return new Response(JSON.stringify(id ? rows.filter((row) => row.id === id) : rows), { status: 200 });
     }
     if (value.endsWith('/api/day-plan')) {
       return new Response(JSON.stringify({ csrfToken: 'csrf-token' }), { status: 200 });
     }
-    if (value.endsWith('/api/forge-rest/commitments') && init.method === 'POST') {
+    if (value.endsWith('/api/cove-rest/commitments') && init.method === 'POST') {
       posts.push({ body: JSON.parse(init.body), headers: init.headers });
       const status = insertStatuses[insertIndex++] ?? 201;
       return new Response(status === 201 ? '[]' : 'failed', { status });
     }
-    if (value.includes('/api/forge-rest/commitments?') && init.method === 'PATCH') {
+    if (value.includes('/api/cove-rest/commitments?') && init.method === 'PATCH') {
       const params = new URL(value).searchParams;
       const id = params.get('id')?.replace(/^eq\./, '');
       patches.push({
@@ -323,7 +323,7 @@ test('Codex retries one invalid extraction, inserts grounded commitments, and st
   assert.equal(await runOneDayDump(workerOptions(dir, store, {
     dumpWriter: 'codex',
     codexPath: fake.executable,
-    fetchImpl: fakeForgeFetch([201, 201], posts),
+    fetchImpl: fakeCoveFetch([201, 201], posts),
   })), true);
 
   const dump = store.listDayDumps()[0];
@@ -354,10 +354,10 @@ test('Codex retries one invalid extraction, inserts grounded commitments, and st
   assert.equal(posts[0].body.source_kind, 'brain_dump');
   assert.equal(posts[0].body.source_ref, dump.id);
   assert.equal(posts[0].body.confirmed, false);
-  assert.equal(posts[0].headers['X-Forge-CSRF'], 'csrf-token');
+  assert.equal(posts[0].headers['X-Cove-CSRF'], 'csrf-token');
   const captures = readFileSync(fake.capture, 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(captures.length, 2);
-  assert.equal(captures[0].cwd.includes('forge-day-dump-'), true);
+  assert.equal(captures[0].cwd.includes('cove-day-dump-'), true);
   assert.match(captures[1].input, /previous output failed validation/);
   assert.deepEqual(captures[0].args.slice(0, 9), [
     'exec', '--sandbox', 'read-only', '--skip-git-repo-check',
@@ -374,7 +374,7 @@ test('partial commitment insert failures stay honest without failing the dump ro
   await runOneDayDump(workerOptions(dir, store, {
     dumpWriter: 'claude',
     claudePath,
-    fetchImpl: fakeForgeFetch([500, 201], posts),
+    fetchImpl: fakeCoveFetch([500, 201], posts),
   }));
   const dump = store.listDayDumps()[0];
   const receipt = JSON.parse(dump.resultJson);
@@ -428,7 +428,7 @@ test('dump resolutions apply high-confidence changes, preserve evidence, and lea
   await runOneDayDump(workerOptions(dir, store, {
     dumpWriter: 'claude',
     claudePath: fakeClaude(dir, JSON.stringify(wire)),
-    fetchImpl: fakeForgeFetch([], [], { commitments: rows, patches }),
+    fetchImpl: fakeCoveFetch([], [], { commitments: rows, patches }),
   }));
 
   assert.equal(patches.length, 3);
@@ -489,7 +489,7 @@ test('one failed resolution is isolated and empty evidence still applies to late
   await runOneDayDump(workerOptions(dir, store, {
     dumpWriter: 'claude',
     claudePath: fakeClaude(dir, JSON.stringify(wire)),
-    fetchImpl: fakeForgeFetch([], [], {
+    fetchImpl: fakeCoveFetch([], [], {
       commitments: rows,
       patches,
       patchStatuses: { 'commitment-a': 500 },
@@ -530,7 +530,7 @@ test('a commitment that closes during extraction is not overwritten and later re
   await runOneDayDump(workerOptions(dir, store, {
     dumpWriter: 'claude',
     claudePath: fakeClaude(dir, JSON.stringify(wire)),
-    fetchImpl: fakeForgeFetch([], [], {
+    fetchImpl: fakeCoveFetch([], [], {
       commitments: rows,
       patches,
       patchMatches: { 'commitment-a': false },
@@ -556,7 +556,7 @@ test('a concurrent evidence write fails the resolution compare-and-swap instead 
   await runOneDayDump(workerOptions(dir, store, {
     dumpWriter: 'claude',
     claudePath: fakeClaude(dir, JSON.stringify(resolutionWire())),
-    fetchImpl: fakeForgeFetch([], [], {
+    fetchImpl: fakeCoveFetch([], [], {
       commitments: [{
         id: 'commitment-a',
         kind: 'follow_up',
@@ -586,7 +586,7 @@ test('the dump row fails only when every extracted commitment insert fails', asy
   await runOneDayDump(workerOptions(dir, store, {
     dumpWriter: 'claude',
     claudePath,
-    fetchImpl: fakeForgeFetch([500, 500]),
+    fetchImpl: fakeCoveFetch([500, 500]),
   }));
   const dump = store.listDayDumps()[0];
   const receipt = JSON.parse(dump.resultJson);
