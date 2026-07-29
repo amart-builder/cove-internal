@@ -673,7 +673,10 @@ export function createGmailLabelExecutor(options: {
 } = {}): GmailLabelExecutor {
   return async (tool, parameters) => {
     const result = await execFileAsync(
-      options.composioPath ?? "composio",
+      // The Composio CLI installs to ~/.composio, which is not on the PATH
+      // launchd gives its agents, so a bare "composio" is ENOENT in every
+      // scheduled lane. COVE_COMPOSIO_BIN carries the absolute path.
+      options.composioPath ?? coveEnv("COMPOSIO_BIN") ?? "composio",
       ["execute", tool, "-d", JSON.stringify(parameters)],
       {
         cwd: options.cwd ?? process.cwd(),

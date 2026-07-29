@@ -193,7 +193,12 @@ export function createComposioExecutor(options = {}) {
   return async (tool, params) => {
     try {
       const result = await execImpl(
-        options.composioPath ?? "composio",
+        // Composio installs to ~/.composio, which launchd agents do not have on
+        // their PATH, so a bare "composio" is ENOENT in every scheduled lane.
+        options.composioPath
+          ?? process.env.COVE_COMPOSIO_BIN
+          ?? process.env.FORGE_COMPOSIO_BIN
+          ?? "composio",
         ["execute", tool, "-d", JSON.stringify(params)],
         {
           cwd: executionDir,
