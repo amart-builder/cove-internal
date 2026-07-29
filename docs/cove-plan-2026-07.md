@@ -68,9 +68,20 @@ What is missing for the vision (BUILD, all in the wave):
 4. **CRM create-or-append**: for each person named in the notes, look up or create the contact and append a meeting activity to their relationship history; set the real `contact_id` on waiting-on commitments (the pipeline currently hardcodes null and never touches the CRM; the only CRM-from-meetings path today is manually talking to the contact skill).
 5. **Processed receipt**: a visible "found meeting notes from X: N tasks, M waiting-on, linked contacts Y, Z" signal (notification or board card), replacing the current silent heartbeat file, while keeping the deliberate no-loud-ping policy for meeting-sourced items.
 
-## Email (walkthrough pending)
+## Email (walkthrough done 2026-07-28; deeper scope to confirm at settlement)
 
-Known candidates going in: Composio free-tier limits verification; voice-calibration flow rehearsal.
+Settled by Alex: default cadence stays twice daily (9:00, 15:00, user-configurable). No draft nudging of any kind: the card link is the only pointer, sending is the user's habit, quiet by design. Email gets DEEPER work in the wave, not just polish.
+
+Deeper-email candidates for the wave (Alex to confirm/cut at settlement; all respect draft-only, no-interrupt, quiet):
+
+1. **CRM-aware drafting**: when drafting a reply, pull the sender's record through the CRM interface (relationship history, last touch, open waiting-on items) so drafts read like they know the person. Writes a contact activity for meaningful correspondence (create-or-append, same interface as meeting notes).
+2. **Commitment capture from email**: when a sent reply or inbound thread contains a promise ("I'll get this to you Friday" / "they owe us the contract"), capture it into the commitments ledger as follow_up / waiting_on with the source quote. Closes the email-to-ledger never-drop gap.
+3. **Attachment awareness**: triage reads common attachments (PDF, docs) for classification and draft context (an invoice is an action item, not a notification).
+4. **Meeting-notes fallback bucket** (already in Meeting Notes section, item 3).
+5. **Long-sleep catch-up correctness**: first run after days of lid-closed reaches back far enough; verify and fix the fetch windows. Rehearsal check regardless.
+6. **Composio free-tier limits verification** (pre-client check; document the honest answer in SETUP).
+
+Explicitly not doing (email): no email tab, no autonomous send ever, no urgent-interrupt pings until the precision-gated attention broker ships, no draft nudges.
 
 ## CRM (setup flow settled with Alex, 2026-07-28; full walkthrough pending)
 
