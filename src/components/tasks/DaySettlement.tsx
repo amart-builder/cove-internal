@@ -158,7 +158,7 @@ export default function DaySettlement({
       >
         <div className="max-h-[calc(100dvh-7rem)] overflow-y-auto">
           <header className="sticky top-0 z-10 border-b bg-background/95 px-4 py-5 backdrop-blur sm:px-7">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Day settlement</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Closing your day</p>
             <p className="mt-2 text-xs text-muted-foreground">
               Closing <time dateTime={plan.localDate}>{planDateLabel}</time>
             </p>
@@ -196,7 +196,7 @@ export default function DaySettlement({
             </section>
 
             <section aria-labelledby={`${titleId}-unresolved`}>
-              <h2 id={`${titleId}-unresolved`} className="text-base font-semibold">Unresolved commitments</h2>
+              <h2 id={`${titleId}-unresolved`} className="text-base font-semibold">Still open</h2>
               {unresolved.length > 0 ? (
                 <ol className="mt-3 space-y-3">
                   {unresolved.map((view, index) => {
@@ -294,7 +294,7 @@ export default function DaySettlement({
                   })}
                 </ol>
               ) : (
-                <p className="mt-2 text-sm text-muted-foreground">There are no unresolved essential outcomes.</p>
+                <p className="mt-2 text-sm text-muted-foreground">Nothing is still open.</p>
               )}
             </section>
 
@@ -324,7 +324,7 @@ export default function DaySettlement({
                 rows={3}
                 disabled={closing}
                 onChange={(event) => onNoteChange(event.target.value)}
-                placeholder="Anything I couldn't see today — who texted you, what you decided, ideas, and anything you want me to take care of."
+                placeholder="Anything I couldn't see today: who texted you, what you decided, ideas, and anything you want me to take care of."
                 className="mt-3 min-h-24 w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground focus:ring-0 disabled:opacity-60"
               />
             </section>

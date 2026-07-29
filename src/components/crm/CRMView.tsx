@@ -325,7 +325,7 @@ function AttioCRMView() {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="text-sm text-muted-foreground">Loading Attio CRM...</div>
+        <div className="text-sm text-muted-foreground">Loading people from Attio...</div>
       </div>
     );
   }
@@ -334,7 +334,7 @@ function AttioCRMView() {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <div className="max-w-lg rounded-lg border bg-card p-4 text-sm">
-          <p className="font-medium text-foreground">CRM could not load from Attio.</p>
+          <p className="font-medium text-foreground">People could not load from Attio.</p>
           <p className="mt-1 text-muted-foreground">{error}</p>
           <button
             onClick={() => void reload()}
@@ -423,7 +423,7 @@ function AttioCRMView() {
         </div>
 
         <div className="mt-5 border-t pt-3 text-[11px] text-muted-foreground">
-          <div>Source: live Attio API</div>
+          <div>Synced from Attio</div>
           {lastLoadedAt && <div>Loaded: {new Date(lastLoadedAt).toLocaleTimeString()}</div>}
         </div>
       </aside>
@@ -432,7 +432,7 @@ function AttioCRMView() {
         <div className="border-b px-5 py-2.5">
           <div className="flex flex-wrap items-center gap-2">
             <div className="mr-2">
-              <h1 className="text-sm font-semibold text-foreground">CRM</h1>
+              <h1 className="text-sm font-semibold text-foreground">People</h1>
               <p className="text-[11px] text-muted-foreground">
                 {visibleRecords.length} visible / {records.length} Attio records
               </p>

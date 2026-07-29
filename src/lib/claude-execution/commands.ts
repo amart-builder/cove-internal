@@ -9,6 +9,7 @@ export type ClaudeCommand = {
   args: string[];
   cwd?: string;
   stdin: string;
+  expectsStructuredOutput?: boolean;
 };
 
 // Stored aliases are stable (the run and brief tables are keyed on them), but

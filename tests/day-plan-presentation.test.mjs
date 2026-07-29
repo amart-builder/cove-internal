@@ -415,7 +415,7 @@ test('settlement explains itself only when the plan being closed is not today', 
   assert.equal(staleSettlementNotice('2026-07-14', '2026-07-14'), undefined);
   assert.equal(
     staleSettlementNotice('2026-07-11', '2026-07-14'),
-    "July 11 was never closed. Settle it before today's plan begins.",
+    "July 11 was never closed. Close it before today's plan begins.",
   );
 });
 

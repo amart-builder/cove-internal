@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { NextRequest, NextResponse } from "next/server";
+import { getBuddyStore } from "@/lib/buddy/store";
+import {
+  normalizeBuddyReceipts,
+  type BuddyReceipts,
+} from "@/lib/buddy/receipts";
 import { currentDayPlanAccessMode, hasDayPlanRouteAccess } from "@/lib/request-security";
 import { getQuietCurrentCsrfToken } from "@/lib/quiet-current/store";
 import { publicDayPlan } from "@/lib/day-plan/public-execution";
@@ -18,6 +24,7 @@ import type { InboundEvent } from "@/lib/data/types";
 import { recordEvent, resolveEvent } from "@/lib/intake/inbox";
 import { createCapturedInboundTask } from "@/lib/intake/task-writer";
 import { operatorName } from "@/lib/operator";
+import { getRuntimeMode } from "@/lib/runtime/mode";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -106,7 +113,9 @@ function operationChanges(
       return { table: "day_plan", action: "update", id: plan.id, summary: "Reordered today's priorities" };
     }
     const item = plan.items.find((candidate) => candidate.id === operation.itemId);
-    const label = item?.title ?? "day-plan item";
+    const label = operation.operation === "edit_item" && operation.title?.trim()
+      ? operation.title.trim()
+      : item?.title ?? "day-plan item";
     if (operation.operation === "complete_item") {
       return { table: "day_plan", action: "update", id: operation.itemId, summary: `Completed '${label}'` };
     }
@@ -142,19 +151,59 @@ export async function POST(request: NextRequest) {
       store.applyAssistantOperations(input);
       throw new Error("Assistant apply did not return a result.");
     }
-    if (
-      currentPlan.state !== "proposed" ||
-      currentPlan.arrivalState !== "opened"
-    ) {
+    const arrivalEditing =
+      currentPlan.state === "proposed" &&
+      currentPlan.arrivalState === "opened";
+    const activeLocalReplan =
+      currentPlan.state === "active" &&
+      getRuntimeMode() === "local";
+    if (!arrivalEditing && !activeLocalReplan) {
       throw new DayPlanInvalidTransition(
         "Arrival items can change only while arrival is open.",
       );
     }
-    validateAssistantProposal(currentPlan, {
+    const proposal = validateAssistantProposal(currentPlan, {
       assistantText: "Buddy updated the day plan.",
       needsClarification: false,
       operations: input.operations,
     });
+    const turnId = request.headers.get("x-cove-buddy-turn")?.trim();
+    let replanProof: {
+      turnId: string;
+      expectedReceiptsJson: string;
+      receipts: BuddyReceipts;
+    } | undefined;
+    if (turnId) {
+      const turn = getBuddyStore().getTurn(turnId);
+      if (
+        !turn ||
+        turn.state !== "succeeded" ||
+        !turn.finished_at ||
+        !turn.receipts_json
+      ) {
+        throw new DayPlanInvalidTransition("Replan preview was not found.");
+      }
+      const receipts = normalizeBuddyReceipts(JSON.parse(turn.receipts_json) as unknown);
+      if (
+        receipts?.replan?.status !== "proposed" ||
+        receipts.replan.expectedVersion !== input.expectedVersion ||
+        !isDeepStrictEqual(receipts.replan.operations, proposal.operations)
+      ) {
+        throw new DayPlanInvalidTransition(
+          "Replan preview does not match these changes.",
+        );
+      }
+      replanProof = {
+        turnId,
+        expectedReceiptsJson: turn.receipts_json,
+        receipts,
+      };
+    }
+    if (activeLocalReplan && !replanProof) {
+      throw new DayPlanInvalidTransition(
+        "Arrival items can change only while arrival is open.",
+      );
+    }
     const createOperations = input.operations.filter(
       (operation): operation is Extract<DayPlanAssistantOperation, {
         operation: "create_item";
@@ -167,6 +216,21 @@ export async function POST(request: NextRequest) {
         operation.clientId,
       )
     );
+    const changes = operationChanges(currentPlan, input.operations, createdItemIds);
+    const appliedReceipts = replanProof
+      ? normalizeBuddyReceipts({
+          ...replanProof.receipts,
+          changes,
+          replan: {
+            ...replanProof.receipts.replan,
+            status: "applied",
+            appliedChanges: changes,
+          },
+        })
+      : undefined;
+    if (replanProof && !appliedReceipts) {
+      throw new DayPlanInvalidTransition("Replan receipt is invalid.");
+    }
     const captureResults = await Promise.all(createOperations.map(async (operation, index) => {
       const id = createdItemIds[index];
       const capture = await recordEvent({
@@ -185,6 +249,15 @@ export async function POST(request: NextRequest) {
     const result = store.applyAssistantOperations({
       ...input,
       createdItemIds,
+      ...(replanProof && appliedReceipts
+        ? {
+            replanReceiptProof: {
+              turnId: replanProof.turnId,
+              expectedReceiptsJson: replanProof.expectedReceiptsJson,
+              appliedReceiptsJson: JSON.stringify(appliedReceipts),
+            },
+          }
+        : {}),
     });
     applied = true;
     await Promise.all(captured.map(async ({ event, operation }) => {
@@ -209,7 +282,8 @@ export async function POST(request: NextRequest) {
     }));
     return NextResponse.json({
       plan: publicDayPlan(result.plan, currentDayPlanAccessMode()),
-      changes: operationChanges(result.plan, input.operations, result.createdItemIds),
+      changes,
+      ...(appliedReceipts ? { receipts: appliedReceipts } : {}),
     });
   } catch (error) {
     if (!applied && captured.length > 0) {

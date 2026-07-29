@@ -24,7 +24,16 @@
 
 ---
 
-**Last updated:** 2026-07-28 night (plan settled + sequenced; Gary install docs written; ONE click left: flip amart-builder/cove public)
+**Last updated:** 2026-07-29 (build wave through Stage 6; ONE click left: flip amart-builder/cove public)
+
+## 2026-07-29 build wave Stage 6: setup script, Buddy replan + feedback, receipts UX, vocabulary (committed after BLOCK->SHIP cycle)
+
+- Buddy mid-day replan (local mode): "new urgent thing, reshuffle my afternoon" produces a diff preview card; nothing applies until the user taps Apply. The apply is server-verified: /api/day-plan/assistant-apply accepts an active-plan change ONLY with proof of a user-reviewed preview (the Buddy turn's stored proposed receipt must deep-match the submitted operations and version; single-use, consumed transactionally; local mode only). The review found the first cut of this opened an unattended apply path through the agent's day-plan tool in every runtime mode (P0x2); the proof design closed it and a second adversarial review pass confirmed no remaining path (agent tool, forged receipts, replay, races, non-local all rejected). Supabase/convex behavior is back to byte-identical pre-stage.
+- Preview truthfulness (P1): previews are now computed by actually projecting the apply, so what the card shows is exactly what lands (the naive version showed wrong positions). Mid-day-created tasks are settlement-visible (P1: they used to silently vanish at Closing your day).
+- Buddy "send feedback": explicit "send feedback: ..." only (P1: the loose matcher would have mailed "give feedback on my draft email to Sarah" to support). Creates a Gmail draft via the create-draft tool only; copy fallback when email is unconfigured, not connected, or the draft fails, each with a truthful message. No placeholder address can receive a real draft.
+- Receipts UX: "Recent activity" on the Issues page (local only, SQL-filtered cursor pagination) + a deterministic morning-brief digest line counting work since the last successful brief. Deleted the dead replan-receipt route; a regression test now pins that model-claimed replan/feedback receipts never survive reconciliation (the security boundary the apply proof depends on).
+- Vocabulary sweep (display strings only, keys untouched, review-verified): Day settlement -> Closing your day, Unresolved commitments -> Still open, Jarvis -> Cove, CRM -> People, and ~15 more. New /guide page (server component; hides local-only features on cloud runtimes). SETUP.md rebuilt as one ordered install script with the interview, tool connection, data load, smoke test, real-brief gate, and practice morning; hard quality gates kept.
+- Verification: 632 tests green, tsc clean, production build clean with /guide route; zero em/en dashes in the diff; no send slugs anywhere (re-verified).
 
 ## 2026-07-29 build wave Stage 3: CRM interface (committed after BLOCK->SHIP review cycle)
 

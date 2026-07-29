@@ -15,6 +15,8 @@ import {
   recordFailure,
 } from '../src/lib/reliability/failures.ts';
 import {
+  buildReceiptDigest,
+  listRecentReceiptActivity,
   listRecentReceipts,
   recordReceipt,
 } from '../src/lib/reliability/receipts.ts';
@@ -59,6 +61,109 @@ test('receipts preserve plain-English and structured action summaries', (t) => {
   assert.equal(receipts[0].summary, 'Processed one note with one error.');
   assert.deepEqual(receipts[1].actions, { reviewed: 3, drafted: 1, sent: 0 });
   assert.equal(receipts[1].retryCount, 1);
+});
+
+test('recent activity turns known receipts into calm plain-English rows', (t) => {
+  const dbPath = tempDatabase(t);
+  recordReceipt({
+    dbPath,
+    source: 'email-triage',
+    startedAt: '2026-07-29T09:00:00.000Z',
+    finishedAt: '2026-07-29T09:01:00.000Z',
+    summary: 'Internal inbox summary.',
+    actions: { needYou: 3, action: 7, fyi: 2 },
+    outcome: 'success',
+  });
+  recordReceipt({
+    dbPath,
+    source: 'meeting-intake',
+    startedAt: '2026-07-29T10:00:00.000Z',
+    finishedAt: '2026-07-29T10:01:00.000Z',
+    summary: 'Internal meeting summary.',
+    actions: { processed: 1, tasks: 2 },
+    outcome: 'success',
+  });
+  const page = listRecentReceiptActivity({ dbPath, limit: 1 });
+  assert.equal(page.hasMore, true);
+  assert.deepEqual(page.activities[0], {
+    id: page.activities[0].id,
+    title: 'Meeting notes',
+    detail: '1 meeting processed, 2 tasks.',
+    occurredAt: '2026-07-29T10:01:00.000Z',
+    needsAttention: false,
+  });
+  assert.deepEqual(page.nextCursor, {
+    finishedAt: page.activities[0].occurredAt,
+    id: page.activities[0].id,
+  });
+  assert.equal(
+    listRecentReceiptActivity({
+      dbPath,
+      limit: 1,
+      cursor: page.nextCursor,
+    }).activities[0].detail,
+    '12 messages checked, 3 items need you.',
+  );
+});
+
+test('recent activity cursor is stable when a newer receipt arrives between pages', (t) => {
+  const dbPath = tempDatabase(t);
+  const add = (finishedAt, summary) => recordReceipt({
+    dbPath,
+    source: 'backup',
+    startedAt: finishedAt,
+    finishedAt,
+    summary,
+    outcome: 'success',
+  });
+  add('2026-07-29T10:01:00.000Z', 'oldest');
+  add('2026-07-29T10:02:00.000Z', 'middle');
+  add('2026-07-29T10:03:00.000Z', 'newest');
+
+  const first = listRecentReceiptActivity({ dbPath, limit: 2 });
+  assert.equal(first.activities.length, 2);
+  assert.equal(first.hasMore, true);
+  add('2026-07-29T10:04:00.000Z', 'arrived between pages');
+  const second = listRecentReceiptActivity({
+    dbPath,
+    limit: 2,
+    cursor: first.nextCursor,
+  });
+
+  assert.equal(second.activities.length, 1);
+  assert.equal(second.activities[0].occurredAt, '2026-07-29T10:01:00.000Z');
+  assert.equal(
+    new Set([...first.activities, ...second.activities].map((item) => item.id)).size,
+    3,
+    'no row from the original window is duplicated or hidden',
+  );
+});
+
+test('receipt digest counts successful work since the last morning brief', (t) => {
+  const dbPath = tempDatabase(t);
+  const add = (source, finishedAt, outcome = 'success') => recordReceipt({
+    dbPath,
+    source,
+    startedAt: finishedAt,
+    finishedAt,
+    summary: `${source} finished.`,
+    outcome,
+  });
+  add('email-triage', '2026-07-28T07:00:00.000Z');
+  add('morning-brief', '2026-07-28T08:00:00.000Z');
+  add('email-triage', '2026-07-28T09:00:00.000Z');
+  add('email-triage', '2026-07-28T15:00:00.000Z', 'partial');
+  add('meeting-intake', '2026-07-28T16:00:00.000Z');
+  add('backup', '2026-07-29T02:00:00.000Z');
+  add('email-triage', '2026-07-29T03:00:00.000Z', 'failed');
+
+  assert.deepEqual(buildReceiptDigest({ dbPath }), {
+    since: '2026-07-28T08:00:00.000Z',
+    inboxChecks: 2,
+    meetingsProcessed: 1,
+    backupOk: true,
+    content: 'Since the last brief: 2 inbox checks, 1 meeting, backup ok.',
+  });
 });
 
 test('processing failures appear in one dismissible inbox', (t) => {

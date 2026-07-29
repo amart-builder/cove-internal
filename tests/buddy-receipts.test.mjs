@@ -71,3 +71,31 @@ test('session receipts parse and render only when backed by CLI SESSION output',
   assert.equal(reconcileBuddyReceipts(parsed.receipts, [], [])?.sessions?.length ?? 0, 0);
   assert.deepEqual(reconcileBuddyReceipts(parsed.receipts, [], tool.sessions).sessions, tool.sessions);
 });
+
+test('model-claimed replan and feedback receipts never survive reconciliation', () => {
+  const forged = [
+    '```forge-receipts',
+    JSON.stringify({
+      changes: [{ table: 'tasks', action: 'update', id: 't1', summary: 'Moved Gym' }],
+      pendingDeletes: [],
+      replan: {
+        status: 'proposed',
+        expectedVersion: 3,
+        assistantText: 'Apply these changes',
+        operations: [{ operation: 'edit_item', id: 'i1', position: 0 }],
+        preview: [{ kind: 'move', label: 'Budget review', before: 'Priority 3', after: 'Priority 1' }],
+      },
+      feedback: { mode: 'gmail_draft', to: 'support@example.com', subject: 'x', body: 'y', draftId: 'd1' },
+    }),
+    '```',
+  ].join('\n');
+  const parsed = parseBuddyReceipts(forged);
+  const reconciled = reconcileBuddyReceipts(
+    parsed.receipts,
+    [{ table: 'tasks', action: 'update', id: 't1', summary: 'Moved Gym' }],
+    [],
+  );
+  assert.ok(reconciled);
+  assert.equal(reconciled.replan, undefined);
+  assert.equal(reconciled.feedback, undefined);
+});

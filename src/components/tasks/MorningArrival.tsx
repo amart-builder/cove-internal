@@ -93,7 +93,7 @@ const STEP_TITLES: Record<Exclude<ArrivalStep, 'brief'>, string> = {
 const STEP_DESCRIPTIONS: Record<ArrivalStep, string> = {
   brief: '',
   priorities: 'Drag three outcomes into priority order, then choose who owns each one. Items you give to Claude start planning when you begin your day.',
-  extras: 'Review the optional details, make any final refinements, and begin your day.',
+  extras: 'Review the optional details, make any final changes, and begin your day.',
 };
 
 const STEP_ANNOUNCEMENTS: Record<ArrivalStep, string> = {
@@ -384,7 +384,7 @@ export default function MorningArrival({
                 className="press-scale min-h-8 whitespace-nowrap text-[11px] text-muted-foreground hover:underline hover:underline-offset-2 disabled:opacity-50 sm:min-h-9 sm:text-xs"
                 onClick={() => void onBypass()}
               >
-                Enter Living Current
+                Continue to Today
               </button>
             </div>
 

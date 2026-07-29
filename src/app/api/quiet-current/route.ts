@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Quiet Current failed." },
+      { error: error instanceof Error ? error.message : "Today could not load." },
       { status: 500 },
     );
   }
@@ -192,7 +192,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ error: "Unknown action." }, { status: 400 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Quiet Current failed.";
+    const message = error instanceof Error ? error.message : "Today could not load.";
     const status = /not found/i.test(message) ? 404 : 400;
     return NextResponse.json({ error: message }, { status });
   }

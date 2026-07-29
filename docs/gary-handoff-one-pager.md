@@ -1,6 +1,6 @@
 # Cove: your chief of staff
 
-Gary, this page is yours to keep. Everything on it lives in the app too, so you can ask Buddy any time.
+Gary, this page is yours to keep. The same guide lives at `/guide` in Cove. You can also ask Buddy any time.
 
 ## What Cove does
 
@@ -10,9 +10,9 @@ Cove runs on your Mac and keeps your work in one place: your tasks, your email, 
 
 **Morning.** Open Cove. It walks you through Arrival: look at what came in overnight, drag today's priorities into the middle of the current, then hit "Start my day." The brief reads like a note from someone who knows your world: what matters today, what came in, what you promised people.
 
-**During the day.** Work off the board. New stuff (emails, meeting notes, ideas) flows in on its own and gets sorted for you. If the day changes shape, tell Buddy "replan my day" and it will re-sort with you.
+**During the day.** Work off the board. New stuff (emails, meeting notes, ideas) flows in on its own and gets sorted for you. If the day changes shape, tell Buddy "new urgent thing, reshuffle my afternoon." Buddy shows a preview. Nothing changes until you tap Apply.
 
-**Evening.** Settlement takes two minutes. For each task from today: made progress, carry it to tomorrow, push it out, or drop it. That honest reset is what keeps mornings clean.
+**Evening.** Closing your day takes two minutes. For each item from today: made progress, carry it to tomorrow, push it out, or drop it. That honest reset is what keeps mornings clean.
 
 ## Email
 
@@ -26,12 +26,13 @@ Each task has an owner chip. "Claude" means Claude does the whole task and shows
 
 - **The current**: your task board. Priorities flow in the middle. Daily rhythm stuff sits to the side.
 - **Arrival**: the three-step morning start.
-- **Settlement**: the evening close-out.
+- **Closing your day**: the short evening check.
+- **Still open**: work or promises that are not done yet.
 - **The brief**: your morning readout.
-- **Buddy**: the command bar. Ask it how to do anything.
+- **Buddy**: the command bar. Ask it how to do anything, or open `/guide`.
 
 ## If something looks wrong
 
-Ask Buddy first: "why didn't X happen?" If it can't fix it, use Buddy's "send feedback" and it goes straight to me. Nothing in Cove can lose your data, so you can't break it by poking around.
+Ask Buddy first: "why didn't X happen?" If it cannot fix it, say "send feedback" and add your note. Buddy makes a Gmail draft for you to review and send. If Gmail is not connected, it gives you a message to copy.
 
 Alex

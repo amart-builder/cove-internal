@@ -33,6 +33,7 @@ import {
 import { recurringRhythmSnapshot } from "../tasks/recurrence";
 import { detectStaleTasks } from "../tasks/stale";
 import { getRuntimeMode } from "../runtime/mode";
+import { buildReceiptDigest } from "../reliability/receipts";
 
 const EXTERNAL_FETCH_TIMEOUT_MS = 10_000;
 // The operator's own zone, not a fixed one: this is the fallback used when
@@ -863,6 +864,31 @@ function recurringRhythmSource(input: {
   }
 }
 
+function recentActivitySource(input: {
+  dataDir?: string;
+  now: Date;
+}): BriefSourceInput {
+  const base = {
+    id: "recent_activity",
+    label: "RECENT_ACTIVITY",
+    required: false,
+    maxChars: 500,
+    priority: 4,
+  } as const;
+  try {
+    const digest = buildReceiptDigest({
+      dbPath: path.join(coveDataDir(input.dataDir), "forge.db"),
+    });
+    return {
+      ...base,
+      content: digest.content,
+      asOf: input.now.toISOString(),
+    };
+  } catch (error) {
+    return { ...base, note: errorNote(error, "recent_activity_failed") };
+  }
+}
+
 function staleTasksSource(input: {
   dataDir?: string;
   now: Date;
@@ -1297,7 +1323,7 @@ async function commitmentsSource(input: {
       "",
       "OVERNIGHT REQUESTS",
       ...(overnight.length > 0
-        ? overnight.map((item) => `- ${compactLine(item.title, 120)} | recorded — overnight execution not yet live`)
+        ? overnight.map((item) => `- ${compactLine(item.title, 120)} | recorded; overnight execution not yet live`)
         : ["None recorded. Overnight execution is not yet live."]),
     ].join("\n");
     const newestUpdate = commitments.reduce(
@@ -1424,7 +1450,7 @@ function formatCalendarEvents(events: readonly CalendarEvent[], timezone: string
   return visible
     .map((event) => {
       const summary = compactLine(event.summary, 240) || "Untitled event";
-      if (event.start?.date && !event.start.dateTime) return `all day — ${summary}`;
+      if (event.start?.date && !event.start.dateTime) return `all day: ${summary}`;
       const start = event.start?.dateTime;
       const end = event.end?.dateTime;
       const startTime = start ? calendarTime(start, timezone) : "time unknown";
@@ -1438,7 +1464,7 @@ function formatCalendarEvents(events: readonly CalendarEvent[], timezone: string
         .map((attendee) => attendee.email as string);
       const people = otherAttendees.length > 0 ? ` (with ${otherAttendees.join(", ")})` : "";
       const meeting = event.hangoutLink || event.conferenceData ? " [Meet]" : "";
-      return `${range} — ${summary}${people}${meeting}`;
+      return `${range}: ${summary}${people}${meeting}`;
     })
     .join("\n");
 }
@@ -1665,7 +1691,7 @@ function formatCrmLastTouches(
     .slice(0, 12)
     .map(
       (person) =>
-        `${person.name} — last touch ${person.ageDays}d ago (` +
+        `${person.name}: last touch ${person.ageDays}d ago (` +
         `${person.date}${person.interactionType ? `, ${person.interactionType}` : ""})`,
     );
   const quiet = people
@@ -1995,6 +2021,10 @@ export async function collectMorningBriefSources(
     }),
     ...(localMode
       ? [
+          recentActivitySource({
+            dataDir: options.dataDir,
+            now,
+          }),
           recurringRhythmSource({
             dataDir: options.dataDir,
             targetLocalDate,

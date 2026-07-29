@@ -51,7 +51,18 @@ export default function TabNav() {
           );
         })}
       </div>
-      <div className="ml-auto">
+      <div className="ml-auto flex items-center gap-2">
+        <Link
+          href="/guide"
+          className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
+            pathname.startsWith('/guide')
+              ? 'text-foreground'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+          aria-current={pathname.startsWith('/guide') ? 'page' : undefined}
+        >
+          Guide
+        </Link>
         <button
           onClick={toggleTheme}
           className="w-7 h-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors duration-150"

@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { resolveProjectDirectory } from "../atlas-projects";
+import { normalizeBuddyReceipts } from "../buddy/receipts";
 import { hasPlanExecutionResultSubstance } from "../claude-execution/commands";
 import { coveEnv } from "../env";
 import { openSqliteDatabase } from "../local/database";
+import { getRuntimeMode } from "../runtime/mode";
 import {
   applyLocalMigration,
   type LocalMigration,
@@ -990,6 +993,21 @@ function requireArrivalEditing(plan: DayPlan): void {
   }
 }
 
+function requireAssistantEditing(
+  plan: DayPlan,
+  hasMiddayReplanProof: boolean,
+): void {
+  if (plan.state === "proposed" && plan.arrivalState === "opened") return;
+  if (
+    plan.state === "active" &&
+    getRuntimeMode() === "local" &&
+    hasMiddayReplanProof
+  ) return;
+  throw new DayPlanInvalidTransition(
+    "Arrival items can change only while arrival is open.",
+  );
+}
+
 function requireState<T extends string>(current: T, allowed: readonly T[], message: string): void {
   if (!allowed.includes(current)) throw new DayPlanInvalidTransition(message);
 }
@@ -1810,12 +1828,50 @@ export function createDayPlanStore(options: {
     expectedVersion: number;
     operations: DayPlanAssistantOperation[];
     createdItemIds?: string[];
+    replanReceiptProof?: {
+      turnId: string;
+      expectedReceiptsJson: string;
+      appliedReceiptsJson: string;
+    };
   }): { turn: DayPlanAssistantTurn; plan: DayPlan; createdItemIds: string[] } {
     return immediate(() => {
       const plan = getReadModel().currentPlan;
       if (!plan) throw new DayPlanNotFound();
       if (plan.version !== input.expectedVersion) throw new DayPlanVersionConflict(plan);
-      requireArrivalEditing(plan);
+      const proof = input.replanReceiptProof;
+      if (proof) {
+        const row = db.prepare(
+          `SELECT state, finished_at, receipts_json
+           FROM buddy_turns WHERE id = ?`,
+        ).get(proof.turnId) as {
+          state: string;
+          finished_at: string | null;
+          receipts_json: string | null;
+        } | undefined;
+        const proposed = normalizeBuddyReceipts(
+          JSON.parse(proof.expectedReceiptsJson) as unknown,
+        );
+        const applied = normalizeBuddyReceipts(
+          JSON.parse(proof.appliedReceiptsJson) as unknown,
+        );
+        if (
+          !row ||
+          row.state !== "succeeded" ||
+          !row.finished_at ||
+          row.receipts_json !== proof.expectedReceiptsJson ||
+          proposed?.replan?.status !== "proposed" ||
+          proposed.replan.expectedVersion !== input.expectedVersion ||
+          !isDeepStrictEqual(proposed.replan.operations, input.operations) ||
+          applied?.replan?.status !== "applied" ||
+          applied.replan.expectedVersion !== input.expectedVersion ||
+          !isDeepStrictEqual(applied.replan.operations, input.operations)
+        ) {
+          throw new DayPlanInvalidTransition(
+            "Replan preview does not authorize these changes.",
+          );
+        }
+      }
+      requireAssistantEditing(plan, Boolean(proof));
       if (!Array.isArray(input.operations) || input.operations.length === 0) {
         throw new DayPlanInvalidTransition("Assistant apply requires at least one operation.");
       }
@@ -1853,6 +1909,23 @@ export function createDayPlanStore(options: {
         finishedAt: timestamp,
         requestedCreatedItemIds: input.createdItemIds,
       });
+      if (proof) {
+        const consumed = db.prepare(
+          `UPDATE buddy_turns
+           SET receipts_json = ?
+           WHERE id = ? AND state = 'succeeded' AND finished_at IS NOT NULL
+             AND receipts_json = ?`,
+        ).run(
+          proof.appliedReceiptsJson,
+          proof.turnId,
+          proof.expectedReceiptsJson,
+        );
+        if (consumed.changes !== 1) {
+          throw new DayPlanInvalidTransition(
+            "Replan preview was already used.",
+          );
+        }
+      }
       db.prepare(
         `UPDATE day_plan_assistant_turns
          SET state = 'applied', proposal_json = ?, result_version = ?, finished_at = ?, applied_at = ?

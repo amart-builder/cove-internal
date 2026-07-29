@@ -161,7 +161,7 @@ export default function ExecutionConfigPanel({
           : briefChanged
             ? executionReadinessMessage(readiness, item.owner)
             : missingSessionRun
-              ? "Claude's session reference is missing — restart planning to reopen it."
+              ? "Claude's session link is missing. Restart planning to reopen it."
             : displayedRun
               ? executionRunStatusLabel(displayedRun.status)
               : executionLoading
@@ -222,7 +222,7 @@ export default function ExecutionConfigPanel({
               <option value="">Project…</option>
               {workspaces.map((workspace) => (
                 <option key={workspace.id} value={workspace.id}>
-                  {executionWorkspaceLabel(workspace.id)} — ${workspace.maximumBudgetUsd} limit
+                  {executionWorkspaceLabel(workspace.id)}: ${workspace.maximumBudgetUsd} limit
                 </option>
               ))}
             </select>

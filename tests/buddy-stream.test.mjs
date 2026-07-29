@@ -57,3 +57,45 @@ test('context overflow detection is narrow to errored context-limit results', ()
   assert.equal(isBuddyContextOverflow({ ...base, resultText: 'Budget exceeded', errorSubtype: 'budget_exceeded' }), false);
   assert.equal(isBuddyContextOverflow({ ...base, resultText: 'context window exceeded', isError: false }), false);
 });
+
+test('schema-checked result events preserve their structured output', () => {
+  const parser = createBuddyEventParser({ expectsStructuredOutput: true });
+  const [done] = parser(JSON.stringify({
+    type: 'result',
+    subtype: 'success',
+    session_id: 'session-structured',
+    result: '',
+    structured_output: {
+      assistantText: 'Here is the preview.',
+      needsClarification: false,
+      operations: [],
+    },
+    total_cost_usd: 0.01,
+    is_error: false,
+  }));
+  assert.equal(done.kind, 'done');
+  assert.deepEqual(JSON.parse(done.resultText), {
+    structured_output: {
+      assistantText: 'Here is the preview.',
+      needsClarification: false,
+      operations: [],
+    },
+  });
+});
+
+test('non-schema result events ignore structured_output and keep the plain result text', () => {
+  const parser = createBuddyEventParser();
+  const [done] = parser(JSON.stringify({
+    type: 'result',
+    subtype: 'success',
+    session_id: 'session-plain',
+    result: 'The plain Buddy answer.',
+    structured_output: {
+      operations: [{ operation: 'complete_item', itemId: 'private-item' }],
+    },
+    total_cost_usd: 0.01,
+    is_error: false,
+  }));
+  assert.equal(done.kind, 'done');
+  assert.equal(done.resultText, 'The plain Buddy answer.');
+});

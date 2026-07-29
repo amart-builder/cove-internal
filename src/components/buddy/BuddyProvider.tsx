@@ -13,7 +13,11 @@ import {
   type ReactNode,
   type SetStateAction,
 } from 'react';
-import type { BuddyReceipts, PendingDelete } from '@/lib/buddy/receipts';
+import type {
+  BuddyReceipts,
+  BuddyReplanReceipt,
+  PendingDelete,
+} from '@/lib/buddy/receipts';
 import { emitDataChanged } from '@/lib/data/refresh-bus';
 
 export type BuddyTurnView = {
@@ -50,6 +54,7 @@ type BuddyContextValue = {
   resetConversation: () => Promise<void>;
   confirmDelete: (turnId: string, pending: PendingDelete) => Promise<void>;
   dismissDelete: (turnId: string, pending: PendingDelete) => Promise<void>;
+  applyReplan: (turnId: string, replan: BuddyReplanReceipt) => Promise<void>;
   sessionInfo?: SessionInfo;
 };
 
@@ -338,6 +343,58 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
     setPendingDisposition(turnId, pending, 'dismissed');
   }, [ensureCsrf, setPendingDisposition]);
 
+  const applyReplan = useCallback(async (
+    turnId: string,
+    replan: BuddyReplanReceipt,
+  ) => {
+    if (replan.status !== 'proposed' || replan.operations.length === 0) return;
+    const token = await ensureCsrf();
+    const response = await fetch('/api/day-plan/assistant-apply', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forge-CSRF': token,
+        'X-Cove-Buddy-Turn': turnId,
+      },
+      body: JSON.stringify({
+        expectedVersion: replan.expectedVersion,
+        operations: replan.operations,
+      }),
+      cache: 'no-store',
+    });
+    const payload = await jsonResponse(response);
+    if (!response.ok) {
+      if (payload.error === 'version_conflict') {
+        const stale = new Error('Today changed after this preview. Ask Buddy to replan again.');
+        stale.name = 'ReplanStaleError';
+        throw stale;
+      }
+      throw new Error(
+        typeof payload.error === 'string'
+          ? payload.error
+          : 'Cove could not apply those changes.',
+      );
+    }
+    const changes = Array.isArray(payload.changes) ? payload.changes : [];
+    const serverReceipts = payload.receipts &&
+      typeof payload.receipts === 'object'
+      ? payload.receipts as BuddyReceipts
+      : undefined;
+    const nextReceipts: BuddyReceipts = serverReceipts ?? {
+      changes: changes as BuddyReceipts['changes'],
+      pendingDeletes: [],
+      replan: {
+        ...replan,
+        status: 'applied',
+        appliedChanges: changes as BuddyReceipts['changes'],
+      },
+    };
+    setTurns((current) => current.map((turn) =>
+      turn.id === turnId ? { ...turn, receipts: nextReceipts } : turn
+    ));
+    emitReceiptChanges(nextReceipts);
+  }, [ensureCsrf]);
+
   const resetConversation = useCallback(async () => {
     if (streamingTurnRef.current) return;
     const token = await ensureCsrf();
@@ -354,8 +411,19 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(() => ({
     open, setOpen, pageContext, setPageContext, turns, busy, send, resetConversation,
-    confirmDelete, dismissDelete, sessionInfo,
-  }), [open, pageContext, turns, busy, send, resetConversation, confirmDelete, dismissDelete, sessionInfo]);
+    confirmDelete, dismissDelete, applyReplan, sessionInfo,
+  }), [
+    open,
+    pageContext,
+    turns,
+    busy,
+    send,
+    resetConversation,
+    confirmDelete,
+    dismissDelete,
+    applyReplan,
+    sessionInfo,
+  ]);
   const streamValue = useMemo(() => ({ streamingTurn, thinking }), [streamingTurn, thinking]);
 
   return (

@@ -142,7 +142,9 @@ function resultText(value: unknown): string {
   }).filter(Boolean).join("\n");
 }
 
-export function createBuddyEventParser() {
+export function createBuddyEventParser(
+  options: { expectsStructuredOutput?: boolean } = {},
+) {
   const seenTools = new Set<string>();
   const buddyDataTools = new Set<string>();
   const seenToolResults = new Set<string>();
@@ -204,9 +206,12 @@ export function createBuddyEventParser() {
       return results;
     }
     if (event.type === "result" && typeof event.session_id === "string") {
+      const structuredOutput = event.structured_output ?? event.structuredOutput;
       return [{
         kind: "done",
-        resultText: typeof event.result === "string" ? event.result : "",
+        resultText: options.expectsStructuredOutput && structuredOutput !== undefined
+          ? JSON.stringify({ structured_output: structuredOutput })
+          : typeof event.result === "string" ? event.result : "",
         sessionId: event.session_id,
         costUsd: typeof event.total_cost_usd === "number" ? event.total_cost_usd : 0,
         isError: event.is_error === true,
@@ -226,7 +231,9 @@ export async function runBuddyCommand(
 ): Promise<BuddyStreamEvent & { kind: "done" }> {
   const timeoutMs = options.timeoutMs ?? BUDDY_COMMAND_TIMEOUT_MS;
   const graceMs = options.terminationGraceMs ?? BUDDY_COMMAND_TERMINATION_GRACE_MS;
-  const parse = createBuddyEventParser();
+  const parse = createBuddyEventParser({
+    expectsStructuredOutput: command.expectsStructuredOutput === true,
+  });
 
   return new Promise((resolve, reject) => {
     let child: ChildProcessWithoutNullStreams;

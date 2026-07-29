@@ -154,6 +154,7 @@ export function applyAssistantProposal(
     } else if (operation.operation === "create_item") {
       const id = options?.idFactory?.() ?? operation.clientId;
       const timestamp = options?.now ?? new Date().toISOString();
+      const midDay = plan.state === "active";
       plan.items.push({
         id,
         candidateId: id,
@@ -165,7 +166,9 @@ export function applyAssistantProposal(
         project: operation.project?.trim() || undefined,
         owner: operation.owner ?? "me",
         commitment: "ink",
-        whyToday: "Added during Morning Arrival.",
+        whyToday: midDay
+          ? "Added during a mid-day replan."
+          : "Added during Morning Arrival.",
         priority: operation.priority ?? "high",
         sourceRefs: [{
           sourceType: "decision",
@@ -180,7 +183,7 @@ export function applyAssistantProposal(
         humanDecisionEventIds: [],
         rankReasons: ["accepted_today", `priority_${operation.priority ?? "high"}`],
         position: operation.position,
-        decision: "preselected",
+        decision: midDay ? "accepted" : "preselected",
       });
       desiredPositions.set(id, operation.position);
     } else {

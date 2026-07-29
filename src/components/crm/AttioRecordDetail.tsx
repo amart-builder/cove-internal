@@ -67,7 +67,7 @@ export default function AttioRecordDetail({
   if (!record) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
-        Select an Attio record to inspect the relationship context.
+        Select a person or company to see the relationship details.
       </div>
     );
   }
@@ -131,7 +131,7 @@ export default function AttioRecordDetail({
         <FieldRow label="Role / Size" value={record.role} />
         <FieldRow label="LinkedIn" value={record.linkedin} href={record.linkedin} />
         <FieldRow label="Location" value={record.location} />
-        <FieldRow label="Network tier" value={record.tier} />
+        <FieldRow label="Relationship group" value={record.tier} />
         <FieldRow label="Relationship" value={record.relationship} />
         <FieldRow label="Relevant" value={record.relevant} />
         <FieldRow label="Last interaction" value={formatDate(record.lastContactDate)} />
@@ -145,7 +145,7 @@ export default function AttioRecordDetail({
         </div>
 
         <div className="py-2.5">
-          <div className="text-[10px] uppercase text-muted-foreground">Attio fields with data</div>
+          <div className="text-[10px] uppercase text-muted-foreground">Other details from Attio</div>
           <div className="mt-2 flex flex-wrap gap-1">
             {record.sourceAttributes.map((attribute) => (
               <span

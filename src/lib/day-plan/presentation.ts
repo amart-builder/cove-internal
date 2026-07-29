@@ -411,8 +411,8 @@ export function resolveRitualContentSwap(input: {
   return input.reducedMotion ? 'immediate' : 'crossfade';
 }
 
-// One plain line explaining why Day Settlement is showing a date that is not today
-// (a missed prior-day settlement). Today's own settlement gets no extra line.
+// One plain line explaining why Closing your day is showing a date that is not today.
+// Today's own close gets no extra line.
 export function staleSettlementNotice(
   planLocalDate: string,
   todayLocalDate: string,
@@ -423,7 +423,7 @@ export function staleSettlementNotice(
     day: 'numeric',
     timeZone: 'UTC',
   }).format(new Date(`${planLocalDate}T12:00:00.000Z`));
-  return `${label} was never closed. Settle it before today's plan begins.`;
+  return `${label} was never closed. Close it before today's plan begins.`;
 }
 
 // Fallback when there is not enough history to estimate from. Roughly the

@@ -285,7 +285,7 @@ test('calendar fetches MCP SSE, derives DST-aware bounds, and formats visible ev
   const calendar = collected.sources.find((source) => source.id === 'calendar');
   assert.equal(
     calendar.content,
-    'all day — Planning day\n9:00am-9:30am — Strategy call (with one@example.com, two@example.com, three@example.com) [Meet]\ntime unknown — Malformed time',
+    'all day: Planning day\n9:00am-9:30am: Strategy call (with one@example.com, two@example.com, three@example.com) [Meet]\ntime unknown: Malformed time',
   );
   assert.equal(initializeResponse.bodyUsed, true);
   assert.equal(calendar.priority, 7);
@@ -398,9 +398,9 @@ test('CRM handles Attio value variants and formats recent and quiet contacts', a
   const crm = collected.sources.find((source) => source.id === 'crm_last_touch');
   assert.equal(
     crm.content,
-    'Recent touches:\nAlice Adams — last touch 2d ago (2026-07-14, email)\nTimezone Tina — last touch 2d ago (2026-07-13, meeting)\nCara Cole — last touch 3d ago (2026-07-13, call)\nfallback@example.com — last touch 4d ago (2026-07-12, email)\nBob Baker — last touch 20d ago (2026-06-26, email)\nDormant Dana — last touch 121d ago (2026-03-17)\n\nGone quiet (>14d): Bob Baker',
+    'Recent touches:\nAlice Adams: last touch 2d ago (2026-07-14, email)\nTimezone Tina: last touch 2d ago (2026-07-13, meeting)\nCara Cole: last touch 3d ago (2026-07-13, call)\nfallback@example.com: last touch 4d ago (2026-07-12, email)\nBob Baker: last touch 20d ago (2026-06-26, email)\nDormant Dana: last touch 121d ago (2026-03-17)\n\nGone quiet (>14d): Bob Baker',
   );
-  assert.equal(crm.content.includes('fallback@example.com — last touch 4d ago'), true);
+  assert.equal(crm.content.includes('fallback@example.com: last touch 4d ago'), true);
   assert.equal(crm.content.includes('Riley Operator'), false);
   assert.equal(crm.priority, 10);
 });
@@ -1126,7 +1126,7 @@ test('computed commitments source exposes open loops, clarification, and factual
   assert.match(source.content, /stale_open_over_7d/);
   assert.match(source.content, /NEEDS CLARIFICATION\n- Send Maya the proposal \| confidence=low \| confirmed=false/);
   assert.match(source.content, /scheduled=1 \| posted=1 \| awaiting_approval=1 \| quota=3 \| gap=1/);
-  assert.match(source.content, /Draft the FAQ overnight \| recorded — overnight execution not yet live/);
+  assert.match(source.content, /Draft the FAQ overnight \| recorded; overnight execution not yet live/);
 });
 
 test('project progress source shows yesterday and today digests and heartbeat warnings', async (t) => {
@@ -1469,6 +1469,7 @@ test('real source ids overwrite coverage fallbacks, while failed fetches remain 
       ['day_dump', 0],
       ['untriaged_inbound', 0],
       ['project_progress', 1],
+      ['recent_activity', 4],
       ['recurring_rhythm', 5],
       ['stale_tasks', 5],
       ['goals', 1],

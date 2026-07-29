@@ -387,7 +387,7 @@ export default function useDayRitual({
             stalePlan.state !== 'settling' ||
             stalePlan.settlementState !== 'in_progress'
           ) {
-            throw new Error('Cove could not prepare the previous workday for Settlement.');
+            throw new Error('Cove could not prepare the previous workday to close.');
           }
           if (cancelled) return;
           setAnnouncement('Close the previous workday before planning today.');
@@ -422,7 +422,7 @@ export default function useDayRitual({
         setError(
           nextError instanceof Error
             ? nextError.message
-            : "Cove couldn't load the morning ritual. Living Current is still available.",
+            : "Cove couldn't load the morning start. Today is still available.",
         );
       }
     }
@@ -676,7 +676,7 @@ export default function useDayRitual({
   }, [enqueueMutation]);
 
   const bypass = useCallback(async () => {
-    await enqueueMutation('arrival_bypass', {}, { announce: 'Entered Living Current.' });
+    await enqueueMutation('arrival_bypass', {}, { announce: 'Continued to Today.' });
     setView('none');
   }, [enqueueMutation]);
 
@@ -970,13 +970,13 @@ export default function useDayRitual({
     if (current.state === 'settled') throw new Error('Today is already closed.');
     await enqueueMutation('settlement_start', {}, {
       mutationId: stableMutationId('settlement-start', current),
-      announce: 'Day Settlement opened.',
+      announce: 'Closing your day opened.',
     });
   }, [enqueueMutation]);
 
   const cancelSettlement = useCallback(() => {
     setView('none');
-    setAnnouncement('Day Settlement left open for later.');
+    setAnnouncement('Closing your day was left open for later.');
   }, []);
 
   const decideSettlement = useCallback(async (
@@ -994,7 +994,7 @@ export default function useDayRitual({
       ...(disposition === 'progress' ? progress : {}),
     }, {
       itemId,
-      announce: `Settlement decision saved: ${disposition}.`,
+      announce: `Closing choice saved: ${disposition}.`,
     });
   }, [enqueueMutation]);
 

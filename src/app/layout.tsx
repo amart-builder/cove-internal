@@ -8,7 +8,7 @@ import BuddyDock from "@/components/buddy/BuddyDock";
 
 export const metadata: Metadata = {
   title: "Cove",
-  description: "Tasks, Email, and CRM - your local command center",
+  description: "Tasks, email, and people in your local command center",
 };
 
 export default function RootLayout({

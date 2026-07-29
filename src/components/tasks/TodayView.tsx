@@ -258,7 +258,7 @@ function normalizeRestTask(task: RestTask): TaskData {
 function getGreeting(hour: number): string {
   if (hour < 12) return "Good morning. Let’s build something meaningful.";
   if (hour < 17) return 'Good afternoon. Keep the current clear.';
-  return 'Good evening. Let the day settle.';
+  return 'Good evening. Bring the day to a close.';
 }
 
 function getDayProgress(date: Date): number {
@@ -448,7 +448,7 @@ function RestTodayView({ onOpenAllWork }: TodayViewProps) {
       }
 
       if (columnsResult.status === 'rejected' || tasksResult.status === 'rejected') {
-        setError("Some data didn't refresh — retrying…");
+        setError("Some data didn't refresh. Retrying…");
       } else {
         setError(undefined);
       }
@@ -840,7 +840,7 @@ function TodayExperience({
       setSuggestions(snapshot.suggestions);
       setSurfaceError(undefined);
     } catch {
-      setSurfaceError("Cove couldn't refresh Jarvis suggestions. This doesn't touch your committed tasks.");
+      setSurfaceError("Cove couldn't refresh its suggestions. This doesn't touch your committed tasks.");
     } finally {
       setSuggestionsLoading(false);
     }
@@ -989,7 +989,7 @@ function TodayExperience({
       await dayRitual.openSettlement();
     } catch (nextError) {
       setSurfaceError(
-        nextError instanceof Error ? nextError.message : "Cove couldn't open Day Settlement.",
+        nextError instanceof Error ? nextError.message : "Cove couldn't start closing your day.",
       );
     }
   }, [closeTransientSurfaces, dayRitual]);
@@ -1040,7 +1040,7 @@ function TodayExperience({
           taskStateById.get(reconciliation.taskId),
           step.nextState,
         )) {
-          throw new Error('Cove could not verify the task reconciliation result.');
+          throw new Error('Cove could not confirm the task update.');
         }
         await dayRitual.acknowledgeReconciliation(reconciliation.id);
       }
@@ -1541,7 +1541,7 @@ function TodayExperience({
       const nextTask = commitments.find((candidate) => candidate._id !== task._id);
       setFocusedTaskId(nextTask?._id ?? null);
       showUndo({
-        message: 'Held for Jarvis',
+        message: 'Held by Cove',
         run: async () => {
           await updateTask(task._id, { tags: task.tags });
           focusTask(task._id, 'pluck_back');
@@ -1549,7 +1549,7 @@ function TodayExperience({
         },
       });
     } catch {
-      setSurfaceError("Cove couldn't finish moving that task to the Jarvis shelf. Refresh the current to confirm its state, then try again.");
+      setSurfaceError("Cove couldn't finish holding that task. Refresh the current to confirm its state, then try again.");
     }
   }
 
@@ -1977,7 +1977,7 @@ function TodayExperience({
                   autoFocus
                   value={capture}
                   onChange={(event) => setCapture(event.target.value)}
-                  placeholder="Add the work Jarvis could not know."
+                  placeholder="Add work Cove could not know."
                 />
                 <button type="submit" disabled={!capture.trim() || capturing}>Add</button>
               </form>
@@ -1993,7 +1993,7 @@ function TodayExperience({
             {dayRitual.plan?.state === 'active' &&
               dayRitual.executionState?.workerAvailable === false && (
               <p role="status" className="current-worker-warning">
-                Claude&apos;s background runner looks offline — runs will wait until it&apos;s back.
+                Claude&apos;s background runner looks offline. Work will wait until it is back.
               </p>
             )}
             {error && (
@@ -2063,7 +2063,7 @@ function TodayExperience({
                   onClick={() => setFocusExpanded((current) => !current)}
                 >
                   <span className="current-now-kicker">
-                    {focusedIsWithJarvis ? 'Held for Jarvis' : focusedIsBrief ? 'Email brief' : 'Now'}
+                    {focusedIsWithJarvis ? 'Held by Cove' : focusedIsBrief ? 'Email brief' : 'Now'}
                     {focusedTask.blocked ? ' · Waiting' : ''}
                     {focusedIsOutsideToday && !focusedIsWithJarvis && !focusedIsBrief ? ' · Outside today' : ''}
                     {focusedBoardExecution?.run && focusedBoardExecution.presentation.statusLabel && (
@@ -2118,7 +2118,7 @@ function TodayExperience({
                     focusedBoardExecution.presentation.action === 'restart' ? (
                     <div className="flex max-w-sm flex-col items-center gap-2 text-center">
                       <p className="text-[11px] leading-relaxed text-muted-foreground">
-                        Claude&apos;s session reference is missing — restart planning to reopen it.
+                        Claude&apos;s session link is missing. Restart planning to reopen it.
                       </p>
                       <button
                         type="button"
@@ -2187,12 +2187,12 @@ function TodayExperience({
                     <dl>
                       <div><dt>Priority</dt><dd className="capitalize">{focusedTask.priority}</dd></div>
                       <div><dt>Due</dt><dd>{focusedTask.dueDate ? new Date(`${focusedTask.dueDate}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Open'}</dd></div>
-                      <div><dt>State</dt><dd>{focusedIsWithJarvis ? 'Held for Jarvis' : 'Committed'}</dd></div>
+                      <div><dt>State</dt><dd>{focusedIsWithJarvis ? 'Held by Cove' : 'Committed'}</dd></div>
                     </dl>
                   </div>
                   <div className="current-focus-actions">
                     <button type="button" onClick={() => setDetailTaskId(focusedTask._id)}>Edit details</button>
-                    {!focusedIsWithJarvis && <button type="button" onClick={() => void handToJarvis(focusedTask)}>Hold for Jarvis</button>}
+                    {!focusedIsWithJarvis && <button type="button" onClick={() => void handToJarvis(focusedTask)}>Hold for Cove</button>}
                     <button type="button" onClick={openSearch}>Find other work <kbd>⌘K</kbd></button>
                   </div>
                   {focusedBoardExecution &&
@@ -2310,8 +2310,8 @@ function TodayExperience({
 
           <aside className="current-jarvis-current" aria-labelledby="jarvis-lane-title">
             <div className="current-jarvis-heading">
-              <span>Second current</span>
-              <h2 id="jarvis-lane-title">Jarvis shelf</h2>
+              <span>Work held for you</span>
+              <h2 id="jarvis-lane-title">Cove shelf</h2>
               {localMode && (
                 <RhythmManager
                   templates={rhythmTemplates}
@@ -2343,7 +2343,7 @@ function TodayExperience({
                           ? `${cadenceDisplay(
                               cadenceByTemplateId.get(task.recurringTemplateId ?? '') ?? '',
                             )} · tap to check off`
-                          : 'Held for Jarvis'}
+                          : 'Held by Cove'}
                     </span>
                     <strong>{task.title}</strong>
                     {boardExecutionByTaskId.get(task._id)?.run && (
@@ -2404,7 +2404,7 @@ function TodayExperience({
                   ) : (
                     <>
                       {suggestion.description && <p>{suggestion.description}</p>}
-                      {suggestion.kind === 'returned_work' && suggestion.reviewMaterial && <details className="quiet-returned-work"><summary>Read Jarvis&apos;s work</summary><pre>{suggestion.reviewMaterial}</pre></details>}
+                      {suggestion.kind === 'returned_work' && suggestion.reviewMaterial && <details className="quiet-returned-work"><summary>Read Cove&apos;s work</summary><pre>{suggestion.reviewMaterial}</pre></details>}
                       <small>Source: {suggestion.source}</small>
                       <div className="current-tributary-actions">
                         <button type="button" onClick={() => void commitSuggestion(suggestion, 'explicit_accept')} className="quiet-pencil-action is-primary">
@@ -2498,7 +2498,7 @@ function TodayExperience({
                   >
                     <span className="min-w-0 flex-1 truncate text-left">{task.title}</span>
                     <span className="text-[10px] text-muted-foreground">
-                      {withJarvis ? 'Held for Jarvis' : brief ? 'Email brief' : inCurrent ? 'In current' : 'Outside today'}
+                      {withJarvis ? 'Held by Cove' : brief ? 'Email brief' : inCurrent ? 'In current' : 'Outside today'}
                     </span>
                   </button>
                 );

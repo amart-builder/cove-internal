@@ -2,6 +2,7 @@ import {
   COVE_CRM_COMPAT_TABLES,
   COVE_REST_TABLES,
 } from "../data/forge-tables";
+import type { DayPlanAssistantOperation } from "../day-plan/types";
 
 export const BUDDY_DELETE_TABLES = [
   ...COVE_REST_TABLES,
@@ -29,10 +30,34 @@ export type SpawnedSessionReceipt = {
   dir: string;
   title: string;
 };
+export type ReplanPreviewLine = {
+  kind: "add" | "change" | "complete" | "move";
+  label: string;
+  before?: string;
+  after?: string;
+};
+export type BuddyReplanReceipt = {
+  status: "proposed" | "applied";
+  expectedVersion: number;
+  assistantText: string;
+  operations: DayPlanAssistantOperation[];
+  preview: ReplanPreviewLine[];
+  appliedChanges?: ReceiptChange[];
+};
+export type BuddyFeedbackReceipt = {
+  mode: "gmail_draft" | "copy";
+  to: string;
+  subject: string;
+  body: string;
+  draftId?: string;
+  fallbackReason?: "support_not_configured" | "email_not_connected" | "draft_failed";
+};
 export type BuddyReceipts = {
   changes: ReceiptChange[];
   pendingDeletes: PendingDelete[];
   sessions?: SpawnedSessionReceipt[];
+  replan?: BuddyReplanReceipt;
+  feedback?: BuddyFeedbackReceipt;
 };
 
 const RECEIPTS_BLOCK = /```forge-receipts\s*\r?\n([\s\S]*?)\r?\n```/;
@@ -69,9 +94,81 @@ function boundReceipts(receipts: BuddyReceipts): BuddyReceipts {
     if (receipts.pendingDeletes.length > 0) receipts.pendingDeletes.pop();
     else if (receipts.sessions?.length) receipts.sessions.pop();
     else if (receipts.changes.length > 0) receipts.changes.pop();
+    else if (receipts.feedback?.body.length && receipts.feedback.body.length > 2_000) {
+      receipts.feedback.body = receipts.feedback.body.slice(0, 2_000);
+    }
+    else if (receipts.replan?.preview.length) receipts.replan.preview.pop();
+    else if (receipts.replan) delete receipts.replan;
+    else if (receipts.feedback) delete receipts.feedback;
     else break;
   }
   return receipts;
+}
+
+function normalizeReplan(value: unknown): BuddyReplanReceipt | undefined {
+  const item = object(value);
+  if (
+    !item ||
+    (item.status !== "proposed" && item.status !== "applied") ||
+    !Number.isInteger(item.expectedVersion) ||
+    (item.expectedVersion as number) < 1 ||
+    typeof item.assistantText !== "string" ||
+    !Array.isArray(item.operations) ||
+    item.operations.length > 12 ||
+    !Array.isArray(item.preview)
+  ) return undefined;
+  const preview = item.preview.slice(0, 24).flatMap((raw): ReplanPreviewLine[] => {
+    const line = object(raw);
+    if (
+      !line ||
+      !["add", "change", "complete", "move"].includes(String(line.kind)) ||
+      typeof line.label !== "string"
+    ) return [];
+    return [{
+      kind: line.kind as ReplanPreviewLine["kind"],
+      label: line.label.slice(0, 240),
+      ...(typeof line.before === "string" ? { before: line.before.slice(0, 500) } : {}),
+      ...(typeof line.after === "string" ? { after: line.after.slice(0, 500) } : {}),
+    }];
+  });
+  const appliedChanges = Array.isArray(item.appliedChanges)
+    ? item.appliedChanges.slice(0, MAX_BUDDY_RECEIPT_ITEMS)
+      .flatMap((raw): ReceiptChange[] => {
+        const change = normalizeChange(raw);
+        return change ? [change] : [];
+      })
+    : undefined;
+  return {
+    status: item.status,
+    expectedVersion: item.expectedVersion as number,
+    assistantText: item.assistantText.slice(0, 2_000),
+    operations: item.operations as DayPlanAssistantOperation[],
+    preview,
+    ...(appliedChanges ? { appliedChanges } : {}),
+  };
+}
+
+function normalizeFeedback(value: unknown): BuddyFeedbackReceipt | undefined {
+  const item = object(value);
+  if (
+    !item ||
+    (item.mode !== "gmail_draft" && item.mode !== "copy") ||
+    typeof item.to !== "string" ||
+    typeof item.subject !== "string" ||
+    typeof item.body !== "string"
+  ) return undefined;
+  return {
+    mode: item.mode,
+    to: item.to.slice(0, 320),
+    subject: item.subject.slice(0, 240),
+    body: item.body.slice(0, 8_000),
+    ...(typeof item.draftId === "string" ? { draftId: item.draftId.slice(0, 240) } : {}),
+    ...(item.fallbackReason === "support_not_configured" ||
+      item.fallbackReason === "email_not_connected" ||
+      item.fallbackReason === "draft_failed"
+      ? { fallbackReason: item.fallbackReason }
+      : {}),
+  };
 }
 
 export function normalizeBuddyReceipts(value: unknown): BuddyReceipts | undefined {
@@ -107,7 +204,15 @@ export function normalizeBuddyReceipts(value: unknown): BuddyReceipts | undefine
       return [{ sessionId: item.sessionId, dir: item.dir, title: item.title }];
     })
     : undefined;
-  return boundReceipts({ changes, pendingDeletes, ...(sessions ? { sessions } : {}) });
+  const replan = normalizeReplan(root.replan);
+  const feedback = normalizeFeedback(root.feedback);
+  return boundReceipts({
+    changes,
+    pendingDeletes,
+    ...(sessions ? { sessions } : {}),
+    ...(replan ? { replan } : {}),
+    ...(feedback ? { feedback } : {}),
+  });
 }
 
 export function parseBuddyDataToolOutput(output: string): {
@@ -159,6 +264,11 @@ export function reconcileBuddyReceipts(
     pendingDeletes: [],
     sessions: authoritativeSessions,
   })?.sessions ?? [];
+  // Security boundary: only changes, pendingDeletes, and sessions survive
+  // reconciliation. A model-claimed replan or feedback receipt must never be
+  // persisted; the server-derived attachSpecialBuddyRun branch is the only
+  // writer, and /api/day-plan/assistant-apply trusts stored replan receipts
+  // as proof of a user-reviewed preview.
   const receipts = normalizeBuddyReceipts({
     changes,
     pendingDeletes: claimed?.pendingDeletes ?? [],

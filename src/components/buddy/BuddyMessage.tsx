@@ -5,6 +5,8 @@ import { isClaudeNotSignedIn } from '@/lib/buddy/errors';
 import PendingDeleteCard from './PendingDeleteCard';
 import ReceiptChips from './ReceiptChips';
 import SessionLinkCard from './SessionLinkCard';
+import ReplanPreviewCard from './ReplanPreviewCard';
+import FeedbackReceiptCard from './FeedbackReceiptCard';
 
 export default function BuddyMessage({ turn, thinking, hostname, deepLinksEnabled, onRetry }: {
   turn: BuddyTurnView;
@@ -62,6 +64,12 @@ export default function BuddyMessage({ turn, thinking, hostname, deepLinksEnable
         )}
         {turn.state !== 'running' && turn.receipts && (
           <>
+            {turn.receipts.replan && (
+              <ReplanPreviewCard turnId={turn.id} replan={turn.receipts.replan} />
+            )}
+            {turn.receipts.feedback && (
+              <FeedbackReceiptCard feedback={turn.receipts.feedback} />
+            )}
             <ReceiptChips changes={turn.receipts.changes} />
             {turn.receipts.pendingDeletes.map((pending, index) => (
               <PendingDeleteCard key={`${pending.table}:${pending.id}:${index}`} turnId={turn.id} pending={pending} />

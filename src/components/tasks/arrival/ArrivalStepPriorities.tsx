@@ -104,7 +104,7 @@ export default function ArrivalStepPriorities({
             No credible priorities are ready.
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            Cove will not invent work to fill the screen. Add what changed, review All Work, or enter Living Current.
+            Cove will not invent work to fill the screen. Add what changed, review All Work, or continue to Today.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             {onAddWhatChanged && (

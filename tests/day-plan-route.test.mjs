@@ -266,7 +266,7 @@ test('settlement decision parses trimmed progress fields and enforces their caps
       disposition: 'carry',
       progressNote: 'This field does not belong on Carry.',
     }),
-    /must belong to a Progress settlement decision/,
+    /must use the Progress choice/,
   );
 });
 
@@ -305,7 +305,7 @@ test('POST returns 400 for invalid settlement progress fields', async () => {
   assert.equal(wrongDisposition.status, 400);
   assert.match(
     (await wrongDisposition.json()).error,
-    /Progress details must belong to a Progress settlement decision/,
+    /Progress details must use the Progress choice/,
   );
 });
 

@@ -128,7 +128,7 @@ export function assertRecurringCarryAllowed(
       );
     if (recurring) {
       throw new DayPlanInvalidTransition(
-        "Recurring rhythm instances expire at Settlement and cannot be carried.",
+        "Recurring items end when you close the day and cannot be carried.",
       );
     }
   } finally {
@@ -503,7 +503,7 @@ export function parseDayPlanPostBody(value: unknown): ParsedPost {
   if (action === "item_add" && !owner) throw new Error("owner is required.");
   const disposition = stringValue(body.disposition, "disposition", { max: 20 });
   if (disposition && !DISPOSITIONS.has(disposition as SettlementDisposition)) {
-    throw new Error("Unknown settlement disposition.");
+    throw new Error("Unknown closing choice.");
   }
   const progressNote = stringValue(body.progressNote, "progressNote", { max: 500 });
   const nextStep = stringValue(body.nextStep, "nextStep", { max: 200 });
@@ -511,7 +511,7 @@ export function parseDayPlanPostBody(value: unknown): ParsedPost {
     (progressNote || nextStep) &&
     (action !== "settlement_decide" || disposition !== "progress")
   ) {
-    throw new Error("Progress details must belong to a Progress settlement decision.");
+    throw new Error("Progress details must use the Progress choice.");
   }
   const position = body.position;
   if (position !== undefined && !Number.isInteger(position)) {

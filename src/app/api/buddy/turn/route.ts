@@ -29,6 +29,18 @@ import {
 } from "@/lib/buddy/receipts";
 import type { ClaudeCommand } from "@/lib/claude-execution/commands";
 import { coveEnv } from "../../../../lib/env";
+import { detectBuddyCommandIntent } from "@/lib/buddy/router";
+import { getRuntimeMode } from "@/lib/runtime/mode";
+import { getDayPlanStore } from "@/lib/day-plan/store";
+import {
+  buildReplanCommand,
+  parseReplanProposal,
+  previewReplan,
+} from "@/lib/buddy/replan";
+import {
+  buddyFeedbackAssistantText,
+  prepareBuddyFeedback,
+} from "@/lib/buddy/feedback";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -179,6 +191,57 @@ export function attachBuddyRun(input: {
   }
 }
 
+export function attachSpecialBuddyRun(input: {
+  store: BuddyStore;
+  turn: BuddyTurn;
+  run: () => Promise<{
+    assistantText: string;
+    receipts?: unknown;
+    costUsd?: number;
+  }>;
+  send: (event: BuddyStreamEvent | Record<string, unknown>) => void;
+  close: () => void;
+}): Promise<void> {
+  const clearActiveTurn = registerActiveBuddyTurn(input.store, input.turn.id);
+  input.send({ kind: "thinking" });
+  return input.run().then((result) => {
+    const receipts = normalizeBuddyReceipts(result.receipts);
+    input.store.finishTurn(input.turn.id, {
+      state: "succeeded",
+      assistant_text: result.assistantText,
+      receipts_json: receipts ? JSON.stringify(receipts) : null,
+      cost_usd: result.costUsd ?? 0,
+      error_code: null,
+    });
+    input.send({
+      kind: "done",
+      resultText: result.assistantText,
+      costUsd: result.costUsd ?? 0,
+      isError: false,
+      ...(receipts ? { receipts } : {}),
+    });
+  }).catch((error) => {
+    const message = error instanceof Error && error.message.trim()
+      ? error.message.trim().slice(0, 2_000)
+      : "Buddy could not finish that command.";
+    input.store.finishTurn(input.turn.id, {
+      state: "failed",
+      assistant_text: message,
+      error_code: "command_failed",
+    });
+    input.send({
+      kind: "done",
+      resultText: message,
+      costUsd: 0,
+      isError: true,
+      errorSubtype: "command_failed",
+    });
+  }).finally(() => {
+    clearActiveTurn();
+    input.close();
+  });
+}
+
 function publicTurn(turn: BuddyTurn): BuddyTurn & { receipts?: ReturnType<typeof normalizeBuddyReceipts> } {
   if (!turn.receipts_json) return turn;
   try {
@@ -251,7 +314,14 @@ export async function POST(request: NextRequest) {
 
     const store = getBuddyStore();
     store.sweepStaleTurns(BUDDY_STALE_TURN_MS);
-    const route = routeBuddyTurn(text, body.pageContext, override);
+    const commandIntent = getRuntimeMode() === "local"
+      ? detectBuddyCommandIntent(text)
+      : undefined;
+    const route = commandIntent?.kind === "replan"
+      ? { model: "sonnet" as const, effort: "medium" as const, reason: "Day replan preview" }
+      : commandIntent?.kind === "feedback"
+        ? { model: "sonnet" as const, effort: "low" as const, reason: "Feedback draft" }
+        : routeBuddyTurn(text, body.pageContext, override);
     const turn = store.claimTurn({
       userText: text,
       pageContext: body.pageContext,
@@ -289,6 +359,99 @@ export async function POST(request: NextRequest) {
         streamOpen = false;
       },
     });
+
+    if (commandIntent?.kind === "replan") {
+      void attachSpecialBuddyRun({
+        store,
+        turn,
+        run: async () => {
+          const plan = getDayPlanStore().getReadModel().currentPlan;
+          if (!plan) throw new Error("There is no plan for today yet.");
+          if (
+            !(
+              (plan.state === "proposed" && plan.arrivalState === "opened") ||
+              plan.state === "active"
+            )
+          ) {
+            throw new Error("Today's plan cannot change while you are closing the day.");
+          }
+          const done = await runBuddyCommand(
+            buildReplanCommand(plan, text),
+            (event) => {
+              if (event.kind === "thinking") send(event);
+            },
+          );
+          if (done.isError) {
+            throw new Error(
+              done.resultText.trim() ||
+                "Buddy could not build a safe preview. Try again.",
+            );
+          }
+          const proposal = parseReplanProposal(plan, done.resultText);
+          return {
+            assistantText: proposal.assistantText,
+            costUsd: done.costUsd,
+            receipts: {
+              changes: [],
+              pendingDeletes: [],
+              replan: {
+                status: "proposed",
+                expectedVersion: plan.version,
+                assistantText: proposal.assistantText,
+                operations: proposal.operations,
+                preview: previewReplan(plan, proposal),
+              },
+            },
+          };
+        },
+        send,
+        close,
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          "X-Accel-Buffering": "no",
+        },
+      });
+    }
+
+    if (commandIntent?.kind === "feedback") {
+      void attachSpecialBuddyRun({
+        store,
+        turn,
+        run: async () => {
+          if (!commandIntent.message) {
+            return {
+              assistantText: "Tell me what happened or what you would like changed.",
+            };
+          }
+          const feedback = await prepareBuddyFeedback({
+            message: commandIntent.message,
+            pageContext: body.pageContext,
+          });
+          return {
+            assistantText: buddyFeedbackAssistantText(feedback),
+            receipts: {
+              changes: [],
+              pendingDeletes: [],
+              feedback,
+            },
+          };
+        },
+        send,
+        close,
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          "X-Accel-Buffering": "no",
+        },
+      });
+    }
 
     const headSessionId = store.getBuddyState().headSessionId;
     void attachBuddyRun({

@@ -8,6 +8,10 @@ import {
   POST,
   deterministicCreateId,
 } from '../src/app/api/day-plan/assistant-apply/route.ts';
+import {
+  BUDDY_STORE_API_VERSION,
+  createBuddyStore,
+} from '../src/lib/buddy/store.ts';
 import { buildDayPlanCandidates } from '../src/lib/day-plan/candidates.ts';
 import {
   DayPlanInvalidTransition,
@@ -193,6 +197,264 @@ test('assistant apply creates, completes, updates, and reprioritizes task-backed
     'new work enters through inbound_events instead of the legacy task mutation writer',
   );
   assert.equal(result.turn.state, 'applied');
+
+  const active = store.mutateDayPlan({
+    planId: result.plan.id,
+    expectedVersion: result.plan.version,
+    mutationId: 'start:active-replan',
+    action: 'start_day',
+  }).plan;
+  assert.throws(
+    () => store.applyAssistantOperations({
+      expectedVersion: active.version,
+      operations: [{
+        operation: 'set_owner',
+        itemId: retainedItem.id,
+        owner: 'together',
+      }],
+    }),
+    (error) =>
+      error instanceof DayPlanInvalidTransition &&
+      error.message === 'Arrival items can change only while arrival is open.',
+  );
+});
+
+test('active-plan apply requires an exact finished Buddy preview and consumes it once', async (t) => {
+  const { root, store, plan: arrivalPlan } = setupAssistantApply(t);
+  const dbPath = path.join(root, 'forge.db');
+  const buddyStore = createBuddyStore({ dbPath });
+  let plan = store.mutateDayPlan({
+    planId: arrivalPlan.id,
+    expectedVersion: arrivalPlan.version,
+    mutationId: 'start:proof-required',
+    action: 'start_day',
+  }).plan;
+  const operations = [{
+    operation: 'set_owner',
+    itemId: plan.items[0].id,
+    owner: 'together',
+  }];
+  const proposedReceipts = {
+    changes: [],
+    pendingDeletes: [],
+    replan: {
+      status: 'proposed',
+      expectedVersion: plan.version,
+      assistantText: 'I can move this to Together.',
+      operations,
+      preview: [],
+    },
+  };
+  const turn = buddyStore.claimTurn({
+    userText: 'reshuffle my afternoon',
+    pageContext: { view: 'today' },
+    model: 'sonnet',
+    effort: 'medium',
+    routerReason: 'Day replan preview',
+  });
+  buddyStore.finishTurn(turn.id, {
+    state: 'succeeded',
+    assistant_text: proposedReceipts.replan.assistantText,
+    receipts_json: JSON.stringify(proposedReceipts),
+  });
+
+  const previousDayStore = globalThis.__forgeDayPlanStore;
+  const previousBuddyStore = globalThis.__forgeBuddyStore;
+  const previousBuddyVersion = globalThis.__forgeBuddyStoreVersion;
+  const previousRuntime = process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+  const previousMode = process.env.COVE_DAY_PLAN_ACCESS_MODE;
+  const previousQuietFile = process.env.COVE_QUIET_CURRENT_FILE;
+  const quietFile = `buddy-proof-${process.pid}-${Date.now()}.json`;
+  globalThis.__forgeDayPlanStore = store;
+  globalThis.__forgeBuddyStore = buddyStore;
+  globalThis.__forgeBuddyStoreVersion = BUDDY_STORE_API_VERSION;
+  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'local';
+  process.env.COVE_DAY_PLAN_ACCESS_MODE = 'loopback';
+  process.env.COVE_QUIET_CURRENT_FILE = quietFile;
+  t.after(() => {
+    if (previousDayStore === undefined) delete globalThis.__forgeDayPlanStore;
+    else globalThis.__forgeDayPlanStore = previousDayStore;
+    if (previousBuddyStore === undefined) delete globalThis.__forgeBuddyStore;
+    else globalThis.__forgeBuddyStore = previousBuddyStore;
+    if (previousBuddyVersion === undefined) delete globalThis.__forgeBuddyStoreVersion;
+    else globalThis.__forgeBuddyStoreVersion = previousBuddyVersion;
+    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+    else process.env.NEXT_PUBLIC_FORGE_RUNTIME = previousRuntime;
+    if (previousMode === undefined) delete process.env.COVE_DAY_PLAN_ACCESS_MODE;
+    else process.env.COVE_DAY_PLAN_ACCESS_MODE = previousMode;
+    if (previousQuietFile === undefined) delete process.env.COVE_QUIET_CURRENT_FILE;
+    else process.env.COVE_QUIET_CURRENT_FILE = previousQuietFile;
+    buddyStore.close();
+    rmSync(path.join(process.cwd(), 'data', quietFile), { force: true });
+    rmSync(path.join(process.cwd(), 'data', `${quietFile}.token`), { force: true });
+  });
+
+  const request = (extraHeaders = {}, bodyOperations = operations) =>
+    new NextRequest('http://localhost:3200/api/day-plan/assistant-apply', {
+      method: 'POST',
+      headers: {
+        host: 'localhost:3200',
+        origin: 'http://localhost:3200',
+        'content-type': 'application/json',
+        'x-forge-csrf': getQuietCurrentCsrfToken(),
+        ...extraHeaders,
+      },
+      body: JSON.stringify({
+        expectedVersion: plan.version,
+        operations: bodyOperations,
+      }),
+    });
+
+  const toolPath = await POST(request());
+  assert.equal(toolPath.status, 400);
+  assert.deepEqual(await toolPath.json(), {
+    error: 'Arrival items can change only while arrival is open.',
+  });
+  assert.equal(store.getPlan(plan.id).version, plan.version);
+
+  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'supabase';
+  const nonLocal = await POST(request({ 'x-cove-buddy-turn': turn.id }));
+  assert.equal(nonLocal.status, 400);
+  assert.deepEqual(await nonLocal.json(), {
+    error: 'Arrival items can change only while arrival is open.',
+  });
+  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'local';
+
+  const mismatch = await POST(request(
+    { 'x-cove-buddy-turn': turn.id },
+    [{ ...operations[0], owner: 'claude' }],
+  ));
+  assert.equal(mismatch.status, 400);
+  assert.equal(
+    JSON.parse(buddyStore.getTurn(turn.id).receipts_json).replan.status,
+    'proposed',
+  );
+
+  const applied = await POST(request({ 'x-cove-buddy-turn': turn.id }));
+  assert.equal(applied.status, 200);
+  const appliedBody = await applied.json();
+  assert.equal(appliedBody.plan.state, 'active');
+  assert.equal(appliedBody.plan.items[0].owner, 'together');
+  assert.equal(appliedBody.receipts.replan.status, 'applied');
+  assert.equal(
+    JSON.parse(buddyStore.getTurn(turn.id).receipts_json).replan.status,
+    'applied',
+  );
+
+  const replay = await POST(request({ 'x-cove-buddy-turn': turn.id }));
+  assert.equal(replay.status, 409);
+});
+
+test('a mid-day created item is accepted and survives settlement', (t) => {
+  const { root, store, plan: arrivalPlan } = setupAssistantApply(t);
+  const buddyStore = createBuddyStore({ dbPath: path.join(root, 'forge.db') });
+  t.after(() => buddyStore.close());
+  const previousRuntime = process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'local';
+  t.after(() => {
+    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+    else process.env.NEXT_PUBLIC_FORGE_RUNTIME = previousRuntime;
+  });
+  let plan = store.mutateDayPlan({
+    planId: arrivalPlan.id,
+    expectedVersion: arrivalPlan.version,
+    mutationId: 'start:midday-create',
+    action: 'start_day',
+  }).plan;
+  const operations = [{
+    operation: 'create_item',
+    clientId: 'urgent-follow-up',
+    title: 'Handle the urgent follow-up',
+    outcome: 'Resolve the new client issue today.',
+    position: 0,
+  }];
+  const proposed = {
+    changes: [],
+    pendingDeletes: [],
+    replan: {
+      status: 'proposed',
+      expectedVersion: plan.version,
+      assistantText: 'I can add the urgent follow-up.',
+      operations,
+      preview: [],
+    },
+  };
+  const applied = {
+    ...proposed,
+    changes: [{
+      table: 'day_plan',
+      action: 'insert',
+      id: 'urgent-created-id',
+      summary: "Added 'Handle the urgent follow-up' to today",
+    }],
+    replan: {
+      ...proposed.replan,
+      status: 'applied',
+      appliedChanges: [{
+        table: 'day_plan',
+        action: 'insert',
+        id: 'urgent-created-id',
+        summary: "Added 'Handle the urgent follow-up' to today",
+      }],
+    },
+  };
+  const turn = buddyStore.claimTurn({
+    userText: 'new urgent thing, reshuffle my afternoon',
+    pageContext: { view: 'today' },
+    model: 'sonnet',
+    effort: 'medium',
+    routerReason: 'Day replan preview',
+  });
+  buddyStore.finishTurn(turn.id, {
+    state: 'succeeded',
+    assistant_text: proposed.replan.assistantText,
+    receipts_json: JSON.stringify(proposed),
+  });
+  plan = store.applyAssistantOperations({
+    expectedVersion: plan.version,
+    operations,
+    createdItemIds: ['urgent-created-id'],
+    replanReceiptProof: {
+      turnId: turn.id,
+      expectedReceiptsJson: JSON.stringify(proposed),
+      appliedReceiptsJson: JSON.stringify(applied),
+    },
+  }).plan;
+  const created = plan.items.find((item) => item.id === 'urgent-created-id');
+  assert.equal(created.decision, 'accepted');
+  assert.equal(created.whyToday, 'Added during a mid-day replan.');
+
+  const originalTaskIds = plan.items
+    .filter((item) => item.id !== created.id)
+    .map((item) => item.taskId);
+  plan = store.mutateDayPlan({
+    planId: plan.id,
+    expectedVersion: plan.version,
+    mutationId: 'settlement-start:midday-create',
+    action: 'settlement_start',
+    completedHumanTaskIds: originalTaskIds,
+  }).plan;
+  plan = store.mutateDayPlan({
+    planId: plan.id,
+    expectedVersion: plan.version,
+    mutationId: 'settlement-decide:midday-create',
+    action: 'settlement_decide',
+    itemId: created.id,
+    disposition: 'carry',
+  }).plan;
+  const committed = store.mutateDayPlan({
+    planId: plan.id,
+    expectedVersion: plan.version,
+    mutationId: 'settlement-commit:midday-create',
+    action: 'settlement_commit',
+    completedHumanTaskIds: originalTaskIds,
+  });
+  assert.equal(
+    committed.snapshot.body.unresolvedItems.some(
+      (item) => item.dayPlanItemId === created.id && item.disposition === 'carry',
+    ),
+    true,
+  );
 });
 
 test('assistant create_item records the deterministic plan item in inbound_events', async (t) => {

@@ -1,6 +1,49 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { routeBuddyTurn } from '../src/lib/buddy/router.ts';
+import {
+  detectBuddyCommandIntent,
+  routeBuddyTurn,
+} from '../src/lib/buddy/router.ts';
+
+test('day-change commands route to the guarded replan preview', () => {
+  assert.deepEqual(
+    detectBuddyCommandIntent('new urgent thing, reshuffle my afternoon'),
+    { kind: 'replan' },
+  );
+  assert.deepEqual(
+    detectBuddyCommandIntent('Please replan today around the client call'),
+    { kind: 'replan' },
+  );
+  assert.equal(
+    detectBuddyCommandIntent('reschedule my afternoon call with Bob'),
+    undefined,
+  );
+  assert.equal(detectBuddyCommandIntent('move the Acme card'), undefined);
+});
+
+test('send feedback captures the note without swallowing normal commands', () => {
+  assert.deepEqual(
+    detectBuddyCommandIntent('Send feedback: the text is too small'),
+    { kind: 'feedback', message: 'the text is too small' },
+  );
+  assert.deepEqual(
+    detectBuddyCommandIntent('feedback: the button did not respond'),
+    { kind: 'feedback', message: 'the button did not respond' },
+  );
+  assert.deepEqual(detectBuddyCommandIntent('send feedback'), {
+    kind: 'feedback',
+    message: '',
+  });
+  assert.equal(
+    detectBuddyCommandIntent('give feedback on my draft email to Sarah'),
+    undefined,
+  );
+  assert.equal(
+    detectBuddyCommandIntent('share feedback with the Acme team about the demo'),
+    undefined,
+  );
+  assert.equal(detectBuddyCommandIntent('send the proposal'), undefined);
+});
 
 test('deep override wins over every routing signal', () => {
   assert.deepEqual(routeBuddyTurn('add this', undefined, 'deep'), {

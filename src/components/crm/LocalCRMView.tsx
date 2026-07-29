@@ -150,7 +150,7 @@ export default function LocalCRMView() {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <div className="max-w-lg rounded-lg border bg-card p-4 text-sm">
-          <p className="font-medium text-foreground">CRM could not load.</p>
+          <p className="font-medium text-foreground">People could not load.</p>
           <p className="mt-1 text-muted-foreground">{error}</p>
           <button
             onClick={() => void load(search)}
@@ -166,7 +166,7 @@ export default function LocalCRMView() {
   if (contacts === null) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="text-sm text-muted-foreground">Loading CRM...</div>
+        <div className="text-sm text-muted-foreground">Loading people...</div>
       </div>
     );
   }
