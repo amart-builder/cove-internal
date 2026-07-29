@@ -112,6 +112,28 @@ Verify skill-copy on install (done for this machine, verify in rehearsal); impor
 
 Known candidates: first-value runbook (client's real priorities in before first brief), one-page handoff, clean-machine rehearsal findings.
 
+## Buddy and Execution (settled with Alex, 2026-07-28 evening)
+
+### Owner chips redefined as session launchers (BUILD) — the law
+
+Alex's semantics, replacing the workspace-gated meaning:
+
+- **"Claude" owner** = open a Claude session in AUTO mode, seeded with the task detail, expected to complete the entire task autonomously with no explanation beyond what the task carries. Full laptop reach (whatever the user could do themselves), because it is literally a Claude session on their machine. Hard line in the seed instructions: no binding or final actions (no sending, publishing, purchasing, nothing irreversible); it produces drafts, files, and ready-to-fire work product.
+- **"Together" owner** = the same seeded session, opened in PLAN mode.
+- No workspace allowlist or git repo required for the chips. Deliverables default to a Cove-managed outputs folder so results are always findable; results and resume links still land back on the board.
+- The existing gated headless lane (allowlisted workspace, budget, clean repo) is NOT deleted: it remains the machinery for unattended/overnight execution later. The chips just stop depending on it.
+- Trust model, said out loud in setup: auto mode's boundary is Claude Code's own permission system plus the no-finals seed rule, identical to the user running Claude by hand.
+
+### Buddy scope (settled)
+
+Stays a Cove-data command palette with manners: receipts, gated deletes, session spawning. Additions already planned: mid-day replan wiring and the feedback channel. No general chatbot in the dock (standing law reaffirmed).
+
+### Hygiene (BUILD)
+
+- Orphan reaping: record child pids for brief/dump/execution children so a dead server never strands runs.
+- Replace the 1.5s git-subprocess readiness polling in the day ritual with cached/on-demand checks.
+- Rehearsal-verify: day-one behavior of the owner chips on a fresh no-workspace install; spawn-session UX on a machine with no projects folder.
+
 ## Health and Adoption Check (proposed 2026-07-28, awaiting Alex confirm at settlement)
 
 Alex's ask: a recurring agent that checks whether Cove is functioning and achieving its goal, and talks to the user when it isn't. Reshaped from "architecture review on a timer" (rejected: architecture doesn't change every 48 hours; repeated review invents findings) to:
