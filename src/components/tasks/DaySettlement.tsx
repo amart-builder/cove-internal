@@ -67,6 +67,16 @@ interface DaySettlementProps {
   onCloseDay: () => void | Promise<void>;
 }
 
+// Nearest ancestor that actually scrolls, so the note's auto-grow can put the
+// scroll position back exactly where it found it.
+function scrollParentOf(element: HTMLElement): HTMLElement | null {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    const { overflowY } = getComputedStyle(node);
+    if (overflowY === 'auto' || overflowY === 'scroll') return node;
+  }
+  return null;
+}
+
 export default function DaySettlement({
   plan,
   completed,
@@ -97,8 +107,18 @@ export default function DaySettlement({
   useLayoutEffect(() => {
     const textarea = noteRef.current;
     if (!textarea) return;
+    // Measuring the note means collapsing it to 'auto' first, which briefly
+    // shrinks the card. The scroll container clamps its scrollTop to that
+    // smaller content, and growing the note back does not restore the scroll,
+    // so once the note ran past one screen every keystroke threw the view back
+    // to the top. Measured at 1440x813: 464 -> 0 on the first keystroke.
+    // Put the position back in the same frame, before the browser paints.
+    const scroller = scrollParentOf(textarea);
+    const restoreTop = scroller ? scroller.scrollTop : window.scrollY;
     textarea.style.height = 'auto';
     textarea.style.height = `${textarea.scrollHeight}px`;
+    if (scroller) scroller.scrollTop = restoreTop;
+    else window.scrollTo(window.scrollX, restoreTop);
   }, [note]);
   const allDecided = allSettlementDecisionsMade(
     unresolved.map((view) => view.item),
