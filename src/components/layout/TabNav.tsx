@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -15,6 +15,21 @@ export default function TabNav() {
   const [dark, setDark] = useState(
     () => typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
   );
+
+  // Hydration can rewrite the <html> class the pre-paint script added, so
+  // re-apply the stored preference once after mount.
+  useEffect(() => {
+    let wantDark: boolean;
+    try {
+      const stored = localStorage.getItem('theme');
+      wantDark = stored === 'dark' ||
+        (!stored && matchMedia('(prefers-color-scheme: dark)').matches);
+    } catch {
+      return;
+    }
+    document.documentElement.classList.toggle('dark', wantDark);
+    setDark(wantDark);
+  }, []);
 
   function toggleTheme() {
     const next = !dark;

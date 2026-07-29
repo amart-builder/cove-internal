@@ -156,22 +156,22 @@ export default function ContactList({
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full flex-col">
       {/* Column visibility toggle */}
-      <div className="px-4 py-1.5 border-b flex items-center justify-end">
+      <div className="water-table-tools flex items-center justify-end border-b px-4 py-2">
         <div className="relative" ref={columnMenuRef}>
           <button
             onClick={() => setShowColMenu(!showColMenu)}
-            className="px-2.5 py-1 text-[11px] text-muted-foreground hover:text-foreground border rounded-md hover:bg-muted transition-colors duration-150"
+            className="water-secondary-button px-3 py-1"
           >
             Columns
           </button>
           {showColMenu && (
-            <div className="absolute right-0 top-full mt-1 bg-card border rounded-lg shadow-lg py-1.5 z-10 min-w-[140px]">
+            <div className="water-popover absolute right-0 top-full z-10 mt-1 min-w-[150px] py-1.5">
               {ALL_COLUMNS.map((col) => (
                 <label
                   key={col.key}
-                  className="flex items-center gap-2 px-3 py-1 text-xs hover:bg-muted cursor-pointer"
+                  className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/50"
                 >
                   <input
                     type="checkbox"
@@ -190,13 +190,13 @@ export default function ContactList({
       {/* Table */}
       <div className="flex-1 overflow-auto">
         {contacts.length === 0 ? (
-          <div className="px-4 py-12 text-center text-muted-foreground text-sm">
+          <div className="water-empty-state m-5 px-4 py-12 text-center text-sm">
             {emptyMessage}
           </div>
         ) : (
-          <table className="w-full text-[13px]">
+          <table className="water-contact-table w-full text-[13px]">
             <thead>
-              <tr className="text-left text-[11px] text-muted-foreground border-b bg-muted/30 sticky top-0">
+              <tr className="sticky top-0 border-b text-left text-muted-foreground">
                 <th className="pl-4 pr-2 py-2 w-8">
                   <input
                     type="checkbox"
@@ -227,10 +227,8 @@ export default function ContactList({
                   <tr
                     key={contact._id}
                     onClick={() => onSelectContact(contact._id)}
-                    className={`cursor-pointer border-b transition-colors duration-100 ${
-                      isSelected
-                        ? 'bg-accent-blue/5'
-                        : 'hover:bg-muted/50'
+                    className={`water-contact-row cursor-pointer border-b ${
+                      isSelected ? 'is-selected' : ''
                     }`}
                   >
                     <td className="pl-4 pr-2 py-2">
@@ -263,7 +261,7 @@ export default function ContactList({
                           </span>
                         )}
                         {col.key === 'type' && (
-                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                          <span className="water-pill px-2 py-0.5">
                             {contact.objectType === 'companies' ? 'Company' : 'Person'}
                           </span>
                         )}
@@ -288,7 +286,7 @@ export default function ContactList({
                           </span>
                         )}
                         {col.key === 'tier' && (
-                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${tierColors[contact.tier] ?? tierColors.C}`}>
+                          <span className={`water-pill px-2 py-0.5 ${tierColors[contact.tier] ?? tierColors.C}`}>
                             {contact.tier}
                           </span>
                         )}
@@ -302,7 +300,7 @@ export default function ContactList({
                             {contact.tags.slice(0, 2).map((tag) => (
                               <span
                                 key={tag}
-                                className="px-1.5 py-0.5 text-[10px] rounded bg-muted text-muted-foreground"
+                                className="water-pill px-2 py-0.5"
                               >
                                 {tag}
                               </span>

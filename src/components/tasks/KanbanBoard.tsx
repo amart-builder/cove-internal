@@ -948,16 +948,16 @@ function KanbanBoardContent({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-        Loading board...
+      <div className="water-workspace flex h-full items-center justify-center p-6">
+        <div className="water-empty-state px-6 py-5 text-sm">Loading board...</div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full p-6">
-        <div className="max-w-lg rounded-lg border bg-card p-4 text-sm">
+      <div className="water-workspace flex h-full items-center justify-center p-6">
+        <div className="water-empty-state max-w-lg p-5 text-sm">
           <p className="font-medium text-foreground">Tasks could not load.</p>
           <p className="mt-1 text-muted-foreground">{error}</p>
         </div>
@@ -970,9 +970,9 @@ function KanbanBoardContent({
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-3 px-5 py-2.5 border-b transition-colors duration-200">
-        <h1 className="text-sm font-semibold text-foreground">Tasks</h1>
+    <div className="water-workspace all-work-surface flex h-full flex-col">
+      <div className="water-toolbar all-work-toolbar flex items-center gap-3 border-b px-5">
+        <h1 className="water-workspace-title text-sm">All Work</h1>
 
         <div className="ml-4 flex items-center gap-2 flex-1">
           <div className="relative max-w-[240px] flex-1">
@@ -986,7 +986,7 @@ function KanbanBoardContent({
               placeholder="Search tasks..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent-blue/40"
+              className="water-control w-full py-1.5 pl-8 pr-3 text-xs placeholder:text-muted-foreground"
             />
           </div>
 
@@ -994,7 +994,7 @@ function KanbanBoardContent({
             aria-label="Filter tasks"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-            className="px-2 py-1.5 text-xs rounded-md border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-accent-blue/40"
+            className="water-control px-3 py-1.5 text-xs"
           >
             <option value="all">All Tasks</option>
             <option value="today">Must happen today</option>
@@ -1008,7 +1008,7 @@ function KanbanBoardContent({
             aria-label="Filter tasks by priority"
             value={priorityFilter}
             onChange={(e) => setPriorityFilter(e.target.value as PriorityFilter)}
-            className="px-2 py-1.5 text-xs rounded-md border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-accent-blue/40"
+            className="water-control px-3 py-1.5 text-xs"
           >
             <option value="all">All Priority</option>
             <option value="high">High</option>
@@ -1025,7 +1025,7 @@ function KanbanBoardContent({
           <button
             type="button"
             onClick={() => setShowRecentlyDeleted(true)}
-            className="ml-2 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+            className="water-text-button ml-2 px-2.5 py-1.5"
           >
             Recently deleted
           </button>
@@ -1034,17 +1034,17 @@ function KanbanBoardContent({
         <button
           onClick={() => setShowAddForm(!showAddForm)}
           aria-label={showAddForm ? 'Close add task form' : 'Open add task form'}
-          className="ml-2 px-3 py-1.5 text-xs font-medium bg-foreground text-background rounded-md hover:opacity-90 transition-opacity duration-150"
+          className="water-primary-button ml-2 px-4 py-2"
         >
           + Add Task
         </button>
       </div>
 
       {showAddForm && (
-        <form onSubmit={handleAddTask} className="px-5 py-3 border-b bg-muted/30 transition-colors duration-200">
+        <form onSubmit={handleAddTask} className="water-form-panel mx-5 mt-3 rounded-[20px] px-5 py-4">
           <div className="flex items-end gap-3 max-w-2xl">
             <div className="flex-1">
-              <label className="block text-[11px] text-muted-foreground mb-1">Title *</label>
+              <label className="mb-1.5 block">Title *</label>
               <input
                 type="text"
                 aria-label="New task title"
@@ -1052,18 +1052,18 @@ function KanbanBoardContent({
                 onChange={(e) => setNewTask((prev) => ({ ...prev, title: e.target.value }))}
                 placeholder="Task title"
                 autoFocus
-                className="w-full px-2.5 py-1.5 text-sm rounded-md border bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-accent-blue/40"
+                className="w-full px-3 py-2 text-sm"
               />
             </div>
             <div className="w-24">
-              <label className="block text-[11px] text-muted-foreground mb-1">Priority</label>
+              <label className="mb-1.5 block">Priority</label>
               <select
                 aria-label="New task priority"
                 value={newTask.priority}
                 onChange={(e) =>
                   setNewTask((prev) => ({ ...prev, priority: e.target.value as 'low' | 'medium' | 'high' }))
                 }
-                className="w-full px-2 py-1.5 text-sm rounded-md border bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-accent-blue/40"
+                className="w-full px-3 py-2 text-sm"
               >
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
@@ -1071,20 +1071,20 @@ function KanbanBoardContent({
               </select>
             </div>
             <div className="w-36">
-              <label className="block text-[11px] text-muted-foreground mb-1">Due date</label>
+              <label className="mb-1.5 block">Due date</label>
               <input
                 type="date"
                 aria-label="New task due date"
                 value={newTask.dueDate}
                 onChange={(e) => setNewTask((prev) => ({ ...prev, dueDate: e.target.value }))}
-                className="w-full px-2 py-1.5 text-sm rounded-md border bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-accent-blue/40"
+                className="w-full px-3 py-2 text-sm"
               />
             </div>
             <div className="flex gap-1.5 shrink-0">
               <button
                 type="submit"
                 disabled={!newTask.title.trim()}
-                className="px-3 py-1.5 text-xs font-medium bg-accent-blue text-white rounded-md hover:opacity-90 transition-opacity duration-150 disabled:opacity-40"
+                className="water-primary-button px-4 py-2 disabled:opacity-40"
               >
                 Add Task
               </button>
@@ -1094,7 +1094,7 @@ function KanbanBoardContent({
                   setShowAddForm(false);
                   setNewTask({ title: '', priority: 'medium', dueDate: '', description: '', tags: '' });
                 }}
-                className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors duration-150"
+                className="water-text-button px-3 py-2"
               >
                 Cancel
               </button>
@@ -1102,32 +1102,32 @@ function KanbanBoardContent({
           </div>
           <div className="flex items-end gap-3 max-w-2xl mt-2">
             <div className="flex-1">
-              <label className="block text-[11px] text-muted-foreground mb-1">Description</label>
+              <label className="mb-1.5 block">Description</label>
               <input
                 type="text"
                 aria-label="New task description"
                 value={newTask.description}
                 onChange={(e) => setNewTask((prev) => ({ ...prev, description: e.target.value }))}
                 placeholder="Optional description"
-                className="w-full px-2.5 py-1.5 text-sm rounded-md border bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-accent-blue/40"
+                className="w-full px-3 py-2 text-sm"
               />
             </div>
             <div className="flex-1">
-              <label className="block text-[11px] text-muted-foreground mb-1">Tags</label>
+              <label className="mb-1.5 block">Tags</label>
               <input
                 type="text"
                 aria-label="New task tags"
                 value={newTask.tags}
                 onChange={(e) => setNewTask((prev) => ({ ...prev, tags: e.target.value }))}
                 placeholder="design, frontend (comma-separated)"
-                className="w-full px-2.5 py-1.5 text-sm rounded-md border bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-accent-blue/40"
+                className="w-full px-3 py-2 text-sm"
               />
             </div>
           </div>
         </form>
       )}
 
-      <div className="flex-1 overflow-x-auto overflow-y-hidden">
+      <div className="all-work-board flex-1 overflow-x-auto overflow-y-hidden">
         <DndContext
           sensors={sensors}
           collisionDetection={pointerFirstCollisionDetection}
@@ -1135,17 +1135,23 @@ function KanbanBoardContent({
           onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
         >
-          <div className="flex gap-3 p-5 h-full min-w-max">
-            {columns.map((col) => (
-              <Column
-                key={col._id}
-                column={col}
-                tasks={getTasksForColumn(col._id)}
-                onOpenDetail={setDetailTaskId}
-                onCompleteTask={handleCompleteTask}
-                completingTaskId={completingTaskId}
-              />
-            ))}
+          <div className="flex h-full min-w-max gap-4">
+            {columns.length === 0 ? (
+              <div className="water-empty-state flex min-h-[180px] w-[360px] items-center justify-center px-6 text-center text-sm">
+                No task lists yet.
+              </div>
+            ) : (
+              columns.map((col) => (
+                <Column
+                  key={col._id}
+                  column={col}
+                  tasks={getTasksForColumn(col._id)}
+                  onOpenDetail={setDetailTaskId}
+                  onCompleteTask={handleCompleteTask}
+                  completingTaskId={completingTaskId}
+                />
+              ))
+            )}
           </div>
 
           <DragOverlay dropAnimation={null}>

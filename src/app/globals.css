@@ -1128,14 +1128,20 @@ input, textarea, select {
 
 .current-jarvis-current { position: absolute; z-index: 8; top: -16px; right: 0; width: 244px; color: color-mix(in srgb, var(--foreground) 72%, transparent); }
 .current-jarvis-heading { position: relative; padding: 0 18px 12px; }
-.current-jarvis-heading span { color: var(--muted-foreground); font-size: 8px; font-weight: 680; letter-spacing: .16em; text-transform: uppercase; }
+.current-jarvis-heading > span:first-child { color: var(--muted-foreground); font-size: 8px; font-weight: 680; letter-spacing: .16em; text-transform: uppercase; }
 .current-jarvis-heading h2 { margin-top: 3px; font-size: 14px; font-weight: 540; letter-spacing: -.02em; }
 .current-jarvis-heading i { position: absolute; top: 11px; right: 16px; width: 10px; height: 10px; border: 1px solid color-mix(in srgb, var(--quiet-water) 65%, transparent); border-radius: 50%; background: rgba(255,255,255,.42); box-shadow: 0 0 0 5px color-mix(in srgb, var(--quiet-water) 8%, transparent); }
 .current-jarvis-nodes { display: grid; gap: 8px; }
 .current-jarvis-nodes article { position: relative; border: 1px solid rgba(255,255,255,.62); border-radius: 17px; background: rgba(255,255,255,.42); backdrop-filter: blur(14px); transition: background 160ms ease, border-color 160ms ease; }
 .current-jarvis-nodes article.is-focused { border-color: color-mix(in srgb, var(--quiet-water) 48%, white); background: rgba(255,255,255,.66); }
 .current-jarvis-nodes article > button:first-child { width: 100%; padding: 12px 13px; text-align: left; }
-.current-jarvis-nodes span { display: block; color: var(--muted-foreground); font-size: 8px; }
+/* These three selectors reconstruct what the old broad `.current-jarvis-nodes span`
+   rule applied to the shelf label, the RunStatusChip (span.mt-1.self-start), and the
+   needs-setup pill (span.mt-1.w-fit) in TodayView's shelf nodes. They depend on those
+   exact utility class names in TodayView.tsx; change them together. */
+.current-jarvis-nodes > article > button:first-child > span:first-child { display: block; color: var(--muted-foreground); font-size: 8px; }
+.current-jarvis-nodes > article > button:first-child > span.mt-1.w-fit { display: block; color: var(--muted-foreground); font-size: 8px; }
+.current-jarvis-nodes > article > button:first-child > span.mt-1.self-start { display: block; color: var(--muted-foreground); font-size: 8px; }
 .current-jarvis-nodes strong { display: -webkit-box; overflow: hidden; margin-top: 5px; font-size: 11px; font-weight: 560; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .current-jarvis-empty { padding: 12px 16px; color: var(--muted-foreground); font-size: 10px; }
 .current-jarvis-more { width: 100%; min-height: 36px; padding: 7px 12px; color: var(--muted-foreground); font-size: 9px; text-align: left; text-decoration: underline; text-underline-offset: 3px; }
@@ -1391,7 +1397,7 @@ input, textarea, select {
     padding: 0 8px 8px;
   }
 
-  .current-jarvis-heading span {
+  .current-jarvis-heading > span:first-child {
     font-size: 6px;
   }
 
@@ -1416,7 +1422,15 @@ input, textarea, select {
     padding: 9px;
   }
 
-  .current-jarvis-nodes span {
+  .current-jarvis-nodes > article > button:first-child > span:first-child {
+    display: none;
+  }
+
+  .current-jarvis-nodes > article > button:first-child > span.mt-1.w-fit {
+    display: none;
+  }
+
+  .current-jarvis-nodes > article > button:first-child > span.mt-1.self-start {
     display: none;
   }
 
@@ -1507,6 +1521,534 @@ input, textarea, select {
 .current-river-surface.is-ambient-paused .current-water-plane::after,
 .current-river-surface.is-ambient-paused .current-water-drift {
   animation-play-state: paused;
+}
+
+/* Shared water language for the All Work and People workspaces. */
+@layer components {
+.water-workspace {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 10% -12%, color-mix(in srgb, var(--current-line-warm) 52%, transparent), transparent 36%),
+    radial-gradient(circle at 88% 2%, color-mix(in srgb, var(--current-water-blue) 30%, transparent), transparent 42%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--background) 88%, var(--current-line-core)) 0%,
+      color-mix(in srgb, var(--background) 90%, var(--current-water-blue)) 100%
+    );
+}
+
+.water-workspace::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 108%, color-mix(in srgb, var(--quiet-water) 10%, transparent), transparent 58%);
+  content: '';
+  pointer-events: none;
+}
+
+.dark .water-workspace {
+  background:
+    radial-gradient(circle at 84% -8%, color-mix(in srgb, var(--current-kicker) 10%, transparent), transparent 34%),
+    radial-gradient(circle at 12% 4%, color-mix(in srgb, var(--quiet-water) 8%, transparent), transparent 40%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--background) 94%, var(--current-water-blue)) 0%,
+      color-mix(in srgb, var(--background) 86%, var(--current-water-deep)) 100%
+    );
+}
+
+.water-toolbar {
+  border-color: color-mix(in srgb, var(--quiet-water) 15%, transparent);
+  background: color-mix(in srgb, var(--quiet-glass) 68%, transparent);
+  box-shadow: 0 14px 40px rgba(60,102,126,.06);
+  backdrop-filter: blur(18px) saturate(118%);
+  -webkit-backdrop-filter: blur(18px) saturate(118%);
+}
+
+.water-workspace-title {
+  color: var(--current-title-ink);
+  font-weight: 560;
+  letter-spacing: -.025em;
+}
+
+.water-eyebrow,
+.water-form-panel label,
+.water-detail-panel label,
+.water-detail-label {
+  color: color-mix(in srgb, var(--foreground) 70%, transparent);
+  font-size: 10px;
+  font-weight: 670;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.water-control,
+.water-form-panel input:not([type='checkbox']),
+.water-form-panel textarea,
+.water-form-panel select,
+.water-detail-panel input:not([type='checkbox']),
+.water-detail-panel textarea,
+.water-detail-panel select {
+  border: 1px solid color-mix(in srgb, var(--quiet-water) 22%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--quiet-glass) 82%, transparent);
+  color: var(--foreground);
+  box-shadow: 0 7px 22px rgba(60,102,126,.045);
+  backdrop-filter: blur(13px);
+  -webkit-backdrop-filter: blur(13px);
+  transition:
+    border-color 180ms var(--ease-out-forge),
+    background 180ms var(--ease-out-forge),
+    box-shadow 180ms var(--ease-out-forge);
+}
+
+.water-form-panel textarea,
+.water-detail-panel textarea {
+  border-radius: 17px;
+}
+
+.water-control:focus,
+.water-form-panel input:not([type='checkbox']):focus,
+.water-form-panel textarea:focus,
+.water-form-panel select:focus,
+.water-detail-panel input:not([type='checkbox']):focus,
+.water-detail-panel textarea:focus,
+.water-detail-panel select:focus {
+  border-color: color-mix(in srgb, var(--quiet-water) 60%, var(--border));
+  outline: none;
+  box-shadow:
+    0 10px 28px rgba(60,102,126,.08),
+    0 0 0 3px color-mix(in srgb, var(--quiet-water) 12%, transparent);
+}
+
+.water-workspace button,
+.water-workspace [role='button'] {
+  transition:
+    color 180ms var(--ease-out-forge),
+    background 180ms var(--ease-out-forge),
+    border-color 180ms var(--ease-out-forge),
+    box-shadow 180ms var(--ease-out-forge),
+    opacity 180ms var(--ease-out-forge),
+    transform 180ms var(--ease-out-forge);
+}
+
+.water-workspace button:focus-visible,
+.water-workspace [role='button']:focus-visible,
+.water-control:focus-visible,
+.water-form-panel input:focus-visible,
+.water-form-panel textarea:focus-visible,
+.water-form-panel select:focus-visible,
+.water-detail-panel input:focus-visible,
+.water-detail-panel textarea:focus-visible,
+.water-detail-panel select:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--quiet-water) 72%, var(--accent-blue));
+  outline-offset: 2px;
+}
+
+.water-primary-button,
+.water-secondary-button,
+.water-text-button {
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 590;
+}
+
+.water-primary-button {
+  border: 1px solid color-mix(in srgb, var(--quiet-ink) 82%, transparent);
+  background: var(--quiet-ink);
+  color: var(--background);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--quiet-ink) 16%, transparent);
+}
+
+.water-primary-button:hover:not(:disabled) {
+  box-shadow: 0 11px 28px color-mix(in srgb, var(--quiet-ink) 20%, transparent);
+  transform: translateY(-1px);
+}
+
+.water-secondary-button {
+  border: 1px solid color-mix(in srgb, var(--quiet-water) 24%, var(--border));
+  background: color-mix(in srgb, var(--quiet-glass) 70%, transparent);
+  color: var(--muted-foreground);
+}
+
+.water-secondary-button:hover:not(:disabled),
+.water-text-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--quiet-glass) 94%, transparent);
+  color: var(--foreground);
+}
+
+.water-text-button {
+  color: var(--muted-foreground);
+}
+
+.water-form-panel,
+.water-detail-panel,
+.water-popover,
+.water-empty-state {
+  border: 1px solid rgba(255,255,255,.64);
+  background: color-mix(in srgb, var(--quiet-glass) 84%, transparent);
+  box-shadow: 0 14px 40px rgba(60,102,126,.06);
+  backdrop-filter: blur(18px) saturate(112%);
+  -webkit-backdrop-filter: blur(18px) saturate(112%);
+}
+
+.water-form-panel {
+  animation: quiet-rise 200ms var(--ease-out-forge) both;
+}
+
+.water-empty-state {
+  border-radius: 20px;
+  color: var(--muted-foreground);
+}
+
+.water-pill {
+  border: 1px solid color-mix(in srgb, var(--quiet-water) 18%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--quiet-water-soft) 38%, transparent);
+  color: color-mix(in srgb, var(--foreground) 70%, transparent);
+  font-size: 10px;
+  font-weight: 570;
+  letter-spacing: .025em;
+}
+
+/* All Work */
+.all-work-surface {
+  overflow: hidden;
+}
+
+.all-work-toolbar {
+  min-height: 58px;
+  padding-block: 10px;
+}
+
+.all-work-board {
+  position: relative;
+  padding: 18px 20px 22px;
+}
+
+.water-board-column {
+  border: 1px solid rgba(255,255,255,.54);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--quiet-glass) 42%, transparent);
+  box-shadow: 0 14px 40px rgba(60,102,126,.045);
+  backdrop-filter: blur(13px);
+  -webkit-backdrop-filter: blur(13px);
+  transition:
+    background 200ms var(--ease-out-forge),
+    border-color 200ms var(--ease-out-forge),
+    box-shadow 200ms var(--ease-out-forge);
+}
+
+.water-board-column.is-over {
+  border-color: color-mix(in srgb, var(--quiet-water) 56%, rgba(255,255,255,.72));
+  background: color-mix(in srgb, var(--quiet-water-soft) 26%, var(--quiet-glass));
+  box-shadow:
+    0 18px 46px rgba(60,102,126,.09),
+    inset 0 0 0 1px color-mix(in srgb, var(--quiet-water) 18%, transparent);
+}
+
+.water-column-heading {
+  border-color: color-mix(in srgb, var(--quiet-water) 13%, transparent);
+}
+
+.water-column-heading > span:first-of-type {
+  font-size: 10px;
+  font-weight: 680;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.water-column-count {
+  display: grid;
+  min-width: 23px;
+  height: 23px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--quiet-water) 16%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--quiet-glass) 68%, transparent);
+  color: color-mix(in srgb, var(--foreground) 70%, transparent);
+  font-size: 10px;
+}
+
+.water-task-list {
+  scrollbar-color: color-mix(in srgb, var(--quiet-water) 24%, transparent) transparent;
+}
+
+.water-task-card {
+  border: 1px solid rgba(255,255,255,.68);
+  border-radius: 17px;
+  background: color-mix(in srgb, var(--quiet-glass) 84%, transparent);
+  box-shadow: 0 8px 26px rgba(60,102,126,.055);
+  transition:
+    transform 180ms var(--ease-out-forge),
+    border-color 180ms var(--ease-out-forge),
+    background 180ms var(--ease-out-forge),
+    box-shadow 180ms var(--ease-out-forge);
+}
+
+.water-task-card:hover {
+  border-color: color-mix(in srgb, var(--quiet-water) 36%, rgba(255,255,255,.72));
+  background: color-mix(in srgb, var(--quiet-glass) 96%, transparent);
+  box-shadow: 0 13px 34px rgba(60,102,126,.09);
+  transform: translateY(-1px);
+}
+
+.water-task-card:focus-visible {
+  border-color: color-mix(in srgb, var(--quiet-water) 56%, rgba(255,255,255,.72));
+  outline: 2px solid color-mix(in srgb, var(--quiet-water) 72%, var(--accent-blue));
+  outline-offset: 2px;
+}
+
+.water-card-title {
+  font-weight: 560;
+  letter-spacing: -.018em;
+}
+
+.water-task-card.is-overlay {
+  border-color: color-mix(in srgb, var(--quiet-water) 48%, rgba(255,255,255,.72));
+  box-shadow: 0 22px 56px rgba(60,102,126,.18);
+  transform: rotate(1deg) scale(1.015);
+}
+
+.water-task-card.is-dragging {
+  border-color: color-mix(in srgb, var(--quiet-water) 42%, transparent);
+  border-style: dashed;
+}
+
+.water-complete-button {
+  border-color: color-mix(in srgb, var(--quiet-water) 28%, transparent);
+  background: color-mix(in srgb, var(--quiet-glass) 94%, transparent);
+  box-shadow: 0 4px 12px rgba(60,102,126,.07);
+}
+
+.water-complete-button:hover {
+  border-color: var(--accent-green);
+  background: color-mix(in srgb, var(--accent-green) 10%, var(--quiet-glass));
+  color: var(--accent-green);
+}
+
+.water-priority {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 630;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.water-empty-column {
+  margin: 8px;
+  border: 1px dashed color-mix(in srgb, var(--quiet-water) 23%, transparent);
+  border-radius: 15px;
+  padding: 24px 10px;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  letter-spacing: .04em;
+}
+
+/* People */
+.people-surface {
+  color: var(--foreground);
+}
+
+.water-sidebar {
+  margin: 12px 0 12px 12px;
+  border: 1px solid rgba(255,255,255,.58);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--quiet-glass) 72%, transparent);
+  box-shadow: 0 14px 40px rgba(60,102,126,.055);
+  backdrop-filter: blur(17px);
+  -webkit-backdrop-filter: blur(17px);
+}
+
+.water-sidebar-row {
+  border: 1px solid transparent;
+  border-radius: 12px;
+}
+
+.water-sidebar-row:hover {
+  background: color-mix(in srgb, var(--quiet-water-soft) 36%, transparent);
+  color: var(--foreground);
+}
+
+.water-sidebar-row.is-active {
+  border-color: color-mix(in srgb, var(--quiet-water) 18%, transparent);
+  background: color-mix(in srgb, var(--quiet-water-soft) 54%, transparent);
+  color: var(--foreground);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.26);
+}
+
+.water-list-panel,
+.water-table-panel {
+  background: color-mix(in srgb, var(--quiet-glass) 18%, transparent);
+}
+
+.water-table-tools {
+  border-color: color-mix(in srgb, var(--quiet-water) 12%, transparent);
+  background: color-mix(in srgb, var(--quiet-glass) 36%, transparent);
+}
+
+.water-popover {
+  border-radius: 17px;
+}
+
+.water-contact-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.water-contact-table thead tr {
+  border-color: color-mix(in srgb, var(--quiet-water) 16%, transparent);
+  background: color-mix(in srgb, var(--quiet-glass) 88%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.water-contact-table th {
+  color: color-mix(in srgb, var(--foreground) 70%, transparent);
+  font-size: 10px;
+  font-weight: 670;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.water-contact-row {
+  border-color: color-mix(in srgb, var(--quiet-water) 11%, transparent);
+  background: transparent;
+}
+
+.water-contact-row:hover {
+  background: color-mix(in srgb, var(--quiet-water-soft) 24%, transparent);
+}
+
+.water-contact-row.is-selected {
+  background: color-mix(in srgb, var(--quiet-water-soft) 42%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--quiet-water) 68%, transparent);
+}
+
+.water-list-row {
+  border-color: color-mix(in srgb, var(--quiet-water) 12%, transparent);
+  background: transparent;
+}
+
+.water-list-row:hover {
+  background: color-mix(in srgb, var(--quiet-water-soft) 25%, transparent);
+}
+
+.water-list-row.is-active {
+  background: color-mix(in srgb, var(--quiet-water-soft) 46%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--quiet-water) 66%, transparent);
+}
+
+.water-detail-shell {
+  margin: 12px 12px 12px 0;
+  border: 1px solid rgba(255,255,255,.58);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--quiet-glass) 72%, transparent);
+  box-shadow: 0 14px 40px rgba(60,102,126,.06);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.water-detail-panel {
+  height: 100%;
+  overflow: hidden auto;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  box-shadow: none;
+}
+
+.water-detail-heading {
+  border-color: color-mix(in srgb, var(--quiet-water) 13%, transparent);
+  background: color-mix(in srgb, var(--quiet-glass) 24%, transparent);
+}
+
+.water-detail-heading h2 {
+  color: var(--current-title-ink);
+  font-weight: 560;
+  letter-spacing: -.025em;
+}
+
+.water-avatar {
+  border: 1px solid rgba(255,255,255,.64);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--quiet-water) 84%, var(--quiet-ink));
+  box-shadow: 0 7px 20px color-mix(in srgb, var(--quiet-water) 24%, transparent);
+  color: var(--background);
+}
+
+.water-field-row {
+  border-color: color-mix(in srgb, var(--quiet-water) 12%, transparent);
+}
+
+.water-activity-card {
+  border-color: color-mix(in srgb, var(--quiet-water) 17%, transparent);
+  border-radius: 17px;
+  background: color-mix(in srgb, var(--quiet-glass) 42%, transparent);
+}
+
+.dark .water-form-panel,
+.dark .water-detail-panel,
+.dark .water-popover,
+.dark .water-empty-state,
+.dark .water-board-column,
+.dark .water-task-card,
+.dark .water-sidebar,
+.dark .water-detail-shell {
+  border-color: color-mix(in srgb, var(--quiet-water) 18%, var(--border));
+}
+
+.dark .water-task-card:hover {
+  border-color: color-mix(in srgb, var(--quiet-water) 42%, var(--border));
+}
+
+@media (max-width: 1023px) {
+  .water-detail-shell {
+    margin: 0 12px 12px;
+  }
+}
+
+@media (max-width: 720px) {
+  .all-work-toolbar {
+    align-items: flex-start;
+  }
+
+  .all-work-board {
+    padding: 14px;
+  }
+
+  .water-sidebar,
+  .water-detail-shell {
+    border-radius: 17px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .water-workspace button,
+  .water-workspace [role='button'],
+  .water-control,
+  .water-form-panel input,
+  .water-form-panel textarea,
+  .water-form-panel select,
+  .water-detail-panel input,
+  .water-detail-panel textarea,
+  .water-detail-panel select,
+  .water-form-panel,
+  .water-board-column,
+  .water-task-card {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .water-primary-button:hover:not(:disabled),
+  .water-task-card:hover {
+    transform: none;
+  }
+}
 }
 
 /* Press feedback for primary interactive controls. Transform-only, subtle, and

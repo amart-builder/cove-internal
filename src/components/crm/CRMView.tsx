@@ -63,11 +63,11 @@ function ConvexCRMView() {
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="water-workspace people-surface flex h-full flex-col">
       {/* Header bar */}
-      <div className="px-5 py-2.5 border-b flex flex-wrap items-center gap-2 sm:gap-3 transition-colors duration-200">
+      <div className="water-toolbar flex flex-wrap items-center gap-2 border-b px-5 py-2.5 sm:gap-3">
         <div className="flex items-baseline gap-2 shrink-0">
-          <h1 className="text-sm font-semibold text-foreground">Contacts</h1>
+          <h1 className="water-workspace-title text-sm">People</h1>
           <span className="text-xs text-muted-foreground tabular-nums">
             {contacts.length} {contacts.length === 1 ? 'entry' : 'entries'}
           </span>
@@ -83,16 +83,16 @@ function ConvexCRMView() {
             placeholder="Search..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent-blue/40"
+            className="water-control w-full py-1.5 pl-8 pr-3 text-xs placeholder:text-muted-foreground"
           />
         </div>
 
         <select
           value={tier}
           onChange={(e) => setTier(e.target.value)}
-          className="px-2 py-1.5 text-xs rounded-md border bg-background text-foreground"
+          className="water-control px-3 py-1.5 text-xs"
         >
-          <option value="">All Tiers</option>
+          <option value="">All groups</option>
           <option value="A">Tier A</option>
           <option value="B">Tier B</option>
           <option value="C">Tier C</option>
@@ -101,13 +101,13 @@ function ConvexCRMView() {
         <div className="ml-auto flex items-center gap-2 shrink-0">
           <button
             onClick={() => setShowImport(true)}
-            className="px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground border rounded-md hover:bg-muted transition-colors duration-150"
+            className="water-secondary-button px-3 py-1.5"
           >
             Import
           </button>
           <button
             onClick={() => setShowAddForm(!showAddForm)}
-            className="px-3 py-1.5 text-xs font-medium bg-foreground text-background rounded-md hover:opacity-90 transition-opacity duration-150"
+            className="water-primary-button px-4 py-1.5"
           >
             + Add
           </button>
@@ -116,10 +116,10 @@ function ConvexCRMView() {
 
       {/* Quick add form */}
       {showAddForm && (
-        <div className="px-5 py-3 border-b bg-muted/30 flex flex-col gap-3 transition-colors duration-200 md:flex-row md:items-end">
+        <div className="water-form-panel mx-5 mt-3 flex flex-col gap-3 rounded-[20px] px-5 py-4 md:flex-row md:items-end">
           <div className="flex-1 grid grid-cols-1 gap-2 sm:grid-cols-3">
             <div>
-              <label className="text-[11px] text-muted-foreground">Name *</label>
+              <label>Name *</label>
               <input
                 type="text"
                 value={newContact.name}
@@ -142,7 +142,7 @@ function ConvexCRMView() {
               )}
             </div>
             <div>
-              <label className="text-[11px] text-muted-foreground">Email</label>
+              <label>Email</label>
               <input
                 type="email"
                 value={newContact.email}
@@ -152,7 +152,7 @@ function ConvexCRMView() {
               />
             </div>
             <div>
-              <label className="text-[11px] text-muted-foreground">Company</label>
+              <label>Company</label>
               <input
                 type="text"
                 value={newContact.company}
@@ -165,7 +165,7 @@ function ConvexCRMView() {
           <div className="flex gap-1.5 shrink-0">
             <button
               onClick={handleAddContact}
-              className="px-3 py-1.5 text-xs font-medium text-white bg-accent-blue rounded-md hover:opacity-90 transition-opacity duration-150"
+              className="water-primary-button px-4 py-1.5"
             >
               Save
             </button>
@@ -175,7 +175,7 @@ function ConvexCRMView() {
                 setNewContact({ name: '', email: '', company: '' });
                 setAddError('');
               }}
-              className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+              className="water-text-button px-3 py-1.5"
             >
               Cancel
             </button>
@@ -198,7 +198,7 @@ function ConvexCRMView() {
 
         {/* Detail panel (slide-in) */}
         {selectedId && (
-          <div className="w-[380px] border-l flex-shrink-0 overflow-hidden bg-card transition-colors duration-200">
+          <div className="water-detail-shell w-[380px] flex-shrink-0 overflow-hidden">
             <ContactDetail
               key={selectedId}
               contactId={selectedId}
@@ -324,21 +324,21 @@ function AttioCRMView() {
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <div className="text-sm text-muted-foreground">Loading people from Attio...</div>
+      <div className="water-workspace flex h-full items-center justify-center p-6">
+        <div className="water-empty-state px-6 py-5 text-sm">Loading people from Attio...</div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex h-full items-center justify-center p-6">
-        <div className="max-w-lg rounded-lg border bg-card p-4 text-sm">
+      <div className="water-workspace flex h-full items-center justify-center p-6">
+        <div className="water-empty-state max-w-lg p-5 text-sm">
           <p className="font-medium text-foreground">People could not load from Attio.</p>
           <p className="mt-1 text-muted-foreground">{error}</p>
           <button
             onClick={() => void reload()}
-            className="mt-3 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background"
+            className="water-primary-button mt-3 px-4 py-1.5"
           >
             Retry
           </button>
@@ -349,16 +349,16 @@ function AttioCRMView() {
 
   return (
     <div
-      className={`grid h-full overflow-hidden max-lg:flex max-lg:flex-col ${
+      className={`water-workspace people-surface grid h-full overflow-hidden max-lg:flex max-lg:flex-col ${
         selectedRecord
           ? 'grid-cols-[220px_minmax(0,1fr)_380px] max-xl:grid-cols-[180px_minmax(0,1fr)_340px]'
           : 'grid-cols-[220px_minmax(0,1fr)] max-xl:grid-cols-[180px_minmax(0,1fr)]'
       }`}
     >
-      <aside className="border-r bg-card px-3 py-3 max-lg:hidden">
+      <aside className="water-sidebar px-3 py-3 max-lg:hidden">
         <div className="mb-3 flex items-center justify-between">
           <div>
-            <div className="text-sm font-semibold text-foreground">Attio</div>
+            <div className="water-workspace-title text-sm">Attio</div>
             <div className="text-[11px] text-muted-foreground">
               {records.length} records
             </div>
@@ -366,7 +366,7 @@ function AttioCRMView() {
           <button
             onClick={() => void reload()}
             disabled={refreshing}
-            className="rounded-md border px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+            className="water-secondary-button px-2.5 py-1 disabled:opacity-50"
           >
             {refreshing ? 'Syncing' : 'Refresh'}
           </button>
@@ -381,10 +381,10 @@ function AttioCRMView() {
             <button
               key={key}
               onClick={() => setObjectFilter(key)}
-              className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left ${
+              className={`water-sidebar-row flex w-full items-center justify-between px-2.5 py-1.5 text-left ${
                 objectFilter === key
-                  ? 'bg-muted text-foreground'
-                  : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                  ? 'is-active'
+                  : 'text-muted-foreground'
               }`}
             >
               <span>{label}</span>
@@ -393,26 +393,26 @@ function AttioCRMView() {
           ))}
         </div>
 
-        <div className="mt-5 border-t pt-3">
-          <div className="mb-2 text-[10px] uppercase text-muted-foreground">Network</div>
+        <div className="mt-5 border-t border-border/40 pt-3">
+          <div className="water-eyebrow mb-2">RELATIONSHIP GROUPS</div>
           <div className="space-y-1">
             <button
               onClick={() => setTier('')}
-              className={`flex w-full items-center justify-between rounded-md px-2 py-1 text-[12px] ${
-                !tier ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60'
+              className={`water-sidebar-row flex w-full items-center justify-between px-2.5 py-1 text-[12px] ${
+                !tier ? 'is-active' : 'text-muted-foreground'
               }`}
             >
-              <span>All tiers</span>
+              <span>All groups</span>
               <span>{records.length}</span>
             </button>
             {tierOptions.slice(0, 8).map((option) => (
               <button
                 key={option}
                 onClick={() => setTier(option)}
-                className={`flex w-full items-center justify-between rounded-md px-2 py-1 text-[12px] ${
+                className={`water-sidebar-row flex w-full items-center justify-between px-2.5 py-1 text-[12px] ${
                   tier === option
-                    ? 'bg-muted text-foreground'
-                    : 'text-muted-foreground hover:bg-muted/60'
+                    ? 'is-active'
+                    : 'text-muted-foreground'
                 }`}
               >
                 <span className="truncate">{option}</span>
@@ -428,11 +428,11 @@ function AttioCRMView() {
         </div>
       </aside>
 
-      <section className="flex min-w-0 flex-col overflow-hidden max-lg:flex-1">
-        <div className="border-b px-5 py-2.5">
+      <section className="water-table-panel flex min-w-0 flex-col overflow-hidden max-lg:flex-1">
+        <div className="water-toolbar border-b px-5 py-2.5">
           <div className="flex flex-wrap items-center gap-2">
             <div className="mr-2">
-              <h1 className="text-sm font-semibold text-foreground">People</h1>
+              <h1 className="water-workspace-title text-sm">People</h1>
               <p className="text-[11px] text-muted-foreground">
                 {visibleRecords.length} visible / {records.length} Attio records
               </p>
@@ -448,14 +448,14 @@ function AttioCRMView() {
                 placeholder="Search Attio..."
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                className="w-full rounded-md border bg-background py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent-blue/40"
+                className="water-control w-full py-1.5 pl-8 pr-3 text-xs placeholder:text-muted-foreground"
               />
             </div>
 
             <select
               value={objectFilter}
               onChange={(event) => setObjectFilter(event.target.value as AttioObjectFilter)}
-              className="rounded-md border bg-background px-2 py-1.5 text-xs text-foreground"
+              className="water-control px-3 py-1.5 text-xs"
             >
               <option value="all">All records</option>
               <option value="people">People</option>
@@ -465,9 +465,9 @@ function AttioCRMView() {
             <select
               value={tier}
               onChange={(event) => setTier(event.target.value)}
-              className="rounded-md border bg-background px-2 py-1.5 text-xs text-foreground"
+              className="water-control px-3 py-1.5 text-xs"
             >
-              <option value="">All tiers</option>
+              <option value="">All groups</option>
               {tierOptions.map((option) => (
                 <option key={option} value={option}>{option}</option>
               ))}
@@ -476,7 +476,7 @@ function AttioCRMView() {
             <button
               onClick={() => void reload()}
               disabled={refreshing}
-              className="ml-auto rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+              className="water-secondary-button ml-auto px-4 py-1.5 disabled:opacity-50"
             >
               {refreshing ? 'Refreshing...' : 'Refresh'}
             </button>
@@ -494,7 +494,7 @@ function AttioCRMView() {
       </section>
 
       {selectedRecord && (
-        <aside className="border-l max-lg:hidden">
+        <aside className="water-detail-shell max-lg:hidden">
           <AttioRecordDetail
             record={selectedRecord}
             onClose={() => setSelectedId(null)}
@@ -503,7 +503,7 @@ function AttioCRMView() {
       )}
 
       {selectedRecord && (
-        <div className="hidden max-lg:block max-lg:min-h-[320px] max-lg:flex-1 max-lg:overflow-hidden">
+        <div className="water-detail-shell hidden max-lg:block max-lg:min-h-[320px] max-lg:flex-1 max-lg:overflow-hidden">
           <AttioRecordDetail
             record={selectedRecord}
             onClose={() => setSelectedId(null)}

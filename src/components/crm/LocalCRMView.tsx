@@ -148,13 +148,13 @@ export default function LocalCRMView() {
 
   if (error) {
     return (
-      <div className="flex h-full items-center justify-center p-6">
-        <div className="max-w-lg rounded-lg border bg-card p-4 text-sm">
+      <div className="water-workspace flex h-full items-center justify-center p-6">
+        <div className="water-empty-state max-w-lg p-5 text-sm">
           <p className="font-medium text-foreground">People could not load.</p>
           <p className="mt-1 text-muted-foreground">{error}</p>
           <button
             onClick={() => void load(search)}
-            className="mt-3 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background"
+            className="water-primary-button mt-3 px-4 py-1.5"
           >
             Retry
           </button>
@@ -165,19 +165,19 @@ export default function LocalCRMView() {
 
   if (contacts === null) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <div className="text-sm text-muted-foreground">Loading people...</div>
+      <div className="water-workspace flex h-full items-center justify-center p-6">
+        <div className="water-empty-state px-6 py-5 text-sm">Loading people...</div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="water-workspace people-surface flex h-full overflow-hidden">
       {/* Left pane: list */}
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="flex flex-wrap items-center gap-2 border-b px-5 py-2.5 sm:gap-3">
+      <section className="water-list-panel flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="water-toolbar flex flex-wrap items-center gap-2 border-b px-5 py-2.5 sm:gap-3">
           <div className="flex items-baseline gap-2 shrink-0">
-            <h1 className="text-sm font-semibold text-foreground">Contacts</h1>
+            <h1 className="water-workspace-title text-sm">People</h1>
             <span className="text-xs text-muted-foreground tabular-nums">
               {contacts.length} {contacts.length === 1 ? 'entry' : 'entries'}
             </span>
@@ -199,13 +199,13 @@ export default function LocalCRMView() {
               placeholder="Search name, company, email, tags..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-md border bg-background py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent-blue/40"
+              className="water-control w-full py-1.5 pl-8 pr-3 text-xs placeholder:text-muted-foreground"
             />
           </div>
 
           <button
             onClick={() => setShowAddForm((v) => !v)}
-            className="ml-auto rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity duration-150 hover:opacity-90 shrink-0"
+            className="water-primary-button ml-auto shrink-0 px-4 py-1.5"
           >
             + Add contact
           </button>
@@ -221,7 +221,7 @@ export default function LocalCRMView() {
 
         <div className="flex-1 overflow-y-auto">
           {visibleContacts.length === 0 ? (
-            <p className="px-5 py-10 text-center text-sm text-muted-foreground">
+            <p className="water-empty-state m-5 px-5 py-10 text-center text-sm">
               {!search.trim() && contacts.length === 0
                 ? 'No contacts yet. Add your first one to get started.'
                 : 'No contacts match this search.'}
@@ -234,8 +234,8 @@ export default function LocalCRMView() {
                   <li key={contact.id}>
                     <button
                       onClick={() => setSelectedId(contact.id)}
-                      className={`flex w-full items-center gap-3 border-b px-5 py-2.5 text-left transition-colors duration-150 ${
-                        active ? 'bg-muted' : 'hover:bg-muted/50'
+                      className={`water-list-row flex w-full items-center gap-3 border-b px-5 py-3 text-left ${
+                        active ? 'is-active' : ''
                       }`}
                     >
                       <div className="min-w-0 flex-1">
@@ -254,7 +254,7 @@ export default function LocalCRMView() {
                             {contact.tags.slice(0, 4).map((tag) => (
                               <span
                                 key={tag}
-                                className="rounded-full border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                                className="water-pill px-2 py-0.5"
                               >
                                 {tag}
                               </span>
@@ -275,7 +275,7 @@ export default function LocalCRMView() {
       </section>
 
       {/* Right pane: detail */}
-      <aside className="w-[400px] shrink-0 overflow-y-auto border-l bg-card max-lg:w-[340px]">
+      <aside className="water-detail-shell w-[400px] shrink-0 overflow-y-auto max-lg:w-[340px]">
         {selectedContact ? (
           <ContactDetailPanel
             key={selectedContact.id}
@@ -367,10 +367,10 @@ function AddContactForm({
   }
 
   return (
-    <div className="flex flex-col gap-3 border-b bg-muted/30 px-5 py-3">
+    <div className="water-form-panel mx-5 mt-3 flex flex-col gap-3 rounded-[20px] px-5 py-4">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <label className="text-[11px] text-muted-foreground">Name *</label>
+          <label>Name *</label>
           <input
             type="text"
             value={name}
@@ -386,7 +386,7 @@ function AddContactForm({
           />
         </div>
         <div>
-          <label className="text-[11px] text-muted-foreground">Email</label>
+          <label>Email</label>
           <input
             type="email"
             value={email}
@@ -396,7 +396,7 @@ function AddContactForm({
           />
         </div>
         <div>
-          <label className="text-[11px] text-muted-foreground">Role</label>
+          <label>Role</label>
           <input
             type="text"
             value={role}
@@ -406,7 +406,7 @@ function AddContactForm({
           />
         </div>
         <div>
-          <label className="text-[11px] text-muted-foreground">Phone</label>
+          <label>Phone</label>
           <input
             type="tel"
             value={phone}
@@ -416,7 +416,7 @@ function AddContactForm({
           />
         </div>
         <div>
-          <label className="text-[11px] text-muted-foreground">Company</label>
+          <label>Company</label>
           <select
             value={companyId}
             onChange={(e) => setCompanyId(e.target.value)}
@@ -433,7 +433,7 @@ function AddContactForm({
         </div>
         {creatingNewCompany && (
           <div className="sm:col-span-2">
-            <label className="text-[11px] text-muted-foreground">
+            <label>
               New company name
             </label>
             <input
@@ -455,13 +455,13 @@ function AddContactForm({
         <button
           onClick={() => void handleSave()}
           disabled={saving}
-          className="rounded-md bg-accent-blue px-3 py-1.5 text-xs font-medium text-white transition-opacity duration-150 hover:opacity-90 disabled:opacity-50"
+          className="water-primary-button px-4 py-1.5 disabled:opacity-50"
         >
           {saving ? 'Saving...' : 'Save contact'}
         </button>
         <button
           onClick={onCancel}
-          className="px-3 py-1.5 text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground"
+          className="water-text-button px-3 py-1.5"
         >
           Cancel
         </button>
@@ -546,10 +546,10 @@ function ContactDetailPanel({
   }
 
   return (
-    <div className="flex flex-col">
-      <div className="flex items-start justify-between border-b px-5 py-4">
+    <div className="water-detail-panel flex flex-col">
+      <div className="water-detail-heading flex items-start justify-between border-b px-5 py-4">
         <div className="min-w-0">
-          <h2 className="truncate text-base font-semibold text-foreground">
+          <h2 className="truncate text-base">
             {contact.name}
           </h2>
           <p className="mt-0.5 text-[13px] text-muted-foreground">
@@ -587,7 +587,7 @@ function ContactDetailPanel({
         </div>
         <button
           onClick={onClose}
-          className="text-lg leading-none text-muted-foreground hover:text-foreground"
+          className="water-secondary-button flex h-7 w-7 items-center justify-center text-lg leading-none"
           aria-label="Close details"
         >
           &times;
@@ -602,7 +602,7 @@ function ContactDetailPanel({
 
       <div className="space-y-4 px-5 py-4">
         <div>
-          <label className="mb-1 block text-[11px] text-muted-foreground">
+          <label className="mb-1.5 block">
             Notes
           </label>
           <textarea
@@ -617,7 +617,7 @@ function ContactDetailPanel({
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1 block text-[11px] text-muted-foreground">
+            <label className="mb-1.5 block">
               Tier
             </label>
             <select
@@ -631,7 +631,7 @@ function ContactDetailPanel({
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-[11px] text-muted-foreground">
+            <label className="mb-1.5 block">
               Location
             </label>
             <input
@@ -646,7 +646,7 @@ function ContactDetailPanel({
         </div>
 
         <div>
-          <label className="mb-1 block text-[11px] text-muted-foreground">
+          <label className="mb-1.5 block">
             How we met
           </label>
           <input
@@ -660,7 +660,7 @@ function ContactDetailPanel({
         </div>
 
         <div>
-          <label className="mb-1 block text-[11px] text-muted-foreground">
+          <label className="mb-1.5 block">
             Tags (comma-separated)
           </label>
           <input
@@ -760,12 +760,12 @@ function ActivityTimeline({
   }
 
   return (
-    <div className="border-t px-5 py-4">
-      <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <div className="border-t border-border/50 px-5 py-4">
+      <h3 className="water-eyebrow mb-2">
         Activity
       </h3>
 
-      <div className="mb-3 flex flex-col gap-2 rounded-md border bg-background p-2.5">
+      <div className="water-activity-card mb-3 flex flex-col gap-2 border p-3">
         <div className="flex gap-2">
           <select
             value={activityType}
@@ -800,7 +800,7 @@ function ActivityTimeline({
           <button
             onClick={() => void handleAdd()}
             disabled={saving}
-            className="rounded-md bg-accent-blue px-3 py-1.5 text-xs font-medium text-white transition-opacity duration-150 hover:opacity-90 disabled:opacity-50"
+            className="water-primary-button px-4 py-1.5 disabled:opacity-50"
           >
             {saving ? 'Adding...' : 'Add activity'}
           </button>
@@ -825,7 +825,7 @@ function ActivityTimeline({
           {activities.map((a) => (
             <li
               key={a.id}
-              className="rounded-md border bg-background px-2.5 py-2"
+              className="water-activity-card border px-3 py-2.5"
             >
               <div className="flex items-baseline justify-between gap-2">
                 <span className="text-[13px] font-medium text-foreground">

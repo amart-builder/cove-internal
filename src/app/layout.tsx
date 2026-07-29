@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Script from "next/script";
 import "./globals.css";
 import ConvexClientProvider from "./ConvexClientProvider";
 import TabNav from "@/components/layout/TabNav";
@@ -18,10 +17,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="h-full" suppressHydrationWarning>
+      <head>
+        {/* Runs before paint so a stored dark preference never flashes light.
+            next/script with string children is inert in this Next version. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&matchMedia('(prefers-color-scheme:dark)').matches))document.documentElement.classList.add('dark')}catch(e){}})()`,
+          }}
+        />
+      </head>
       <body className="h-full flex flex-col">
-        <Script id="theme-detection" strategy="beforeInteractive">
-          {`(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&matchMedia('(prefers-color-scheme:dark)').matches))document.documentElement.classList.add('dark')}catch(e){}})()`}
-        </Script>
         <ConvexClientProvider>
           <BuddyProvider>
             <TabNav />

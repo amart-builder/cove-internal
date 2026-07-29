@@ -90,23 +90,23 @@ export default function Column({
   return (
     <div
       ref={setNodeRef}
-      className={`flex flex-col w-72 shrink-0 rounded-lg border bg-muted/30 transition-colors duration-200 ${
-        isOver ? 'ring-2 ring-accent-blue/30 bg-accent-blue/5' : ''
+      className={`water-board-column flex w-72 shrink-0 flex-col ${
+        isOver ? 'is-over' : ''
       }`}
     >
       {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b transition-colors duration-200">
+      <div className="water-column-heading flex items-center gap-2 border-b px-4 py-3">
         {icon}
-        <span className="text-xs font-semibold text-foreground truncate">
+        <span className="truncate text-foreground">
           {column.name}
         </span>
-        <span className="text-[11px] text-muted-foreground tabular-nums ml-auto">
+        <span className="water-column-count ml-auto tabular-nums text-muted-foreground">
           {tasks.length}
         </span>
       </div>
 
       {/* Task list */}
-      <div className="flex-1 p-2 space-y-1.5 overflow-y-auto min-h-[120px]">
+      <div className="water-task-list min-h-[120px] flex-1 space-y-2 overflow-y-auto p-2.5">
         <SortableContext
           items={tasks.map((t) => t._id)}
           strategy={verticalListSortingStrategy}
@@ -124,7 +124,7 @@ export default function Column({
         </SortableContext>
 
         {tasks.length === 0 && (
-          <p className="text-[11px] text-muted-foreground text-center py-6">
+          <p className="water-empty-column text-center">
             No tasks
           </p>
         )}

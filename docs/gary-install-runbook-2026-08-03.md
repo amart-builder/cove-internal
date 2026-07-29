@@ -1,13 +1,14 @@
-# Install-day runbook: Gary Gersh, 2026-07-29
+# Install-day runbook: Gary Gersh, Monday 2026-08-03
 
 Internal. For Alex on install day. The client-facing page is docs/gary-handoff-one-pager.md (print it or AirDrop it at the end).
 
 ## Before you leave the house
 
-1. **Flip the mirror repo public.** github.com/amart-builder/cove is still PRIVATE. Settings > General > Danger Zone > Change visibility. Without this, Gary's clone fails at step one.
-2. **Test the clone logged out.** In a private browser window, open https://github.com/amart-builder/cove. If you can see it, Gary's Mac can clone it.
-3. **Carry the fallback.** Zip a fresh clone of the mirror onto a USB stick or AirDrop-able folder. If Gary's network or GitHub acts up, you unzip to ~/cove and continue from Step 1 of SETUP.
-4. Bring this runbook and the one-pager on your phone.
+1. **Refresh the mirror repo.** github.com/amart-builder/cove must carry the latest main from the build wave (the week of 2026-07-28 shipped the setup script, Buddy replan, feedback, and the UI pass). Push the current forge main to the cove mirror before anything else.
+2. **Flip the mirror repo public.** github.com/amart-builder/cove is still PRIVATE. Settings > General > Danger Zone > Change visibility. Without this, Gary's clone fails at step one.
+3. **Test the clone logged out.** In a private browser window, open https://github.com/amart-builder/cove. If you can see it, Gary's Mac can clone it.
+4. **Carry the fallback.** Zip a fresh clone of the mirror onto a USB stick or AirDrop-able folder. If Gary's network or GitHub acts up, you unzip to ~/cove and continue from Step 1 of SETUP.
+5. Bring this runbook and the one-pager on your phone.
 
 ## The install (target: under 90 minutes)
 
@@ -23,7 +24,7 @@ Internal. For Alex on install day. The client-facing page is docs/gary-handoff-o
 This is the wow moment. It only works if the brief has real material.
 
 1. **Load 3 to 5 of Gary's real priorities first.** Actual tasks in his words, plus his goals and a few contacts. A demo brief about nothing sells nothing.
-2. Generate a **fresh** brief. If it looks like the quiet smoke test from Step 4 or comes back stale, force a new one (force-brief). The finale brief must be generated after his data is in.
+2. Generate a **fresh** brief. If it looks like the quiet smoke test from Step 5 or comes back stale, force a new one (force-brief). The finale brief must be generated after his data is in.
 3. Read it together. The bar: does it sound like it knows this person? If not, add material and regenerate. Don't present a miss.
 4. **Five-minute practice morning:** Arrival, drag priorities, tap one owner chip, Start my day, then a mini settlement with one "progress plus a note" and one "carry." Then the honest reset so day one starts clean.
 5. Walk the leave-behinds: the /guide page in the app, and "ask Buddy how do I..." Hand over the one-pager.

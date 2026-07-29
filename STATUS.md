@@ -24,7 +24,15 @@
 
 ---
 
-**Last updated:** 2026-07-29 (build wave through Stage 6; ONE click left: flip amart-builder/cove public)
+**Last updated:** 2026-07-29 (build wave through Stage 7; ONE click left: flip amart-builder/cove public)
+
+## 2026-07-29 build wave Stage 7: UI unification (committed after SHIP-WITH-FIXES cycle + live design review)
+
+- All Work and People now speak the Today tab's water language: glass columns and cards, letter-spaced uppercase section labels, house easing, soft ambient wash, styled empty states, both themes. Today itself untouched (verified pixel-identical in the browser; before/after screenshots in the session scratchpad stage7-shots/). Density on the Attio table kept. Vocabulary: sidebar NETWORK -> RELATIONSHIP GROUPS, All tiers -> All groups, headers Tasks -> All Work, Contacts -> People.
+- The review caught a systemic CSS bug in the first cut: the new rules were unlayered while Tailwind v4 layers its utilities, so the new styles silently beat every utility class (priority and tier pills all went grey, form-label styling leaked into the task detail panel, dark mode got a cream haze from a light token). Fix: all Stage 7 CSS wrapped in @layer components plus scoped selectors and a dark-specific wash. Re-review confirmed closed.
+- The deferred RhythmManager collision is fixed the same way it was caused: the old broad `.current-jarvis-* span` rules are now scoped to the exact Today elements they always targeted (label, run chip, needs-setup pill), with a comment naming the TodayView markup they depend on. Nested components no longer inherit 8px uppercase.
+- Bonus fix while reviewing in the browser: dark mode never survived a page load anywhere in the app (the theme script was inert because next/script with string children does not execute in this Next version, and hydration wiped the class even when stamped). Now: real inline head script + a mount effect re-applying the stored theme. This is app-wide and runtime-agnostic.
+- Verification: 632 tests green, tsc clean, production build clean; live review in light/dark/mobile on both restyled tabs plus a local-mode scratch-DB run for the local People view; drag-and-drop wiring, aria labels, filter values, and every handler verified unchanged by the reviewer (styling-only diff).
 
 ## 2026-07-29 build wave Stage 6: setup script, Buddy replan + feedback, receipts UX, vocabulary (committed after BLOCK->SHIP cycle)
 
