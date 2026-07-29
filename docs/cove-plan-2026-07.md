@@ -27,9 +27,9 @@ Proposed architecture (to red-team at settlement):
 
 The replan machinery exists end to end at the API layer (`/api/day-plan/assistant-apply`, the refine skill) and nothing in the UI calls it. Decision: the Buddy dock is the mid-day replan surface. Wire Buddy so a plain "new urgent thing, reshuffle my afternoon" runs the refine contract against today's plan and shows the proposed changes for one-tap apply. Until this ships, SETUP teaches the Claude-session phrasing (already added).
 
-### 3. Single MacBook is the primary architecture (BUILD)
+### 3. Single MacBook is the primary architecture (BUILD) — DESIGN LAW
 
-Most Cove users have one laptop and no always-on machine. Every lane must have a laptop-only story:
+Alex's rule, 2026-07-28: a standard user on one MacBook Pro gets ALL the features Alex has. Exactly two documented differences, and no others: (1) text pings arrive over Telegram instead of iMessage (iMessage requires a dedicated always-on Mac), and (2) triage and background work run only while the laptop is open, catching up on wake. Any feature that exists only on a two-machine setup is a bug against this law. Concretely:
 
 - Meeting watcher and progress reconciler: remove the `--mini`-only gating; run them in the watch lane while the Mac is awake with catch-up on wake. The Mini remains an optional upgrade, not a requirement.
 - Morning brief: the on-open backfill is the primary single-Mac path; keep it first-class and honest about the ~2 minute write.
@@ -72,9 +72,23 @@ What is missing for the vision (BUILD, all in the wave):
 
 Known candidates going in: Composio free-tier limits verification; voice-calibration flow rehearsal.
 
-## CRM (walkthrough pending)
+## CRM (setup flow settled with Alex, 2026-07-28; full walkthrough pending)
 
-Known candidates: verify skill-copy on install (done for this machine, verify in rehearsal); import-flow polish.
+### Connect-first CRM setup (BUILD)
+
+New SETUP flow, replacing the current interview-plus-optional-CSV step:
+
+1. Ask whether the user already has a CRM (HubSpot, Pipedrive, Attio, Salesforce, a spreadsheet, anything).
+2. If yes, the setup agent does LIVE online research on that specific CRM: does it expose an API, an MCP server, or a Composio integration? Strongly recommend connecting it.
+3. **Connectable existing CRM**: connect it and use it directly. Migrate nothing. Cove reads and writes their real CRM.
+4. **Not connectable** (or no CRM): copy their data into the local Cove CRM (guided export/CSV import, mapping confirmed on first rows) and they start living in it.
+5. Either way the guarantee holds: meeting notes always have a CRM to land in.
+
+Architecture implication: the meeting-notes create-or-append path (Meeting Notes item 4) and the contact skill write through one small CRM backend interface with two implementations, local SQLite and connected-external (MCP/Composio tools, resolved per install). Alex's own Attio setup is the precedent for the external path. Config records which backend the install uses; the watcher and skills consult it rather than assuming local.
+
+### Other CRM candidates (walkthrough pending)
+
+Verify skill-copy on install (done for this machine, verify in rehearsal); import-flow polish.
 
 ## Setup and Teaching (walkthrough pending)
 
