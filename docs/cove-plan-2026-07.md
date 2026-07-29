@@ -72,16 +72,23 @@ What is missing for the vision (BUILD, all in the wave):
 
 Settled by Alex: default cadence stays twice daily (9:00, 15:00, user-configurable). No draft nudging of any kind: the card link is the only pointer, sending is the user's habit, quiet by design. Email gets DEEPER work in the wave, not just polish.
 
-Deeper-email candidates for the wave (Alex to confirm/cut at settlement; all respect draft-only, no-interrupt, quiet):
+Deeper-email items CONFIRMED by Alex (2026-07-28 evening):
 
-1. **CRM-aware drafting**: when drafting a reply, pull the sender's record through the CRM interface (relationship history, last touch, open waiting-on items) so drafts read like they know the person. Writes a contact activity for meaningful correspondence (create-or-append, same interface as meeting notes).
-2. **Commitment capture from email**: when a sent reply or inbound thread contains a promise ("I'll get this to you Friday" / "they owe us the contract"), capture it into the commitments ledger as follow_up / waiting_on with the source quote. Closes the email-to-ledger never-drop gap.
-3. **Attachment awareness**: triage reads common attachments (PDF, docs) for classification and draft context (an invoice is an action item, not a notification).
-4. **Meeting-notes fallback bucket** (already in Meeting Notes section, item 3).
-5. **Long-sleep catch-up correctness**: first run after days of lid-closed reaches back far enough; verify and fix the fetch windows. Rehearsal check regardless.
-6. **Composio free-tier limits verification** (pre-client check; document the honest answer in SETUP).
+1. **CRM-aware drafting** (confirmed): when drafting a reply, pull the sender's record through the CRM interface (relationship history, last touch, open waiting-on items) so drafts read like they know the person. Writes a contact activity for meaningful correspondence (create-or-append, same interface as meeting notes).
+2. **Commitment capture from email** (confirmed): promises in sent replies and inbound threads ("I'll get this to you Friday") land in the commitments ledger as follow_up / waiting_on with the source quote.
+3. **Attachment awareness** (confirmed): triage reads common attachments for classification and draft context (an invoice is an action item, not a notification).
+4. **Meeting-notes fallback bucket** (confirmed; also Meeting Notes item 3): triage recognizes meeting-notes emails and routes them into the meeting pipeline instead of normal reply handling.
+5. **Long-sleep catch-up**: first triage after days of lid-closed must reach back to the last successful run, not a fixed 2-day window. Verify and fix.
+
+6. **Card and inbox two-way sync** (Alex's spec, 2026-07-28): (a) thread deleted or archived in Gmail -> its card item auto-checks off; (b) the drafted reply, or any reply by the user in the thread, was sent -> auto-check off; (c) item checked off on the card while the thread still sits in the inbox -> archive the thread in Gmail. Implementation notes: inbox-state reconciliation runs on every triage pass (Gmail wins into the card); the card-to-Gmail direction is instant on checkbox click; runs report what they auto-checked in one quiet card line ("3 threads you handled in Gmail were checked off") so the behavior is visible and trusted. Archiving stays within the existing label-modification capability; sending stays structurally impossible.
+
+7. **Replace Composio with the native Claude Gmail connector** (Alex's decision): kills the Composio account/API-key setup step entirely. FEASIBILITY SPIKE FIRST: the scheduled triage runs headless; verify connector auth is available in headless/background runs before migrating. Rollout: first client install (2026-07-29) uses the proven Composio path; the wave ships the connector path and migrates existing installs. The meeting watcher's Gmail access migrates on the same decision. Composio-limits verification is dropped (moot).
 
 Explicitly not doing (email): no email tab, no autonomous send ever, no urgent-interrupt pings until the precision-gated attention broker ships, no draft nudges.
+
+## UI Unification (Alex, 2026-07-28)
+
+The main Today tab's water/current aesthetic is the design north star ("really beautiful", keep it). BUILD: makeover of the All Work tab and the People (CRM) tab to match it: same palette, spacing, calm de-boxed styling, motion doctrine (apple-design / emil-design-eng, house easing token). One product, one vibe, all three surfaces. Design pass with live review before the wave closes.
 
 ## CRM (setup flow settled with Alex, 2026-07-28; full walkthrough pending)
 
