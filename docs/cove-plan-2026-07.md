@@ -112,6 +112,15 @@ Verify skill-copy on install (done for this machine, verify in rehearsal); impor
 
 Known candidates: first-value runbook (client's real priorities in before first brief), one-page handoff, clean-machine rehearsal findings.
 
+## Health and Adoption Check (proposed 2026-07-28, awaiting Alex confirm at settlement)
+
+Alex's ask: a recurring agent that checks whether Cove is functioning and achieving its goal, and talks to the user when it isn't. Reshaped from "architecture review on a timer" (rejected: architecture doesn't change every 48 hours; repeated review invents findings) to:
+
+- Every 2-3 days, deterministic collectors gather (a) system health: brief generation, triage run success, spool drain, service heartbeats, backups; (b) adoption signals: days since last Arrival/settlement, drafts written vs sent, stale tasks, broken recurring streaks.
+- ONE bounded Claude pass judges "is Cove serving this person, and what is the one thing to say."
+- Output respects the attention laws: a morning-brief section when something needs the user; Telegram ping only for hard failures (e.g. triage dead 3 consecutive runs); no unprompted conversations. User can ask "how is Cove doing?" anytime.
+- Optional, opt-in with full disclosure: a weekly system-facts-only health email from client installs to the operator's Jarvis Pro support address, so fleet problems surface before the client calls. Alex decides per client.
+
 ## Process
 
 1. Walk each remaining system with Alex; extend this plan.
