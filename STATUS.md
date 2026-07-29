@@ -18,13 +18,21 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-07-28T20:41:36-0700
-- **task:** Build wave: settled Cove plan
+- **since:** 2026-07-29T04:05:39-0700
+- **task:** Build wave: Stage 8 verification + wave wrap-up
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-07-29 (build wave through Stage 7; ONE click left: flip amart-builder/cove public)
+**Last updated:** 2026-07-29 (build wave COMPLETE, all 8 stages; ONE click left: flip amart-builder/cove public)
+
+## 2026-07-29 build wave Stage 8: owner chips are session launchers (committed after BLOCK->SHIP cycle)
+
+- Owner chips now do what the settled law says: "Claude" opens a real Claude Code session in acceptEdits mode, "Together" opens the same session in plan mode. The mode derives only from the owner enum (client cannot influence it), spawn is arg-array with no shell, task fields enter JSON-escaped inside an untrusted-data envelope, and the seeded system prompt carries the no-finals hard line (never send, publish, deploy, purchase, sign, or anything irreversible). bypassPermissions exists nowhere on this path (the pre-existing headless email lane is unchanged).
+- No workspace or git repo needed. Deliverables go to a Cove-managed outputs folder (created on demand, named in the seed); results and resume links land back on the board. Run lifecycle: running, awaiting approval (dormant until the CLI exposes a reliable signal, honestly documented in the plan doc), output ready, failed, abandoned. Task deleted while running: run abandoned, outputs preserved. Task settled while running: run continues, settlement never blocks.
+- Review cycles caught and fixed real process-safety bugs: pid-reuse could SIGTERM an unrelated process (now every signal requires strong identity: session id, or boot id + exact command fingerprint); a reaper/finish race could mark clean runs abandoned (settle handler now owns its runs); the first fix itself opened a two-servers-on-one-DB mutual-kill hole (P0, caught by re-review; reaping is now generation-scoped and foreign runs are touched only when their owner is provably dead or mismatched, with an inverse test proving live foreign runs are left alone). Also: relaunch buttons after terminal runs, growth pruning (30d runs, 7d registry, 5MB session logs, outputs never deleted), and the 1.5s git polling replaced by 30s status checks in local mode with cloud behavior byte-identical to before.
+- Backlog (reviewer P2s, not blockers): rows with unknown owner fingerprint (ps failed at registration) should be skipped unless old; predecessor recovery only runs at startup, so a predecessor dying mid-flight is recovered on next restart. Both noted for the fast-follow week.
+- Verification: 652 tests green, tsc clean, production build clean; held-out probes for permission-mode lock, no-finals seed, no-repo spawn, orphan reaping, and delete-while-running all passed.
 
 ## 2026-07-29 build wave Stage 7: UI unification (committed after SHIP-WITH-FIXES cycle + live design review)
 

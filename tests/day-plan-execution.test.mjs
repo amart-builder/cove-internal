@@ -14,6 +14,13 @@ import {
   publicExecutionRun,
 } from '../src/lib/day-plan/public-execution.ts';
 
+const PREVIOUS_RUNTIME = process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+test.before(() => { process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'supabase'; });
+test.after(() => {
+  if (PREVIOUS_RUNTIME === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+  else process.env.NEXT_PUBLIC_FORGE_RUNTIME = PREVIOUS_RUNTIME;
+});
+
 function setup(t, executionEnvironment = { autonomousEnabled: false, workspaces: new Map() }) {
   const file = path.join(os.tmpdir(), `forge-execution-${process.pid}-${Date.now()}-${Math.random()}.db`);
   const store = createDayPlanStore({

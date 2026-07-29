@@ -26,10 +26,16 @@ import {
 
 const CLOCK = '2026-07-10T16:00:00.000Z';
 const PREVIOUS_OPERATOR_NAME = process.env.COVE_OPERATOR_NAME;
-test.before(() => { process.env.COVE_OPERATOR_NAME = 'Jordan Rivers'; });
+const PREVIOUS_RUNTIME = process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+test.before(() => {
+  process.env.COVE_OPERATOR_NAME = 'Jordan Rivers';
+  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'supabase';
+});
 test.after(() => {
   if (PREVIOUS_OPERATOR_NAME === undefined) delete process.env.COVE_OPERATOR_NAME;
   else process.env.COVE_OPERATOR_NAME = PREVIOUS_OPERATOR_NAME;
+  if (PREVIOUS_RUNTIME === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+  else process.env.NEXT_PUBLIC_FORGE_RUNTIME = PREVIOUS_RUNTIME;
 });
 const EXECUTION_SYSTEM_PROMPT = [
   "You are Claude Code, opened from Cove, Jordan Rivers's day-planning board. Jordan Rivers picked this task during morning planning and handed it to you to plan. They will join you here to review.",

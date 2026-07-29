@@ -2,6 +2,11 @@
 
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import type {
+  LaunchTaskSessionInput,
+  TaskSessionRun,
+} from '@/lib/task-sessions/types';
+import { TaskSessionLauncher } from './TaskSessionLauncher';
 
 interface TaskData {
   _id: string;
@@ -25,6 +30,9 @@ interface TaskCardProps {
   isDone?: boolean;
   isOverlay?: boolean;
   isCompleting?: boolean;
+  sessionRun?: TaskSessionRun;
+  sessionBusy?: boolean;
+  onLaunchSession?: (input: LaunchTaskSessionInput) => void | Promise<unknown>;
 }
 
 const priorityColors: Record<string, string> = {
@@ -49,6 +57,9 @@ export default function TaskCard({
   isDone = false,
   isOverlay,
   isCompleting = false,
+  sessionRun,
+  sessionBusy = false,
+  onLaunchSession,
 }: TaskCardProps) {
   const {
     attributes,
@@ -172,6 +183,25 @@ export default function TaskCard({
           </span>
         )}
       </div>
+
+      {!isOverlay && onLaunchSession && (!isDone || sessionRun) && (
+        <div className="mt-2">
+          <TaskSessionLauncher
+            compact
+            input={{
+              taskId: task._id,
+              promptSnapshot: {
+                title: task.title,
+                detail: task.description || task.title,
+                dueAt: task.dueDate,
+              },
+            }}
+            run={sessionRun}
+            busy={sessionBusy}
+            onLaunch={onLaunchSession}
+          />
+        </div>
+      )}
     </div>
   );
 }

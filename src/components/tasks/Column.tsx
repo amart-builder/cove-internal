@@ -5,6 +5,10 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
+import type {
+  LaunchTaskSessionInput,
+  TaskSessionRun,
+} from '@/lib/task-sessions/types';
 import TaskCard from './TaskCard';
 
 interface ColumnData {
@@ -34,6 +38,9 @@ interface ColumnProps {
   onOpenDetail: (taskId: string) => void;
   onCompleteTask?: (taskId: string) => void | Promise<void>;
   completingTaskId?: string | null;
+  sessionRuns?: ReadonlyMap<string, TaskSessionRun>;
+  launchingTaskIds?: ReadonlySet<string>;
+  onLaunchSession?: (input: LaunchTaskSessionInput) => void | Promise<unknown>;
 }
 
 const COLUMN_ICONS: Record<string, React.ReactNode> = {
@@ -80,6 +87,9 @@ export default function Column({
   onOpenDetail,
   onCompleteTask,
   completingTaskId,
+  sessionRuns,
+  launchingTaskIds,
+  onLaunchSession,
 }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: `column-${column._id}`,
@@ -119,6 +129,9 @@ export default function Column({
               onCompleteTask={onCompleteTask}
               isDone={isDoneColumn}
               isCompleting={completingTaskId === task._id}
+              sessionRun={sessionRuns?.get(task._id)}
+              sessionBusy={launchingTaskIds?.has(task._id)}
+              onLaunchSession={onLaunchSession}
             />
           ))}
         </SortableContext>

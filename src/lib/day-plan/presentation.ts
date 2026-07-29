@@ -23,8 +23,8 @@ const OWNER_LABELS: Record<DayOwner, string> = {
 
 const OWNER_DESCRIPTIONS: Record<DayOwner, string> = {
   me: 'This needs your judgment or direct action.',
-  claude: 'Claude will draft a plan for you to review.',
-  together: 'You and Claude will work through this together.',
+  claude: 'Starts a full Claude session in auto-edits mode when you start your day.',
+  together: 'Starts the same task in plan mode when you start your day.',
 };
 
 function assertNever(value: never): never {

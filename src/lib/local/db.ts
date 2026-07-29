@@ -419,13 +419,14 @@ function deleteRows(table: string, params: URLSearchParams): RestResult {
 
 /**
  * Answer a forge-rest request against the local database.
- * `table` is the unprefixed table name; `body` is the raw request body text.
+ * `table` is the unprefixed table name. Direct callers may pass raw JSON;
+ * routes that already parsed a request may pass the decoded payload.
  */
 export function handleLocalRest(
   table: string,
   method: string,
   params: URLSearchParams,
-  body: string | undefined,
+  body: string | Record<string, unknown> | unknown[] | undefined,
 ): RestResult {
   if (!ALLOWED_TABLES.has(table)) {
     return { status: 404, body: "Unknown Cove table." };
@@ -435,9 +436,16 @@ export function handleLocalRest(
     case "GET":
       return selectRows(table, params);
     case "POST":
-      return insertRows(table, body ? JSON.parse(body) : {});
+      return insertRows(
+        table,
+        typeof body === "string" ? (body ? JSON.parse(body) : {}) : body ?? {},
+      );
     case "PATCH":
-      return updateRows(table, params, body ? JSON.parse(body) : {});
+      return updateRows(
+        table,
+        params,
+        typeof body === "string" ? (body ? JSON.parse(body) : {}) : body ?? {},
+      );
     case "DELETE":
       return deleteRows(table, params);
     default:

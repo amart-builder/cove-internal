@@ -76,6 +76,11 @@ import {
   type ExecutionNotificationInput,
 } from "./notify";
 import {
+  completeSpawnedChild,
+  registerSpawnedChild,
+  type ClaudeChildLane,
+} from "./child-process-registry";
+import {
   drainSpoolFiles,
   getEvent,
   listUnresolved,
@@ -112,6 +117,9 @@ export type ClaudeWorkerOptions = {
   notifyExecution?: ExecutionNotifier;
   processStartedAt?: Date;
   notifiedTransitions?: Set<string>;
+  receiptDbPath?: string;
+  childServerGeneration?: string;
+  childBootId?: string;
 };
 
 type ChildResult = {
@@ -214,6 +222,14 @@ function spawnCommand(
     pulseIntervalMs?: number;
     terminationGraceMs: number;
     abortSignal?: AbortSignal;
+    childRegistration?: {
+      lane: ClaudeChildLane;
+      runId: string;
+      dbPath?: string;
+      serverGeneration?: string;
+      bootId?: string;
+      identityToken?: string;
+    };
   },
 ): Promise<ChildResult> {
   return new Promise((resolve) => {
@@ -244,6 +260,7 @@ function spawnCommand(
     let settled = false;
     let terminatedBy: ChildResult["terminatedBy"];
     let killTimer: NodeJS.Timeout | undefined;
+    let childRegistrationId: string | undefined;
     const terminate = (reason: NonNullable<ChildResult["terminatedBy"]>) => {
       if (terminatedBy) return;
       terminatedBy = reason;
@@ -265,6 +282,18 @@ function spawnCommand(
     const onAbort = () => terminate("shutdown");
     options.abortSignal?.addEventListener("abort", onAbort, { once: true });
     try {
+      if (child.pid && options.childRegistration?.dbPath) {
+        childRegistrationId = registerSpawnedChild({
+          lane: options.childRegistration.lane,
+          runId: options.childRegistration.runId,
+          pid: child.pid,
+          executable: command.executable,
+          dbPath: options.childRegistration.dbPath,
+          serverGeneration: options.childRegistration.serverGeneration,
+          bootId: options.childRegistration.bootId,
+          identityToken: options.childRegistration.identityToken,
+        });
+      }
       options.onSpawn?.(child);
     } catch (error) {
       stderr = error instanceof Error ? error.message : "spawn_registration_failed";
@@ -298,6 +327,9 @@ function spawnCommand(
       if (killTimer) clearTimeout(killTimer);
       if (pulse) clearInterval(pulse);
       options.abortSignal?.removeEventListener("abort", onAbort);
+      if (childRegistrationId && options.childRegistration?.dbPath) {
+        completeSpawnedChild(options.childRegistration.dbPath, childRegistrationId);
+      }
       resolve({ exitCode: undefined, stdout, stderr: error.message, overflowed, terminatedBy });
     });
     child.once("close", (code, signal) => {
@@ -307,6 +339,9 @@ function spawnCommand(
       if (killTimer) clearTimeout(killTimer);
       if (pulse) clearInterval(pulse);
       options.abortSignal?.removeEventListener("abort", onAbort);
+      if (childRegistrationId && options.childRegistration?.dbPath) {
+        completeSpawnedChild(options.childRegistration.dbPath, childRegistrationId);
+      }
       resolve({
         exitCode: code ?? undefined,
         signal: signal ?? undefined,
@@ -441,6 +476,14 @@ export async function runOneExecution(options: ClaudeWorkerOptions): Promise<boo
       maxStderrBytes: 64 * 1024,
       terminationGraceMs: options.terminationGraceMs ?? 2000,
       abortSignal: options.abortSignal,
+      childRegistration: {
+        lane: "execution",
+        runId: run.id,
+        dbPath: options.receiptDbPath,
+        serverGeneration: options.childServerGeneration,
+        bootId: options.childBootId,
+        identityToken: run.claudeSessionId,
+      },
       onSpawn: (child) => {
         childPid = child.pid;
         if (!childPid) return;
@@ -555,7 +598,6 @@ export type MorningBriefWorkerOptions = ClaudeWorkerOptions & {
   briefWriter?: MorningBriefWriter;
   codexPath?: string;
   relay?: BriefRelayOptions;
-  receiptDbPath?: string;
 };
 
 export type DayDumpWorkerOptions = ClaudeWorkerOptions & {
@@ -762,6 +804,13 @@ export async function runOneDayDump(
             maxStderrBytes: 64 * 1024,
             terminationGraceMs: options.terminationGraceMs ?? 2000,
             abortSignal: options.abortSignal,
+            childRegistration: {
+              lane: "dump",
+              runId: claimed.id,
+              dbPath: options.receiptDbPath,
+              serverGeneration: options.childServerGeneration,
+              bootId: options.childBootId,
+            },
           });
           if (result.terminatedBy === "shutdown") {
             failDump("worker_interrupted");
@@ -801,6 +850,13 @@ export async function runOneDayDump(
           maxStderrBytes: 64 * 1024,
           terminationGraceMs: options.terminationGraceMs ?? 2000,
           abortSignal: options.abortSignal,
+          childRegistration: {
+            lane: "dump",
+            runId: claimed.id,
+            dbPath: options.receiptDbPath,
+            serverGeneration: options.childServerGeneration,
+            bootId: options.childBootId,
+          },
         });
         if (result.terminatedBy || result.signal) {
           failDump(result.terminatedBy === "timeout" ? "dump_timeout" : "worker_interrupted");
@@ -1234,6 +1290,13 @@ export async function runOneMorningBrief(
             maxStderrBytes: 64 * 1024,
             terminationGraceMs: options.terminationGraceMs ?? 2000,
             abortSignal: options.abortSignal,
+            childRegistration: {
+              lane: "brief",
+              runId: claimed.id,
+              dbPath: options.receiptDbPath,
+              serverGeneration: options.childServerGeneration,
+              bootId: options.childBootId,
+            },
           });
           if (result.terminatedBy === "shutdown") {
             failBrief("worker_interrupted");
@@ -1276,6 +1339,13 @@ export async function runOneMorningBrief(
         maxStderrBytes: 64 * 1024,
         terminationGraceMs: options.terminationGraceMs ?? 2000,
         abortSignal: options.abortSignal,
+        childRegistration: {
+          lane: "brief",
+          runId: claimed.id,
+          dbPath: options.receiptDbPath,
+          serverGeneration: options.childServerGeneration,
+          bootId: options.childBootId,
+        },
       });
       if (result.terminatedBy || result.signal) {
         failBrief(result.terminatedBy === "timeout" ? "brief_timeout" : "worker_interrupted");

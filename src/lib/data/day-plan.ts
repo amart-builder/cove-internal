@@ -41,6 +41,10 @@ export type DayPlanExecutionState = {
   workspaces: DayPlanExecutionWorkspaceMetadata[];
   workerAvailable: boolean;
 };
+export type DayPlanExecutionRunState = Pick<
+  DayPlanExecutionState,
+  "runs" | "workerAvailable"
+>;
 
 export class DayPlanApiConflict extends Error {
   constructor(public readonly currentPlan: DayPlan) {
@@ -222,6 +226,24 @@ export async function getDayPlanExecutionState(
     );
   }
   return payload as DayPlanExecutionState;
+}
+
+export async function getDayPlanExecutionRunState(
+  planId: string,
+): Promise<DayPlanExecutionRunState> {
+  const response = await fetch(
+    `/api/day-plan/execution?planId=${encodeURIComponent(planId)}&statusOnly=1`,
+    { cache: "no-store" },
+  );
+  const payload = await responsePayload(response);
+  if (!response.ok) {
+    throw new Error(
+      typeof payload.error === "string"
+        ? payload.error
+        : "Cove couldn't load Claude run state.",
+    );
+  }
+  return payload as DayPlanExecutionRunState;
 }
 
 export function newDayPlanMutationId(): string {

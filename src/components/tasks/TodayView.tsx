@@ -62,6 +62,16 @@ import { getRuntimeMode } from '@/lib/runtime/mode';
 import type { RecurringTemplate } from '@/lib/tasks/recurrence';
 import RhythmManager, { cadenceDisplay } from './RhythmManager';
 import useDayRitual from './useDayRitual';
+import useTaskSessionRuns from './useTaskSessionRuns';
+import {
+  TaskSessionLauncher,
+  TaskSessionPanel,
+} from './TaskSessionLauncher';
+import {
+  TASK_SESSION_STATUS_LABELS,
+  type LaunchTaskSessionInput,
+  type TaskSessionRun,
+} from '@/lib/task-sessions/types';
 
 type TaskStatus = ArrivalTaskStatus;
 type ColumnData = ArrivalColumn;
@@ -118,6 +128,25 @@ type UndoAction = {
 function defaultPlanningModel(item: DayPlanItem): 'fable' {
   void item;
   return 'fable';
+}
+
+function taskSessionInput(
+  planId: string,
+  item: DayPlanItem,
+): Omit<LaunchTaskSessionInput, 'owner'> {
+  return {
+    taskId: item.taskId,
+    dayPlanId: planId,
+    itemId: item.id,
+    promptSnapshot: {
+      title: item.title,
+      detail: item.outcome || item.title,
+      outcome: item.outcome,
+      definitionOfDone: item.definitionOfDone,
+      project: item.project,
+      dueAt: item.dueAt,
+    },
+  };
 }
 
 const JARVIS_HELD_TAG = 'jarvis-held';
@@ -650,6 +679,9 @@ function TodayExperience({
   onOpenAllWork,
 }: TodayExperienceProps) {
   const localMode = getRuntimeMode() === 'local';
+  const taskSessions = useTaskSessionRuns(
+    localMode ? tasks.map((task) => task._id) : [],
+  );
   const [suggestions, setSuggestions] = useState<WorkSuggestion[]>([]);
   const [rhythmTemplates, setRhythmTemplates] = useState<RecurringTemplate[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(true);
@@ -1780,8 +1812,26 @@ function TodayExperience({
     doneColumn?._id,
     tasks,
   ]);
+  const boardSessionByTaskId = useMemo(() => {
+    const map = new Map<string, {
+      item: DayPlanItem;
+      run?: TaskSessionRun;
+    }>();
+    if (!localMode || !dayRitual.plan) return map;
+    for (const item of dayRitual.plan.items) {
+      if (item.owner !== 'claude' && item.owner !== 'together') continue;
+      map.set(item.taskId, {
+        item,
+        run: taskSessions.latestByTaskId.get(item.taskId),
+      });
+    }
+    return map;
+  }, [dayRitual.plan, localMode, taskSessions.latestByTaskId]);
   const focusedBoardExecution = focusedTask
     ? boardExecutionByTaskId.get(focusedTask._id)
+    : undefined;
+  const focusedBoardSession = focusedTask
+    ? boardSessionByTaskId.get(focusedTask._id)
     : undefined;
   const kickoffBoardExecution = (
     execution: NonNullable<typeof focusedBoardExecution>,
@@ -1842,6 +1892,9 @@ function TodayExperience({
       return {
         id: item.taskId,
         title: item.title,
+        sessionStatus: localMode
+          ? taskSessions.latestByTaskId.get(item.taskId)?.status
+          : undefined,
         detail: task && task.updatedAt > 0 &&
           (task.status === 'done' || task.columnId === doneColumn?._id)
           ? `Completed ${new Date(task.updatedAt).toLocaleDateString('en-US', {
@@ -1854,14 +1907,25 @@ function TodayExperience({
     });
   const unresolvedForSettlement = orderedPlanItems
     .filter((item) => item.decision === 'accepted')
-    .map((item) => ({ item, title: item.title, outcome: item.outcome }));
+    .map((item) => ({
+      item,
+      title: item.title,
+      outcome: item.outcome,
+      sessionStatus: localMode
+        ? taskSessions.latestByTaskId.get(item.taskId)?.status
+        : undefined,
+    }));
   const settlementDecisions = Object.fromEntries(
     orderedPlanItems.map((item) => [item.id, item.settlementDecision?.disposition]),
   );
   const proposedTomorrow = firstContinuingItem(orderedPlanItems, settlementDecisions);
   const visibleSurfaceError = combineSurfaceErrors(
     dayRitual.ritualOpen ? undefined : dayRitual.error,
-    dayRitual.ritualOpen ? undefined : dayRitual.executionError,
+    dayRitual.ritualOpen
+      ? undefined
+      : localMode
+        ? taskSessions.error
+        : dayRitual.executionError,
     surfaceError,
   );
 
@@ -1990,7 +2054,7 @@ function TodayExperience({
                 {dayRitual.startReceipt ?? dayRitual.settlementReceipt}
               </p>
             )}
-            {dayRitual.plan?.state === 'active' &&
+            {!localMode && dayRitual.plan?.state === 'active' &&
               dayRitual.executionState?.workerAvailable === false && (
               <p role="status" className="current-worker-warning">
                 Claude&apos;s background runner looks offline. Work will wait until it is back.
@@ -2066,7 +2130,12 @@ function TodayExperience({
                     {focusedIsWithJarvis ? 'Held by Cove' : focusedIsBrief ? 'Email brief' : 'Now'}
                     {focusedTask.blocked ? ' · Waiting' : ''}
                     {focusedIsOutsideToday && !focusedIsWithJarvis && !focusedIsBrief ? ' · Outside today' : ''}
-                    {focusedBoardExecution?.run && focusedBoardExecution.presentation.statusLabel && (
+                    {localMode && focusedBoardSession?.run && (
+                      <span className="ml-2 align-middle">
+                        {TASK_SESSION_STATUS_LABELS[focusedBoardSession.run.status]}
+                      </span>
+                    )}
+                    {!localMode && focusedBoardExecution?.run && focusedBoardExecution.presentation.statusLabel && (
                       <RunStatusChip
                         status={focusedBoardExecution.run.status}
                         label={focusedBoardExecution.presentation.statusLabel}
@@ -2092,7 +2161,19 @@ function TodayExperience({
                 </button>
               </div>
 
-              {focusedBoardExecution &&
+              {localMode && focusedBoardSession && dayRitual.plan && (
+                <div className="current-hero-execution" aria-label={`Claude session for ${focusedTask.title}`}>
+                  <TaskSessionLauncher
+                    input={taskSessionInput(dayRitual.plan.id, focusedBoardSession.item)}
+                    run={focusedBoardSession.run}
+                    busy={taskSessions.launchingTaskIds.has(focusedTask._id)}
+                    preferredOwner={focusedBoardSession.item.owner === 'together' ? 'together' : 'claude'}
+                    onLaunch={taskSessions.launch}
+                  />
+                </div>
+              )}
+
+              {!localMode && focusedBoardExecution &&
                 (focusedBoardExecution.item.owner === 'claude' ||
                   focusedBoardExecution.item.owner === 'together') && (
                 <div className="current-hero-execution" aria-label={`Claude planning for ${focusedTask.title}`}>
@@ -2195,7 +2276,17 @@ function TodayExperience({
                     {!focusedIsWithJarvis && <button type="button" onClick={() => void handToJarvis(focusedTask)}>Hold for Cove</button>}
                     <button type="button" onClick={openSearch}>Find other work <kbd>⌘K</kbd></button>
                   </div>
-                  {focusedBoardExecution &&
+                  {localMode && focusedBoardSession && dayRitual.plan && (
+                    <TaskSessionPanel
+                      input={taskSessionInput(dayRitual.plan.id, focusedBoardSession.item)}
+                      run={focusedBoardSession.run}
+                      busy={taskSessions.launchingTaskIds.has(focusedTask._id)}
+                      preferredOwner={focusedBoardSession.item.owner === 'together' ? 'together' : 'claude'}
+                      error={taskSessions.error}
+                      onLaunch={taskSessions.launch}
+                    />
+                  )}
+                  {!localMode && focusedBoardExecution &&
                     (focusedBoardExecution.item.owner === 'claude' ||
                       focusedBoardExecution.item.owner === 'together') && (
                     <ExecutionConfigPanel
@@ -2229,6 +2320,7 @@ function TodayExperience({
           {downstreamLayout.map(({ task, x, y, side }, index) => {
             const time = realTimeLabel(task.dueAt);
             const execution = boardExecutionByTaskId.get(task._id);
+            const session = boardSessionByTaskId.get(task._id);
             return (
               <article
                 key={task._id}
@@ -2248,7 +2340,19 @@ function TodayExperience({
                   <button type="button" className="current-node-title" onClick={() => focusTask(task._id, 'pointer')}>
                     <strong>{task.title}</strong>
                   </button>
-                  {execution && (execution.needsSetup || (
+                  {localMode && session && dayRitual.plan && (
+                    <div className="current-node-execution">
+                      <TaskSessionLauncher
+                        compact
+                        input={taskSessionInput(dayRitual.plan.id, session.item)}
+                        run={session.run}
+                        busy={taskSessions.launchingTaskIds.has(task._id)}
+                        preferredOwner={session.item.owner === 'together' ? 'together' : 'claude'}
+                        onLaunch={taskSessions.launch}
+                      />
+                    </div>
+                  )}
+                  {!localMode && execution && (execution.needsSetup || (
                     execution.run && execution.presentation.statusLabel
                   )) && (
                     <div className="current-node-execution">
@@ -2326,7 +2430,7 @@ function TodayExperience({
               {jarvisTasks.length > 0 ? jarvisTasks.slice(0, 3).map((task) => (
                 <article key={task._id} className={focusedTaskId === task._id ? 'is-focused' : ''}>
                   <button type="button" onClick={() => {
-                    if (boardExecutionByTaskId.get(task._id)?.needsSetup) {
+                    if (!localMode && boardExecutionByTaskId.get(task._id)?.needsSetup) {
                       openExecutionSetup(task._id);
                     } else if (isEmailDigest(task)) {
                       setDetailTaskId(task._id);
@@ -2346,14 +2450,19 @@ function TodayExperience({
                           : 'Held by Cove'}
                     </span>
                     <strong>{task.title}</strong>
-                    {boardExecutionByTaskId.get(task._id)?.run && (
+                    {localMode && boardSessionByTaskId.get(task._id)?.run && (
+                      <span className="mt-1 self-start text-[0.6875rem] font-medium">
+                        {TASK_SESSION_STATUS_LABELS[boardSessionByTaskId.get(task._id)!.run!.status]}
+                      </span>
+                    )}
+                    {!localMode && boardExecutionByTaskId.get(task._id)?.run && (
                       <RunStatusChip
                         status={boardExecutionByTaskId.get(task._id)!.run!.status}
                         label={boardExecutionByTaskId.get(task._id)!.presentation.statusLabel}
                         className="mt-1 self-start"
                       />
                     )}
-                    {boardExecutionByTaskId.get(task._id)?.needsSetup && (
+                    {!localMode && boardExecutionByTaskId.get(task._id)?.needsSetup && (
                       <span className="mt-1 w-fit rounded-full border border-border/70 bg-muted/60 px-2 py-1 text-[0.6875rem] font-medium normal-case tracking-normal">
                         Needs setup to start
                       </span>

@@ -10,6 +10,11 @@ import {
   staleSettlementNotice,
   type SettlementDecision,
 } from '@/lib/day-plan/presentation';
+import {
+  TASK_SESSION_STATUS_LABELS,
+  type TaskSessionRunStatus,
+} from '@/lib/task-sessions/types';
+import { taskSessionSettlementNote } from '@/lib/task-sessions/presentation';
 
 const DECISIONS: Array<{
   value: SettlementDecision;
@@ -28,12 +33,14 @@ export type SettlementCompletedItem = {
   id: string;
   title: string;
   detail?: string;
+  sessionStatus?: TaskSessionRunStatus;
 };
 
 export type SettlementOpenItem = {
   item: DayPlanItem;
   title: string;
   outcome?: string;
+  sessionStatus?: TaskSessionRunStatus;
 };
 
 interface DaySettlementProps {
@@ -187,6 +194,11 @@ export default function DaySettlement({
                     <li key={item.id} className="rounded-xl border bg-card px-4 py-3">
                       <p className="text-sm font-medium text-foreground">{item.title}</p>
                       {item.detail && <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p>}
+                      {item.sessionStatus && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Claude session: {TASK_SESSION_STATUS_LABELS[item.sessionStatus]}.
+                        </p>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -201,6 +213,7 @@ export default function DaySettlement({
                 <ol className="mt-3 space-y-3">
                   {unresolved.map((view, index) => {
                     const saving = savingItemIds.has(view.item.id);
+                    const sessionNote = taskSessionSettlementNote(view.sessionStatus);
                     return (
                       <li key={view.item.id}>
                         <article className="rounded-2xl border bg-card p-4 sm:p-5">
@@ -217,6 +230,11 @@ export default function DaySettlement({
                           )}
                           {view.item.workedToday === true && (
                             <p className="mt-2 text-xs text-muted-foreground">Claude worked on this today.</p>
+                          )}
+                          {sessionNote && (
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              {sessionNote}
+                            </p>
                           )}
 
                           <fieldset className="mt-4" disabled={anyDecisionSaving || closing}>

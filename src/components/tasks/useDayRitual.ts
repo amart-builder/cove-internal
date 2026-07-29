@@ -9,6 +9,7 @@ import {
   DayPlanApiConflict,
   ensureDayPlan,
   forceMorningBrief,
+  getDayPlanExecutionRunState,
   getDayPlanExecutionState,
   getDayPlanState,
   kickoffDayPlanItem,
@@ -19,6 +20,7 @@ import {
   onceOnlyDayPlanMutationId,
   type DayPlanExecutionState,
 } from '@/lib/data/day-plan';
+import { launchTaskSessionRun } from '@/lib/data/task-sessions';
 import type {
   MorningBriefGeneration,
   MorningBriefSalesActionState,
@@ -48,10 +50,32 @@ import {
   shouldPollBriefGeneration,
   startDayReceiptCopy,
 } from '@/lib/day-plan/presentation';
+import { getRuntimeMode } from '@/lib/runtime/mode';
 
 // While the arrival is open with no brief and one is still being written, re-poll
 // the read model at this cadence to pick the brief up the moment it lands.
 const BRIEF_GENERATION_POLL_MS = 15_000;
+export const EXECUTION_STATUS_POLL_MS = 30_000;
+const CLOUD_EXECUTION_POLL_MS = 1_500;
+const CLOUD_EXECUTION_RETRY_MS = 2_000;
+
+export function executionPollingPolicy(localMode: boolean): {
+  initialMs: number;
+  retryMs: number;
+  statusOnly: boolean;
+} {
+  return localMode
+    ? {
+        initialMs: EXECUTION_STATUS_POLL_MS,
+        retryMs: EXECUTION_STATUS_POLL_MS,
+        statusOnly: true,
+      }
+    : {
+        initialMs: CLOUD_EXECUTION_POLL_MS,
+        retryMs: CLOUD_EXECUTION_RETRY_MS,
+        statusOnly: false,
+      };
+}
 
 export type DayRitualView =
   | 'checking'
@@ -278,6 +302,20 @@ export default function useDayRitual({
     }
   }, [acceptExecutionState]);
 
+  const refreshExecutionRuns = useCallback(async (planId?: string) => {
+    const targetPlanId = planId ?? planRef.current?.id;
+    if (!targetPlanId) return undefined;
+    const next = await getDayPlanExecutionRunState(targetPlanId);
+    const previous = executionStateRef.current ?? emptyExecutionState(next.workerAvailable);
+    const merged = {
+      ...previous,
+      runs: next.runs,
+      workerAvailable: next.workerAvailable,
+    };
+    acceptExecutionState(merged);
+    return merged;
+  }, [acceptExecutionState]);
+
   useEffect(() => {
     if (!enabled) {
       setView('none');
@@ -434,29 +472,43 @@ export default function useDayRitual({
   }, [acceptPlan, applyMorningBrief, candidatesReady, enabled]);
 
   useEffect(() => {
-    if (!enabled || !plan?.id) return;
+    if (!enabled || !plan?.id || getRuntimeMode() === 'local') return;
     void refreshExecution(plan.id).catch(() => undefined);
   }, [enabled, plan?.id, plan?.version, refreshExecution]);
 
   useEffect(() => {
     if (!executionState?.runs.some((run) => ACTIVE_EXECUTION_STATES.has(run.status))) return;
+    const localMode = getRuntimeMode() === 'local';
+    const polling = executionPollingPolicy(localMode);
     let cancelled = false;
     let timeout: number | undefined;
 
     async function poll() {
       try {
-        await refreshExecution(planRef.current?.id);
+        if (polling.statusOnly) {
+          await refreshExecutionRuns(planRef.current?.id);
+        } else {
+          await refreshExecution(planRef.current?.id);
+        }
       } catch {
-        if (!cancelled) timeout = window.setTimeout(() => void poll(), 2000);
+        if (!cancelled) {
+          timeout = window.setTimeout(
+            () => void poll(),
+            polling.retryMs,
+          );
+        }
       }
     }
 
-    timeout = window.setTimeout(() => void poll(), 1500);
+    timeout = window.setTimeout(
+      () => void poll(),
+      polling.initialMs,
+    );
     return () => {
       cancelled = true;
       if (timeout !== undefined) window.clearTimeout(timeout);
     };
-  }, [executionState, refreshExecution]);
+  }, [executionState, refreshExecution, refreshExecutionRuns]);
 
   // One poll/heal step. When the arrival has no brief or no items, it re-ensures
   // with fresh candidates: the store can attach a synced brief and/or rebuild
@@ -933,7 +985,37 @@ export default function useDayRitual({
         announce: 'Your day is set.',
       });
       const executionRuns = result.executionRuns ?? [];
-      const handedOffCount = executionRuns.filter((run) => run.status === 'queued').length;
+      const sessionLaunches = getRuntimeMode() === 'local'
+        ? await Promise.allSettled(
+            result.plan.items
+              .filter(
+                (item) =>
+                  item.decision === 'accepted' &&
+                  (item.owner === 'claude' || item.owner === 'together'),
+              )
+              .map((item) => launchTaskSessionRun({
+                taskId: item.taskId,
+                dayPlanId: result.plan.id,
+                itemId: item.id,
+                owner: item.owner === 'together' ? 'together' : 'claude',
+                promptSnapshot: {
+                  title: item.title,
+                  detail: item.outcome || item.title,
+                  outcome: item.outcome,
+                  definitionOfDone: item.definitionOfDone,
+                  project: item.project,
+                  dueAt: item.dueAt,
+                },
+              })),
+          )
+        : [];
+      const handedOffCount = getRuntimeMode() === 'local'
+        ? sessionLaunches.filter(
+            (launch) =>
+              launch.status === 'fulfilled' &&
+              launch.value.status !== 'failed',
+          ).length
+        : executionRuns.filter((run) => run.status === 'queued').length;
       const alreadyHandledCount = result.kickoffSkips?.filter(
         (skip) => skip.reason === 'already_live' || skip.reason === 'result_available',
       ).length ?? 0;

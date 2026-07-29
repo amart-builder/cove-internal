@@ -3317,7 +3317,10 @@ export function createDayPlanStore(options: {
           plan.recommendedFirstItemId = first.id;
           plan.recommendedFirstTaskId = first.taskId;
           plan.confirmedAt = changedAt;
-          for (const item of accepted) {
+          // Local owner chips launch resumable task sessions through the
+          // separate task-session lifecycle. Keep the allowlisted headless lane
+          // intact for unattended work and preserve its existing cloud behavior.
+          for (const item of getRuntimeMode() === "local" ? [] : accepted) {
             if (item.owner !== "claude" && item.owner !== "together") continue;
             const liveRun = findLiveItemRun(plan.id, item.id);
             if (liveRun) {

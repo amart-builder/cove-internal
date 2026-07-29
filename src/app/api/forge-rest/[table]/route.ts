@@ -13,6 +13,7 @@ import {
   type ContactProvenance,
 } from "@/lib/crm";
 import type { Contact } from "@/lib/data/types";
+import { getTaskSessionManager } from "@/lib/task-sessions/manager";
 
 type RouteContext = {
   params: Promise<{ table: string }>;
@@ -337,12 +338,37 @@ async function handleRequest(
   // Local SQLite mode (default): answer from the on-disk database.
   if (runtimeMode === "local") {
     try {
+      const localBody = body ? JSON.parse(body) as unknown : undefined;
       const result = handleLocalRest(
         unprefixedTable,
         method,
         request.nextUrl.searchParams,
-        body
+        localBody as Record<string, unknown> | unknown[] | undefined,
       );
+      if (
+        unprefixedTable === "tasks" &&
+        method === "PATCH" &&
+        localBody &&
+        typeof localBody === "object" &&
+        !Array.isArray(localBody) &&
+        (localBody as Record<string, unknown>).status === "archived" &&
+        Array.isArray(result.body)
+      ) {
+        const manager = getTaskSessionManager();
+        for (const row of result.body) {
+          if (
+            row &&
+            typeof row === "object" &&
+            !Array.isArray(row) &&
+            typeof (row as Record<string, unknown>).id === "string"
+          ) {
+            manager.abandonForTask(
+              (row as Record<string, unknown>).id as string,
+              "task_deleted",
+            );
+          }
+        }
+      }
       if (result.status === 204 || result.body === undefined) {
         return new NextResponse(null, { status: result.status });
       }

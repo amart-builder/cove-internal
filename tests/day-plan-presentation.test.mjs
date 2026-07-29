@@ -95,8 +95,14 @@ test('recommended focus is the highest ordered item involving the person', () =>
 test('an all-Claude plan still yields one deterministic handoff-preparation focus', () => {
   const items = [item('first', 'claude'), item('second', 'claude')];
   assert.equal(selectRecommendedHumanFocus(items)?.id, 'first');
-  assert.equal(ownerDescription('claude'), 'Claude will draft a plan for you to review.');
-  assert.equal(ownerDescription('together'), 'You and Claude will work through this together.');
+  assert.equal(
+    ownerDescription('claude'),
+    'Starts a full Claude session in auto-edits mode when you start your day.',
+  );
+  assert.equal(
+    ownerDescription('together'),
+    'Starts the same task in plan mode when you start your day.',
+  );
 });
 
 test('settlement derives tomorrow from progress before carry', () => {

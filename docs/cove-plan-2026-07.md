@@ -128,6 +128,7 @@ Alex's semantics, replacing the workspace-gated meaning:
 - No workspace allowlist or git repo required for the chips. Deliverables default to a Cove-managed outputs folder so results are always findable; results and resume links still land back on the board.
 - The existing gated headless lane (allowlisted workspace, budget, clean repo) is NOT deleted: it remains the machinery for unattended/overnight execution later. The chips just stop depending on it.
 - Trust model, said out loud in setup: auto mode's boundary is Claude Code's own permission system plus the no-finals seed rule, identical to the user running Claude by hand.
+- Approval-state fallback: this Claude CLI launch path does not expose a stable machine-readable permission-prompt event. Until it does, Cove keeps the run at "running," shows that Claude may be waiting for approval, and keeps the resume link on the board. The explicit "awaiting approval" state is supported for a future reliable signal and is never guessed from log text.
 
 ### Buddy scope (settled)
 

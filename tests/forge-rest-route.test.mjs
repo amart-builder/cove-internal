@@ -125,6 +125,17 @@ test('a filterless PATCH or DELETE is not treated as targeting rows', () => {
   assert.equal(targetsSpecificRows(new URLSearchParams('status=eq.open')), true);
 });
 
+test('local REST treats an empty string mutation body as an empty object', () => {
+  const result = handleLocalRest(
+    'tasks',
+    'PATCH',
+    new URLSearchParams('id=eq.missing-task'),
+    '',
+  );
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.body, []);
+});
+
 test('a legacy tasks table upgrades in place instead of failing per query', async () => {
   const dir = path.join(os.tmpdir(), `forge-legacy-db-${process.pid}-${Date.now()}`);
   mkdirSync(dir, { recursive: true });

@@ -48,6 +48,7 @@ import Column from './Column';
 import TaskCard from './TaskCard';
 import TaskDetail from './TaskDetail';
 import RecentlyDeleted from './RecentlyDeleted';
+import useTaskSessionRuns from './useTaskSessionRuns';
 
 interface ColumnData {
   _id: string;
@@ -583,6 +584,9 @@ function KanbanBoardContent({
     };
   };
   const tasks = (localTasks ?? tasksData).map(normalizeDisplayTask);
+  const taskSessions = useTaskSessionRuns(
+    getRuntimeMode() === 'local' ? tasks.map((task) => task._id) : [],
+  );
 
   const tasksRef = useRef(tasks);
   tasksRef.current = tasks;
@@ -1040,6 +1044,12 @@ function KanbanBoardContent({
         </button>
       </div>
 
+      {taskSessions.error && (
+        <p role="alert" className="mx-5 mt-2 text-xs text-accent-red">
+          {taskSessions.error}
+        </p>
+      )}
+
       {showAddForm && (
         <form onSubmit={handleAddTask} className="water-form-panel mx-5 mt-3 rounded-[20px] px-5 py-4">
           <div className="flex items-end gap-3 max-w-2xl">
@@ -1149,6 +1159,9 @@ function KanbanBoardContent({
                   onOpenDetail={setDetailTaskId}
                   onCompleteTask={handleCompleteTask}
                   completingTaskId={completingTaskId}
+                  sessionRuns={getRuntimeMode() === 'local' ? taskSessions.latestByTaskId : undefined}
+                  launchingTaskIds={taskSessions.launchingTaskIds}
+                  onLaunchSession={getRuntimeMode() === 'local' ? taskSessions.launch : undefined}
                 />
               ))
             )}

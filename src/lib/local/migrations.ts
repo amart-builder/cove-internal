@@ -810,6 +810,79 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       `);
     },
   },
+  {
+    version: 10,
+    name: "task-session-runs-and-child-process-registry",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS cove_task_session_runs (
+          id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL,
+          day_plan_id TEXT,
+          item_id TEXT,
+          owner TEXT NOT NULL CHECK (owner IN ('claude','together')),
+          permission_mode TEXT NOT NULL CHECK (permission_mode IN ('acceptEdits','plan')),
+          status TEXT NOT NULL
+            CHECK (status IN ('running','awaiting_approval','failed','output_ready','abandoned')),
+          claude_session_id TEXT NOT NULL UNIQUE,
+          pid INTEGER,
+          server_pid INTEGER NOT NULL,
+          output_dir TEXT NOT NULL,
+          resume_url TEXT NOT NULL,
+          prompt_json TEXT NOT NULL,
+          result_summary TEXT,
+          hint TEXT,
+          error_code TEXT,
+          exit_code INTEGER,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          finished_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS cove_task_session_runs_task_idx
+          ON cove_task_session_runs(task_id, created_at DESC, id DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS cove_task_session_runs_one_live_task
+          ON cove_task_session_runs(task_id)
+          WHERE status IN ('running','awaiting_approval');
+
+        CREATE TABLE IF NOT EXISTS cove_spawned_children (
+          id TEXT PRIMARY KEY,
+          lane TEXT NOT NULL CHECK (lane IN ('brief','dump','execution','session')),
+          run_id TEXT NOT NULL,
+          pid INTEGER NOT NULL,
+          server_pid INTEGER NOT NULL,
+          executable TEXT NOT NULL,
+          state TEXT NOT NULL CHECK (state IN ('active','completed','reaped')),
+          started_at TEXT NOT NULL,
+          finished_at TEXT,
+          UNIQUE (lane, run_id, pid)
+        );
+        CREATE INDEX IF NOT EXISTS cove_spawned_children_active_idx
+          ON cove_spawned_children(state, server_pid, started_at);
+      `);
+    },
+  },
+  {
+    version: 11,
+    name: "strong-child-process-identity",
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE cove_task_session_runs
+          ADD COLUMN server_generation TEXT NOT NULL DEFAULT 'legacy';
+        ALTER TABLE cove_spawned_children
+          ADD COLUMN server_generation TEXT NOT NULL DEFAULT 'legacy';
+        ALTER TABLE cove_spawned_children
+          ADD COLUMN boot_id TEXT NOT NULL DEFAULT 'unknown';
+        ALTER TABLE cove_spawned_children
+          ADD COLUMN identity_token TEXT;
+        ALTER TABLE cove_spawned_children
+          ADD COLUMN expected_command TEXT;
+        ALTER TABLE cove_spawned_children
+          ADD COLUMN server_command TEXT;
+        ALTER TABLE cove_spawned_children
+          ADD COLUMN server_started_at TEXT;
+      `);
+    },
+  },
 ];
 
 export function runLocalMigrations(

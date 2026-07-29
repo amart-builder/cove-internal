@@ -552,7 +552,7 @@ test('settlement opens with last-known state on a REST hiccup, then reconciles o
   const body = await response.json();
   assert.equal(body.plan.state, 'settling');
   assert.equal(body.plan.items[0].decision, 'accepted');
-  assert.equal(body.plan.items[0].workedToday, true);
+  assert.equal(body.plan.items[0].workedToday, false);
   assert.equal(internalCalls.some((url) => url.includes('/api/forge-rest/tasks')), true);
   assert.equal(internalCalls.some((url) => url.includes('/api/forge-rest/task_columns')), true);
 

@@ -374,7 +374,7 @@ test('Not today removes a preselected outcome without changing the underlying ta
   assert.equal(plan.items.find((item) => item.id === dismissedId).decision, 'dismissed');
 });
 
-test('an all-Claude plan selects handoff preparation and starts its plan batch', (t) => {
+test('an all-Claude local plan selects handoff preparation without the gated batch', (t) => {
   const { store } = isolatedStore(t);
   let plan = ensure(store).plan;
   plan = mutate(store, plan, 'arrival_open').plan;
@@ -387,9 +387,8 @@ test('an all-Claude plan selects handoff preparation and starts its plan batch',
   plan = mutate(store, plan, 'start_day').plan;
   assert.equal(plan.recommendedFirstTaskId, 'task-a');
   assert.equal(plan.items.every((item) => item.owner === 'claude'), true);
-  assert.equal(store.listExecutionRuns(plan.id).length, plan.items.length);
-  assert.equal(store.listExecutionRuns(plan.id).every((run) => run.mode === 'plan_review'), true);
-  // Run creation is part of the single start_day event, not a second plan mutation.
+  assert.equal(store.listExecutionRuns(plan.id).length, 0);
+  // Local owner chips use task sessions instead of the gated unattended lane.
   assert.equal(store.listEvents(plan.id).some((event) => event.eventType.includes('run')), false);
 });
 
@@ -519,7 +518,13 @@ test('settlement rejects progress details on carry and preserves the exact compl
   );
 });
 
-test('settlement evidence marks only same-local-date execution rows as worked today', (t) => {
+test('settlement evidence marks only same-local-date gated execution rows as worked today', (t) => {
+  const previousRuntime = process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'supabase';
+  t.after(() => {
+    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+    else process.env.NEXT_PUBLIC_FORGE_RUNTIME = previousRuntime;
+  });
   const { store } = isolatedStore(t);
   let plan = ensure(store).plan;
   plan = mutate(store, plan, 'arrival_open').plan;
