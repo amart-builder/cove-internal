@@ -56,6 +56,18 @@ Any user can send Alex a feature request or bug report from the Buddy. Implement
 - No mobile app; multi-device stays the opt-in cloud mode.
 - No calendar write-back this wave.
 
+## Meeting Notes (settled with Alex, 2026-07-28; verified against code)
+
+What exists today: extraction and triage are real and live-tested. Detected notes emails get follow-ups extracted; the operator's items run through the standard six-question triage onto the board; other people's items become waiting-on commitments. The email-triage run also invokes the watcher as a backstop.
+
+What is missing for the vision (BUILD, all in the wave):
+
+1. **SETUP onboarding step**: a Meeting Notes section parallel to Email and CRM. Ask which notes tool they use (Gemini, Granola, Fathom, Otter, other), pitch why it matters (agent context plus automatic follow-up capture), write a tool-specific `data/cove-meetings.json`, and install the watcher on a normal single-Mac install (today it is Mini-only and SETUP never mentions it, so no client gets it).
+2. **Tool-agnostic detection**: a small library of known sender/subject patterns per notes tool that SETUP picks from, plus a guided path for unknown tools. The shipped default only matches Gemini.
+3. **Email-triage fallback bucket**: a real meeting-notes classification in the email skill so notes land correctly even when the watcher is not installed or its query misses; today they fall through to ordinary reply/action/fyi handling.
+4. **CRM create-or-append**: for each person named in the notes, look up or create the contact and append a meeting activity to their relationship history; set the real `contact_id` on waiting-on commitments (the pipeline currently hardcodes null and never touches the CRM; the only CRM-from-meetings path today is manually talking to the contact skill).
+5. **Processed receipt**: a visible "found meeting notes from X: N tasks, M waiting-on, linked contacts Y, Z" signal (notification or board card), replacing the current silent heartbeat file, while keeping the deliberate no-loud-ping policy for meeting-sourced items.
+
 ## Email (walkthrough pending)
 
 Known candidates going in: Composio free-tier limits verification; voice-calibration flow rehearsal.
