@@ -113,12 +113,30 @@ export default function DaySettlement({
     // so once the note ran past one screen every keystroke threw the view back
     // to the top. Measured at 1440x813: 464 -> 0 on the first keystroke.
     // Put the position back in the same frame, before the browser paints.
-    const scroller = scrollParentOf(textarea);
-    const restoreTop = scroller ? scroller.scrollTop : window.scrollY;
-    textarea.style.height = 'auto';
-    textarea.style.height = `${textarea.scrollHeight}px`;
-    if (scroller) scroller.scrollTop = restoreTop;
-    else window.scrollTo(window.scrollX, restoreTop);
+    const fit = () => {
+      const scroller = scrollParentOf(textarea);
+      const restoreTop = scroller ? scroller.scrollTop : window.scrollY;
+      textarea.style.height = 'auto';
+      textarea.style.height = `${textarea.scrollHeight}px`;
+      if (scroller) scroller.scrollTop = restoreTop;
+      else window.scrollTo(window.scrollX, restoreTop);
+    };
+    fit();
+    // The height above is a pixel value measured at one width. Narrow the
+    // window (or change the font size) and the same text wraps onto more
+    // lines, but the note is still the height it needed before, and the extra
+    // lines are cut off by its overflow-hidden with no scrollbar to find them.
+    // Nothing about that changes `note`, so only watching the box itself
+    // catches it. Comparing widths keeps our own height writes from
+    // retriggering the observer.
+    let lastWidth = textarea.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (textarea.clientWidth === lastWidth) return;
+      lastWidth = textarea.clientWidth;
+      fit();
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
   }, [note]);
   const allDecided = allSettlementDecisionsMade(
     unresolved.map((view) => view.item),

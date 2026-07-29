@@ -62,7 +62,15 @@ Email has no tab. At the times the user chooses, Cove checks Gmail, prepares rep
 
 1. Have the user make their own free Composio account at https://composio.dev and copy its API key. They may need to reveal the key before copying it.
 2. Guide them through Composio's current "connect to Claude Code" flow. Restart Claude Code or run `/reload`. Confirm the `COMPOSIO_*` tools are present.
-2b. Install the Composio CLI as well, and write its absolute path into `.env.local` as `COVE_COMPOSIO_BIN`. Step 2 only covers the AI session; two scheduled lanes (meeting watch and Gmail labeling) shell out to the `composio` command directly, and launchd does not give its agents the user's PATH. The CLI usually lands in `~/.composio/composio`. Confirm with `"$COVE_COMPOSIO_BIN" execute GMAIL_FETCH_EMAILS -d '{"max_results":1}'`, which should report `"successful": true`. Skip this and both lanes fail with `spawn composio ENOENT`, visible on the Issues page.
+2b. Install the standalone Composio CLI too, log it in, and link Gmail to it. Step 2 only connects the AI session. Two scheduled lanes (meeting watch and Gmail labeling) run the `composio` command themselves, and launchd hands its agents a bare PATH, so they need the full path to the binary. Do all of this in one shell:
+   - Install the CLI following Composio's current install instructions. On macOS it lands at `$HOME/.composio/composio`.
+   - `export COMPOSIO_BIN="$HOME/.composio/composio"` then `test -x "$COMPOSIO_BIN"`. Do not assume it is on the PATH.
+   - `"$COMPOSIO_BIN" login`, then `"$COMPOSIO_BIN" whoami`. The CLI keeps its own credentials in `~/.composio/user_data.json`. The step 2 connection does not log it in, so skipping this leaves both lanes authenticated as nobody.
+   - `"$COMPOSIO_BIN" link gmail` and have the user finish the browser approval.
+   - `"$COMPOSIO_BIN" execute GMAIL_FETCH_EMAILS -d '{"max_results":1}'` should report `"successful": true`.
+   - Write the expanded path into `.env.local`, for example `COVE_COMPOSIO_BIN=/Users/gary/.composio/composio`. Never put a `~` in that value: the app runs the path directly without a shell, so a literal `~` never expands and always fails.
+
+   Skip this and both lanes fail with `spawn composio ENOENT`, which shows up on the Issues page.
 3. Start the Gmail connection with `COMPOSIO_MANAGE_CONNECTIONS`. Give the user the Google sign-in link. Wait for `COMPOSIO_WAIT_FOR_CONNECTIONS` to report active.
 4. Ask for their inbox-check times and timezone. Default to `09:00` and `15:00` in their local zone. Write the private `data/cove-email.json`:
 
