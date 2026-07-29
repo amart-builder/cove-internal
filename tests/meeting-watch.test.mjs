@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   createComposioExecutor,
   loadMeetingConfig,
+  main as meetingWatchMain,
   readMeetingState,
   runMeetingWatch,
   writeMeetingHeartbeat,
@@ -17,8 +18,15 @@ import {
   isOperatorOwned,
   parseNextSteps,
 } from "../src/lib/intake/meeting-followups.mjs";
+import { claimLaneOwnership } from "../scripts/lib/cove-lane-ownership.mjs";
+import { listFailures } from "../src/lib/reliability/failures.ts";
+import { listRecentReceipts } from "../src/lib/reliability/receipts.ts";
 
 const NOW = new Date("2026-07-27T18:00:00.000Z");
+const MACHINE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const OWNER_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const OTHER_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const MACHINE = { id: MACHINE_ID, hostname: "test-mac.local" };
 
 // Ownership routing keys off the configured operator, so the fixtures below
 // name that operator instead of hard-coding one person's name into the product.
@@ -56,6 +64,7 @@ function fixture(t) {
     emailConfigPath,
     statePath,
     heartbeatPath,
+    machineIdentity: MACHINE,
   };
 }
 
@@ -96,12 +105,15 @@ function fakeComposio(calls = []) {
 
 test("meeting matcher config is loaded entirely from JSON", (t) => {
   const files = fixture(t);
-  assert.deepEqual(loadMeetingConfig(files.configPath), {
-    enabled: true,
-    query: 'from:(gemini-noreply@google.com) OR subject:("Notes:")',
-    window: "newer_than:2d",
-    processedLabel: "Cove/Meeting-Processed",
-  });
+  const config = loadMeetingConfig(files.configPath);
+  assert.equal(config.enabled, true);
+  assert.deepEqual(config.activeTools, ["gemini"]);
+  assert.equal(
+    config.query,
+    'from:(gemini-noreply@google.com) OR subject:("Notes:")',
+  );
+  assert.equal(config.window, "newer_than:2d");
+  assert.equal(config.processedLabel, "Cove/Meeting-Processed");
 });
 
 test("message is marked only after every item is acknowledged", async (t) => {
@@ -143,7 +155,11 @@ test("message is marked only after every item is acknowledged", async (t) => {
   assert.equal(failed.exitCode, 0);
   assert.equal(failed.summary.errors, 1);
   assert.equal(labelCalls.length, 0);
-  assert.deepEqual(sourceIds, ["gmail-1:0", "gmail-1:1"]);
+  assert.equal(sourceIds.length, 2);
+  assert.equal(new Set(sourceIds).size, 2);
+  assert.ok(sourceIds.every((sourceId) =>
+    /^gmail-1:[a-f0-9]{24}$/.test(sourceId)
+  ));
   assert.deepEqual(readMeetingState(files.statePath).processed_ids, []);
 
   const retried = await runMeetingWatch({
@@ -356,7 +372,10 @@ test("five failed runs dead-letter a message and stop retrying it", async (t) =>
   assert.equal(state.dead_letters.length, 1);
   assert.equal(state.dead_letters[0].message_id, "gmail-1");
   const heartbeat = JSON.parse(readFileSync(files.heartbeatPath, "utf8"));
-  assert.equal(heartbeat.meeting_watch.dead_letters, 1);
+  assert.equal(
+    heartbeat.machines[MACHINE_ID].meeting_watch.dead_letters,
+    1,
+  );
 });
 
 test("meeting heartbeat merge preserves other watcher keys", (t) => {
@@ -370,10 +389,11 @@ test("meeting heartbeat merge preserves other watcher keys", (t) => {
     matched: 1,
     processed: 1,
     errors: 0,
-  });
+  }, MACHINE);
   const value = JSON.parse(readFileSync(files.heartbeatPath, "utf8"));
   assert.equal(value.another_watch.last_run_at, "2026-07-27T17:00:00.000Z");
-  assert.equal(value.meeting_watch.processed, 1);
+  assert.equal(value.machines[MACHINE_ID].hostname, "test-mac.local");
+  assert.equal(value.machines[MACHINE_ID].meeting_watch.processed, 1);
 });
 
 test("disabled watcher emits an explicit disabled heartbeat", async (t) => {
@@ -394,7 +414,74 @@ test("disabled watcher emits an explicit disabled heartbeat", async (t) => {
   });
   assert.equal(result.exitCode, 0);
   const heartbeat = JSON.parse(readFileSync(files.heartbeatPath, "utf8"));
-  assert.equal(heartbeat.meeting_watch.disabled, true);
+  assert.equal(heartbeat.machines[MACHINE_ID].meeting_watch.disabled, true);
+});
+
+test("the lane owner processes and a non-owner stands down before Gmail", async (t) => {
+  const ownerFiles = fixture(t);
+  const dataDir = path.join(ownerFiles.dir, "data");
+  const ownerIdentity = { id: OWNER_ID, hostname: "owner-mac.local" };
+  const renamedOwnerIdentity = { id: OWNER_ID, hostname: "owner-mac.lan" };
+  const otherIdentity = { id: OTHER_ID, hostname: "other-mac.local" };
+  claimLaneOwnership({
+    dataDir,
+    lane: "meeting_watch",
+    identity: ownerIdentity,
+  });
+  const owner = await runMeetingWatch({
+    ...ownerFiles,
+    dataDir,
+    machineIdentity: renamedOwnerIdentity,
+    repoDir: ownerFiles.dir,
+    now: () => NOW,
+    dryRun: true,
+    composio: fakeComposio(),
+  });
+  assert.equal(owner.summary.matched, 1);
+  assert.equal(owner.summary.standing_down, false);
+  writeMeetingHeartbeat(ownerFiles.heartbeatPath, {
+    last_run_at: NOW.toISOString(),
+    examined: 4,
+    matched: 2,
+    processed: 1,
+    errors: 1,
+    dead_letters: 1,
+  }, renamedOwnerIdentity);
+
+  let gmailCalls = 0;
+  const nonOwner = await runMeetingWatch({
+    ...ownerFiles,
+    dataDir,
+    machineIdentity: otherIdentity,
+    repoDir: ownerFiles.dir,
+    now: () => NOW,
+    composio: async () => {
+      gmailCalls += 1;
+      throw new Error("non-owner touched Gmail");
+    },
+  });
+  assert.equal(nonOwner.exitCode, 0);
+  assert.equal(nonOwner.summary.standing_down, true);
+  assert.equal(nonOwner.summary.standing_down_owner, "owner-mac.local");
+  assert.equal(gmailCalls, 0);
+  const heartbeat = JSON.parse(readFileSync(ownerFiles.heartbeatPath, "utf8"));
+  assert.equal(
+    heartbeat.machines[OWNER_ID].meeting_watch.dead_letters,
+    1,
+  );
+  assert.deepEqual(
+    heartbeat.machines[OTHER_ID].meeting_watch,
+    {
+      standing_down: true,
+      owner_id: OWNER_ID,
+      owner_hostname_at_claim: "owner-mac.local",
+      observed_at: NOW.toISOString(),
+    },
+  );
+  assert.equal(
+    heartbeat.machines[OTHER_ID].hostname,
+    "other-mac.local",
+  );
 });
 
 test("dry run fetches and parses without any durable writes", async (t) => {
@@ -457,10 +544,283 @@ test("zero follow-ups are terminal and do not retry extraction", async (t) => {
   assert.equal(first.summary.processed, 0);
   assert.equal(first.summary.zero_item_messages, 1);
   assert.equal(second.summary.processed, 1);
-  assert.equal(second.summary.zero_item_messages, 1);
+  assert.equal(second.summary.zero_item_messages, 0);
   assert.equal(third.summary.matched, 0);
   assert.equal(extractionCalls, 1);
   assert.equal(labels, 2);
+});
+
+test("a remembered zero-item failure bypasses live extraction", async (t) => {
+  const files = fixture(t);
+  writeMeetingState(files.statePath, {
+    processed_ids: [],
+    cursor_at: NOW.toISOString(),
+    failures: {
+      "gmail-1": {
+        failed_runs: 1,
+        last_error: "temporary post-parse failure",
+        last_failed_at: NOW.toISOString(),
+        thread_id: "thread-1",
+        sender: "Gemini <gemini-noreply@google.com>",
+        subject: "Notes: Client sync",
+        zero_items: true,
+      },
+    },
+    dead_letters: [],
+  });
+  let extractorCalls = 0;
+  let suppliedItems;
+  const result = await runMeetingWatch({
+    ...files,
+    repoDir: files.dir,
+    now: () => NOW,
+    composio: fakeComposio(),
+    extractFollowUps: async () => {
+      extractorCalls += 1;
+      return [{ owner: "Sam", title: "Should not run", detail: "" }];
+    },
+    processMeetingEmail: async (_email, options) => {
+      suppliedItems = await options.extractFollowUps("ignored", {});
+      return {
+        status: "processed",
+        summary: {
+          tasks: 0,
+          waitingOn: 0,
+          contactsLinked: 0,
+          contactsCreated: 0,
+          contactsAmbiguous: 0,
+          contactFailures: 0,
+          parsedItems: suppliedItems.length,
+        },
+      };
+    },
+    applyLabel: async () => {},
+  });
+  assert.deepEqual(suppliedItems, []);
+  assert.equal(extractorCalls, 0);
+  assert.equal(result.summary.zero_item_messages, 1);
+});
+
+test("already-processed pipeline skips do not count as zero-item messages", async (t) => {
+  const files = fixture(t);
+  const result = await runMeetingWatch({
+    ...files,
+    repoDir: files.dir,
+    now: () => NOW,
+    composio: fakeComposio(),
+    processMeetingEmail: async () => ({
+      status: "skipped",
+      reason: "already-processed",
+      summary: {
+        tasks: 0,
+        waitingOn: 0,
+        contactsLinked: 0,
+        contactsCreated: 0,
+        contactsAmbiguous: 0,
+        contactFailures: 0,
+        parsedItems: 0,
+      },
+    }),
+    applyLabel: async () => {},
+  });
+  assert.equal(result.summary.processed, 1);
+  assert.equal(result.summary.zero_item_messages, 0);
+});
+
+test("query hits that miss detection are recorded once and not fetched again", async (t) => {
+  const files = fixture(t);
+  let bodyFetches = 0;
+  const composio = async (tool) => {
+    if (tool === "GMAIL_FETCH_EMAILS") {
+      return {
+        messages: [{
+          id: "gmail-detection-gap",
+          threadId: "thread-detection-gap",
+          subject: "Weekly recording",
+        }],
+      };
+    }
+    if (tool === "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID") {
+      bodyFetches += 1;
+      return {
+        preview: { subject: "Weekly recording" },
+        messageText: "Summary without a recognized notes header.",
+      };
+    }
+    throw new Error(`Unexpected tool ${tool}`);
+  };
+  const first = await runMeetingWatch({
+    ...files,
+    repoDir: files.dir,
+    now: () => NOW,
+    composio,
+  });
+  const second = await runMeetingWatch({
+    ...files,
+    repoDir: files.dir,
+    now: () => NOW,
+    composio,
+  });
+
+  assert.equal(first.summary.detection_gaps, 1);
+  assert.equal(second.summary.detection_gaps, 0);
+  assert.equal(bodyFetches, 1);
+  assert.deepEqual(
+    readMeetingState(files.statePath).processed_ids,
+    ["gmail-detection-gap"],
+  );
+  const failures = listFailures({
+    dbPath: path.join(files.dir, "data", "forge.db"),
+  });
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0].source, "detection-gap");
+  assert.equal(failures[0].sourceId, "gmail-detection-gap");
+});
+
+test("subject-only detection works when fetched Gmail payload omits sender", async (t) => {
+  const files = fixture(t);
+  const composio = async (tool) => {
+    if (tool === "GMAIL_FETCH_EMAILS") {
+      return {
+        messages: [{
+          id: "gmail-subject-only",
+          threadId: "thread-subject-only",
+        }],
+      };
+    }
+    if (tool === "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID") {
+      return {
+        preview: { subject: "Client planning notes" },
+        messageText: "Next steps\n- [Sam] Send recap",
+      };
+    }
+    throw new Error(`Unexpected tool ${tool}`);
+  };
+  const result = await runMeetingWatch({
+    ...files,
+    repoDir: files.dir,
+    now: () => NOW,
+    dryRun: true,
+    composio,
+  });
+  assert.equal(result.summary.matched, 1);
+});
+
+test("retry state preserves fetched sender and subject for real re-detection", async (t) => {
+  const files = fixture(t);
+  let searches = 0;
+  let bodyFetches = 0;
+  let extractionCalls = 0;
+  const composio = async (tool) => {
+    if (tool === "GMAIL_FETCH_EMAILS") {
+      searches += 1;
+      return searches === 1
+        ? {
+            messages: [{
+              id: "gmail-replay",
+              threadId: "thread-replay",
+            }],
+          }
+        : { messages: [] };
+    }
+    if (tool === "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID") {
+      bodyFetches += 1;
+      return bodyFetches === 1
+        ? {
+            preview: {
+              from: "Gemini <gemini-noreply@google.com>",
+              subject: "Weekly client recap",
+            },
+            messageText: "Next steps\n- [Sam] Send recap",
+          }
+        : {
+            messageText: "Next steps\n- [Sam] Send recap",
+          };
+    }
+    throw new Error(`Unexpected tool ${tool}`);
+  };
+  const options = {
+    ...files,
+    repoDir: files.dir,
+    now: () => NOW,
+    composio,
+    extractFollowUps: async () => {
+      extractionCalls += 1;
+      throw new Error("retry extraction");
+    },
+  };
+  await runMeetingWatch(options);
+  const stored = readMeetingState(files.statePath).failures["gmail-replay"];
+  assert.equal(
+    stored.sender,
+    "Gemini <gemini-noreply@google.com>",
+  );
+  assert.equal(stored.subject, "Weekly client recap");
+  const second = await runMeetingWatch(options);
+  assert.equal(second.summary.matched, 1);
+  assert.equal(extractionCalls, 2);
+});
+
+test("a blank database environment falls back to the runtime data database", async (t) => {
+  const files = fixture(t);
+  const previous = process.env.COVE_DB_PATH;
+  process.env.COVE_DB_PATH = "";
+  t.after(() => {
+    if (previous === undefined) delete process.env.COVE_DB_PATH;
+    else process.env.COVE_DB_PATH = previous;
+  });
+  let receivedDbPath;
+  const result = await runMeetingWatch({
+    ...files,
+    dataDir: path.join(files.dir, "data"),
+    repoDir: files.dir,
+    now: () => NOW,
+    composio: fakeComposio(),
+    processMeetingEmail: async (_email, options) => {
+      receivedDbPath = options.dbPath;
+      return {
+        status: "processed",
+        summary: {
+          tasks: 0,
+          waitingOn: 0,
+          contactsLinked: 0,
+          contactsCreated: 0,
+          contactsAmbiguous: 0,
+          contactFailures: 0,
+          parsedItems: 1,
+        },
+      };
+    },
+    applyLabel: async () => {},
+  });
+  assert.equal(result.exitCode, 0);
+  assert.equal(receivedDbPath, path.join(files.dir, "data", "forge.db"));
+});
+
+test("main records a receipt and failure row for a wholesale watcher failure", async (t) => {
+  const files = fixture(t);
+  const dbPath = path.join(files.dir, "data", "forge.db");
+  const exitCode = await meetingWatchMain(["--once"], {
+    dbPath,
+    runMeetingWatchImpl: async () => ({
+      exitCode: 1,
+      summary: {
+        processed: 0,
+        processed_message_ids: [],
+        errors: 1,
+        error_messages: [{ error: "Gmail authentication expired" }],
+      },
+    }),
+  });
+  assert.equal(exitCode, 1);
+  assert.equal(
+    listRecentReceipts({ dbPath, source: "meeting-watch" }).length,
+    1,
+  );
+  const failures = listFailures({ dbPath });
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0].source, "receipt");
+  assert.match(failures[0].message, /authentication expired/);
 });
 
 test("HTML list boundaries preserve suggested next steps for deterministic parsing", async (t) => {
@@ -549,8 +909,8 @@ test("a Composio failure exits nonzero and leaves the message unprocessed", asyn
   assert.equal(result.summary.errors, 1);
   assert.deepEqual(readMeetingState(files.statePath).processed_ids, []);
   const heartbeat = JSON.parse(readFileSync(files.heartbeatPath, "utf8"));
-  assert.equal(heartbeat.meeting_watch.errors, 1);
-  assert.equal(heartbeat.meeting_watch.processed, 0);
+  assert.equal(heartbeat.machines[MACHINE_ID].meeting_watch.errors, 1);
+  assert.equal(heartbeat.machines[MACHINE_ID].meeting_watch.processed, 0);
 });
 
 test("Gmail pagination rejects a repeated page token", async (t) => {

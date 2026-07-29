@@ -33,7 +33,12 @@
 - Note for the plan: cloud-mode contacts keep the older isTrustedForgeRequest-only gate (behavior preservation); local mode has the tighter day-plan gate.
 - Stage 2 spike verdict RED recorded in the plan doc: staying on Composio (native connector can't run headless; scopes not narrowable; send not structurally excludable).
 
-## 2026-07-28 late night: reliability spine Stage 1 (working tree, reviewed)
+## 2026-07-29 build wave Stage 4: shared ingestion pipeline (committed after two review fix passes)
+
+- One meeting-notes pipeline behind a durable claim ledger keyed by Gmail message id: both doors (watcher + email-triage fallback bucket) claim before processing, expired leases recover, permanent failures dead-letter at 5 attempts with one deduped failure-inbox row. Tool-agnostic detection (Gemini/Granola/Fathom/Otter + custom) via data/cove-meetings.example.json; runtime config is UNTRACKED (SETUP writes it; Alex's forge-meetings.json keeps exact legacy behavior incl. Forge/Meeting-Processed label). CRM wiring live: waiting-on commitments get real contact_id, ambiguous people recorded without blocking, per-item stable content-hash keys so retries can't duplicate.
+- Single-Mac law landed: watcher + progress lanes install on plain Macs. Two-Mac safety = lane ownership in synced cove-lane-owners.json keyed by persisted machine UUID (~/Library/Application Support/Cove/machine-id; hostnames are NOT identity on macOS): Mini claims win, non-owners stand down at runtime under their own heartbeat key (owner health never clobbered), installer skips foreign-owned lanes. Brief heartbeat warnings are per-machine and only for actually-installed lanes.
+- Email skill: meeting_notes bucket only for watcher-processed/errored ids; detector-matched but unprocessed mail falls back to FYI + Cove/Triaged (never silently dropped). Detection gaps (query hit, patterns missed) are counted, dead-lettered once, never refetched forever.
+- Accepted as-is: first-claim Syncthing latency window (one-shot, label-deduped); human "Notes:" emails route to FYI exactly as the pre-refactor query behaved.
 
 - Local SQLite now migrates through one ordered `forge_schema_migrations` ledger. A populated copy of the live `data/forge.db` migrates to the same semantic schema as a fresh install with no foreign-key errors.
 - New `forge_jobs`, `forge_receipts`, and `forge_failure_inbox` primitives provide leased priority jobs, bounded runners, retry/backoff, idempotency, durable action receipts, and one dismissible Issues surface. Long jobs renew their leases so a second runner cannot duplicate live work.

@@ -17,6 +17,11 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { execFile as execFileCallback } from "node:child_process";
 import { coveEnv } from "../src/lib/env-runtime.mjs";
+import {
+  checkLaneOwnership,
+  laneOwnerLabel,
+} from "./lib/cove-lane-ownership.mjs";
+import { normalizeMachineIdentity } from "../src/lib/machine-identity.mjs";
 
 const require = createRequire(import.meta.url);
 require("tsx/cjs");
@@ -638,11 +643,19 @@ async function analyzeProject(input, options = {}) {
   return validateProgress(parseProgressOutput(raw), input.tasks, input.evidenceText);
 }
 
-export function mergeProgressHeartbeat(file, heartbeat) {
+export function mergeProgressHeartbeat(file, heartbeat, identity) {
+  const machineIdentity = normalizeMachineIdentity(identity);
   const existing = readJson(file, {});
+  const current = objectValue(existing) ?? {};
+  const machines = { ...(objectValue(current.machines) ?? {}) };
+  const machine = { ...(objectValue(machines[machineIdentity.id]) ?? {}) };
+  machine.hostname = machineIdentity.hostname;
+  machine.progress_reconcile = heartbeat;
+  machines[machineIdentity.id] = machine;
   atomicWriteJson(file, {
-    ...(objectValue(existing) ?? {}),
-    progress_reconcile: heartbeat,
+    ...current,
+    version: 2,
+    machines,
   });
 }
 
@@ -703,9 +716,35 @@ export async function runProgressReconcile(options = {}) {
     errors: 0,
     error_messages: [],
     projects: [],
+    standing_down: false,
+    standing_down_owner: null,
   };
   let store;
+  let machineIdentity = options.machineIdentity
+    ? normalizeMachineIdentity(options.machineIdentity)
+    : undefined;
   try {
+    const ownership = checkLaneOwnership({
+      dataDir,
+      lane: "progress",
+      identity: machineIdentity,
+      homeDir: options.homeDir,
+    });
+    machineIdentity = ownership.identity;
+    if (!ownership.shouldRun) {
+      const ownerLabel = laneOwnerLabel(ownership.owner);
+      summary.standing_down = true;
+      summary.standing_down_owner = ownerLabel;
+      if (!dryRun) {
+        (options.writeHeartbeat ?? mergeProgressHeartbeat)(heartbeatPath, {
+          standing_down: true,
+          owner_id: ownership.owner.id,
+          owner_hostname_at_claim: ownership.owner.hostnameAtClaim,
+          observed_at: now().toISOString(),
+        }, machineIdentity);
+      }
+      return { exitCode: 0, summary };
+    }
     const state = readJson(statePath, {});
     const projectState = objectValue(state?.projects)
       ? { ...state.projects }
@@ -885,7 +924,8 @@ export async function runProgressReconcile(options = {}) {
         skipped_no_new_evidence: summary.skipped_no_new_evidence,
         malformed_ping_lines: summary.malformed_ping_lines,
         errors: summary.errors,
-      });
+        standing_down: false,
+      }, machineIdentity);
     }
     return { exitCode: 0, summary };
   } catch (error) {
@@ -902,7 +942,8 @@ export async function runProgressReconcile(options = {}) {
           skipped_no_new_evidence: summary.skipped_no_new_evidence,
           malformed_ping_lines: summary.malformed_ping_lines,
           errors: summary.errors,
-        });
+          standing_down: false,
+        }, machineIdentity);
       } catch (heartbeatError) {
         summary.error_messages.push({
           error: `heartbeat: ${boundedError(heartbeatError)}`,

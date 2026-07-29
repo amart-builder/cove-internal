@@ -670,7 +670,7 @@ test('installer provisions a supervised watch worker without enabling autonomy',
   assert.match(installer, /TSX_BIN/);
   assert.match(installer, /CLAUDE_BIN/);
   const miniProfile = installer.slice(
-    installer.indexOf('# --- Mini-only'),
+    installer.indexOf('# --- Optional Mini profile'),
     installer.indexOf('# --- Install Cove\'s skills'),
   );
   const workerProfile = installer.slice(

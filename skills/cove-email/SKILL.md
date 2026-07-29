@@ -98,15 +98,29 @@ The labels ARE the memory. Ensure all six exist and cache their IDs.
 
 ## Step 1. Ingest only NEW mail
 
-This twice-daily run is also the meeting watcher backstop. Before normal inbox
-triage, run `node scripts/cove-meeting-watch.mjs --once`; the five-minute
-LaunchAgent remains the primary path, while this catches Gemini meeting-note
-mail after a stopped or stale watcher.
+This twice-daily run is also the meeting watcher backstop and owns the
+`meeting_notes` bucket. Before normal inbox triage, run
+`node scripts/cove-meeting-watch.mjs --once`. That command reads the active
+tools and custom patterns from the resolved meeting config (`data/cove-meetings.json`
+when the operator created it, otherwise legacy `data/forge-meetings.json`), uses
+Cove's shared detector, claims each Gmail message id before any writes, and
+routes matches through the one meeting pipeline. Keep its
+`processed_message_ids` and every `error_messages[].message_id` as this
+invocation's handled-id set. Keep its `processed` count for the quiet card line
+in Step 6. A detector match is `meeting_notes` ONLY when one of the thread's
+message ids is in that handled-id set. Leave error-list threads untouched for
+retry. A detector-matched thread whose ids are absent from both lists is **fyi**:
+apply `Cove/FYI` + `Cove/Triaged`, write the normal FYI row, and show it on the
+card. This is the fail-open path when the watcher is missing, disabled, or its
+query did not return that message, so meeting notes can never disappear
+silently.
 
 Fetch inbox mail not yet triaged: `GMAIL_FETCH_EMAILS`,
-`query = in:inbox -label:Cove/Triaged -label:Forge/Triaged newer_than:2d`,
-`verbose=true`, `max_results=25`; follow `nextPageToken`. The two `-label:`
-clauses are what stop the afternoon run from re-chewing the morning's mail.
+`query = in:inbox -label:Cove/Triaged -label:Forge/Triaged -label:Cove/Meeting-Processed -label:Forge/Meeting-Processed newer_than:2d`,
+`verbose=true`, `max_results=25`; follow `nextPageToken`. The Triaged label
+clauses stop the afternoon run from re-chewing the morning's mail. The meeting
+label clauses keep processed notes out of normal triage even if both doors run
+at the same moment.
 `Forge/Triaged` is the pre-rename label; excluding it too means an install that
 already has old labels is not re-triaged from scratch. Do not create, apply, or
 remove `Forge/*` labels anywhere: they are read-only history. Work by
@@ -122,6 +136,13 @@ For each new thread:
    existing `DRAFT` message, do NOT create a second draft. Refresh only if a new
    inbound arrived after the draft (Step 2).
 3. Otherwise classify into exactly one bucket:
+   - **meeting_notes** (a configured meeting-notes tool matched AND the message
+     id is in this invocation's processed or error list): the shared pipeline
+     above owns it. A processed id needs no email row. An error id stays
+     untouched for retry. Never draft either one.
+   - **fyi fallback for unhandled meeting notes** (the detector matched but the
+     message id is absent from both watcher lists): treat it exactly as fyi,
+     including the FYI row and `Cove/FYI` + `Cove/Triaged` labels.
    - **reply** (a real person wants a written response): draft it (Step 2).
    - **action** (needs an offline step, or a decision before any reply): no draft.
    - **fyi** (a tiding: they should know, need not act): no draft.
@@ -273,7 +294,10 @@ the thread with the draft inline. Sections, in order:
 5. `ARCHIVED (N)`: `bucket=archived` items with `triage_date=today`, as grouped
    counts (e.g. "9 newsletters, 3 promos") plus a rescue link:
    `https://mail.google.com/mail/u/0/#search/label%3ACove%2FArchived`.
-6. `Done today: X replied, Y actioned`: count rows that flipped to `actioned`
+6. `Meeting notes processed: N`: include this quiet line only when the shared
+   meeting backstop processed one or more messages in this run. It is a status
+   line, never a reply/action card item.
+7. `Done today: X replied, Y actioned`: count rows that flipped to `actioned`
    today (by `updated_at` date).
 
 Lead with one status line: `Triaged <time>` (add `, <triage_times> daily` only if

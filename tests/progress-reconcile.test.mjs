@@ -36,8 +36,13 @@ import {
   setQuietCurrentNowForTests,
   setQuietCurrentStorePathForTests,
 } from "../src/lib/quiet-current/store.ts";
+import { claimLaneOwnership } from "../scripts/lib/cove-lane-ownership.mjs";
 
 const NOW = new Date("2026-07-27T21:30:00.000Z");
+const MACHINE_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const OWNER_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const OTHER_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+const MACHINE = { id: MACHINE_ID, hostname: "test-mac.local" };
 
 function fixture(t) {
   const dir = path.join(
@@ -59,6 +64,75 @@ function ping(project, minute, host = "mbp") {
     git_head: `head-${minute}`,
   };
 }
+
+test("a non-owner progress reconciler stands down before reading work", async (t) => {
+  const dataDir = fixture(t);
+  const ownerIdentity = { id: OWNER_ID, hostname: "owner-mac.local" };
+  const otherIdentity = { id: OTHER_ID, hostname: "other-mac.local" };
+  claimLaneOwnership({
+    dataDir,
+    lane: "progress",
+    identity: ownerIdentity,
+  });
+  let ownerPingReads = 0;
+  const ownerResult = await runProgressReconcile({
+    dataDir,
+    machineIdentity: { id: OWNER_ID, hostname: "owner-mac.lan" },
+    dryRun: true,
+    now: () => NOW,
+    readPings: () => {
+      ownerPingReads += 1;
+      return [];
+    },
+  });
+  assert.equal(ownerResult.summary.standing_down, false);
+  assert.equal(ownerPingReads, 1);
+  const heartbeatPath = path.join(dataDir, "intake", "heartbeats.json");
+  mergeProgressHeartbeat(heartbeatPath, {
+    last_run_at: NOW.toISOString(),
+    projects_active: 2,
+    digests_written: 1,
+    suggestions_filed: 1,
+    skipped_no_new_evidence: 0,
+    malformed_ping_lines: 0,
+    errors: 1,
+  }, ownerIdentity);
+  let pingReads = 0;
+  const result = await runProgressReconcile({
+    dataDir,
+    machineIdentity: otherIdentity,
+    now: () => NOW,
+    readPings: () => {
+      pingReads += 1;
+      return [];
+    },
+  });
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.summary.standing_down, true);
+  assert.equal(result.summary.standing_down_owner, "owner-mac.local");
+  assert.equal(pingReads, 0);
+  const heartbeat = JSON.parse(readFileSync(
+    heartbeatPath,
+    "utf8",
+  ));
+  assert.equal(
+    heartbeat.machines[OWNER_ID].progress_reconcile.errors,
+    1,
+  );
+  assert.equal(
+    heartbeat.machines[OTHER_ID].progress_reconcile.owner_id,
+    OWNER_ID,
+  );
+  assert.deepEqual(
+    Object.keys(heartbeat.machines[OTHER_ID].progress_reconcile).sort(),
+    [
+      "observed_at",
+      "owner_hostname_at_claim",
+      "owner_id",
+      "standing_down",
+    ],
+  );
+});
 
 test("cwd project mapping tolerates both machines, nesting, and non-project paths", () => {
   assert.equal(
@@ -429,19 +503,23 @@ test("heartbeat merge preserves other watcher keys", (t) => {
     last_run_at: NOW.toISOString(),
     projects_active: 2,
     errors: 0,
-  });
+  }, MACHINE);
   const heartbeat = JSON.parse(readFileSync(file, "utf8"));
   assert.equal(
     heartbeat.meeting_watch.last_run_at,
     "2026-07-27T20:00:00.000Z",
   );
-  assert.equal(heartbeat.progress_reconcile.projects_active, 2);
+  assert.equal(
+    heartbeat.machines[MACHINE_ID].progress_reconcile.projects_active,
+    2,
+  );
 });
 
 test("dry-run performs analysis but writes no store, pencil, state, or heartbeat", async (t) => {
   const dir = fixture(t);
   let analyzed = 0;
   const result = await runProgressReconcile({
+    machineIdentity: MACHINE,
     dryRun: true,
     dataDir: dir,
     statePath: path.join(dir, "state.json"),
@@ -491,6 +569,7 @@ test("one project failure does not freeze another project's cursor", async (t) =
   const heartbeatPath = path.join(dir, "intake", "heartbeats.json");
   const statePath = path.join(dir, "state.json");
   const result = await runProgressReconcile({
+    machineIdentity: MACHINE,
     dataDir: dir,
     statePath,
     heartbeatPath,
@@ -535,7 +614,8 @@ test("one project failure does not freeze another project's cursor", async (t) =
     NOW.toISOString(),
   );
   assert.equal(
-    JSON.parse(readFileSync(heartbeatPath, "utf8")).progress_reconcile.errors,
+    JSON.parse(readFileSync(heartbeatPath, "utf8"))
+      .machines[MACHINE_ID].progress_reconcile.errors,
     1,
   );
 });
@@ -546,6 +626,7 @@ test("unchanged evidence skips Claude and the full task fetch", async (t) => {
   let taskFetches = 0;
   let analyses = 0;
   const result = await runProgressReconcile({
+    machineIdentity: MACHINE,
     dryRun: true,
     dataDir: dir,
     now: () => NOW,
@@ -575,6 +656,7 @@ test("noise-floor rejection happens before the full task fetch", async (t) => {
   const dir = fixture(t);
   let fullFetches = 0;
   const result = await runProgressReconcile({
+    machineIdentity: MACHINE,
     dryRun: true,
     dataDir: dir,
     now: () => NOW,

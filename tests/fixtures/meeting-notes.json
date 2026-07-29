@@ -1,0 +1,26 @@
+[
+  {
+    "tool": "gemini",
+    "sender": "Gemini <gemini-noreply@google.com>",
+    "subject": "Notes: Client planning",
+    "body": "Next steps\n- [Sam Rivera] Send the scope: Share the final PDF."
+  },
+  {
+    "tool": "granola",
+    "sender": "Granola <notes@mail.granola.ai>",
+    "subject": "Granola notes for Client planning",
+    "body": "Next steps\n- [Sam Rivera] Send the scope: Share the final PDF."
+  },
+  {
+    "tool": "fathom",
+    "sender": "Fathom <notifications@fathom.video>",
+    "subject": "Fathom summary for Client planning",
+    "body": "Next steps\n- [Sam Rivera] Send the scope: Share the final PDF."
+  },
+  {
+    "tool": "otter",
+    "sender": "Otter <no-reply@otter.ai>",
+    "subject": "Otter Meeting Summary: Client planning",
+    "body": "Next steps\n- [Sam Rivera] Send the scope: Share the final PDF."
+  }
+]

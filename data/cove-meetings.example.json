@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "active_tools": [
+    "gemini"
+  ],
+  "window": "newer_than:2d",
+  "processed_label": "Cove/Meeting-Processed",
+  "custom_patterns": []
+}

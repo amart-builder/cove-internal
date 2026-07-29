@@ -62,6 +62,7 @@ export type ContactActivity = {
   id: ForgeId;
   contact_id: ForgeId | null;
   company_id: ForgeId | null;
+  source_ref?: string | null;
   activity_type: string;
   title: string | null;
   content: string | null;

@@ -216,6 +216,9 @@ function handleCRMCompatibility(
           companyId: typeof input.company_id === "string"
             ? input.company_id
             : undefined,
+          sourceRef: typeof input.source_ref === "string"
+            ? input.source_ref
+            : undefined,
           activityType: String(input.activity_type ?? ""),
           title: String(input.title ?? ""),
           content: typeof input.content === "string" ? input.content : undefined,

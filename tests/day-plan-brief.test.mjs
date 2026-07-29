@@ -359,6 +359,7 @@ test('the collector marks candidate_ok only on the arrival-eligible tasks', asyn
   ];
   const collected = await collectMorningBriefSources({
     store: { listRecentSnapshots: () => [] },
+    dataDir: dir,
     goalsPath: path.join(dir, 'goals.md'),
     sprintMemoPath: path.join(dir, 'memo.md'),
     webBaseUrl: 'http://forge.test',

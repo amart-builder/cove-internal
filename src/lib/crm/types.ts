@@ -49,6 +49,7 @@ export type ExplicitContactCreation = {
 export type AppendContactActivityInput = {
   contactId: string;
   companyId?: string;
+  sourceRef?: string;
   activityType: string;
   title: string;
   content?: string;
@@ -65,6 +66,7 @@ export type ContactWithActivities = {
 
 export type MeetingContactActivityInput = {
   contact: Omit<ResolveContactInput, "source">;
+  sourceRef?: string;
   title: string;
   content?: string;
   occurredAt?: string;

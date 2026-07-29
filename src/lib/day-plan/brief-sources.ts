@@ -26,6 +26,10 @@ import { localDateInTimezone, type BriefSourceInput } from "./brief";
 import { buildSettlementSummary, readDumpRelay, readSettlementRelay } from "./brief-relay";
 import { contentQuotaGap, followUpsDue, staleOpenItems } from "./gap-detectors";
 import { coveEnv } from "../env";
+import {
+  normalizeMachineIdentity,
+  resolveMachineIdentity,
+} from "../machine-identity.mjs";
 
 const EXTERNAL_FETCH_TIMEOUT_MS = 10_000;
 // The operator's own zone, not a fixed one: this is the fallback used when
@@ -174,6 +178,10 @@ export type MorningBriefSourceOptions = {
   // Overrides the relay data directory (defaults to the forge.db directory).
   // Tests point this at a temp dir to exercise the settlement relay fallback.
   dataDir?: string;
+  machineIdentity?: {
+    id: string;
+    hostname: string;
+  };
 };
 
 function readKeyFile(filePath: string): string | null {
@@ -424,10 +432,114 @@ function inboundVerbatim(value: unknown): string {
   return JSON.stringify(value.slice(0, 120));
 }
 
+function backgroundLaneInstalled(
+  dataDir: string | undefined,
+  lane: "meeting_watch" | "progress_reconcile",
+  machineIdentity: { id: string; hostname: string },
+): boolean {
+  const markerPath = path.join(
+    coveDataDir(dataDir),
+    "intake",
+    "installed-lanes.json",
+  );
+  try {
+    const parsed = JSON.parse(readFileSync(markerPath, "utf8")) as unknown;
+    const machines = asRecord(asRecord(parsed)?.machines);
+    const machine = asRecord(machines?.[machineIdentity.id]);
+    return Boolean(asRecord(machine?.[lane])?.installed_at);
+  } catch {
+    return false;
+  }
+}
+
+type BackgroundLaneOwner = {
+  id: string;
+  hostnameAtClaim: string;
+};
+
+function backgroundLaneOwner(
+  dataDir: string | undefined,
+  lane: "meeting_watch" | "progress",
+): BackgroundLaneOwner | undefined {
+  try {
+    const ownerPath = path.join(coveDataDir(dataDir), "cove-lane-owners.json");
+    const parsed = JSON.parse(readFileSync(ownerPath, "utf8")) as unknown;
+    const entry = asRecord(asRecord(asRecord(parsed)?.lanes)?.[lane]);
+    if (
+      typeof entry?.id !== "string" ||
+      typeof entry?.hostname_at_claim !== "string"
+    ) {
+      return undefined;
+    }
+    const normalized = normalizeMachineIdentity({
+      id: entry.id,
+      hostname: entry.hostname_at_claim,
+    });
+    return {
+      id: normalized.id,
+      hostnameAtClaim: normalized.hostname,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function machineHeartbeat(
+  parsed: unknown,
+  machineId: string,
+  lane: "meeting_watch" | "progress_reconcile",
+): UnknownRecord | undefined {
+  const machines = asRecord(asRecord(parsed)?.machines);
+  return asRecord(asRecord(machines?.[machineId])?.[lane]);
+}
+
+function localStandDownSuffix(
+  localHeartbeat: UnknownRecord | undefined,
+  owner: BackgroundLaneOwner | undefined,
+  machineIdentity: { id: string; hostname: string },
+): string {
+  if (
+    !owner ||
+    owner.id === machineIdentity.id ||
+    localHeartbeat?.standing_down !== true ||
+    localHeartbeat?.owner_id !== owner.id
+  ) {
+    return "";
+  }
+  return ` Local Mac standing down: ${owner.hostnameAtClaim} owns this lane.`;
+}
+
+function briefMachineIdentity(
+  dataDir: string | undefined,
+  homeDir: string | undefined,
+  supplied: { id: string; hostname: string } | undefined,
+): { id: string; hostname: string } | undefined {
+  if (supplied) return normalizeMachineIdentity(supplied);
+  const resolvedDataDir = coveDataDir(dataDir);
+  const hasBackgroundState = [
+    path.join(resolvedDataDir, "cove-lane-owners.json"),
+    path.join(resolvedDataDir, "intake", "installed-lanes.json"),
+    path.join(resolvedDataDir, "intake", "heartbeats.json"),
+  ].some((file) => existsSync(file));
+  return hasBackgroundState
+    ? resolveMachineIdentity({ homeDir })
+    : undefined;
+}
+
 function meetingWatchHeartbeat(
   dataDir: string | undefined,
   now: Date,
+  machineIdentity: { id: string; hostname: string } | undefined,
 ): { line: string; warning?: string } {
+  if (!machineIdentity) {
+    return { line: "Meeting watcher is not installed on this Mac." };
+  }
+  const installed = backgroundLaneInstalled(
+    dataDir,
+    "meeting_watch",
+    machineIdentity,
+  );
+  const owner = backgroundLaneOwner(dataDir, "meeting_watch");
   const heartbeatPath = path.join(
     coveDataDir(dataDir),
     "intake",
@@ -435,11 +547,27 @@ function meetingWatchHeartbeat(
   );
   try {
     const parsed = JSON.parse(readFileSync(heartbeatPath, "utf8")) as unknown;
-    const root = asRecord(parsed);
-    const heartbeat = asRecord(root?.meeting_watch);
+    const heartbeat = machineHeartbeat(
+      parsed,
+      owner?.id ?? machineIdentity.id,
+      "meeting_watch",
+    );
+    const localHeartbeat = machineHeartbeat(
+      parsed,
+      machineIdentity.id,
+      "meeting_watch",
+    );
+    const standDown = localStandDownSuffix(
+      localHeartbeat,
+      owner,
+      machineIdentity,
+    );
+    if (!heartbeat && !installed && !owner) {
+      return { line: "Meeting watcher is not installed on this Mac." };
+    }
     if (heartbeat?.disabled === true) {
       return {
-        line: "WARNING: meeting watcher DISABLED.",
+        line: `WARNING: meeting watcher DISABLED.${standDown}`,
         warning: "meeting_watch_disabled",
       };
     }
@@ -451,7 +579,7 @@ function meetingWatchHeartbeat(
       : Number.NaN;
     if (!Number.isFinite(lastRun)) {
       return {
-        line: "WARNING: meeting watcher heartbeat is missing.",
+        line: `WARNING: meeting watcher heartbeat is missing.${standDown}`,
         warning: "meeting_watch_heartbeat_missing",
       };
     }
@@ -467,26 +595,29 @@ function meetingWatchHeartbeat(
     const deadLetterCount = Number(heartbeat?.dead_letters);
     if (Number.isFinite(deadLetterCount) && deadLetterCount > 0) {
       return {
-        line: `WARNING: meeting watcher has ${deadLetterCount} dead letter${deadLetterCount === 1 ? "" : "s"} (age=${inboundAge(lastRunAt, now)} ${counts}).`,
+        line: `WARNING: meeting watcher has ${deadLetterCount} dead letter${deadLetterCount === 1 ? "" : "s"} (age=${inboundAge(lastRunAt, now)} ${counts}).${standDown}`,
         warning: "meeting_watch_dead_letters",
       };
     }
     if (elapsedMs > 60 * 60_000) {
       return {
-        line: `WARNING: meeting watcher heartbeat is stale (age=${inboundAge(lastRunAt, now)} ${counts}).`,
+        line: `WARNING: meeting watcher heartbeat is stale (age=${inboundAge(lastRunAt, now)} ${counts}).${standDown}`,
         warning: "meeting_watch_heartbeat_stale",
       };
     }
     if (Number.isFinite(errorCount) && errorCount > 0) {
       return {
-        line: `WARNING: meeting watcher last run reported errors (age=${inboundAge(lastRunAt, now)} ${counts}).`,
+        line: `WARNING: meeting watcher last run reported errors (age=${inboundAge(lastRunAt, now)} ${counts}).${standDown}`,
         warning: "meeting_watch_errors",
       };
     }
     return {
-      line: `Meeting watcher heartbeat: age=${inboundAge(lastRunAt, now)} ${counts}.`,
+      line: `Meeting watcher heartbeat: age=${inboundAge(lastRunAt, now)} ${counts}.${standDown}`,
     };
   } catch (error) {
+    if (!installed && !owner && !existsSync(heartbeatPath)) {
+      return { line: "Meeting watcher is not installed on this Mac." };
+    }
     const warning = existsSync(heartbeatPath)
       ? errorNote(error, "meeting_watch_heartbeat_invalid").replace(/^error:/, "")
       : "meeting_watch_heartbeat_missing";
@@ -500,7 +631,17 @@ function meetingWatchHeartbeat(
 function progressReconcileHeartbeat(
   dataDir: string | undefined,
   now: Date,
+  machineIdentity: { id: string; hostname: string } | undefined,
 ): { line: string; warning?: string } {
+  if (!machineIdentity) {
+    return { line: "Progress reconciler is not installed on this Mac." };
+  }
+  const installed = backgroundLaneInstalled(
+    dataDir,
+    "progress_reconcile",
+    machineIdentity,
+  );
+  const owner = backgroundLaneOwner(dataDir, "progress");
   const heartbeatPath = path.join(
     coveDataDir(dataDir),
     "intake",
@@ -508,14 +649,31 @@ function progressReconcileHeartbeat(
   );
   try {
     const parsed = JSON.parse(readFileSync(heartbeatPath, "utf8")) as unknown;
-    const heartbeat = asRecord(asRecord(parsed)?.progress_reconcile);
+    const heartbeat = machineHeartbeat(
+      parsed,
+      owner?.id ?? machineIdentity.id,
+      "progress_reconcile",
+    );
+    const localHeartbeat = machineHeartbeat(
+      parsed,
+      machineIdentity.id,
+      "progress_reconcile",
+    );
+    const standDown = localStandDownSuffix(
+      localHeartbeat,
+      owner,
+      machineIdentity,
+    );
+    if (!heartbeat && !installed && !owner) {
+      return { line: "Progress reconciler is not installed on this Mac." };
+    }
     const lastRunAt = typeof heartbeat?.last_run_at === "string"
       ? heartbeat.last_run_at
       : undefined;
     const lastRun = lastRunAt ? Date.parse(lastRunAt) : Number.NaN;
     if (!Number.isFinite(lastRun)) {
       return {
-        line: "WARNING: progress reconciler heartbeat is missing.",
+        line: `WARNING: progress reconciler heartbeat is missing.${standDown}`,
         warning: "progress_reconcile_heartbeat_missing",
       };
     }
@@ -530,18 +688,23 @@ function progressReconcileHeartbeat(
     const age = inboundAge(lastRunAt, now);
     if (Math.max(0, now.getTime() - lastRun) > 2 * 60 * 60_000) {
       return {
-        line: `WARNING: progress reconciler heartbeat is stale (age=${age} ${counts}).`,
+        line: `WARNING: progress reconciler heartbeat is stale (age=${age} ${counts}).${standDown}`,
         warning: "progress_reconcile_heartbeat_stale",
       };
     }
     if (Number(heartbeat?.errors) > 0) {
       return {
-        line: `WARNING: progress reconciler last run reported errors (age=${age} ${counts}).`,
+        line: `WARNING: progress reconciler last run reported errors (age=${age} ${counts}).${standDown}`,
         warning: "progress_reconcile_errors",
       };
     }
-    return { line: `Progress reconciler heartbeat: age=${age} ${counts}.` };
+    return {
+      line: `Progress reconciler heartbeat: age=${age} ${counts}.${standDown}`,
+    };
   } catch (error) {
+    if (!installed && !owner && !existsSync(heartbeatPath)) {
+      return { line: "Progress reconciler is not installed on this Mac." };
+    }
     const warning = existsSync(heartbeatPath)
       ? errorNote(error, "progress_reconcile_heartbeat_invalid").replace(/^error:/, "")
       : "progress_reconcile_heartbeat_missing";
@@ -558,6 +721,7 @@ async function inboundSource(input: {
   timeoutMs: number;
   dataDir?: string;
   now: Date;
+  machineIdentity?: { id: string; hostname: string };
 }): Promise<BriefSourceInput> {
   const source = {
     id: "untriaged_inbound",
@@ -607,7 +771,11 @@ async function inboundSource(input: {
   } else {
     lines.push(`Spool lines waiting: ${spoolCount ?? 0}.`);
   }
-  const heartbeat = meetingWatchHeartbeat(input.dataDir, input.now);
+  const heartbeat = meetingWatchHeartbeat(
+    input.dataDir,
+    input.now,
+    input.machineIdentity,
+  );
   lines.push(heartbeat.line);
   return {
     ...source,
@@ -629,6 +797,7 @@ function projectProgressSource(input: {
   targetLocalDate: string;
   targetTimezone: string;
   now: Date;
+  machineIdentity?: { id: string; hostname: string };
 }): BriefSourceInput {
   const source = {
     id: "project_progress",
@@ -637,7 +806,11 @@ function projectProgressSource(input: {
     maxChars: 18_000,
     priority: 1,
   } as const;
-  const heartbeat = progressReconcileHeartbeat(input.dataDir, input.now);
+  const heartbeat = progressReconcileHeartbeat(
+    input.dataDir,
+    input.now,
+    input.machineIdentity,
+  );
   const previousDate = addCalendarDays(input.targetLocalDate, -1);
   const since = calendarDayBounds(previousDate, input.targetTimezone).timeMin;
   const until = calendarDayBounds(
@@ -1585,6 +1758,11 @@ export async function collectMorningBriefSources(
   const baseUrl = (options.webBaseUrl ?? defaultBriefWebBase()).replace(/\/$/, "");
   const timeoutMs = options.timeoutMs ?? 8000;
   const now = options.now ?? new Date();
+  const machineIdentity = briefMachineIdentity(
+    options.dataDir,
+    options.homeDir,
+    options.machineIdentity,
+  );
   const targetTimezone = options.targetTimezone ?? coveEnv("BRIEF_TIMEZONE") ?? defaultBriefTimezone();
   let targetLocalDate = options.targetLocalDate;
   if (!targetLocalDate) {
@@ -1640,6 +1818,7 @@ export async function collectMorningBriefSources(
     timeoutMs,
     dataDir: options.dataDir,
     now,
+    machineIdentity,
   });
 
   // Last night's brain dump, in the operator's own words, and the first thing the brief
@@ -1707,6 +1886,7 @@ export async function collectMorningBriefSources(
       targetLocalDate,
       targetTimezone,
       now,
+      machineIdentity,
     }),
     ...(autonomyCheckin ? [autonomyCheckin] : []),
     fileSource("goals", "GOALS", filePolicy.goals.path, {

@@ -107,6 +107,9 @@ if [ "$WEEKDAYS_ONLY" = "true" ] && { [ "$DOW" = "6" ] || [ "$DOW" = "7" ]; }; t
 fi
 
 # --- Engine dispatch ---
+# The email skill invokes the same watcher command as the scheduled lane. This
+# marker lets the durable ingestion ledger record which door won the claim.
+export COVE_MEETING_SOURCE_DOOR=triage
 ENGINE="$(cfg engine)"
 [ -z "$ENGINE" ] && ENGINE="claude"
 

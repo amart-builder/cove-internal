@@ -16,6 +16,8 @@ import {
 import { writeProgressDigestRelay } from '../src/lib/progress/relay.ts';
 
 const NOW = new Date('2026-07-16T12:00:00.000Z');
+const MACHINE_ID = '12345678-1234-4234-8234-123456789abc';
+const MACHINE = { id: MACHINE_ID, hostname: 'brief-test-mac.local' };
 
 function fixture(t) {
   const dir = path.join(os.tmpdir(), `forge-brief-sources-${process.pid}-${Date.now()}-${Math.random()}`);
@@ -38,6 +40,7 @@ function fixture(t) {
       targetLocalDate: '2026-07-16',
       targetTimezone: 'America/Los_Angeles',
       now: NOW,
+      machineIdentity: MACHINE,
     },
   };
 }
@@ -603,14 +606,20 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
   writeFileSync(
     path.join(dir, 'intake', 'heartbeats.json'),
     JSON.stringify({
-      meeting_watch: {
-        last_run_at: '2026-07-16T11:40:00.000Z',
-        examined: 3,
-        matched: 1,
-        processed: 1,
-        errors: 0,
-        dead_letters: 0,
-        disabled: false,
+      version: 2,
+      machines: {
+        [MACHINE_ID]: {
+          hostname: MACHINE.hostname,
+          meeting_watch: {
+            last_run_at: '2026-07-16T11:40:00.000Z',
+            examined: 3,
+            matched: 1,
+            processed: 1,
+            errors: 0,
+            dead_letters: 0,
+            disabled: false,
+          },
+        },
       },
     }),
   );
@@ -724,12 +733,18 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
   writeFileSync(
     path.join(dir, 'intake', 'heartbeats.json'),
     JSON.stringify({
-      meeting_watch: {
-        last_run_at: '2026-07-16T10:00:00.000Z',
-        examined: 0,
-        matched: 0,
-        processed: 0,
-        errors: 1,
+      version: 2,
+      machines: {
+        [MACHINE_ID]: {
+          hostname: MACHINE.hostname,
+          meeting_watch: {
+            last_run_at: '2026-07-16T10:00:00.000Z',
+            examined: 0,
+            matched: 0,
+            processed: 0,
+            errors: 1,
+          },
+        },
       },
     }),
   );
@@ -745,14 +760,20 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
   writeFileSync(
     path.join(dir, 'intake', 'heartbeats.json'),
     JSON.stringify({
-      meeting_watch: {
-        last_run_at: NOW.toISOString(),
-        examined: 0,
-        matched: 0,
-        processed: 0,
-        errors: 0,
-        dead_letters: 2,
-        disabled: false,
+      version: 2,
+      machines: {
+        [MACHINE_ID]: {
+          hostname: MACHINE.hostname,
+          meeting_watch: {
+            last_run_at: NOW.toISOString(),
+            examined: 0,
+            matched: 0,
+            processed: 0,
+            errors: 0,
+            dead_letters: 2,
+            disabled: false,
+          },
+        },
       },
     }),
   );
@@ -768,9 +789,15 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
   writeFileSync(
     path.join(dir, 'intake', 'heartbeats.json'),
     JSON.stringify({
-      meeting_watch: {
-        last_run_at: NOW.toISOString(),
-        disabled: true,
+      version: 2,
+      machines: {
+        [MACHINE_ID]: {
+          hostname: MACHINE.hostname,
+          meeting_watch: {
+            last_run_at: NOW.toISOString(),
+            disabled: true,
+          },
+        },
       },
     }),
   );
@@ -781,6 +808,236 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
   assert.match(
     disabled.sources.find((entry) => entry.id === 'untriaged_inbound').content,
     /WARNING: meeting watcher DISABLED\./,
+  );
+});
+
+test('missing background heartbeats warn only after their lanes were installed', async (t) => {
+  const { dir, options } = fixture(t);
+  disableExternalSources(t, dir);
+  const beforeInstall = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => forgeRowsResponse(url),
+  });
+  assert.match(
+    beforeInstall.sources.find((entry) => entry.id === 'untriaged_inbound').content,
+    /Meeting watcher is not installed on this Mac\./,
+  );
+  assert.doesNotMatch(
+    beforeInstall.sources.find((entry) => entry.id === 'untriaged_inbound').content,
+    /WARNING: meeting watcher/,
+  );
+  assert.match(
+    beforeInstall.sources.find((entry) => entry.id === 'project_progress').content,
+    /Progress reconciler is not installed on this Mac\./,
+  );
+  assert.doesNotMatch(
+    beforeInstall.sources.find((entry) => entry.id === 'project_progress').content,
+    /WARNING: progress reconciler/,
+  );
+
+  mkdirSync(path.join(dir, 'intake'), { recursive: true });
+  writeFileSync(
+    path.join(dir, 'intake', 'installed-lanes.json'),
+    JSON.stringify({
+      version: 3,
+      machines: {
+        '87654321-4321-4321-8321-cba987654321': {
+          hostname: 'some-other-mac.local',
+          meeting_watch: { installed_at: NOW.toISOString() },
+          progress_reconcile: { installed_at: NOW.toISOString() },
+        },
+      },
+    }),
+  );
+  const otherMachineOnly = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => forgeRowsResponse(url),
+  });
+  assert.doesNotMatch(
+    otherMachineOnly.sources.find((entry) => entry.id === 'untriaged_inbound').content,
+    /WARNING: meeting watcher/,
+  );
+  assert.doesNotMatch(
+    otherMachineOnly.sources.find((entry) => entry.id === 'project_progress').content,
+    /WARNING: progress reconciler/,
+  );
+
+  writeFileSync(
+    path.join(dir, 'intake', 'installed-lanes.json'),
+    JSON.stringify({
+      version: 3,
+      machines: {
+        [MACHINE_ID]: {
+          hostname: MACHINE.hostname,
+          meeting_watch: { installed_at: NOW.toISOString() },
+          progress_reconcile: { installed_at: NOW.toISOString() },
+        },
+      },
+    }),
+  );
+  const afterInstall = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => forgeRowsResponse(url),
+  });
+  assert.match(
+    afterInstall.sources.find((entry) => entry.id === 'untriaged_inbound').content,
+    /WARNING: meeting watcher heartbeat unavailable/,
+  );
+  assert.match(
+    afterInstall.sources.find((entry) => entry.id === 'project_progress').content,
+    /WARNING: progress reconciler heartbeat unavailable/,
+  );
+});
+
+test('brief reads owner health without letting a local stand-down marker hide warnings', async (t) => {
+  const { dir, options } = fixture(t);
+  disableExternalSources(t, dir);
+  const ownerId = 'abcdefab-cdef-4abc-8def-abcdefabcdef';
+  mkdirSync(path.join(dir, 'intake'), { recursive: true });
+  writeFileSync(path.join(dir, 'cove-lane-owners.json'), JSON.stringify({
+    version: 2,
+    lanes: {
+      meeting_watch: {
+        id: ownerId,
+        hostname_at_claim: 'mini.local',
+        claimed_at: NOW.toISOString(),
+      },
+      progress: {
+        id: ownerId,
+        hostname_at_claim: 'mini.local',
+        claimed_at: NOW.toISOString(),
+      },
+    },
+  }));
+  writeFileSync(path.join(dir, 'intake', 'heartbeats.json'), JSON.stringify({
+    version: 2,
+    machines: {
+      [ownerId]: {
+        hostname: 'mini.lan',
+        meeting_watch: {
+          last_run_at: NOW.toISOString(),
+          examined: 5,
+          matched: 2,
+          processed: 1,
+          errors: 1,
+          dead_letters: 2,
+        },
+        progress_reconcile: {
+          last_run_at: '2026-07-16T09:00:00.000Z',
+          projects_active: 2,
+          digests_written: 1,
+          suggestions_filed: 0,
+          skipped_no_new_evidence: 0,
+          malformed_ping_lines: 0,
+          errors: 0,
+        },
+      },
+      [MACHINE_ID]: {
+        hostname: MACHINE.hostname,
+        meeting_watch: {
+          standing_down: true,
+          owner_id: ownerId,
+          owner_hostname_at_claim: 'mini.local',
+          observed_at: NOW.toISOString(),
+        },
+        progress_reconcile: {
+          standing_down: true,
+          owner_id: ownerId,
+          owner_hostname_at_claim: 'mini.local',
+          observed_at: NOW.toISOString(),
+        },
+      },
+    },
+  }));
+
+  const collected = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => forgeRowsResponse(url),
+  });
+  const inbound = collected.sources.find(
+    (source) => source.id === 'untriaged_inbound',
+  );
+  const progress = collected.sources.find(
+    (source) => source.id === 'project_progress',
+  );
+  assert.match(inbound.content, /WARNING: meeting watcher has 2 dead letters/);
+  assert.match(
+    inbound.content,
+    /Local Mac standing down: mini\.local owns this lane\./,
+  );
+  assert.match(
+    progress.content,
+    /WARNING: progress reconciler heartbeat is stale/,
+  );
+  assert.match(
+    progress.content,
+    /Local Mac standing down: mini\.local owns this lane\./,
+  );
+});
+
+test('brief keeps reading the local owner heartbeat after its hostname changes', async (t) => {
+  const { dir, options } = fixture(t);
+  disableExternalSources(t, dir);
+  mkdirSync(path.join(dir, 'intake'), { recursive: true });
+  writeFileSync(path.join(dir, 'cove-lane-owners.json'), JSON.stringify({
+    version: 2,
+    lanes: {
+      meeting_watch: {
+        id: MACHINE_ID,
+        hostname_at_claim: 'brief-test-mac.local',
+        claimed_at: NOW.toISOString(),
+      },
+      progress: {
+        id: MACHINE_ID,
+        hostname_at_claim: 'brief-test-mac.local',
+        claimed_at: NOW.toISOString(),
+      },
+    },
+  }));
+  writeFileSync(path.join(dir, 'intake', 'heartbeats.json'), JSON.stringify({
+    version: 2,
+    machines: {
+      [MACHINE_ID]: {
+        hostname: 'brief-test-mac.lan',
+        meeting_watch: {
+          last_run_at: NOW.toISOString(),
+          examined: 1,
+          matched: 1,
+          processed: 1,
+          errors: 0,
+          dead_letters: 0,
+        },
+        progress_reconcile: {
+          last_run_at: NOW.toISOString(),
+          projects_active: 1,
+          digests_written: 1,
+          suggestions_filed: 0,
+          skipped_no_new_evidence: 0,
+          malformed_ping_lines: 0,
+          errors: 0,
+        },
+      },
+    },
+  }));
+  const collected = await collectMorningBriefSources({
+    ...options,
+    machineIdentity: {
+      id: MACHINE_ID,
+      hostname: 'brief-test-mac.lan',
+    },
+    fetchImpl: async (url) => forgeRowsResponse(url),
+  });
+  assert.match(
+    collected.sources.find((source) => source.id === 'untriaged_inbound').content,
+    /Meeting watcher heartbeat:/,
+  );
+  assert.match(
+    collected.sources.find((source) => source.id === 'project_progress').content,
+    /Progress reconciler heartbeat:/,
+  );
+  assert.doesNotMatch(
+    collected.sources.find((source) => source.id === 'untriaged_inbound').content,
+    /standing down/,
   );
 });
 
@@ -872,12 +1129,18 @@ test('project progress source shows yesterday and today digests and heartbeat wa
   disableExternalSources(t, dir);
   mkdirSync(path.join(dir, 'intake'), { recursive: true });
   writeFileSync(path.join(dir, 'intake', 'heartbeats.json'), JSON.stringify({
-    progress_reconcile: {
-      last_run_at: '2026-07-16T11:30:00.000Z',
-      projects_active: 1,
-      digests_written: 1,
-      suggestions_filed: 1,
-      errors: 0,
+    version: 2,
+    machines: {
+      [MACHINE_ID]: {
+        hostname: MACHINE.hostname,
+        progress_reconcile: {
+          last_run_at: '2026-07-16T11:30:00.000Z',
+          projects_active: 1,
+          digests_written: 1,
+          suggestions_filed: 1,
+          errors: 0,
+        },
+      },
     },
   }));
   const store = {
@@ -911,12 +1174,18 @@ test('project progress source shows yesterday and today digests and heartbeat wa
   assert.match(progress.content, /Progress reconciler heartbeat: age=30m/);
 
   writeFileSync(path.join(dir, 'intake', 'heartbeats.json'), JSON.stringify({
-    progress_reconcile: {
-      last_run_at: '2026-07-16T09:00:00.000Z',
-      projects_active: 0,
-      digests_written: 0,
-      suggestions_filed: 0,
-      errors: 0,
+    version: 2,
+    machines: {
+      [MACHINE_ID]: {
+        hostname: MACHINE.hostname,
+        progress_reconcile: {
+          last_run_at: '2026-07-16T09:00:00.000Z',
+          projects_active: 0,
+          digests_written: 0,
+          suggestions_filed: 0,
+          errors: 0,
+        },
+      },
     },
   }));
   const stale = await collectMorningBriefSources({
@@ -955,14 +1224,20 @@ test('project progress falls back to the immutable Mini digest relay', async (t)
   disableExternalSources(t, dir);
   mkdirSync(path.join(dir, 'intake'), { recursive: true });
   writeFileSync(path.join(dir, 'intake', 'heartbeats.json'), JSON.stringify({
-    progress_reconcile: {
-      last_run_at: NOW.toISOString(),
-      projects_active: 1,
-      digests_written: 1,
-      suggestions_filed: 0,
-      skipped_no_new_evidence: 0,
-      malformed_ping_lines: 0,
-      errors: 0,
+    version: 2,
+    machines: {
+      [MACHINE_ID]: {
+        hostname: MACHINE.hostname,
+        progress_reconcile: {
+          last_run_at: NOW.toISOString(),
+          projects_active: 1,
+          digests_written: 1,
+          suggestions_filed: 0,
+          skipped_no_new_evidence: 0,
+          malformed_ping_lines: 0,
+          errors: 0,
+        },
+      },
     },
   }));
   writeProgressDigestRelay({

@@ -6,9 +6,10 @@
 # Safe to re-run: it replaces any previous Cove LaunchAgents.
 set -euo pipefail
 
-# --mini installs the always-on Mac Mini's scheduled brief, meeting watcher,
-# and progress reconciler. The default (MBP) install no longer schedules a 7:30
-# brief agent; backfill and the post-settlement trigger cover the MBP side.
+# --mini adds the always-on Mac Mini's scheduled brief profile. Meeting watch
+# and progress reconciliation are standard single-Mac lanes on every install.
+# The default install does not schedule a 7:30 brief agent; backfill and the
+# post-settlement trigger cover a laptop that was asleep.
 MINI=0
 for arg in "$@"; do
   case "$arg" in
@@ -93,10 +94,20 @@ if [ -z "$CLAUDE_BIN" ] || [ ! -x "$CLAUDE_BIN" ]; then
 fi
 
 mkdir -p "$LOG_DIR" "$LA_DIR"
+LANE_DATA_DIR="${COVE_DATA_DIR:-$REPO_DIR/data}"
+LANE_OWNERSHIP_SCRIPT="$REPO_DIR/scripts/lib/cove-lane-ownership.mjs"
+claim_lane() {
+  "$NODE_REAL" "$LANE_OWNERSHIP_SCRIPT" claim \
+    "$LANE_DATA_DIR" "$1" "$2" "$HOME"
+}
+mark_lane_installed() {
+  "$NODE_REAL" "$LANE_OWNERSHIP_SCRIPT" mark-installed \
+    "$LANE_DATA_DIR" "$1" "$HOME" >/dev/null
+}
 
-# --- Mini-only: install scheduled brief, meeting, and progress agents -------
-# The Mini already runs its own web + worker via com.atlas.forge-web. These
-# agents add the scheduled producers whose immutable relay files the MBP reads.
+# --- Optional Mini profile: scheduled brief plus the same standard lanes ----
+# The Mini already runs its own web + worker via com.atlas.forge-web. This
+# profile adds the scheduled brief and installs the same meeting/progress lanes.
 # Logs go to ~/Library/Logs (TCC blocks launchd writes under ~/Desktop).
 if [ "$MINI" = "1" ]; then
   # SAFETY GATE: the Mini agent is a second live SQLite writer on a tree that
@@ -141,11 +152,21 @@ STIGNORE_BLOCK
       exit 1
     fi
   fi
-  # The Atlas root is three levels up from the repo (<atlas>/projects/astack/forge).
-  ATLAS_ROOT="$(cd "$REPO_DIR/../../.." && pwd)"
+  # Atlas installs keep the repo three levels below the workspace. A standalone
+  # ~/cove install may not have Atlas yet, so use the reconciler's normal
+  # ~/Atlas default instead of accidentally resolving three levels up to /.
+  if [ -n "${COVE_ATLAS_ROOT:-}" ]; then
+    ATLAS_ROOT="$COVE_ATLAS_ROOT"
+  elif [[ "$REPO_DIR" == */Atlas/Projects/* || "$REPO_DIR" == */Atlas/projects/* ]]; then
+    ATLAS_ROOT="$(cd "$REPO_DIR/../../.." && pwd)"
+  else
+    ATLAS_ROOT="$HOME/Atlas"
+  fi
   MINI_BRIEF_PLIST="$LA_DIR/com.cove.morning-brief.plist"
   MINI_MEETING_PLIST="$LA_DIR/com.cove.meeting-watch.plist"
   MINI_PROGRESS_PLIST="$LA_DIR/com.cove.progress.plist"
+  claim_lane meeting_watch mini >/dev/null
+  claim_lane progress mini >/dev/null
   cat > "$MINI_BRIEF_PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -211,10 +232,11 @@ EOF
     "$MINI_MEETING_PLIST" \
     "$REPO_DIR" \
     "$HOME" \
-    "$ATLAS_ROOT" <<'NODE'
+    "$ATLAS_ROOT" \
+    "$LANE_DATA_DIR" <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
-const [source, destination, repoDir, homeDir, atlasRoot] = process.argv.slice(2);
+const [source, destination, repoDir, homeDir, atlasRoot, dataDir] = process.argv.slice(2);
 const template = fs.readFileSync(source, "utf8");
 const templateRepo = template.match(
   /<string>([^<]*\/Atlas\/Projects\/astack\/forge)(?:\/[^<]*)?<\/string>/,
@@ -222,7 +244,9 @@ const templateRepo = template.match(
 if (!templateRepo) throw new Error(`Could not locate the repo path in ${source}`);
 const templateAtlas = path.resolve(templateRepo, "../../..");
 const templateHome = path.dirname(templateAtlas);
+const templateData = path.join(templateRepo, "data");
 const rendered = template
+  .replaceAll(templateData, dataDir)
   .replaceAll(templateRepo, repoDir)
   .replaceAll(templateAtlas, atlasRoot)
   .replaceAll(templateHome, homeDir);
@@ -233,10 +257,11 @@ NODE
     "$MINI_PROGRESS_PLIST" \
     "$REPO_DIR" \
     "$HOME" \
-    "$ATLAS_ROOT" <<'NODE'
+    "$ATLAS_ROOT" \
+    "$LANE_DATA_DIR" <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
-const [source, destination, repoDir, homeDir, atlasRoot] = process.argv.slice(2);
+const [source, destination, repoDir, homeDir, atlasRoot, dataDir] = process.argv.slice(2);
 const template = fs.readFileSync(source, "utf8");
 const templateRepo = template.match(
   /<string>([^<]*\/Atlas\/Projects\/astack\/forge)(?:\/[^<]*)?<\/string>/,
@@ -244,7 +269,9 @@ const templateRepo = template.match(
 if (!templateRepo) throw new Error(`Could not locate the repo path in ${source}`);
 const templateAtlas = path.resolve(templateRepo, "../../..");
 const templateHome = path.dirname(templateAtlas);
+const templateData = path.join(templateRepo, "data");
 const rendered = template
+  .replaceAll(templateData, dataDir)
   .replaceAll(templateRepo, repoDir)
   .replaceAll(templateAtlas, atlasRoot)
   .replaceAll(templateHome, homeDir);
@@ -259,6 +286,8 @@ NODE
   launchctl bootstrap "gui/$UID_NUM" "$MINI_BRIEF_PLIST"
   launchctl bootstrap "gui/$UID_NUM" "$MINI_MEETING_PLIST"
   launchctl bootstrap "gui/$UID_NUM" "$MINI_PROGRESS_PLIST"
+  mark_lane_installed meeting_watch
+  mark_lane_installed progress_reconcile
   echo "Installed the Mini morning-brief agent (7:30 local): $MINI_BRIEF_PLIST"
   echo "Installed the Mini meeting watcher (every 5 minutes): $MINI_MEETING_PLIST"
   echo "Installed the Mini progress reconciler (every 30 minutes): $MINI_PROGRESS_PLIST"
@@ -337,6 +366,70 @@ echo "Installed the Cove orchestrator hook into $HOOK_DEST"
 
 if [ "$MINI" = "1" ]; then
   exit 0
+fi
+
+# --- Single-Mac background lanes: meeting watch + progress reconciliation ---
+# StartInterval jobs catch up when the Mac wakes. The same templates also serve
+# the optional Mini profile above; neither feature depends on owning a Mini.
+if [ -n "${COVE_ATLAS_ROOT:-}" ]; then
+  ATLAS_ROOT="$COVE_ATLAS_ROOT"
+elif [[ "$REPO_DIR" == */Atlas/Projects/* || "$REPO_DIR" == */Atlas/projects/* ]]; then
+  ATLAS_ROOT="$(cd "$REPO_DIR/../../.." && pwd)"
+else
+  ATLAS_ROOT="$HOME/Atlas"
+fi
+MEETING_PLIST="$LA_DIR/com.cove.meeting-watch.plist"
+PROGRESS_PLIST="$LA_DIR/com.cove.progress.plist"
+INSTALL_MEETING_LANE=0
+INSTALL_PROGRESS_LANE=0
+MEETING_CLAIM="$(claim_lane meeting_watch plain)"
+case "$MEETING_CLAIM" in
+  claimed:*) INSTALL_MEETING_LANE=1 ;;
+  skipped:*)
+    MEETING_OWNER="${MEETING_CLAIM#skipped:}"
+    echo "Skipping meeting watcher: $MEETING_OWNER owns this lane."
+    rm -f "$MEETING_PLIST"
+    ;;
+esac
+PROGRESS_CLAIM="$(claim_lane progress plain)"
+case "$PROGRESS_CLAIM" in
+  claimed:*) INSTALL_PROGRESS_LANE=1 ;;
+  skipped:*)
+    PROGRESS_OWNER="${PROGRESS_CLAIM#skipped:}"
+    echo "Skipping progress reconciler: $PROGRESS_OWNER owns this lane."
+    rm -f "$PROGRESS_PLIST"
+    ;;
+esac
+render_lane_plist() {
+  "$NODE_REAL" - "$1" "$2" "$REPO_DIR" "$HOME" "$ATLAS_ROOT" "$LANE_DATA_DIR" <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+const [source, destination, repoDir, homeDir, atlasRoot, dataDir] = process.argv.slice(2);
+const template = fs.readFileSync(source, "utf8");
+const templateRepo = template.match(
+  /<string>([^<]*\/Atlas\/Projects\/astack\/forge)(?:\/[^<]*)?<\/string>/,
+)?.[1];
+if (!templateRepo) throw new Error(`Could not locate the repo path in ${source}`);
+const templateAtlas = path.resolve(templateRepo, "../../..");
+const templateHome = path.dirname(templateAtlas);
+const templateData = path.join(templateRepo, "data");
+const rendered = template
+  .replaceAll(templateData, dataDir)
+  .replaceAll(templateRepo, repoDir)
+  .replaceAll(templateAtlas, atlasRoot)
+  .replaceAll(templateHome, homeDir);
+fs.writeFileSync(destination, rendered, { mode: 0o600 });
+NODE
+}
+if [ "$INSTALL_MEETING_LANE" = "1" ]; then
+  render_lane_plist \
+    "$REPO_DIR/scripts/launchd/com.cove.meeting-watch.plist" \
+    "$MEETING_PLIST"
+fi
+if [ "$INSTALL_PROGRESS_LANE" = "1" ]; then
+  render_lane_plist \
+    "$REPO_DIR/scripts/launchd/com.cove.progress.plist" \
+    "$PROGRESS_PLIST"
 fi
 
 # --- Install Cove's skills for Claude and Codex ---
@@ -653,6 +746,8 @@ retire_legacy_agent jobs
 retire_legacy_agent reminders
 retire_legacy_agent email-triage
 retire_legacy_agent claude-worker
+retire_legacy_agent meeting-watch
+retire_legacy_agent progress
 # com.forge.web is the pre-rename web server on this same port. Leaving it
 # loaded means com.cove.local crash-loops on EADDRINUSE while the readiness
 # probe below happily answers off the old server, so the install looks fine and
@@ -664,6 +759,8 @@ launchctl bootout "gui/$UID_NUM/com.cove.jobs" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.reminders" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.email-triage" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.claude-worker" 2>/dev/null || true
+launchctl bootout "gui/$UID_NUM/com.cove.meeting-watch" 2>/dev/null || true
+launchctl bootout "gui/$UID_NUM/com.cove.progress" 2>/dev/null || true
 # Decommission the retired MBP 7:30 brief agent entirely (bootout + plist
 # removal): the Mini owns scheduled generation now.
 launchctl bootout "gui/$UID_NUM/com.cove.morning-brief" 2>/dev/null || true
@@ -673,10 +770,24 @@ launchctl bootstrap "gui/$UID_NUM" "$BACKUP_PLIST"
 launchctl bootstrap "gui/$UID_NUM" "$JOBS_PLIST"
 launchctl bootstrap "gui/$UID_NUM" "$REMINDERS_PLIST"
 launchctl bootstrap "gui/$UID_NUM" "$WORKER_PLIST"
+if [ "$INSTALL_MEETING_LANE" = "1" ]; then
+  launchctl bootstrap "gui/$UID_NUM" "$MEETING_PLIST"
+  mark_lane_installed meeting_watch
+fi
+if [ "$INSTALL_PROGRESS_LANE" = "1" ]; then
+  launchctl bootstrap "gui/$UID_NUM" "$PROGRESS_PLIST"
+  mark_lane_installed progress_reconcile
+fi
 if [ -f "$TRIAGE_PLIST" ]; then launchctl bootstrap "gui/$UID_NUM" "$TRIAGE_PLIST"; fi
 launchctl enable "gui/$UID_NUM/com.cove.local" 2>/dev/null || true
 launchctl enable "gui/$UID_NUM/com.cove.claude-worker" 2>/dev/null || true
 launchctl enable "gui/$UID_NUM/com.cove.jobs" 2>/dev/null || true
+if [ "$INSTALL_MEETING_LANE" = "1" ]; then
+  launchctl enable "gui/$UID_NUM/com.cove.meeting-watch" 2>/dev/null || true
+fi
+if [ "$INSTALL_PROGRESS_LANE" = "1" ]; then
+  launchctl enable "gui/$UID_NUM/com.cove.progress" 2>/dev/null || true
+fi
 
 # Confirm the server actually came up. This catches the most common failure:
 # launchd not being able to find/run Node on the client's machine.
@@ -709,7 +820,17 @@ if [ -n "$UP" ]; then
   echo "Daily database backups: $REPO_DIR/data/backups"
   echo "Reliability jobs: bounded scheduler supervised by com.cove.jobs"
   echo "Claude worker: supervised by com.cove.claude-worker"
-  echo "Morning Brief: generated on the Mac Mini (install there with --mini) + MBP backfill/post-settlement"
+  if [ "$INSTALL_MEETING_LANE" = "1" ]; then
+    echo "Meeting watcher: every 5 minutes while this Mac is awake, with catch-up on wake"
+  else
+    echo "Meeting watcher: skipped because $MEETING_OWNER owns this lane"
+  fi
+  if [ "$INSTALL_PROGRESS_LANE" = "1" ]; then
+    echo "Progress reconciler: every 30 minutes while this Mac is awake, with catch-up on wake"
+  else
+    echo "Progress reconciler: skipped because $PROGRESS_OWNER owns this lane"
+  fi
+  echo "Morning Brief: on-open backfill/post-settlement; --mini optionally adds a 7:30 always-on lane"
   echo "Autonomous execution remains off until COVE_CLAUDE_EXECUTION_ENABLED=1 and an allowlisted workspace config are explicitly added."
 else
   echo "Cove did not respond on http://localhost:3200 within 20 seconds." >&2

@@ -663,6 +663,44 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       `);
     },
   },
+  {
+    version: 6,
+    name: "shared-meeting-ingestion",
+    up: (db) => {
+      const activityColumns = columns(db, "contact_activities");
+      if (!activityColumns.has("source_ref")) {
+        db.exec("ALTER TABLE contact_activities ADD COLUMN source_ref TEXT");
+      }
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS contact_activities_source_ref_idx
+          ON contact_activities(source_ref)
+          WHERE source_ref IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS forge_message_ingestion (
+          message_id TEXT PRIMARY KEY,
+          thread_id TEXT NOT NULL,
+          source_door TEXT NOT NULL
+            CHECK (source_door IN ('watcher','triage')),
+          detected_tool TEXT NOT NULL,
+          status TEXT NOT NULL
+            CHECK (status IN ('processing','retry','processed','failed')),
+          lease_token TEXT,
+          lease_until TEXT,
+          attempts INTEGER NOT NULL DEFAULT 1,
+          processed_at TEXT,
+          outcome TEXT,
+          receipt_id TEXT,
+          last_error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS forge_message_ingestion_status_lease_idx
+          ON forge_message_ingestion(status, lease_until);
+        CREATE INDEX IF NOT EXISTS forge_message_ingestion_receipt_idx
+          ON forge_message_ingestion(receipt_id);
+      `);
+    },
+  },
 ];
 
 export function runLocalMigrations(

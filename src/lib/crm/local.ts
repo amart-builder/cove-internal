@@ -32,6 +32,7 @@ type ActivityRow = Record<string, unknown> & {
   id: string;
   contact_id: string | null;
   company_id: string | null;
+  source_ref: string | null;
   activity_type: string;
   title: string | null;
   content: string | null;
@@ -340,6 +341,18 @@ export class LocalCRMBackend implements CRMBackend {
     input: AppendContactActivityInput,
   ): ContactActivity {
     const contactId = input.contactId.trim();
+    const sourceRef = input.sourceRef?.trim() || null;
+    if (sourceRef) {
+      const existing = this.db.prepare(
+        "SELECT * FROM contact_activities WHERE source_ref = ?",
+      ).get(sourceRef) as ActivityRow | undefined;
+      if (existing) {
+        if (existing.contact_id !== contactId) {
+          throw new Error("Activity source reference belongs to another contact.");
+        }
+        return decodeActivity(existing);
+      }
+    }
     const contact = this.db.prepare(
       "SELECT company_id FROM contacts WHERE id = ?",
     ).get(contactId) as { company_id: string | null } | undefined;
@@ -350,13 +363,14 @@ export class LocalCRMBackend implements CRMBackend {
     const id = randomUUID();
     this.db.prepare(
       `INSERT INTO contact_activities
-         (id, contact_id, company_id, activity_type, title, content,
-          direction, metadata, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, contact_id, company_id, source_ref, activity_type, title,
+          content, direction, metadata, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       contactId,
       input.companyId ?? contact.company_id,
+      sourceRef,
       input.activityType.trim(),
       input.title.trim(),
       input.content?.trim() || null,
@@ -405,6 +419,7 @@ export class LocalCRMBackend implements CRMBackend {
       const activity = this.appendActivityInTransaction({
         contactId: resolution.contact.id,
         companyId: resolution.contact.company_id ?? undefined,
+        sourceRef: input.sourceRef,
         activityType: "meeting",
         title: input.title,
         content: input.content,
