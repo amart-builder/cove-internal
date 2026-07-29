@@ -108,9 +108,14 @@ Architecture implication: the meeting-notes create-or-append path (Meeting Notes
 
 Verify skill-copy on install (done for this machine, verify in rehearsal); import-flow polish.
 
-## Setup and Teaching (walkthrough pending)
+## Setup and Teaching (settled with Alex, 2026-07-28 evening)
 
-Known candidates: first-value runbook (client's real priorities in before first brief), one-page handoff, clean-machine rehearsal findings.
+Keep: interview-first structure, the private-draft quality gate, prove-don't-promise, the honest-limits speech.
+
+1. **The first brief is the finale (BUILD, SETUP restructure)**: interview and files first, then tasks + email + CRM + meeting notes loaded, THEN the first brief generates as the closing moment, reading back a day it genuinely knows. A quiet technical smoke-test brief still runs mid-setup to catch failures early. This SETUP.md reorder is doc-only and ships BEFORE the first client install (2026-07-29), ahead of the wave.
+2. **Pretend first morning (BUILD, SETUP addition, also pre-client)**: a 5-minute guided practice Arrival with demo data during setup (read a brief, drag priorities, assign an owner, start the day, close it), so the real first morning is the second time through the ritual.
+3. **Durable leave-behind, two parts (BUILD, wave)**: (a) the Buddy answers "how do I..." questions as the living manual, with the exact phrases; (b) a calm in-app /guide page in the water aesthetic: the three daily moments, the vocabulary, the replan phrase, what runs when the lid is closed. Setup ends by showing both.
+4. **Plain-English vocabulary everywhere (BUILD, folds into UI unification)**: kill visible jargon; "Day settlement" -> closing your day, "Unresolved commitments" -> still open, one register across the UI. Internal identifiers unchanged.
 
 ## Buddy and Execution (settled with Alex, 2026-07-28 evening)
 
