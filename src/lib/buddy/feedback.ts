@@ -1,18 +1,15 @@
-import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
-import { promisify } from "node:util";
 import { coveConfigPath, coveEnv } from "../env";
 import { coveDataDir } from "../operator";
 import { recordReceipt } from "../reliability/receipts";
+import type { RestrictedMailGateway } from "../workspace";
+import { createGoogleWorkspaceGateway, workspaceConfigPath } from "../workspace";
 import type { BuddyFeedbackReceipt } from "./receipts";
-
-const execFileAsync = promisify(execFile);
-const GMAIL_CREATE_DRAFT_TOOL = "GMAIL_CREATE_EMAIL_DRAFT";
 
 type EmailConnection = {
   accountEmail: string;
-  connectedAccountId: string;
 };
 
 function object(value: unknown): Record<string, unknown> | undefined {
@@ -43,17 +40,12 @@ export function resolveSupportEmail(dataDir?: string): string | undefined {
 }
 
 function readEmailConnection(dataDir?: string): EmailConnection | undefined {
-  const config = readJson(coveConfigPath(coveDataDir(dataDir), "email.json"));
-  if (
-    config?.connector !== "composio" ||
-    typeof config.account_email !== "string" ||
-    !config.account_email.trim() ||
-    typeof config.connected_account_id !== "string" ||
-    !config.connected_account_id.trim()
-  ) return undefined;
+  const config = readJson(workspaceConfigPath(coveDataDir(dataDir)));
+  if (config?.provider !== "google-api" || typeof config.account_email !== "string") {
+    return undefined;
+  }
   return {
     accountEmail: config.account_email.trim(),
-    connectedAccountId: config.connected_account_id.trim(),
   };
 }
 
@@ -98,54 +90,25 @@ export function composeFeedbackMessage(input: {
   };
 }
 
-function draftIdFromResult(value: unknown): string | undefined {
-  const row = object(value);
-  const data = object(row?.data);
-  return [row?.id, row?.draft_id, data?.id, data?.draft_id].find(
-    (candidate): candidate is string =>
-      typeof candidate === "string" && Boolean(candidate.trim()),
-  );
-}
-
 async function defaultCreateDraft(
-  connection: EmailConnection,
+  _connection: EmailConnection,
   message: Omit<BuddyFeedbackReceipt, "mode" | "draftId">,
+  dataDir?: string,
+  gateway?: RestrictedMailGateway,
 ): Promise<string> {
-  const result = await execFileAsync(
-    coveEnv("COMPOSIO_BIN") ?? "composio",
-    [
-      "execute",
-      GMAIL_CREATE_DRAFT_TOOL,
-      "-d",
-      JSON.stringify({
-        user_id: connection.accountEmail,
-        recipient_email: message.to,
-        subject: message.subject,
-        body: message.body,
-      }),
-    ],
-    {
-      cwd: process.cwd(),
-      env: process.env,
-      maxBuffer: 12 * 1024 * 1024,
-      timeout: 60_000,
-    },
-  );
-  let parsed = JSON.parse(result.stdout) as unknown;
-  const first = object(parsed);
-  if (first?.successful === false || first?.success === false) {
-    throw new Error("Composio could not create the draft.");
-  }
-  if (first?.storedInFile === true && typeof first.outputFilePath === "string") {
-    const file = path.isAbsolute(first.outputFilePath)
-      ? first.outputFilePath
-      : path.resolve(process.cwd(), first.outputFilePath);
-    if (!existsSync(file)) throw new Error("Composio draft result was unavailable.");
-    parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
-  }
-  const id = draftIdFromResult(parsed);
-  if (!id) throw new Error("Composio did not return a Gmail draft id.");
-  return id;
+  const mail = gateway ??
+    createGoogleWorkspaceGateway({ dataDir: coveDataDir(dataDir) }).mail;
+  const draft = await mail.createSupportDraft({
+    recipient: message.to,
+    subject: message.subject,
+    body: message.body,
+    idempotencyKey: `buddy-feedback:${
+      createHash("sha256")
+        .update(`${message.subject}\0${message.body}`)
+        .digest("hex")
+    }`,
+  });
+  return draft.id;
 }
 
 export async function prepareBuddyFeedback(input: {
@@ -158,6 +121,7 @@ export async function prepareBuddyFeedback(input: {
     connection: EmailConnection,
     message: Omit<BuddyFeedbackReceipt, "mode" | "draftId">,
   ) => Promise<string>;
+  gateway?: RestrictedMailGateway;
 }): Promise<BuddyFeedbackReceipt> {
   const now = input.now ?? new Date();
   const supportEmail = resolveSupportEmail(input.dataDir);
@@ -179,10 +143,9 @@ export async function prepareBuddyFeedback(input: {
       result = { ...composed, mode: "copy", fallbackReason };
     } else {
       try {
-        const draftId = await (input.createDraft ?? defaultCreateDraft)(
-          connection,
-          composed,
-        );
+        const draftId = input.createDraft
+          ? await input.createDraft(connection, composed)
+          : await defaultCreateDraft(connection, composed, input.dataDir, input.gateway);
         result = { ...composed, mode: "gmail_draft", draftId };
       } catch {
         fallbackReason = "draft_failed";

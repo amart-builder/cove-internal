@@ -37,11 +37,16 @@ test("email automation accepts the loopback plus CSRF gate before validating act
   assert.match((await response.json()).error, /unknown email automation action/i);
 });
 
-test("the checkbox boundary exposes Gmail label modification but no send tool", () => {
-  const source = readFileSync(
+test("the checkbox boundary exposes exact-message archive but no send or generic Google request", () => {
+  const automation = readFileSync(
     new URL("../src/lib/email/automation.ts", import.meta.url),
     "utf8",
   );
-  assert.match(source, /GMAIL_MODIFY_THREAD_LABELS/);
-  assert.doesNotMatch(source, /GMAIL_(?:SEND|REPLY|FORWARD)/);
+  const contract = readFileSync(
+    new URL("../src/lib/workspace/contracts.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(automation, /archiveMessages/);
+  assert.doesNotMatch(contract, /\bsend[A-Z(]/i);
+  assert.doesNotMatch(contract, /\b(?:delete|trash|forward|request|accessToken)\b/i);
 });

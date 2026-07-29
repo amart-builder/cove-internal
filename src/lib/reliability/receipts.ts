@@ -181,6 +181,8 @@ export const ACTIVITY_SOURCES = [
   "buddy-feedback",
   "email-gmail-to-card",
   "email-card-to-gmail",
+  "email-surfaced",
+  "email-archive",
   "task-session",
   "email-commitments",
   "email-correspondence",
@@ -291,13 +293,13 @@ export function receiptActivity(receipt: Receipt): ReceiptActivity {
   if (receipt.source === "email-gmail-to-card") {
     return {
       id: receipt.id,
-      title: "Gmail follow-through",
+      title: "Email follow-through",
       detail: `${plural(
         count(actions.changedIds && Array.isArray(actions.changedIds)
           ? actions.changedIds.length
           : 0),
         "item",
-      )} checked off from Gmail.`,
+      )} handled in Gmail.`,
       occurredAt: receipt.finishedAt,
       needsAttention: receipt.outcome === "partial" || receipt.outcome === "failed",
     };
@@ -305,10 +307,31 @@ export function receiptActivity(receipt: Receipt): ReceiptActivity {
   if (receipt.source === "email-card-to-gmail") {
     return {
       id: receipt.id,
-      title: "Email card sync",
-      detail: "Your email card and Gmail were brought up to date.",
+      title: "Email archived",
+      detail: receipt.outcome === "success"
+        ? "The handled email was archived."
+        : "Gmail did not confirm the archive, so the email stayed open.",
       occurredAt: receipt.finishedAt,
       needsAttention: receipt.outcome === "partial" || receipt.outcome === "failed",
+    };
+  }
+  if (receipt.source === "email-surfaced") {
+    const bucket = text(actions.bucket);
+    return {
+      id: receipt.id,
+      title: bucket === "fyi" ? "Email update recorded" : "Email needs you",
+      detail: receipt.summary,
+      occurredAt: receipt.finishedAt,
+      needsAttention: receipt.outcome !== "success",
+    };
+  }
+  if (receipt.source === "email-archive") {
+    return {
+      id: receipt.id,
+      title: "Email archived",
+      detail: "A handled email was archived after Gmail confirmed it.",
+      occurredAt: receipt.finishedAt,
+      needsAttention: receipt.outcome !== "success",
     };
   }
   if (receipt.source === "task-session") {

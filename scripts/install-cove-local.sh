@@ -673,17 +673,13 @@ cat > "$REMINDERS_PLIST" <<EOF
 </plist>
 EOF
 
-# --- Email triage: run the cove-email skill at the user's chosen times ---
-# Only scheduled once email is set up (the Email step writes data/cove-email.json
+# --- Email triage: run the deterministic runner at the user's chosen times ---
+# Only scheduled once Google is connected (the Email step writes data/cove-workspace.json
 # with triage_times + timezone). launchd fires at LOCAL time on the Mac.
 # triage_times may hold any number of "HH:MM" entries; we emit one calendar dict
 # per entry. No Weekday keys go in the plist: the runner's weekday guard (driven
 # by the config's weekdays_only flag) owns weekend skipping.
-# An install made before the Cove rename still has data/forge-email.json.
-EMAIL_CONFIG="$REPO_DIR/data/cove-email.json"
-if [ ! -f "$EMAIL_CONFIG" ] && [ -f "$REPO_DIR/data/forge-email.json" ]; then
-  EMAIL_CONFIG="$REPO_DIR/data/forge-email.json"
-fi
+EMAIL_CONFIG="$REPO_DIR/data/cove-workspace.json"
 if [ -f "$EMAIL_CONFIG" ]; then
   TRIAGE_CAL_XML="$(node -e '
     const fs = require("fs");
@@ -734,7 +730,7 @@ $TRIAGE_CAL_XML
 </dict>
 </plist>
 EOF
-  echo "Scheduled email triage (times from data/cove-email.json; default 9:00 and 15:00)."
+  echo "Scheduled email triage (times from data/cove-workspace.json; default 9:00 and 15:00)."
 else
   rm -f "$TRIAGE_PLIST"
 fi

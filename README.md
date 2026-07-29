@@ -35,14 +35,14 @@ Twice a day, at times you pick, Cove reads your new mail and sorts it:
 
 - **Someone needs a written reply?** Cove writes one in your voice and leaves it as a draft inside the thread, in your Gmail. You open the thread, read it, edit if you want, hit send. Cove never sends anything on its own.
 - **Needs you to do something that is not a reply?** It goes on today's card as a checkbox.
-- **Just something you should know?** Noted on the card.
+- **Just something you should know?** Recorded in Recent activity, then archived.
 - **Newsletters, promos, receipts?** Archived out of your inbox and logged, one click to rescue.
 
-Everything lands on one card on your Tasks board, titled like "Emails: Jul 6", sitting in Must happen today. Open it to see what needs you: replies waiting in Gmail, action items to check off, and what got filed. When you send a reply from Gmail, the next run notices and clears it off the card on its own. Anything unfinished carries over to tomorrow's card.
+Everything that still needs you lands on one rolling `Email` card in Must happen today. Open it to see replies with drafts ready and action or review items. When you send a reply from Gmail, the next run archives that inbound message and clears it from the card. The same card remains current instead of creating a new dated card each day.
 
-After each run you get a one-line text: "Inbox triaged: 2 need you, 1 action." That is the whole interruption.
+After each run Cove records a one-line receipt such as "Inbox triaged: 2 need you, 1 action" in Recent activity. The rolling card interrupts you only when something still needs you.
 
-Cove keeps its memory in Gmail labels (`Cove/Reply`, `Cove/Archived`, and so on), so you can always see what it did right inside Gmail, and undo any of it there too.
+Cove keeps workflow state in its durable local ledger. Gmail stays simple: Inbox means it still needs you, Archive means it was handled, and search finds history. The only workflow marker Cove may add is the transitional `Cove/Triaged` ingestion marker.
 
 ---
 
@@ -71,5 +71,5 @@ To start fresh: stop Cove, **move** `data/forge.db` aside (rename it, don't dele
 
 - Next.js 16 (React 19), TypeScript, Tailwind CSS.
 - Local data: SQLite via `better-sqlite3` (the default). No login.
-- Email: read and drafted through your own Composio Gmail connection. Draft-only by design.
+- Email, Calendar, and Google Docs: direct restricted Google API gateway using the user's own OAuth connection. Email is draft-only by application design.
 - Optional cloud data for multi-device use: Supabase or Convex (off by default). See [SETUP.md](SETUP.md).

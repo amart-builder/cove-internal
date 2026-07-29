@@ -353,7 +353,14 @@ test('the collector marks candidate_ok only on the arrival-eligible tasks', asyn
     // Jarvis-held work is context only, never a candidate (case-insensitive,
     // tags arrive as a JSON string from the rest surface).
     { id: 't2', column_id: 'col-today', title: 'Held work', status: 'open', tags: JSON.stringify(['Jarvis-Held']) },
-    { id: 't3', column_id: 'col-today', title: 'Emails: 4 need replies', description: 'Reply to Gio.', status: 'open' },
+    {
+      id: 't3',
+      column_id: 'col-today',
+      title: 'Email',
+      description: 'Reply to Gio.',
+      status: 'open',
+      tags: JSON.stringify(['email', 'email-current']),
+    },
     { id: 't4', column_id: 'col-ns', title: 'Someday item', status: 'open', tags: ['other'] },
     { id: 't5', column_id: 'col-flight', title: 'Waiting on Gio', status: 'open' },
   ];
@@ -379,7 +386,7 @@ test('the collector marks candidate_ok only on the arrival-eligible tasks', asyn
     assert.equal(lineFor(excluded).includes('candidate_ok'), false, excluded);
   }
   const email = collected.sources.find((source) => source.id === 'email_brief');
-  assert.match(email.content, /^Emails: 4 need replies/);
+  assert.match(email.content, /^Email\nReply to Gio\./);
 });
 
 // ---------------------------------------------------------------------------

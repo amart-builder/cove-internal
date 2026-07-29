@@ -171,7 +171,7 @@ function hasTag(task: TaskData, tag: string): boolean {
 }
 
 function isEmailDigest(task: TaskData): boolean {
-  return hasTag(task, 'email') && task.title.trim().startsWith('Emails:');
+  return hasTag(task, 'email-current');
 }
 
 function isRecurringTask(task: TaskData): boolean {
@@ -2127,7 +2127,7 @@ function TodayExperience({
                   onClick={() => setFocusExpanded((current) => !current)}
                 >
                   <span className="current-now-kicker">
-                    {focusedIsWithJarvis ? 'Held by Cove' : focusedIsBrief ? 'Email brief' : 'Now'}
+                    {focusedIsWithJarvis ? 'Held by Cove' : focusedIsBrief ? 'Email needs you' : 'Now'}
                     {focusedTask.blocked ? ' · Waiting' : ''}
                     {focusedIsOutsideToday && !focusedIsWithJarvis && !focusedIsBrief ? ' · Outside today' : ''}
                     {localMode && focusedBoardSession?.run && (
@@ -2442,7 +2442,7 @@ function TodayExperience({
                   }}>
                     <span>
                       {isEmailDigest(task)
-                        ? 'Email brief ready'
+                        ? 'Email needs you'
                         : isRecurringTask(task)
                           ? `${cadenceDisplay(
                               cadenceByTemplateId.get(task.recurringTemplateId ?? '') ?? '',
@@ -2607,7 +2607,7 @@ function TodayExperience({
                   >
                     <span className="min-w-0 flex-1 truncate text-left">{task.title}</span>
                     <span className="text-[10px] text-muted-foreground">
-                      {withJarvis ? 'Held by Cove' : brief ? 'Email brief' : inCurrent ? 'In current' : 'Outside today'}
+                      {withJarvis ? 'Held by Cove' : brief ? 'Email needs you' : inCurrent ? 'In current' : 'Outside today'}
                     </span>
                   </button>
                 );

@@ -91,6 +91,18 @@ export type EmailItem = {
     | "actioned"
     | "dismissed"
     | "archived";
+  workflow_state?:
+    | "legacy"
+    | "observed"
+    | "classifying"
+    | "open"
+    | "finalizing"
+    | "terminal"
+    | "failed";
+  bucket?: "reply" | "action" | "fyi" | "noise" | null;
+  thread_version?: number;
+  latest_inbound_message_id?: string | null;
+  gmail_draft_id?: string | null;
   sender_name: string | null;
   sender_email: string | null;
   subject: string | null;

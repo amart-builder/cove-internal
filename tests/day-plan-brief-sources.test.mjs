@@ -230,68 +230,77 @@ test('operator profile falls back to a bounded readable JSON whitelist', async (
   assert.ok(profile.content.length <= profile.maxChars);
 });
 
-test('calendar fetches MCP SSE, derives DST-aware bounds, and formats visible events', async (t) => {
+test('calendar uses the restricted gateway, derives DST-aware bounds, and formats visible events', async (t) => {
   const { dir, options } = fixture(t);
-  disableExternalSources(t, dir, { COVE_BRIEF_COMPOSIO_KEY: 'composio-test-key' });
-  const requests = [];
-  let initializeResponse;
+  disableExternalSources(t, dir);
+  let requested;
   const items = [
     {
+      id: 'strategy',
+      status: 'confirmed',
       summary: 'Strategy call',
-      start: { dateTime: '2026-11-01T09:00:00-08:00' },
-      end: { dateTime: '2026-11-01T09:30:00-08:00' },
+      start: '2026-11-01T09:00:00-08:00',
+      end: '2026-11-01T09:30:00-08:00',
       attendees: [
-        { email: 'jordan@example.com', self: true, responseStatus: 'accepted' },
         { email: 'one@example.com' },
         { email: 'two@example.com' },
         { email: 'three@example.com' },
         { email: 'four@example.com' },
       ],
-      hangoutLink: 'https://meet.google.com/example',
+      htmlLink: 'https://meet.google.com/example',
+      description: '',
+      location: '',
     },
-    { summary: 'Planning day', start: { date: '2026-11-01' }, end: { date: '2026-11-02' } },
     {
+      id: 'planning',
+      status: 'confirmed',
+      summary: 'Planning day',
+      start: '2026-11-01',
+      end: '2026-11-02',
+      attendees: [],
+      htmlLink: '',
+      description: '',
+      location: '',
+    },
+    {
+      id: 'malformed',
+      status: 'confirmed',
       summary: 'Malformed time',
-      start: { dateTime: 'not-a-date' },
-      end: { dateTime: '2026-11-01T10:30:00-08:00' },
-    },
-    {
-      summary: 'Declined event',
-      start: { dateTime: '2026-11-01T11:00:00-08:00' },
-      end: { dateTime: '2026-11-01T12:00:00-08:00' },
-      attendees: [{ email: 'jordan@example.com', self: true, responseStatus: 'declined' }],
+      start: 'not-a-date',
+      end: '2026-11-01T10:30:00-08:00',
+      attendees: [],
+      htmlLink: '',
+      description: '',
+      location: '',
     },
   ];
   const fetchImpl = async (url, init = {}) => {
     const forge = forgeRowsResponse(url);
     if (forge) return forge;
-    requests.push(JSON.parse(init.body));
-    assert.ok(init.signal instanceof AbortSignal);
-    if (requests.length === 1) {
-      initializeResponse = new Response('{"initialized":true}', {
-        status: 200,
-        headers: { 'mcp-session-id': 'session-1' },
-      });
-      return initializeResponse;
-    }
-    return new Response(calendarSse(items), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    throw new Error(`unexpected fetch ${url} ${init.method ?? 'GET'}`);
   };
   const collected = await collectMorningBriefSources({
     ...options,
     targetLocalDate: '2026-11-01',
     now: new Date('2026-11-01T16:00:00.000Z'),
     fetchImpl,
+    workspaceGateway: {
+      calendar: {
+        listEvents: async (input) => {
+          requested = input;
+          return items;
+        },
+      },
+    },
   });
   const calendar = collected.sources.find((source) => source.id === 'calendar');
   assert.equal(
     calendar.content,
     'all day: Planning day\n9:00am-9:30am: Strategy call (with one@example.com, two@example.com, three@example.com) [Meet]\ntime unknown: Malformed time',
   );
-  assert.equal(initializeResponse.bodyUsed, true);
   assert.equal(calendar.priority, 7);
-  const toolArguments = requests[1].params.arguments.tools[0].arguments;
-  assert.equal(toolArguments.timeMin, '2026-11-01T00:00:00-07:00');
-  assert.equal(toolArguments.timeMax, '2026-11-02T00:00:00-08:00');
+  assert.equal(requested.timeMin, '2026-11-01T00:00:00-07:00');
+  assert.equal(requested.timeMax, '2026-11-02T00:00:00-08:00');
 });
 
 test('calendar reports not_configured for a missing key file', async (t) => {
@@ -305,13 +314,23 @@ test('calendar reports not_configured for a missing key file', async (t) => {
 
 test('calendar fetch failures stay optional and leave the other sources available', async (t) => {
   const { dir, options } = fixture(t);
-  disableExternalSources(t, dir, { COVE_BRIEF_COMPOSIO_KEY: 'composio-test-key' });
+  disableExternalSources(t, dir);
   const fetchImpl = async (url) => {
     const forge = forgeRowsResponse(url);
     if (forge) return forge;
     throw new Error('gateway unavailable');
   };
-  const collected = await collectMorningBriefSources({ ...options, fetchImpl });
+  const collected = await collectMorningBriefSources({
+    ...options,
+    fetchImpl,
+    workspaceGateway: {
+      calendar: {
+        listEvents: async () => {
+          throw new Error('gateway unavailable');
+        },
+      },
+    },
+  });
   assert.match(collected.sources.find((source) => source.id === 'calendar').note, /^error:gateway unavailable/);
   assert.equal(collected.sources.find((source) => source.id === 'goals').content, 'Grow Edge AI.');
   assert.ok(collected.sources.find((source) => source.id === 'task_snapshot').content);
@@ -1442,7 +1461,6 @@ test('real source ids overwrite coverage fallbacks, while failed fetches remain 
   const tokenPath = path.join(dir, 'jarvis-token');
   writeFileSync(tokenPath, 'jarvis-test-token');
   disableExternalSources(t, dir, {
-    COVE_BRIEF_COMPOSIO_KEY: 'composio-test-key',
     ATTIO_API_KEY: 'attio-test-key',
     COVE_BRIEF_JARVIS_TOKEN_PATH: tokenPath,
     COVE_BRIEF_JARVIS_URL: 'http://memory.test',
@@ -1450,19 +1468,18 @@ test('real source ids overwrite coverage fallbacks, while failed fetches remain 
   const successFetch = async (url, init = {}) => {
     const forge = forgeRowsResponse(url);
     if (forge) return forge;
-    if (String(url).includes('connect.composio.dev')) {
-      const body = JSON.parse(init.body);
-      if (body.method === 'initialize') {
-        return new Response('{}', { status: 200, headers: { 'mcp-session-id': 'session-1' } });
-      }
-      return new Response(calendarSse([]), { status: 200 });
-    }
     if (String(url).includes('api.attio.com')) {
       return new Response(JSON.stringify({ data: [] }), { status: 200 });
     }
     return new Response(JSON.stringify({ results: [] }), { status: 200 });
   };
-  const included = await collectMorningBriefSources({ ...options, fetchImpl: successFetch });
+  const included = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: successFetch,
+    workspaceGateway: {
+      calendar: { listEvents: async () => [] },
+    },
+  });
   assert.deepEqual(
     included.sources.map((source) => [source.id, source.priority]),
     [
@@ -1504,7 +1521,13 @@ test('real source ids overwrite coverage fallbacks, while failed fetches remain 
     if (forge) return forge;
     throw new Error('network down');
   };
-  const failed = await collectMorningBriefSources({ ...options, fetchImpl: failedFetch });
+  const failed = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: failedFetch,
+    workspaceGateway: {
+      calendar: { listEvents: async () => { throw new Error('network down'); } },
+    },
+  });
   const failedCoverage = assembleMorningBriefContext(failed.sources, { now: NOW }).manifest.coverage;
   assert.equal(failedCoverage.calendar, 'missing');
   assert.equal(failedCoverage.crm_last_touch, 'missing');

@@ -46,6 +46,7 @@ next-env.d.ts
 !/data/forge-meetings.json
 !/data/cove-meetings.example.json
 !/data/cove-support.example.json
+!/data/cove-workspace.example.json
 .gstack/
 
 # on-device voice transcription environment (large; installed per-machine)

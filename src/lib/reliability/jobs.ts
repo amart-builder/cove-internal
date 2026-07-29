@@ -51,6 +51,15 @@ type JobRow = {
 
 type ClaimedJob = ScheduledJob & { leaseToken: string };
 
+export type EnqueueJobInput = {
+  type: string;
+  payload?: unknown;
+  priority?: number;
+  runAfter?: Date | string;
+  maxAttempts?: number;
+  idempotencyKey: string;
+};
+
 function decodeJob(row: JobRow): ScheduledJob {
   let payload: unknown = {};
   try {
@@ -80,6 +89,50 @@ function errorText(error: unknown): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 2000) || "Job failed.";
+}
+
+export function enqueueJobInDatabase(
+  db: Database.Database,
+  input: EnqueueJobInput,
+  nowDate: Date,
+): { job: ScheduledJob; inserted: boolean } {
+  const type = input.type.trim();
+  const idempotencyKey = input.idempotencyKey.trim();
+  if (!type) throw new Error("Job type is required.");
+  if (!idempotencyKey) throw new Error("Job idempotency key is required.");
+  const payload = JSON.stringify(input.payload ?? {});
+  if (payload.length > 100_000) {
+    throw new Error("Job payload exceeds 100000 characters.");
+  }
+  const now = nowDate.toISOString();
+  const runAfter = input.runAfter instanceof Date
+    ? input.runAfter.toISOString()
+    : input.runAfter ?? now;
+  const maxAttempts = Math.min(
+    20,
+    Math.max(1, Math.trunc(input.maxAttempts ?? 5)),
+  );
+  const key = idempotencyKey.slice(0, 300);
+  const result = db.prepare(
+    `INSERT INTO forge_jobs
+       (id, type, payload, priority, run_after, attempts, max_attempts,
+        status, idempotency_key, created_at)
+     VALUES (?, ?, ?, ?, ?, 0, ?, 'queued', ?, ?)
+     ON CONFLICT(idempotency_key) DO NOTHING`,
+  ).run(
+    randomUUID(),
+    type,
+    payload,
+    Math.trunc(input.priority ?? 0),
+    runAfter,
+    maxAttempts,
+    key,
+    now,
+  );
+  const row = db.prepare(
+    "SELECT * FROM forge_jobs WHERE idempotency_key = ?",
+  ).get(key) as JobRow;
+  return { job: decodeJob(row), inserted: result.changes === 1 };
 }
 
 export class JobScheduler {
@@ -121,50 +174,8 @@ export class JobScheduler {
     return this;
   }
 
-  enqueue(input: {
-    type: string;
-    payload?: unknown;
-    priority?: number;
-    runAfter?: Date | string;
-    maxAttempts?: number;
-    idempotencyKey: string;
-  }): { job: ScheduledJob; inserted: boolean } {
-    const type = input.type.trim();
-    const idempotencyKey = input.idempotencyKey.trim();
-    if (!type) throw new Error("Job type is required.");
-    if (!idempotencyKey) throw new Error("Job idempotency key is required.");
-    const payload = JSON.stringify(input.payload ?? {});
-    if (payload.length > 100_000) {
-      throw new Error("Job payload exceeds 100000 characters.");
-    }
-    const now = this.now().toISOString();
-    const runAfter = input.runAfter instanceof Date
-      ? input.runAfter.toISOString()
-      : input.runAfter ?? now;
-    const maxAttempts = Math.min(
-      20,
-      Math.max(1, Math.trunc(input.maxAttempts ?? 5)),
-    );
-    const result = this.db.prepare(
-      `INSERT INTO forge_jobs
-         (id, type, payload, priority, run_after, attempts, max_attempts,
-          status, idempotency_key, created_at)
-       VALUES (?, ?, ?, ?, ?, 0, ?, 'queued', ?, ?)
-       ON CONFLICT(idempotency_key) DO NOTHING`,
-    ).run(
-      randomUUID(),
-      type,
-      payload,
-      Math.trunc(input.priority ?? 0),
-      runAfter,
-      maxAttempts,
-      idempotencyKey.slice(0, 300),
-      now,
-    );
-    const row = this.db.prepare(
-      "SELECT * FROM forge_jobs WHERE idempotency_key = ?",
-    ).get(idempotencyKey.slice(0, 300)) as JobRow;
-    return { job: decodeJob(row), inserted: result.changes === 1 };
+  enqueue(input: EnqueueJobInput): { job: ScheduledJob; inserted: boolean } {
+    return enqueueJobInDatabase(this.db, input, this.now());
   }
 
   getJob(id: string): ScheduledJob | undefined {
@@ -307,6 +318,31 @@ export class JobScheduler {
          ORDER BY priority DESC, run_after ASC, created_at ASC
          LIMIT 1`,
       ).get(now.toISOString()) as JobRow | undefined;
+      if (!row) return undefined;
+      const leaseToken = randomUUID();
+      const result = this.db.prepare(
+        `UPDATE forge_jobs
+         SET status = 'leased', lease_until = ?, lease_token = ?,
+             attempts = attempts + 1
+         WHERE id = ? AND status IN ('queued','failed')`,
+      ).run(leaseUntil, leaseToken, row.id);
+      if (result.changes !== 1) return undefined;
+      const claimed = this.db.prepare(
+        "SELECT * FROM forge_jobs WHERE id = ?",
+      ).get(row.id) as JobRow;
+      return { ...decodeJob(claimed), leaseToken };
+    }).immediate();
+  }
+
+  private claimById(id: string): ClaimedJob | undefined {
+    const now = this.now();
+    const leaseUntil = new Date(now.getTime() + this.leaseMs).toISOString();
+    return this.db.transaction(() => {
+      const row = this.db.prepare(
+        `SELECT * FROM forge_jobs
+         WHERE id = ? AND status IN ('queued','failed')
+           AND run_after <= ? AND attempts < max_attempts`,
+      ).get(id, now.toISOString()) as JobRow | undefined;
       if (!row) return undefined;
       const leaseToken = randomUUID();
       const result = this.db.prepare(
@@ -551,5 +587,17 @@ export class JobScheduler {
       Array.from({ length: concurrency }, () => worker()),
     );
     return result;
+  }
+
+  async runJob(id: string): Promise<"done" | "failed" | "dead" | "lost" | "unavailable"> {
+    this.recoverExpiredLeases();
+    const job = this.claimById(id);
+    if (!job) return "unavailable";
+    try {
+      return await this.execute(job);
+    } catch (error) {
+      this.recordRunnerFailure(error, job);
+      return "failed";
+    }
   }
 }

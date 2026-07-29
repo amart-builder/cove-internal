@@ -23,7 +23,7 @@
     <key>HOME</key>
     <string>/Users/operator</string>
     <key>PATH</key>
-    <string>/Users/operator/.composio:/opt/homebrew/bin:/usr/local/bin:/Users/operator/.local/bin:/usr/bin:/bin</string>
+    <string>/opt/homebrew/bin:/usr/local/bin:/Users/operator/.local/bin:/usr/bin:/bin</string>
     <key>COVE_DATA_DIR</key>
     <string>/Users/operator/Atlas/Projects/astack/forge/data</string>
   </dict>

@@ -195,12 +195,9 @@ export default function TaskDetail({
     return cadence;
   }
 
-  // The daily "Emails: <date>" card renders its own interactive digest (grouped
-  // sections, Gmail links, action-item checkboxes) instead of the edit form. It is
-  // identified by the tag the skill sets plus the title, so it never collides with
-  // ordinary tasks or the older per-email "create task" cards (also tagged email).
-  const isEmailCard =
-    task.tags.includes('email') && task.title.trim().startsWith('Emails:');
+  // Only the stable rolling card renders live email. Historical daily cards and
+  // older per-email tasks remain ordinary task records.
+  const isEmailCard = task.tags.includes('email-current');
 
   if (isEmailCard) {
     return (

@@ -26,6 +26,15 @@
 
 **Last updated:** 2026-07-29 (Alex's install migrated off Supabase to local mode on the MacBook, single machine, Mini fully retired; build wave COMPLETE; ONE click left: refresh + flip amart-builder/cove public)
 
+## 2026-07-29 email architecture redesign, isolated branch
+
+- Branch `codex/email-architecture-redesign` replaces active Composio email, meeting, Calendar, and document paths with Cove's direct restricted Google Workspace gateway. Historical Composio entries below remain as history and are superseded for active setup and runtime.
+- Gmail is simple: Inbox means it still needs Alex, Archive means handled, search keeps history. New processing no longer writes Reply, Action, FYI, Done, or Archived workflow labels. One rolling `Email` card shows only open replies and actions. FYI and automatic archives go to Recent activity.
+- The model is tool-free and returns bounded structured judgments only. Deterministic code owns message claims, provisional grounded commitment candidates, drafts, exact-message archive, receipts, retries, and failure surfacing. No send, delete, trash, forward, settings, generic request, or raw-token path exists on the public gateway.
+- SQLite migration 12 adds canonical thread state, per-message claims, and a durable Gmail operation outbox. Existing dated Email cards become history. Legacy rows without message ids are repaired from Gmail before a card operation.
+- Validation on the isolated worktree: TypeScript clean; changed implementation lint clean; full suite 642/642; production build clean. The repository-wide lint command still has unrelated baseline errors in the concurrently edited Morning Arrival/Fable files.
+- Activation still requires running `scripts/cove-google-connect.ts connect` with a Google desktop OAuth client, then the live Gmail/Calendar/Docs smoke checks in `SETUP.md`. This branch does not contain or migrate private credentials.
+
 ## 2026-07-29 Alex's install: Supabase -> local mode on the MacBook, single machine (done, verified)
 
 Alex's install now matches a client install exactly: local mode, one Mac, one SQLite file, no cloud. Supabase was left completely untouched as the rollback.

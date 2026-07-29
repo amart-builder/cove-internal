@@ -4,6 +4,8 @@ The running plan from the system-by-system architecture walkthrough. We extend i
 
 Status: SETTLED 2026-07-28 evening (all walkthroughs done; cross-model red-team applied; Alex signed off on the four contested calls). Build wave is internally SEQUENCED; see "Wave order and reliability spine" at the end.
 
+> Superseded on 2026-07-29 for Google Workspace: the red native-Claude-connector spike remains historically accurate, but active Cove runtime and setup now use Cove's direct restricted Google OAuth gateway. See `docs/email-architecture-redesign.md`.
+
 ## Already shipped during the audit (2026-07-28)
 
 Shared column aliases, autonomy off by default for fresh installs, SETUP Step 0 preflight with agent-driven installs, Forge to Cove rename with compatibility layers, de-personalized product logic (operator-aware meeting follow-ups, neutral brief memory queries), private mirror repo `amart-builder/cove`, SETUP hard-gate on profile and goals quality, SETUP teaches mid-day replanning.

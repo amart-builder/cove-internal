@@ -2,5 +2,5 @@
   "enabled": true,
   "query": "from:(gemini-noreply@google.com) OR subject:(\"Notes:\" OR \"Meeting notes\")",
   "window": "newer_than:2d",
-  "processed_label": "Forge/Meeting-Processed"
+  "processed_label": "Cove/Meeting-Processed"
 }

@@ -72,8 +72,9 @@ export async function updateEmailItem(
 
 export async function archiveEmailItemFromCard(id: string): Promise<void> {
   if (getRuntimeMode() !== "local") {
-    await updateEmailItem(id, { status: "actioned" });
-    return;
+    throw new Error(
+      "Email can only be marked handled after the connected Gmail account confirms the archive.",
+    );
   }
   const csrfToken = await getDayPlanCsrfToken();
   const response = await fetch("/api/email/automation", {

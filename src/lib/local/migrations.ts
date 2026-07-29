@@ -883,6 +883,295 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       `);
     },
   },
+  {
+    version: 12,
+    name: "deterministic-email-state",
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE email_items ADD COLUMN workflow_state TEXT NOT NULL DEFAULT 'legacy'
+          CHECK (workflow_state IN (
+            'legacy','observed','classifying','open',
+            'finalizing','terminal','failed'
+          ));
+        ALTER TABLE email_items ADD COLUMN bucket TEXT
+          CHECK (bucket IN ('reply','action','fyi','noise'));
+        ALTER TABLE email_items ADD COLUMN thread_version INTEGER NOT NULL DEFAULT 0
+          CHECK (thread_version >= 0);
+        ALTER TABLE email_items ADD COLUMN latest_inbound_message_id TEXT;
+        ALTER TABLE email_items ADD COLUMN latest_gmail_history_id TEXT;
+        ALTER TABLE email_items ADD COLUMN gmail_draft_id TEXT;
+        ALTER TABLE email_items ADD COLUMN draft_body_hash TEXT;
+        ALTER TABLE email_items ADD COLUMN surfaced_message_id TEXT;
+        ALTER TABLE email_items ADD COLUMN surfaced_at TEXT;
+        ALTER TABLE email_items ADD COLUMN surface_receipt_id TEXT;
+        ALTER TABLE email_items ADD COLUMN completion_reason TEXT;
+      `);
+
+      const rows = db.prepare(
+        `SELECT id, thread_id, message_id, status, received_at, updated_at,
+                source_payload
+         FROM email_items
+         WHERE thread_id IS NOT NULL
+         ORDER BY thread_id,
+           CASE WHEN status IN ('pending','archiving') THEN 0 ELSE 1 END,
+           COALESCE(received_at, '') DESC,
+           COALESCE(updated_at, '') DESC,
+           id`,
+      ).all() as Array<{
+        id: string;
+        thread_id: string;
+        message_id: string | null;
+        status: string;
+        received_at: string | null;
+        updated_at: string | null;
+        source_payload: string | null;
+      }>;
+      const winners = new Map<string, string>();
+      const winnerForDuplicate = db.prepare(
+        "SELECT id FROM email_items WHERE thread_id = ? LIMIT 1",
+      );
+      const repointDrafts = db.prepare(
+        "UPDATE drafts SET email_item_id = ? WHERE email_item_id = ?",
+      );
+      const repointActions = db.prepare(
+        "UPDATE email_action_log SET email_item_id = ? WHERE email_item_id = ?",
+      );
+      const dismissDuplicate = db.prepare(
+        `UPDATE email_items
+         SET thread_id = NULL, status = 'dismissed', workflow_state = 'legacy',
+             source_payload = ?, updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
+         WHERE id = ?`,
+      );
+      for (const row of rows) {
+        const winner = winners.get(row.thread_id);
+        if (!winner) {
+          winners.set(row.thread_id, row.id);
+          continue;
+        }
+        const metadata = (() => {
+          try {
+            const parsed = row.source_payload ? JSON.parse(row.source_payload) : {};
+            return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+              ? parsed as Record<string, unknown>
+              : {};
+          } catch {
+            return {};
+          }
+        })();
+        repointDrafts.run(winner, row.id);
+        repointActions.run(winner, row.id);
+        dismissDuplicate.run(
+          JSON.stringify({ ...metadata, merged_into_id: winner }),
+          row.id,
+        );
+      }
+      // Keep this lookup referenced so migration failures surface before indexes
+      // on unusual legacy databases with malformed thread identifiers.
+      for (const threadId of winners.keys()) winnerForDuplicate.get(threadId);
+
+      db.exec(`
+        CREATE TABLE forge_email_messages (
+          message_id TEXT PRIMARY KEY,
+          thread_id TEXT NOT NULL,
+          email_item_id TEXT NOT NULL REFERENCES email_items(id),
+          gmail_history_id TEXT,
+          internal_date TEXT,
+          direction TEXT NOT NULL CHECK (direction IN ('inbound','outbound')),
+          state TEXT NOT NULL CHECK (
+            state IN ('observed','classifying','processed','failed','superseded')
+          ),
+          classification_json TEXT,
+          model_version TEXT,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          observed_at TEXT NOT NULL,
+          processed_at TEXT,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX forge_email_messages_thread_date_idx
+          ON forge_email_messages(thread_id, internal_date);
+        CREATE INDEX forge_email_messages_state_idx
+          ON forge_email_messages(state, updated_at);
+
+        CREATE TABLE forge_gmail_operations (
+          id TEXT PRIMARY KEY,
+          email_item_id TEXT NOT NULL REFERENCES email_items(id),
+          thread_id TEXT NOT NULL,
+          expected_message_id TEXT NOT NULL
+            REFERENCES forge_email_messages(message_id),
+          expected_thread_version INTEGER NOT NULL CHECK (expected_thread_version > 0),
+          kind TEXT NOT NULL CHECK (kind IN ('upsert_draft','archive_messages')),
+          operation_key TEXT NOT NULL UNIQUE,
+          payload_json TEXT NOT NULL DEFAULT '{}',
+          status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (status IN ('pending','uncertain','succeeded','superseded','dead')),
+          job_id TEXT,
+          remote_id TEXT,
+          result_json TEXT,
+          last_error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT
+        );
+        CREATE UNIQUE INDEX forge_gmail_operations_one_active_thread
+          ON forge_gmail_operations(thread_id)
+          WHERE status IN ('pending','uncertain');
+        CREATE INDEX forge_gmail_operations_status_idx
+          ON forge_gmail_operations(status, updated_at);
+      `);
+
+      const managedRows = db.prepare(
+        `SELECT id, thread_id, message_id, status, received_at, created_at,
+                updated_at, source_payload
+         FROM email_items
+         WHERE thread_id IS NOT NULL`,
+      ).all() as Array<{
+        id: string;
+        thread_id: string;
+        message_id: string | null;
+        status: string;
+        received_at: string | null;
+        created_at: string | null;
+        updated_at: string | null;
+        source_payload: string | null;
+      }>;
+      const backfillItem = db.prepare(
+        `UPDATE email_items
+         SET workflow_state = ?, bucket = ?, thread_version = 1,
+             latest_inbound_message_id = ?, gmail_draft_id = ?,
+             surfaced_message_id = ?, surfaced_at = ?
+         WHERE id = ?`,
+      );
+      const insertMessage = db.prepare(
+        `INSERT OR IGNORE INTO forge_email_messages
+           (message_id, thread_id, email_item_id, internal_date, direction,
+            state, classification_json, attempts, observed_at, processed_at,
+            updated_at)
+         VALUES (?, ?, ?, ?, 'inbound', 'processed', NULL, 0, ?, ?, ?)`,
+      );
+      for (const row of managedRows) {
+        let metadata: Record<string, unknown> = {};
+        try {
+          const parsed = row.source_payload ? JSON.parse(row.source_payload) : {};
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            metadata = parsed as Record<string, unknown>;
+          }
+        } catch {
+          // Malformed legacy metadata remains preserved in source_payload.
+        }
+        const rawBucket = metadata.bucket;
+        const bucket = rawBucket === "reply" || rawBucket === "action" ||
+            rawBucket === "fyi" || rawBucket === "noise"
+          ? rawBucket
+          : rawBucket === "archived"
+            ? "noise"
+            : null;
+        const terminal = ["actioned", "reviewed", "archived", "dismissed"].includes(row.status);
+        const timestamp = row.updated_at ?? row.received_at ?? row.created_at ??
+          new Date(0).toISOString();
+        const draftId = typeof metadata.gmail_draft_id === "string"
+          ? metadata.gmail_draft_id
+          : typeof metadata.draft_id === "string"
+            ? metadata.draft_id
+            : null;
+        backfillItem.run(
+          terminal ? "terminal" : "open",
+          bucket,
+          row.message_id,
+          draftId,
+          row.message_id,
+          timestamp,
+          row.id,
+        );
+        if (row.message_id) {
+          insertMessage.run(
+            row.message_id,
+            row.thread_id,
+            row.id,
+            row.received_at,
+            timestamp,
+            timestamp,
+            timestamp,
+          );
+        }
+      }
+
+      db.exec(`
+        CREATE UNIQUE INDEX email_items_thread_id_unique
+          ON email_items(thread_id) WHERE thread_id IS NOT NULL;
+        CREATE UNIQUE INDEX email_items_latest_inbound_unique
+          ON email_items(latest_inbound_message_id)
+          WHERE latest_inbound_message_id IS NOT NULL;
+      `);
+
+      const emailTasks = db.prepare(
+        `SELECT id, title, tags, status, created_at, updated_at
+         FROM tasks
+         WHERE title LIKE 'Emails:%' OR tags LIKE '%"email-current"%'
+         ORDER BY
+           CASE WHEN tags LIKE '%"email-current"%' THEN 0 ELSE 1 END,
+           COALESCE(updated_at, created_at, '') DESC,
+           id`,
+      ).all() as Array<{
+        id: string;
+        title: string;
+        tags: string | null;
+        status: string;
+        created_at: string | null;
+        updated_at: string | null;
+      }>;
+      if (emailTasks.length > 0) {
+        const canonical = emailTasks[0];
+        let tags: string[] = [];
+        try {
+          const parsed = canonical.tags ? JSON.parse(canonical.tags) : [];
+          tags = Array.isArray(parsed)
+            ? parsed.filter((value): value is string => typeof value === "string")
+            : [];
+        } catch {
+          // Keep the rolling identity even when a legacy tag field is malformed.
+        }
+        tags = [...new Set([...tags, "email", "email-current"])];
+        const pending = db.prepare(
+          "SELECT 1 FROM email_items WHERE status = 'pending' LIMIT 1",
+        ).get();
+        db.prepare(
+          `UPDATE tasks
+           SET title = 'Email', tags = ?, status = ?,
+               source_type = 'email', updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
+           WHERE id = ?`,
+        ).run(JSON.stringify(tags), pending ? "open" : "done", canonical.id);
+        const closeLegacy = db.prepare(
+          `UPDATE tasks
+           SET status = 'done', updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
+           WHERE id = ? AND status = 'open'`,
+        );
+        for (const legacy of emailTasks.slice(1)) closeLegacy.run(legacy.id);
+      } else if (managedRows.some((row) => row.status === "pending" || row.status === "archiving")) {
+        const todayColumn = db.prepare(
+          `SELECT id FROM task_columns
+           WHERE lower(name) IN ('must happen today','needs to happen today','today')
+           ORDER BY position, id LIMIT 1`,
+        ).get() as { id: string } | undefined;
+        const timestamp = new Date().toISOString();
+        db.prepare(
+          `INSERT INTO tasks
+             (id, column_id, title, description, priority, tags, project,
+              position, status, source_type, remind_native, remind_text,
+              created_at, updated_at)
+           VALUES (?, ?, 'Email',
+             'Replies and actions that still need you. Gmail Inbox is the source of truth.',
+             'high', '["email","email-current"]', 'Cove', -1000, 'open',
+             'email', 0, 0, ?, ?)`,
+        ).run(
+          randomUUID(),
+          todayColumn?.id ?? null,
+          timestamp,
+          timestamp,
+        );
+      }
+    },
+  },
 ];
 
 export function runLocalMigrations(

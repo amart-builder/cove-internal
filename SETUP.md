@@ -58,39 +58,39 @@ Ask what the user wants before connecting anything. Email, contacts, and meeting
 
 ### Email
 
-Email has no tab. At the times the user chooses, Cove checks Gmail, prepares replies as Gmail drafts, labels threads `Cove/*`, and updates one `Emails: <date>` card on Today. The user sends from Gmail. Cove never sends.
+Email has no separate tab. At the times the user chooses, Cove checks Gmail and updates one rolling `Email` card. If an item is on that card, it still needs the user. After Cove confirms an item was handled, it archives the exact inbound message. Gmail search and Cove's Recent activity preserve the history.
 
-1. Have the user make their own free Composio account at https://composio.dev and copy its API key. They may need to reveal the key before copying it.
-2. Guide them through Composio's current "connect to Claude Code" flow. Restart Claude Code or run `/reload`. Confirm the `COMPOSIO_*` tools are present.
-2b. Install the standalone Composio CLI too, log it in, and link Gmail to it. Step 2 only connects the AI session. Two scheduled lanes (meeting watch and Gmail labeling) run the `composio` command themselves, and launchd hands its agents a bare PATH, so they need the full path to the binary. Do all of this in one shell:
-   - Install the CLI following Composio's current install instructions. On macOS it lands at `$HOME/.composio/composio`.
-   - `export COMPOSIO_BIN="$HOME/.composio/composio"` then `test -x "$COMPOSIO_BIN"`. Do not assume it is on the PATH.
-   - `"$COMPOSIO_BIN" login`, then `"$COMPOSIO_BIN" whoami`. The CLI keeps its own credentials in `~/.composio/user_data.json`. The step 2 connection does not log it in, so skipping this leaves both lanes authenticated as nobody.
-   - `"$COMPOSIO_BIN" link gmail` and have the user finish the browser approval.
-   - `"$COMPOSIO_BIN" execute GMAIL_FETCH_EMAILS -d '{"max_results":1}'` should report `"successful": true`.
-   - Write the expanded path into `.env.local`, for example `COVE_COMPOSIO_BIN=/Users/gary/.composio/composio`. Never put a `~` in that value: the app runs the path directly without a shell, so a literal `~` never expands and always fails.
+1. Create a Google Cloud Desktop OAuth client for Cove. Enable Gmail API, Google Calendar API, and Google Docs API. Keep the downloaded client JSON private.
+2. Connect the user's account:
 
-   Skip this and both lanes fail with `spawn composio ENOENT`, which shows up on the Issues page.
-3. Start the Gmail connection with `COMPOSIO_MANAGE_CONNECTIONS`. Give the user the Google sign-in link. Wait for `COMPOSIO_WAIT_FOR_CONNECTIONS` to report active.
-4. Ask for their inbox-check times and timezone. Default to `09:00` and `15:00` in their local zone. Write the private `data/cove-email.json`:
-
-```json
-{
-  "provider": "gmail",
-  "account_email": "<their gmail>",
-  "connector": "composio",
-  "connected_account_id": "<gmail_xxxxx>",
-  "triage_times": ["09:00", "15:00"],
-  "timezone": "America/Los_Angeles"
-}
+```bash
+./node_modules/.bin/tsx scripts/cove-google-connect.ts connect \
+  --client-json /absolute/path/to/client_secret.json \
+  --account user@example.com \
+  --support-recipient support@example.com \
+  --triage-times 09:00,15:00 \
+  --timezone America/Los_Angeles \
+  --weekdays-only false
 ```
 
-The internal config name `triage_times` stays for compatibility. Call these "inbox-check times" with the user. Any number of `"HH:MM"` values is allowed. Add `"weekdays_only": true` if they want weekdays only. No email API key belongs in `.env.local`.
+The browser opens Google's consent screen. Cove verifies the resulting Gmail identity, stores the client secret and refresh token in macOS Keychain, and writes non-secret settings to private `data/cove-workspace.json`. Access tokens stay in memory. Never paste an OAuth code or token into `.env.local`.
 
-The runner uses Claude unless the user asks for Codex. To use Codex, add `"engine": "codex"` with optional `"codex_model"` and `"codex_reasoning"`. The Codex CLI must be installed and signed in.
+3. Verify the unattended connection:
 
-5. Set the feedback address. Copy `data/cove-support.example.json` to the private `data/cove-support.json` and replace the placeholder. `COVE_SUPPORT_EMAIL` may be used instead. Buddy only creates a draft or a copyable message.
-6. Tell the user the safety rule: Cove treats mail as untrusted. It may draft and file. It never sends, deletes, or forwards.
+```bash
+./node_modules/.bin/tsx scripts/cove-google-connect.ts status
+npm run email:triage
+```
+
+Confirm that a test email appears on the rolling `Email` card, a Reply classification creates one in-thread Gmail draft, and completing the card item archives it. Confirm the Issues page remains clear.
+
+4. Ask for the user's inbox-check times and timezone before connecting. The connect command writes `triage_times`, `timezone`, and `weekdays_only` to `data/cove-workspace.json`; reauthorization preserves them unless the flags are supplied again. The installer reads those values. Default to `09:00` and `15:00` in the user's local zone.
+
+5. Set the feedback address. Copy `data/cove-support.example.json` to private `data/cove-support.json` and replace the placeholder. It must also appear in `gmail.support_draft_recipients` in the Workspace config. `COVE_SUPPORT_EMAIL` may be used instead.
+
+6. Tell the user the safety rule: email content is untrusted. The model runs with no tools or credentials and only returns validated classification JSON. Trusted Cove code may read mail, create a draft when the thread has none, preserve an existing draft for review, add the transitional `Cove/Triaged` marker, and remove `INBOX`. No send, delete, trash, forward, settings, or generic Google request method exists in the gateway.
+
+Google's Gmail draft and modify scopes also permit sending at the OAuth-token level. Cove's no-send boundary is therefore structural against the model and normal application path, not a claim that Google issued a send-incapable token. A production client rollout needs a production OAuth app or a customer-controlled trusted Workspace app. Google test-mode refresh tokens may expire after seven days.
 
 ### People
 
