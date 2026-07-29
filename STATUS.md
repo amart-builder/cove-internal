@@ -18,13 +18,26 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-07-29T04:05:39-0700
-- **task:** Build wave: Stage 8 verification + wave wrap-up
+- **since:** 2026-07-29T09:47:15-0700
+- **task:** Migrate Alex install supabase to local
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-07-29 (build wave COMPLETE, all 8 stages + whole-wave integration pass; ONE click left: refresh + flip amart-builder/cove public)
+**Last updated:** 2026-07-29 (Alex's install migrated off Supabase to local mode on the Mac Mini; build wave COMPLETE; ONE click left: refresh + flip amart-builder/cove public)
+
+## 2026-07-29 Alex's install: Supabase -> local mode, hosted on the Mac Mini (done, verified)
+
+Alex approved moving his own install to local mode so he runs what clients run. The Mini is the host because it is always on; the MacBook is now just a browser pointed at it over Tailscale. Supabase was left completely untouched as the rollback.
+
+- **What moved.** All 11 `forge_*` tables exported to JSON and imported into SQLite: 108 tasks, 5 columns, 14 companies, 38 contacts, 49 activities, 161 email items, 6 drafts, 52 action-log rows, 22 triage runs, 25 commitments, 8 inbound events. Plus a one-time Attio import (489 people, 306 companies) because supabase mode's People tab read Attio and local mode has no Attio path. Final: 519 contacts, 317 companies. Day plans, briefs, dumps and Buddy history were already local and were carried over intact on the MacBook's database file (11 day plans, 174 events, 13 Buddy turns).
+- **Two mapping decisions worth remembering.** Supabase's 5 columns were mapped onto local mode's canonical 4 by name (Waiting folds into In Flight / Waiting) instead of imported, or the board would have shown 9 lists. Attio lets a person or company exist with only an email or domain (198 people, 36 companies here), and local requires a name, so those import with the email or domain as the display name, which is what Attio itself shows.
+- **What was dropped, deliberately.** Columns with no local equivalent: `owner_user_id`, task `contact_id`/`company_id`/`source_id`, `email_items.provider` (all 161 were gmail), triage-run detail beyond the summary, and Attio provenance fields. Nothing user-visible. The full untouched export is kept in `data/backups/migration-2026-07-29/` on the MacBook alongside both pre-migration database files.
+- **Topology now.** Mini runs 9 agents: web server (127.0.0.1:3200), backup, jobs, reminders, email triage, claude worker, morning brief (7:30), meeting watch (5 min), progress reconcile (30 min). Reachable at https://alexander-mac-mini.taildd6a98.ts.net via Tailscale Serve, tailnet only. The MacBook's Cove agents are unloaded and their plists moved to `~/Library/LaunchAgents/retired-cove-2026-07-29/`, and its checkout is set to local mode so a dev run can never write to Supabase again.
+- **Verified, not assumed.** SQLite integrity and foreign-key checks clean; 15 open tasks land in the right columns; People shows 519; all four pages return 200 both on the Mini and from the MacBook over Tailscale; the job scheduler claimed and completed its first 4 jobs; the install-time backup exists; Supabase row counts are byte-identical before and after, proving nothing writes there anymore. Claude Code runs under launchd on the Mini (proved with a throwaway agent), which is what the brief, triage and owner chips depend on. Note that `claude` reports "not logged in" over plain ssh on the Mini: that is the login keychain being unavailable to a remote shell, not a broken install.
+- **Installer quirk found.** `install-cove-local.sh --mini` exits before installing the standard lanes, because it assumed a separate agent served the web app. For a Mini that is the sole host, run the plain installer first and `--mini` second (that order matters: the plain run removes the brief agent, and the mini run restores it). Fast-follow: make `--mini` additive so one run is enough.
+- **Behavior changes Alex should expect.** Native reminders now fire on the Mini, not the laptop. Owner chips open Claude sessions on the Mini and their outputs land there. Attio and Cove's People list are now two separate books that will drift; reconnecting them is the external-CRM-adapter item already on the fast-follow list.
+- **Rollback.** Set `NEXT_PUBLIC_FORGE_RUNTIME=supabase` in the Mini's `.env.local` (a pre-migration copy is saved next to it), rebuild, and re-load the MacBook plists from the retired folder. Supabase still holds every row as of 2026-07-29 10:26 PT.
 
 ## 2026-07-29 wave wrap-up: whole-wave integration review (verdict: nothing blocks Monday) + fixes
 
