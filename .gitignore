@@ -50,4 +50,4 @@ next-env.d.ts
 # on-device voice transcription environment (large; installed per-machine)
 /.venv-voice/
 .gbrain-source
-supabase/
+/supabase/
