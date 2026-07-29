@@ -89,6 +89,53 @@ test("archive removes INBOX from exact messages and does not add workflow labels
   }
 });
 
+test("calendar preserves the real Google Meet URL and self attendee state", async () => {
+  const gateway = createGoogleWorkspaceGateway({
+    config,
+    tokenProvider: {
+      getAccessToken: async () => "access",
+      invalidate() {},
+    },
+    fetch: async (url) => {
+      const target = String(url);
+      if (target.endsWith("/profile")) {
+        return json({ emailAddress: "alex@example.com" });
+      }
+      if (target.includes("/calendar/v3/calendars/primary/events")) {
+        return json({
+          items: [{
+            id: "strategy",
+            status: "confirmed",
+            summary: "Strategy call",
+            htmlLink: "https://calendar.google.com/calendar/event?eid=strategy",
+            hangoutLink: "https://meet.google.com/abc-defg-hij",
+            start: { dateTime: "2026-11-01T09:00:00-08:00" },
+            end: { dateTime: "2026-11-01T09:30:00-08:00" },
+            attendees: [{
+              email: "alex@example.com",
+              self: true,
+              responseStatus: "accepted",
+            }],
+          }],
+        });
+      }
+      return json({});
+    },
+  });
+  const events = await gateway.calendar.listEvents({
+    timeMin: "2026-11-01T00:00:00-07:00",
+    timeMax: "2026-11-08T00:00:00-08:00",
+    timeZone: "America/Los_Angeles",
+  });
+  assert.equal(events[0].htmlLink, "https://calendar.google.com/calendar/event?eid=strategy");
+  assert.equal(events[0].meetingUrl, "https://meet.google.com/abc-defg-hij");
+  assert.deepEqual(events[0].attendees, [{
+    email: "alex@example.com",
+    responseStatus: "accepted",
+    self: true,
+  }]);
+});
+
 test("free-form and workflow label creation is rejected before network access", async () => {
   let fetched = false;
   const gateway = createGoogleWorkspaceGateway({

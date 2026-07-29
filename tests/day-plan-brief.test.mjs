@@ -1,5 +1,14 @@
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -27,6 +36,10 @@ import {
 import {
   collectMorningBriefSources,
   defaultBriefWebBase,
+  closeoutGapWeekdays,
+  closeoutTimestampHeader,
+  preserveGoalsNeverSections,
+  previousWeekdays,
 } from '../src/lib/day-plan/brief-sources.ts';
 import { maybeQueueMorningBrief } from '../src/lib/day-plan/brief-triggers.ts';
 import { morningBriefSyncDecision } from '../src/lib/day-plan/brief-view.ts';
@@ -47,6 +60,12 @@ import {
   enqueueDueMorningBrief,
   runOneMorningBrief,
 } from '../src/lib/claude-execution/worker.ts';
+import { writeMorningBriefInput } from '../src/lib/claude-execution/brief-inputs.ts';
+import {
+  formatBacktestSummary,
+  knownTaskIdsFromSections,
+  parseBacktestArgs,
+} from '../scripts/brief-backtest.mjs';
 
 const CLOCK = '2026-07-14T13:00:00.000Z';
 const PREVIOUS_OPERATOR_NAME = process.env.COVE_OPERATOR_NAME;
@@ -221,6 +240,7 @@ function briefWorkerOptions(dir, store, claudePath, collectBriefSources) {
     now: () => new Date(CLOCK),
     briefTimeoutMs: 5_000,
     briefWriter: 'claude',
+    dataDir: dir,
     collectBriefSources,
   };
 }
@@ -229,7 +249,7 @@ function collectedSources({ goals = 'North star: 30k a month.' } = {}) {
   return {
     sources: [
       // An empty string reads as missing (whitespace-only content is absent).
-      { id: 'goals', label: 'GOALS', required: true, maxChars: 9000, priority: 1, content: goals || undefined, asOf: CLOCK },
+      { id: 'goals', label: 'GOALS', required: true, maxChars: 20000, priority: 1, content: goals || undefined, asOf: CLOCK },
       { id: 'operator_profile', label: 'OPERATOR_PROFILE', required: false, maxChars: 6000, priority: 2, content: 'Jordan Rivers runs three operating lanes.', asOf: CLOCK },
       { id: 'leadup', label: 'LEADUP', required: false, maxChars: 9000, priority: 3, content: 'Client delivery led the week.', asOf: CLOCK },
       { id: 'sprint_memo', label: 'SPRINT_MEMO', required: true, maxChars: 12000, priority: 4, content: 'Four setups this month.', asOf: CLOCK },
@@ -260,6 +280,7 @@ test('assembly bounds each source, trims least important first, and reports cove
   // Per-source cap first: goals 40 -> 10, recorded as trimmed.
   assert.equal(byId.goals.chars, 10);
   assert.equal(byId.goals.trimmed, true);
+  assert.deepEqual(context.trimmedRequired, ['goals']);
   // Total cap trims the least important source (priority 8) down to fit.
   assert.equal(context.manifest.totalChars <= 35, true);
   assert.equal(byId.memory_decisions.trimmed, true);
@@ -283,6 +304,7 @@ test('missing required sources are named and hashes stay content-based', () => {
     { id: 'sprint_memo', label: 'SPRINT_MEMO', required: true, maxChars: 100, priority: 2, content: 'memo' },
   ]);
   assert.deepEqual(context.missingRequired, ['goals']);
+  assert.deepEqual(context.trimmedRequired, []);
   const memo = context.manifest.sources.find((source) => source.id === 'sprint_memo');
   assert.equal(typeof memo.hash, 'string');
   assert.equal(context.manifest.sources.find((source) => source.id === 'goals').hash, undefined);
@@ -305,6 +327,89 @@ test('a source fully trimmed out by the total cap is covered as missing', () => 
   assert.equal(context.sections.some((section) => section.id === 'memory_decisions'), false);
   // It was still readable, so it is not a missing REQUIRED source.
   assert.deepEqual(context.missingRequired, []);
+});
+
+test('goals trimming preserves every Never section in full within the cap', () => {
+  const neverDrop = '## Never drop\n- Follow up with every quiet lead.\n- Protect client delivery.\n';
+  const neverDo = '## Never do\n- Reopen work that the board shows as done.\n';
+  const content =
+    `# Goals\n${'A'.repeat(12_000)}\n` +
+    `## Current priorities\n${'B'.repeat(12_000)}\n` +
+    neverDrop +
+    neverDo;
+  const bounded = preserveGoalsNeverSections(content, 20_000);
+
+  assert.ok(bounded.length <= 20_000);
+  assert.ok(bounded.startsWith('# Goals\n'));
+  assert.match(bounded, /^\[\.\.\. middle trimmed by Cove \.\.\.\]$/m);
+  assert.ok(bounded.includes(neverDrop));
+  assert.ok(bounded.includes(neverDo));
+});
+
+test('total-cap trimming still preserves goals Never sections', () => {
+  const neverDrop = '## Never drop\n- Protect client delivery.\n';
+  const goals = `# Goals\n${'A'.repeat(500)}\n${neverDrop}`;
+  const context = assembleMorningBriefContext(
+    [
+      {
+        id: 'goals',
+        label: 'GOALS',
+        required: true,
+        maxChars: 1000,
+        priority: 1,
+        content: goals,
+        contentTrimmer: preserveGoalsNeverSections,
+      },
+      {
+        id: 'memory_decisions',
+        label: 'RECENT_DECISIONS',
+        required: false,
+        maxChars: 1000,
+        priority: 8,
+        content: 'B'.repeat(500),
+      },
+    ],
+    { totalMaxChars: 180 },
+  );
+  const boundedGoals = context.sections.find((section) => section.id === 'goals').text;
+  assert.ok(boundedGoals.length <= 180);
+  assert.match(boundedGoals, /^\[\.\.\. middle trimmed by Cove \.\.\.\]$/m);
+  assert.ok(boundedGoals.includes(neverDrop.trim()));
+  // Pin WHICH pass fired: goals fits its own cap, so only the total-cap pass
+  // can have trimmed it. Without this the fixture arithmetic is the only proof.
+  assert.ok(context.manifest.trims.includes('goals:total_cap'));
+  assert.ok(context.manifest.trims.includes('memory_decisions:trimmed_out'));
+});
+
+test('goals trimming fails when Never sections alone exceed the cap', () => {
+  const content = `# Goals\n${'A'.repeat(100)}\n## Never drop\n${'N'.repeat(200)}`;
+  assert.throws(
+    () => preserveGoalsNeverSections(content, 100),
+    /goals_never_sections_exceed_cap/,
+  );
+});
+
+test('goals trimming without Never sections uses a plain head and marker', () => {
+  const content = `# Goals\n${'A'.repeat(200)}`;
+  const bounded = preserveGoalsNeverSections(content, 80);
+  assert.equal(bounded.length, 80);
+  assert.ok(bounded.startsWith('# Goals\n'));
+  assert.ok(bounded.endsWith('\n[... middle trimmed by Cove ...]'));
+});
+
+test('goals trimming preserves a Never section at the start without duplication', () => {
+  const neverDrop = '## Never drop\n- Protect client delivery.\n';
+  const content = `${neverDrop}## Current priorities\n${'A'.repeat(200)}`;
+  const bounded = preserveGoalsNeverSections(content, 100);
+  assert.ok(bounded.length <= 100);
+  assert.ok(bounded.includes(neverDrop));
+  assert.equal(bounded.indexOf(neverDrop), bounded.lastIndexOf(neverDrop));
+});
+
+test('goals content below the raised cap ships byte-for-byte untrimmed', () => {
+  const content = `# Goals\n${'G'.repeat(15_000 - '# Goals\n'.length)}`;
+  assert.equal(content.length, 15_000);
+  assert.equal(preserveGoalsNeverSections(content, 20_000), content);
 });
 
 test('assembly reports staleness from asOf against per-source thresholds', () => {
@@ -387,6 +492,184 @@ test('the collector marks candidate_ok only on the arrival-eligible tasks', asyn
   }
   const email = collected.sources.find((source) => source.id === 'email_brief');
   assert.match(email.content, /^Email\nReply to Gio\./);
+});
+
+// ---------------------------------------------------------------------------
+// Closeout freshness and the five-weekday lookback.
+// ---------------------------------------------------------------------------
+
+test('the weekday lookback skips weekends', () => {
+  // Monday: the five working days behind it are the previous Mon-Fri, never the
+  // Saturday and Sunday sitting immediately behind.
+  assert.deepEqual(previousWeekdays('2026-07-27'), [
+    '2026-07-24', '2026-07-23', '2026-07-22', '2026-07-21', '2026-07-20',
+  ]);
+  // Midweek: plain consecutive days, and never the target itself.
+  assert.deepEqual(previousWeekdays('2026-07-29'), [
+    '2026-07-28', '2026-07-27', '2026-07-24', '2026-07-23', '2026-07-22',
+  ]);
+});
+
+test('the closeout gap counts working days, so Friday read on Monday is current', () => {
+  // The case an hours-based rule gets wrong every week: Friday's closeout is
+  // ~60 hours old on Monday morning and is still the most recent one possible.
+  assert.equal(closeoutGapWeekdays('2026-07-24', '2026-07-27'), 0);
+  // Yesterday, midweek.
+  assert.equal(closeoutGapWeekdays('2026-07-28', '2026-07-29'), 0);
+  // Thursday's closeout read the following Wednesday: Fri, Mon, Tue went by.
+  assert.equal(closeoutGapWeekdays('2026-07-23', '2026-07-29'), 3);
+  // Same day or later is not a gap, and neither is an unusable date.
+  assert.equal(closeoutGapWeekdays('2026-07-29', '2026-07-29'), undefined);
+  assert.equal(closeoutGapWeekdays(undefined, '2026-07-29'), undefined);
+});
+
+test('the closeout provenance line states facts and passes no verdict', () => {
+  const current = closeoutTimestampHeader({
+    asOf: '2026-07-25T01:00:00.000Z',
+    closeoutLocalDate: '2026-07-24',
+    targetLocalDate: '2026-07-27',
+    targetTimezone: 'America/Los_Angeles',
+  });
+  assert.match(current, /Saved: 2026-07-25T01:00:00\.000Z\./);
+  assert.match(current, /Covers the working day Friday, Jul 24\./);
+  assert.match(current, /This brief is for Monday, Jul 27\./);
+  assert.match(current, /most recent word/);
+  const gapped = closeoutTimestampHeader({
+    asOf: '2026-07-24T18:02:21.076Z',
+    closeoutLocalDate: '2026-07-23',
+    targetLocalDate: '2026-07-29',
+    targetTimezone: 'America/Los_Angeles',
+  });
+  assert.match(gapped, /3 working days \(Friday, Jul 24, Monday, Jul 27, Tuesday, Jul 28\) went by without a closeout/);
+  // Facts only: the writer decides what is stale, so no instruction here does.
+  for (const header of [current, gapped]) {
+    assert.equal(/never|do not|must not/i.test(header), false, header);
+  }
+});
+
+test('the collector reads the closeout still being extracted, not the previous one', async (t) => {
+  const dir = path.join(os.tmpdir(), `forge-brief-dump-${process.pid}-${Date.now()}`);
+  mkdirSync(dir, { recursive: true });
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(path.join(dir, 'goals.md'), 'North star: 30k a month.');
+  writeFileSync(path.join(dir, 'memo.md'), 'Four setups this month.');
+  // The exact 2026-07-29 shape: the closeout that moved a client install lands
+  // seconds before collection and is still extracting, while the previous
+  // succeeded dump is five days old and says the install is today.
+  const dumps = [
+    { id: 'd-ancient', targetLocalDate: '2026-07-10', rawText: 'Ancient notes.', status: 'succeeded', createdAt: '2026-07-11T02:00:00.000Z' },
+    { id: 'd-thu', targetLocalDate: '2026-07-23', rawText: 'Thursday notes.', status: 'succeeded', createdAt: '2026-07-24T02:00:00.000Z' },
+    { id: 'd-new', targetLocalDate: '2026-07-24', rawText: 'The install moved to Monday.', status: 'running', createdAt: '2026-07-27T01:00:00.000Z' },
+  ];
+  const briefFor = (headline) => JSON.stringify({
+    ...validateMorningBrief(WIRE_BRIEF).brief,
+    headline,
+  });
+  const collected = await collectMorningBriefSources({
+    store: {
+      listRecentSnapshots: () => [],
+      listDayDumps: () => dumps,
+      listMorningBriefs: (date) =>
+        date === '2026-07-24'
+          ? [{ id: 'b-fri', targetLocalDate: date, status: 'succeeded', briefJson: briefFor('Friday headline.'), finishedAt: '2026-07-24T14:35:00.000Z' }]
+          : [],
+    },
+    dataDir: dir,
+    goalsPath: path.join(dir, 'goals.md'),
+    sprintMemoPath: path.join(dir, 'memo.md'),
+    targetLocalDate: '2026-07-27',
+    targetTimezone: 'America/Los_Angeles',
+    now: new Date('2026-07-27T14:30:00.000Z'),
+    webBaseUrl: 'http://forge.test',
+    fetchImpl: async () => ({ ok: true, json: async () => [] }),
+  });
+  const byId = Object.fromEntries(collected.sources.map((source) => [source.id, source]));
+  // The whole bug: status must not gate the newest closeout.
+  assert.match(byId.day_dump.content, /The install moved to Monday\./);
+  assert.equal(byId.day_dump.content.includes('Thursday notes.'), false);
+  assert.equal(byId.day_dump.asOf, '2026-07-27T01:00:00.000Z');
+  // It covers Friday and the brief is for Monday, so no working day went by:
+  // current, and the provenance line says why rather than warning about hours.
+  assert.equal(byId.day_dump.freshness, 'current');
+  assert.ok(byId.day_dump.content.startsWith('CLOSEOUT PROVENANCE'));
+  assert.match(byId.day_dump.content, /most recent word/);
+  // History holds the older weekday closeouts, never the newest one again, and
+  // never one that fell outside the five-weekday window.
+  assert.match(byId.recent_dumps.content, /Thursday notes\./);
+  assert.equal(byId.recent_dumps.content.includes('The install moved to Monday.'), false);
+  assert.equal(byId.recent_dumps.content.includes('Ancient notes.'), false);
+  assert.match(byId.recent_briefs.content, /2026-07-24: Friday headline\./);
+  assert.match(byId.recent_briefs.content, /not evidence/);
+});
+
+test('a closeout with working days behind it carries its provenance ahead of the text', async (t) => {
+  const dir = path.join(os.tmpdir(), `forge-brief-stale-${process.pid}-${Date.now()}`);
+  mkdirSync(dir, { recursive: true });
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(path.join(dir, 'goals.md'), 'North star: 30k a month.');
+  writeFileSync(path.join(dir, 'memo.md'), 'Four setups this month.');
+  const collected = await collectMorningBriefSources({
+    store: {
+      listRecentSnapshots: () => [],
+      listDayDumps: () => [
+        { id: 'd-old', targetLocalDate: '2026-07-21', rawText: 'The install is Wednesday.', status: 'succeeded', createdAt: '2026-07-22T02:00:00.000Z' },
+      ],
+      listMorningBriefs: () => [],
+    },
+    dataDir: dir,
+    goalsPath: path.join(dir, 'goals.md'),
+    sprintMemoPath: path.join(dir, 'memo.md'),
+    targetLocalDate: '2026-07-27',
+    targetTimezone: 'America/Los_Angeles',
+    now: new Date('2026-07-27T14:30:00.000Z'),
+    webBaseUrl: 'http://forge.test',
+    fetchImpl: async () => ({ ok: true, json: async () => [] }),
+  });
+  const dump = collected.sources.find((source) => source.id === 'day_dump');
+  // Provenance leads, because the character cap trims from the end and a
+  // timestamp trimmed off is a timestamp unread.
+  assert.ok(dump.content.startsWith('CLOSEOUT PROVENANCE'));
+  // Covers Tuesday Jul 21, brief is for Monday Jul 27: Wed, Thu, Fri went by.
+  assert.match(dump.content, /3 working days \(Wednesday, Jul 22, Thursday, Jul 23, Friday, Jul 24\) went by without a closeout/);
+  assert.match(dump.content, /The install is Wednesday\./);
+  // The manifest reports the gap, and the writer decides what it means.
+  const context = assembleMorningBriefContext(collected.sources, { now: new Date('2026-07-27T14:30:00.000Z') });
+  assert.equal(context.manifest.coverage.day_dump, 'stale');
+  // With no history the lookback sources report themselves missing rather than
+  // shipping an empty section the model has to interpret.
+  const byId = Object.fromEntries(collected.sources.map((source) => [source.id, source]));
+  assert.equal(byId.recent_dumps.note, 'recent_dumps_unavailable');
+  assert.equal(byId.recent_briefs.note, 'recent_briefs_unavailable');
+});
+
+test('a malformed recent dump returns a scoped failure note without aborting collection', async (t) => {
+  const dir = path.join(os.tmpdir(), `forge-brief-malformed-dump-${process.pid}-${Date.now()}`);
+  mkdirSync(dir, { recursive: true });
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(path.join(dir, 'goals.md'), 'North star: 30k a month.');
+  writeFileSync(path.join(dir, 'memo.md'), 'Four setups this month.');
+  const collected = await collectMorningBriefSources({
+    store: {
+      listRecentSnapshots: () => [],
+      listDayDumps: () => [
+        { id: 'd-bad', targetLocalDate: '2026-07-23', rawText: 'Malformed older notes.', status: 'succeeded', createdAt: 42 },
+        { id: 'd-old', targetLocalDate: '2026-07-24', rawText: 'Valid older notes.', status: 'succeeded', createdAt: '2026-07-25T02:00:00.000Z' },
+        { id: 'd-new', targetLocalDate: '2026-07-25', rawText: 'Newest notes.', status: 'succeeded', createdAt: '2026-07-26T02:00:00.000Z' },
+      ],
+      listMorningBriefs: () => [],
+    },
+    dataDir: dir,
+    goalsPath: path.join(dir, 'goals.md'),
+    sprintMemoPath: path.join(dir, 'memo.md'),
+    targetLocalDate: '2026-07-27',
+    targetTimezone: 'America/Los_Angeles',
+    now: new Date('2026-07-27T14:30:00.000Z'),
+    webBaseUrl: 'http://forge.test',
+    fetchImpl: async () => ({ ok: true, json: async () => [] }),
+  });
+  const recent = collected.sources.find((source) => source.id === 'recent_dumps');
+  assert.match(recent.note, /^error:/);
+  assert.equal(collected.sources.some((source) => source.id === 'goals'), true);
 });
 
 // ---------------------------------------------------------------------------
@@ -1137,12 +1420,29 @@ test('ensure keeps at most three items from a larger deterministic pool', (t) =>
 // ---------------------------------------------------------------------------
 
 test('the brief command is the exact bounded toolless invocation', () => {
-  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 13);
+  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 14);
   const repoCwd = process.cwd();
   const ownerPrompt = readFileSync(path.join(repoCwd, 'prompts', 'chief-of-staff.md'), 'utf8').trimEnd();
   assert.ok(ownerPrompt.includes(
     "Work they resolved as Progress last night is momentum, not failure. Lead with it: say where it stands in their own words from the note, and make its recorded next step the obvious first move of the day. Work they resolved as Carry did not move. If the same item has been carried two or more days running, say that plainly and ask whether it still belongs in today's top three or should be deferred.",
   ));
+  assert.match(ownerPrompt, /### When sources disagree/);
+  assert.match(ownerPrompt, /On today's schedule, CALENDAR wins\./);
+  assert.match(ownerPrompt, /commitments ledger and EMAIL_DECISION_QUEUE win/);
+  assert.equal(ownerPrompt.includes('internal and launch work, always.'), false);
+  assert.match(ownerPrompt, /Client and customer delivery is the default winner for the day's first block/);
+  assert.match(ownerPrompt, /A thread with a draft waiting is one approval away from done/);
+  assert.match(ownerPrompt, /accepted candidate has carried two or more days running/);
+  assert.match(ownerPrompt, /candidate was dismissed two or more times, stop recommending it and ask why instead/);
+  assert.match(ownerPrompt, /A not_decided day means the operator never chose\. Say the arrival went unopened and do not claim a decision\./);
+  assert.ok(
+    ownerPrompt.indexOf('- Light things stay light:') <
+      ownerPrompt.indexOf('### When sources disagree'),
+  );
+  assert.ok(
+    ownerPrompt.indexOf('### When sources disagree') <
+      ownerPrompt.indexOf('## Watching items'),
+  );
   let command;
   process.chdir(os.tmpdir());
   try {
@@ -1202,6 +1502,80 @@ test('the brief command is the exact bounded toolless invocation', () => {
   assert.deepEqual(parseMorningBriefOutput('```json\n{"lens_narrative":"ok"}\n```'), {
     lens_narrative: 'ok',
   });
+});
+
+test('backtest helpers parse selections, recover candidate ids, and summarize current prompts', () => {
+  assert.deepEqual(parseBacktestArgs(['artifact-1']), {
+    run: false,
+    artifactId: 'artifact-1',
+  });
+  assert.deepEqual(parseBacktestArgs(['--latest', '3', '--run']), {
+    run: true,
+    latest: 3,
+  });
+  assert.throws(() => parseBacktestArgs(['--latest', '0']), /Usage:/);
+  const input = {
+    artifact_id: 'artifact-1',
+    target_local_date: '2026-07-14',
+    target_timezone: 'America/Los_Angeles',
+    prompt_version: 14,
+    schema_version: 3,
+    sections: [
+      {
+        id: 'task_snapshot',
+        label: 'OPEN_TASKS',
+        text: '- [today] id=task-a "Do it" candidate_ok\n- [not_started] id=task-b "Wait"',
+      },
+    ],
+    manifest: {
+      sources: [
+        { id: 'task_snapshot', required: true, freshness: 'current', chars: 75, trimmed: false },
+      ],
+      coverage: { task_snapshot: 'included' },
+      trims: [],
+      totalChars: 75,
+    },
+    written_at: CLOCK,
+  };
+  assert.deepEqual([...knownTaskIdsFromSections(input.sections)], ['task-a']);
+  const summary = formatBacktestSummary(input, { headline: 'Stored headline.' });
+  assert.match(summary, /Artifact: artifact-1/);
+  assert.match(summary, /Prompt chars: \d+/);
+  assert.match(summary, /Stored headline: Stored headline\./);
+  assert.match(summary, /task_snapshot \(OPEN_TASKS\): \d+ chars/);
+  const legacySummary = formatBacktestSummary(input, {
+    headline: null,
+    lensNarrative: 'Legacy first sentence. Legacy second sentence.',
+  });
+  assert.match(legacySummary, /Stored headline: Legacy first sentence\./);
+  assert.equal(legacySummary.includes('(stored artifact unavailable)'), false);
+});
+
+test('brief input retention keeps only the newest sixty private snapshots', (t) => {
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'forge-brief-input-retention-'));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  const manifest = {
+    sources: [],
+    coverage: {},
+    trims: [],
+    totalChars: 0,
+  };
+  for (let index = 0; index < 61; index += 1) {
+    writeMorningBriefInput({
+      artifact_id: `artifact-${String(index).padStart(3, '0')}`,
+      target_local_date: '2026-07-14',
+      target_timezone: 'America/Los_Angeles',
+      prompt_version: 14,
+      schema_version: 3,
+      sections: [],
+      manifest,
+      written_at: new Date(Date.parse(CLOCK) + index * 1000).toISOString(),
+    }, dataDir);
+  }
+  const inputDir = path.join(dataDir, 'brief-inputs');
+  assert.equal(readdirSync(inputDir).filter((name) => name.endsWith('.json')).length, 60);
+  assert.equal(existsSync(path.join(inputDir, 'artifact-000.json')), false);
+  assert.equal(existsSync(path.join(inputDir, 'artifact-060.json')), true);
 });
 
 test('the Codex writer command uses a private read-only temp workspace', () => {
@@ -1386,18 +1760,90 @@ test('the brief worker validates, filters unknown tasks, and stores the artifact
   assert.deepEqual(brief.existingTaskCandidates.map((candidate) => candidate.taskId), ['task-c', 'task-a']);
   assert.equal(typeof artifact.inputHash, 'string');
   assert.equal(artifact.sourceManifest.coverage.calendar, 'missing');
+  const storedInput = JSON.parse(
+    readFileSync(path.join(dir, 'brief-inputs', `${artifact.id}.json`), 'utf8'),
+  );
+  assert.deepEqual(Object.keys(storedInput).sort(), [
+    'artifact_id',
+    'manifest',
+    'prompt_version',
+    'schema_version',
+    'sections',
+    'target_local_date',
+    'target_timezone',
+    'written_at',
+  ]);
+  assert.equal(storedInput.artifact_id, artifact.id);
+  assert.equal(storedInput.target_local_date, '2026-07-14');
+  assert.equal(storedInput.target_timezone, 'America/Los_Angeles');
+  assert.equal(storedInput.prompt_version, 14);
+  assert.equal(storedInput.schema_version, 3);
+  assert.deepEqual(storedInput.sections, assembleMorningBriefContext(collectedSources().sources, {
+    now: new Date(CLOCK),
+  }).sections);
+  assert.deepEqual(storedInput.manifest, artifact.sourceManifest);
+  assert.equal(storedInput.written_at, CLOCK);
   const captured = JSON.parse(readFileSync(fake.capture, 'utf8'));
   assert.deepEqual(captured.args.slice(0, 8), [
     '-p', '--no-session-persistence', '--permission-mode', 'plan', '--tools', '',
     '--strict-mcp-config', '--mcp-config',
   ]);
-  assert.match(captured.input, /^# The morning brief: chief of staff mandate \(v13\)/);
+  assert.match(captured.input, /^# The morning brief: chief of staff mandate \(v14\)/);
   assert.match(captured.input, /\n\/cove-morning-brief\n/);
   // Empty queue afterwards.
   assert.equal(
     await runOneMorningBrief(briefWorkerOptions(dir, store, fake.executable, async () => collectedSources())),
     false,
   );
+});
+
+test('a brief input write failure logs once and never blocks generation', async (t) => {
+  const { dir, store } = briefFixture(t);
+  const blockedDataDir = path.join(dir, 'not-a-directory');
+  writeFileSync(blockedDataDir, 'file blocks directory creation');
+  const fake = fakeClaude(dir, JSON.stringify(WIRE_BRIEF));
+  const errors = [];
+  const originalError = console.error;
+  console.error = (...values) => errors.push(values);
+  t.after(() => { console.error = originalError; });
+  store.enqueueMorningBrief('2026-07-14', {
+    modelAlias: 'opus',
+    effort: 'high',
+    budgetUsd: 1.5,
+  });
+  const options = briefWorkerOptions(
+    dir,
+    store,
+    fake.executable,
+    async () => collectedSources(),
+  );
+  options.dataDir = blockedDataDir;
+
+  assert.equal(await runOneMorningBrief(options), true);
+  assert.equal(store.latestEligibleMorningBrief('2026-07-14').status, 'succeeded');
+  assert.equal(errors.length, 1);
+  assert.match(errors[0][0], /^brief input write failed:/);
+});
+
+test('the brief worker logs one alarm when a required source is trimmed', async (t) => {
+  const { dir, store } = briefFixture(t);
+  const fake = fakeClaude(dir, JSON.stringify(WIRE_BRIEF));
+  const errors = [];
+  const originalError = console.error;
+  console.error = (...values) => errors.push(values);
+  t.after(() => { console.error = originalError; });
+  store.enqueueMorningBrief('2026-07-14', { modelAlias: 'opus', effort: 'high', budgetUsd: 1.5 });
+  const collected = collectedSources();
+  const goals = collected.sources.find((source) => source.id === 'goals');
+  goals.maxChars = 100;
+  goals.content = 'G'.repeat(101);
+
+  assert.equal(
+    await runOneMorningBrief(briefWorkerOptions(dir, store, fake.executable, async () => collected)),
+    true,
+  );
+  assert.deepEqual(errors, [['brief warning: required source trimmed: goals']]);
+  assert.equal(store.latestEligibleMorningBrief('2026-07-14').status, 'succeeded');
 });
 
 test('the brief worker fails open on invalid output and missing required sources', async (t) => {

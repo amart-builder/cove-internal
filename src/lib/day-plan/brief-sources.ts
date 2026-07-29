@@ -22,7 +22,12 @@ import {
   type OperatorProfile,
 } from "../operator";
 import type { DayPlanStore, SessionDigest } from "./store";
-import { localDateInTimezone, type BriefSourceInput } from "./brief";
+import type { DayDump } from "./types";
+import {
+  localDateInTimezone,
+  morningBriefFromArtifact,
+  type BriefSourceInput,
+} from "./brief";
 import { buildSettlementSummary, readDumpRelay, readSettlementRelay } from "./brief-relay";
 import { contentQuotaGap, followUpsDue, staleOpenItems } from "./gap-detectors";
 import { coveEnv } from "../env";
@@ -393,6 +398,39 @@ function operatorProfileJsonSource(
 
 function compactLine(value: string | undefined, maximum: number): string {
   return (value ?? "").replace(/\s+/g, " ").trim().slice(0, maximum);
+}
+
+const GOALS_TRIM_MARKER = "[... middle trimmed by Cove ...]";
+
+export function preserveGoalsNeverSections(
+  content: string,
+  maxChars: number,
+): string {
+  if (content.length <= maxChars) return content;
+  if (!Number.isInteger(maxChars) || maxChars <= 0) {
+    throw new Error("goals_max_chars_invalid");
+  }
+
+  const headings = [...content.matchAll(/^## [^\r\n]*\r?$/gm)];
+  const neverSections = headings.flatMap((heading, index) => {
+    if (!heading[0].startsWith("## Never ")) return [];
+    const start = heading.index ?? 0;
+    const end = headings[index + 1]?.index ?? content.length;
+    return [{ start, text: content.slice(start, end) }];
+  });
+  const preservedTail = neverSections.map((section) => section.text).join("");
+  const suffix = preservedTail
+    ? `\n${GOALS_TRIM_MARKER}\n${preservedTail}`
+    : `\n${GOALS_TRIM_MARKER}`;
+  if (suffix.length > maxChars) {
+    throw new Error("goals_never_sections_exceed_cap");
+  }
+
+  // Stopping before the first preserved section avoids duplicating it when an
+  // unusually early Never heading falls inside the available head budget.
+  const headBoundary = neverSections[0]?.start ?? content.length;
+  const head = content.slice(0, Math.min(headBoundary, maxChars - suffix.length));
+  return `${head}${suffix}`;
 }
 
 export async function fetchRows(
@@ -1354,6 +1392,156 @@ async function commitmentsSource(input: {
   }
 }
 
+type EmailQueueItem = {
+  id: string;
+  threadId?: string;
+  classification?: string;
+  status: string;
+  senderName?: string;
+  senderEmail?: string;
+  subject?: string;
+  summary?: string;
+  recommendedAction?: string;
+  priority?: number;
+  receivedAt?: string;
+};
+
+type EmailQueueDraft = {
+  id: string;
+  emailItemId?: string;
+  status: "needs_review" | "approved" | "edited";
+};
+
+function emailQueueItem(value: unknown): EmailQueueItem | undefined {
+  const row = asRecord(value);
+  if (!row || typeof row.id !== "string" || typeof row.status !== "string") {
+    return undefined;
+  }
+  const priority = Number(row.priority);
+  return {
+    id: row.id,
+    threadId: typeof row.thread_id === "string" ? row.thread_id : undefined,
+    classification: typeof row.classification === "string" ? row.classification : undefined,
+    status: row.status,
+    senderName: typeof row.sender_name === "string" ? row.sender_name : undefined,
+    senderEmail: typeof row.sender_email === "string" ? row.sender_email : undefined,
+    subject: typeof row.subject === "string" ? row.subject : undefined,
+    summary: typeof row.summary === "string" ? row.summary : undefined,
+    recommendedAction:
+      typeof row.recommended_action === "string" ? row.recommended_action : undefined,
+    priority: Number.isFinite(priority) ? priority : undefined,
+    receivedAt: typeof row.received_at === "string" ? row.received_at : undefined,
+  };
+}
+
+function emailQueueDraft(value: unknown): EmailQueueDraft | undefined {
+  const row = asRecord(value);
+  if (
+    !row ||
+    typeof row.id !== "string" ||
+    (row.status !== "needs_review" && row.status !== "approved" && row.status !== "edited")
+  ) {
+    return undefined;
+  }
+  return {
+    id: row.id,
+    emailItemId: typeof row.email_item_id === "string" ? row.email_item_id : undefined,
+    status: row.status,
+  };
+}
+
+export async function emailQueueSource(input: {
+  fetchImpl: typeof fetch;
+  baseUrl: string;
+  timeoutMs: number;
+  now: Date;
+}): Promise<BriefSourceInput> {
+  const base: BriefSourceInput = {
+    id: "email_queue",
+    label: "EMAIL_DECISION_QUEUE",
+    required: false,
+    maxChars: 12_000,
+    priority: 7,
+    freshness: "current",
+  };
+  try {
+    // These tables have no position column. Explicit queries keep forge-rest
+    // from applying its default position ordering to columns that do not exist.
+    const [itemRows, draftRows] = await Promise.all([
+      fetchRows(
+        input.fetchImpl,
+        input.baseUrl,
+        "email_items",
+        input.timeoutMs,
+        "select=id,thread_id,classification,status,sender_name,sender_email,subject,summary,recommended_action,priority,received_at&status=in.(pending,reviewed)&order=received_at.desc",
+      ),
+      fetchRows(
+        input.fetchImpl,
+        input.baseUrl,
+        "drafts",
+        input.timeoutMs,
+        "select=id,email_item_id,status&status=in.(needs_review,approved,edited)&order=updated_at.desc",
+      ),
+    ]);
+    const items = itemRows
+      .map(emailQueueItem)
+      .filter((item): item is EmailQueueItem => Boolean(item))
+      .sort((left, right) => {
+        const classification =
+          Number(right.classification === "action_item") -
+          Number(left.classification === "action_item");
+        if (classification !== 0) return classification;
+        const priority = (left.priority ?? Number.MAX_SAFE_INTEGER) -
+          (right.priority ?? Number.MAX_SAFE_INTEGER);
+        if (priority !== 0) return priority;
+        const leftReceived = left.receivedAt ? Date.parse(left.receivedAt) : 0;
+        const rightReceived = right.receivedAt ? Date.parse(right.receivedAt) : 0;
+        return rightReceived - leftReceived || left.id.localeCompare(right.id);
+      });
+    if (items.length === 0) {
+      return { ...base, content: "No open email items." };
+    }
+
+    // Draft rows arrive newest first. Keep the first state for each item and
+    // ignore orphan rows because email_item_id has no enforced foreign key.
+    const itemIds = new Set(items.map((item) => item.id));
+    const draftByItemId = new Map<string, EmailQueueDraft["status"]>();
+    for (const draft of draftRows
+      .map(emailQueueDraft)
+      .filter((entry): entry is EmailQueueDraft => Boolean(entry))) {
+      if (
+        draft.emailItemId &&
+        itemIds.has(draft.emailItemId) &&
+        !draftByItemId.has(draft.emailItemId)
+      ) {
+        draftByItemId.set(draft.emailItemId, draft.status);
+      }
+    }
+
+    const waitingCount = items.filter((item) => draftByItemId.has(item.id)).length;
+    const displayedItems = items.slice(0, 25);
+    const content = [
+      `showing ${displayedItems.length} of ${items.length} open items (${waitingCount} with a draft waiting).`,
+      ...displayedItems.map((item) => {
+        const sender = compactLine(item.senderName || item.senderEmail, 80) || "Unknown sender";
+        const subject = JSON.stringify(compactLine(item.subject, 120) || "(no subject)");
+        const ask = compactLine(item.recommendedAction || item.summary, 140) || "none stated";
+        return `- [${compactLine(item.status, 30)}] p${item.priority ?? "?"} ${JSON.stringify(sender)} ${subject}` +
+          ` | ask: ${JSON.stringify(ask)}` +
+          ` | draft: ${draftByItemId.get(item.id) ?? "none"}` +
+          ` | age: ${inboundAge(item.receivedAt, input.now)}`;
+      }),
+    ].join("\n");
+    const newestReceivedAt = items.reduce(
+      (newest, item) => item.receivedAt && item.receivedAt > newest ? item.receivedAt : newest,
+      "",
+    );
+    return { ...base, content, asOf: newestReceivedAt || undefined };
+  } catch (error) {
+    return { ...base, note: errorNote(error, "email_queue_failed") };
+  }
+}
+
 function addCalendarDays(localDate: string, days: number): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(localDate);
   if (!match) throw new Error("calendar target date invalid");
@@ -1416,6 +1604,276 @@ function calendarDayBounds(localDate: string, timezone: string): { timeMin: stri
   };
 }
 
+// How many prior weekdays of closeouts and briefs the morning brief looks back
+// over. Five covers a full working week without letting a quiet Friday fall out
+// of view on Monday.
+export const BRIEF_LOOKBACK_WEEKDAYS = 5;
+
+// The operator does not do structured work on weekends, so a Monday brief that
+// counted back five calendar days would spend two of its five slots on days that
+// were never going to have a closeout in them. Counts strictly backwards from the
+// day before the target and keeps only Monday through Friday, newest first.
+export function previousWeekdays(
+  targetLocalDate: string,
+  count = BRIEF_LOOKBACK_WEEKDAYS,
+): string[] {
+  const dates: string[] = [];
+  // Three calendar days per weekday needed is slack enough for any weekend run.
+  for (let back = 1; dates.length < count && back <= count * 3; back += 1) {
+    const date = addCalendarDays(targetLocalDate, -back);
+    const weekday = new Date(`${date}T12:00:00.000Z`).getUTCDay();
+    if (weekday !== 0 && weekday !== 6) dates.push(date);
+  }
+  return dates;
+}
+
+// Working days sitting between the day a closeout covers and the day the brief
+// is for. This, not elapsed hours, is what says whether a closeout is the
+// current one: Friday's closeout read on Monday morning is ~60 hours old and is
+// still the most recent one possible, while a Thursday closeout read the
+// following Wednesday has three working days of silence behind it. An
+// hours-based rule gets Mondays wrong every single week.
+//
+// Returns undefined when the date is unusable or in the future, and 0 when the
+// closeout covers the immediately preceding working day.
+export function closeoutGapWeekdays(
+  closeoutLocalDate: string | undefined,
+  targetLocalDate: string,
+): number | undefined {
+  if (!closeoutLocalDate || closeoutLocalDate >= targetLocalDate) return undefined;
+  // Two working weeks is far enough back to be worth reporting exactly; past
+  // that the precise number stops changing anyone's reading of it.
+  const window = previousWeekdays(targetLocalDate, 10);
+  const index = window.indexOf(closeoutLocalDate);
+  return index >= 0 ? index : undefined;
+}
+
+// The provenance line Cove prepends to the closeout. Facts only: when it was
+// written, which day it covers, and how many working days have gone by without
+// another one. No verdict and no prohibition. The model has the target date and
+// this line, so it can judge for itself which parts of a closeout still hold,
+// which is the right call to leave with the writer rather than hard-code here.
+export function closeoutTimestampHeader(input: {
+  asOf: string | undefined;
+  closeoutLocalDate: string | undefined;
+  targetLocalDate: string;
+  targetTimezone: string;
+}): string {
+  const parts = [
+    `CLOSEOUT PROVENANCE (added by Cove, not written by the operator).`,
+    input.asOf ? `Saved: ${input.asOf}.` : `Saved: time unknown.`,
+    input.closeoutLocalDate
+      ? `Covers the working day ${weekdayLabel(input.closeoutLocalDate, input.targetTimezone)}.`
+      : `The day it covers was not recorded.`,
+    `This brief is for ${weekdayLabel(input.targetLocalDate, input.targetTimezone)}.`,
+  ];
+  const gap = closeoutGapWeekdays(input.closeoutLocalDate, input.targetLocalDate);
+  if (gap === 0) {
+    parts.push("It covers the working day immediately before this one, so it is the operator's most recent word.");
+  } else if (gap !== undefined && gap > 0) {
+    const skipped = previousWeekdays(input.targetLocalDate, gap)
+      .slice()
+      .reverse()
+      .map((date) => weekdayLabel(date, input.targetTimezone));
+    parts.push(
+      `${gap} working day${gap === 1 ? "" : "s"} (${skipped.join(", ")}) went by without a closeout, so anything time-bound in it may have moved since.`,
+    );
+  }
+  return parts.join(" ");
+}
+
+function weekdayLabel(localDate: string, timezone: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      weekday: "long",
+      month: "short",
+      day: "numeric",
+    }).format(new Date(`${localDate}T12:00:00.000Z`));
+  } catch {
+    return localDate;
+  }
+}
+
+// The previous weekdays' closeouts, under the newest one. The dump the operator
+// wrote last night says what he decided; the four before it say what he has been
+// circling for a week, which is how a brief notices that a task has been carried
+// three nights running rather than treating every morning as day one.
+function recentDumpsSource(input: {
+  dumps: readonly DayDump[];
+  newestId: string | undefined;
+  targetLocalDate: string;
+  now: Date;
+}): BriefSourceInput {
+  const base = {
+    id: "recent_dumps",
+    label: "RECENT_CLOSEOUT_NOTES",
+    required: false,
+    maxChars: 14_000,
+    priority: 2,
+  } as const;
+  try {
+    const window = new Set(previousWeekdays(input.targetLocalDate));
+    const history = input.dumps
+      .filter((dump) => dump.id !== input.newestId && window.has(dump.targetLocalDate))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    if (history.length === 0) {
+      return { ...base, note: "recent_dumps_unavailable" };
+    }
+    return {
+      ...base,
+      content: history
+        .map((dump) =>
+          `--- closeout for ${dump.targetLocalDate} (written ${dump.createdAt}) ---\n` +
+          dump.rawText.trim(),
+        )
+        .join("\n\n"),
+      asOf: history[0].createdAt,
+    };
+  } catch (error) {
+    // A malformed historical row must not suppress every other brief source.
+    return { ...base, note: errorNote(error, "recent_dumps_failed") };
+  }
+}
+
+// What Cove already told him on the previous weekdays. This is here so the brief
+// can see its own repetition: a headline it has now written three mornings
+// running is either the most important thing he owns or something it keeps
+// pushing that he has not chosen, and both of those are worth saying out loud.
+// Deliberately NOT evidence: prior briefs are Cove's own words, and treating
+// them as fact is how a wrong call from Monday survives all week.
+function briefCandidateReceipt(input: {
+  taskId: string;
+  plan: NonNullable<ReturnType<DayPlanStore["getPlanForDate"]>>;
+  snapshot: ReturnType<DayPlanStore["getSnapshot"]>;
+}): string {
+  const item = input.plan.items.find((candidate) => candidate.taskId === input.taskId);
+  if (!item) return `taskId=${input.taskId} dropped_before_arrival`;
+  const title = compactLine(item.title, 80) || "Untitled task";
+  const decision = item.decision === "accepted" || item.decision === "completed"
+    ? "accepted"
+    : item.decision === "pending" || item.decision === "preselected"
+      ? "not_decided"
+      : item.decision === "later"
+        ? "set_aside"
+        : item.decision === "dismissed"
+          ? "dismissed"
+          : "unknown_decision";
+  let settled = "not_settled";
+  if (input.snapshot?.body.completedHumanTaskIds.includes(input.taskId)) {
+    settled = "done";
+  } else {
+    settled = input.snapshot?.body.unresolvedItems.find(
+      (candidate) => candidate.taskId === input.taskId,
+    )?.disposition ?? "not_settled";
+  }
+  return `'${title.replace(/'/g, "\\'")}' ${decision} then ${settled}`;
+}
+
+function salesReceipt(
+  states: ReturnType<DayPlanStore["listMorningBriefSalesActionStates"]>,
+): string {
+  const counts = { approved: 0, edited: 0, skipped: 0 };
+  for (const record of states) {
+    if (record.state === "approved" || record.state === "edited" || record.state === "skipped") {
+      counts[record.state] += 1;
+    }
+  }
+  const parts = (["approved", "edited", "skipped"] as const)
+    .flatMap((state) => counts[state] > 0 ? [`${counts[state]} ${state}`] : []);
+  return parts.length > 0 ? parts.join(", ") : "none";
+}
+
+export function recentBriefsSource(input: {
+  store: DayPlanStore;
+  targetLocalDate: string;
+  now: Date;
+}): BriefSourceInput {
+  const base = {
+    id: "recent_briefs",
+    label: "YOUR_RECENT_BRIEFS",
+    required: false,
+    maxChars: 8000,
+    priority: 3,
+  } as const;
+  try {
+    const lines: string[] = [];
+    let newestAsOf: string | undefined;
+    for (const date of previousWeekdays(input.targetLocalDate)) {
+      const artifacts = input.store.listMorningBriefs(date);
+      const plan = input.store.getPlanForDate?.(date);
+      // A plan freezes the brief the operator actually saw when that artifact is
+      // available and parseable. Otherwise preserve the date with a labelled fallback.
+      const attachedArtifact = plan?.briefId
+        ? artifacts.find((artifact) => artifact.id === plan.briefId)
+        : undefined;
+      const attachedBrief = attachedArtifact
+        ? morningBriefFromArtifact(attachedArtifact)
+        : undefined;
+      let selected = attachedArtifact && attachedBrief
+        ? { artifact: attachedArtifact, brief: attachedBrief, fallback: false }
+        : undefined;
+      selected ??= [...artifacts]
+        .reverse()
+        .flatMap((artifact) => {
+          const brief = morningBriefFromArtifact(artifact);
+          return brief ? [{ artifact, brief, fallback: true }] : [];
+        })[0];
+      if (!selected?.brief) continue;
+      const { artifact, brief } = selected;
+      const headline = compactLine(brief.headline, 240) ||
+        compactLine(
+          /^.*?[.!?](?:\s|$)/.exec(compactLine(brief.lensNarrative, 10_000))?.[0] ??
+            brief.lensNarrative,
+          240,
+        );
+      if (!headline) continue;
+      const finished = artifact.finishedAt;
+      if (!newestAsOf && finished) newestAsOf = finished;
+      lines.push(
+        `- ${date}: ${headline}` +
+          (selected.fallback ? " (not the brief attached to the plan)" : ""),
+      );
+
+      if (
+        brief.existingTaskCandidates.length === 0 ||
+        !plan?.briefId ||
+        plan.briefId !== artifact.id
+      ) {
+        continue;
+      }
+      const snapshot = input.store.getSnapshot?.(plan.id);
+      const states = input.store.listMorningBriefSalesActionStates?.(plan.briefId) ?? [];
+      const seenTaskIds = new Set<string>();
+      const receipts = brief.existingTaskCandidates.flatMap((candidate) => {
+        if (seenTaskIds.has(candidate.taskId)) return [];
+        seenTaskIds.add(candidate.taskId);
+        return [briefCandidateReceipt({ taskId: candidate.taskId, plan, snapshot })];
+      });
+      lines.push(
+        `  candidates: ${receipts.join("; ")} | sales: ${salesReceipt(states)}`,
+      );
+    }
+    if (lines.length === 0) {
+      return { ...base, note: "recent_briefs_unavailable" };
+    }
+    return {
+      ...base,
+      content: [
+        "Headlines Cove gave the operator on the previous weekdays, newest first.",
+        "These are Cove's own past words, not evidence.",
+        "Receipts distinguish accepted work, dismissed work, work set aside, and work never decided.",
+        "Use them only to notice repetition and what happened next, never as proof the recommendation was right.",
+        "",
+        ...lines,
+      ].join("\n"),
+      asOf: newestAsOf,
+    };
+  } catch (error) {
+    return { ...base, note: errorNote(error, "recent_briefs_failed") };
+  }
+}
+
 type CalendarEvent = {
   summary?: string;
   start?: { date?: string; dateTime?: string };
@@ -1438,7 +1896,47 @@ function calendarTime(value: string, timezone: string): string {
     .toLowerCase();
 }
 
-function formatCalendarEvents(events: readonly CalendarEvent[], timezone: string): string {
+function calendarEventLocalDate(
+  event: CalendarEvent,
+  timezone: string,
+  fallback: string,
+): string {
+  if (event.start?.date && !event.start.dateTime) return event.start.date;
+  const timestamp = event.start?.dateTime ? Date.parse(event.start.dateTime) : NaN;
+  return Number.isFinite(timestamp)
+    ? localDateInTimezone(new Date(timestamp), timezone)
+    : fallback;
+}
+
+function formatCalendarEvent(event: CalendarEvent, timezone: string): string {
+  const summary = compactLine(event.summary, 240) || "Untitled event";
+  if (event.start?.date && !event.start.dateTime) return `all day: ${summary}`;
+  const start = event.start?.dateTime;
+  const end = event.end?.dateTime;
+  const startTime = start ? calendarTime(start, timezone) : "time unknown";
+  const endTime = end ? calendarTime(end, timezone) : undefined;
+  const range = startTime === "time unknown"
+    ? startTime
+    : `${startTime}${endTime && endTime !== "time unknown" ? `-${endTime}` : ""}`;
+  const otherAttendees = (event.attendees ?? [])
+    .filter((attendee) => !attendee.self && attendee.email)
+    .slice(0, 3)
+    .map((attendee) => attendee.email as string);
+  const people = otherAttendees.length > 0 ? ` (with ${otherAttendees.join(", ")})` : "";
+  const meeting = event.hangoutLink || event.conferenceData ? " [Meet]" : "";
+  return `${range}: ${summary}${people}${meeting}`;
+}
+
+function formatCalendarEvents(
+  events: readonly CalendarEvent[],
+  timezone: string,
+  targetLocalDate: string,
+): string {
+  const windowDates = Array.from(
+    { length: 7 },
+    (_, index) => addCalendarDays(targetLocalDate, index),
+  );
+  const windowSet = new Set(windowDates);
   const visible = events
     .filter(
       (event) =>
@@ -1446,32 +1944,41 @@ function formatCalendarEvents(events: readonly CalendarEvent[], timezone: string
           (attendee) => attendee.self === true && attendee.responseStatus === "declined",
         ),
     )
+    .map((event) => ({
+      event,
+      localDate: calendarEventLocalDate(event, timezone, targetLocalDate),
+    }))
+    .filter((entry) => windowSet.has(entry.localDate))
     .sort((left, right) => {
-      const leftStart = left.start?.dateTime ?? left.start?.date ?? "";
-      const rightStart = right.start?.dateTime ?? right.start?.date ?? "";
+      const dateOrder = left.localDate.localeCompare(right.localDate);
+      if (dateOrder !== 0) return dateOrder;
+      const leftStart = left.event.start?.dateTime ?? left.event.start?.date ?? "";
+      const rightStart = right.event.start?.dateTime ?? right.event.start?.date ?? "";
       return leftStart.localeCompare(rightStart);
     });
-  if (visible.length === 0) return "No calendar events today.";
-  return visible
-    .map((event) => {
-      const summary = compactLine(event.summary, 240) || "Untitled event";
-      if (event.start?.date && !event.start.dateTime) return `all day: ${summary}`;
-      const start = event.start?.dateTime;
-      const end = event.end?.dateTime;
-      const startTime = start ? calendarTime(start, timezone) : "time unknown";
-      const endTime = end ? calendarTime(end, timezone) : undefined;
-      const range = startTime === "time unknown"
-        ? startTime
-        : `${startTime}${endTime && endTime !== "time unknown" ? `-${endTime}` : ""}`;
-      const otherAttendees = (event.attendees ?? [])
-        .filter((attendee) => !attendee.self && attendee.email)
-        .slice(0, 3)
-        .map((attendee) => attendee.email as string);
-      const people = otherAttendees.length > 0 ? ` (with ${otherAttendees.join(", ")})` : "";
-      const meeting = event.hangoutLink || event.conferenceData ? " [Meet]" : "";
-      return `${range}: ${summary}${people}${meeting}`;
-    })
-    .join("\n");
+  const health =
+    `Window: ${targetLocalDate} to ${windowDates[6]} (7 days). ${visible.length} events.`;
+  if (visible.length === 0) {
+    return `${health}\nNo events in the 7-day window.`;
+  }
+  const grouped = new Map<string, CalendarEvent[]>();
+  for (const entry of visible) {
+    const group = grouped.get(entry.localDate) ?? [];
+    group.push(entry.event);
+    grouped.set(entry.localDate, group);
+  }
+  return [
+    health,
+    ...windowDates.flatMap((localDate) => {
+      const dayEvents = grouped.get(localDate);
+      if (!dayEvents) return [];
+      return [
+        "",
+        weekdayLabel(localDate, timezone),
+        ...dayEvents.map((event) => formatCalendarEvent(event, timezone)),
+      ];
+    }),
+  ].join("\n");
 }
 
 async function calendarSource(
@@ -1484,9 +1991,9 @@ async function calendarSource(
 ): Promise<BriefSourceInput> {
   const source = {
     id: "calendar",
-    label: "CALENDAR_TODAY",
+    label: "CALENDAR",
     required: false,
-    maxChars: 3000,
+    maxChars: 5000,
     priority: 7,
   } as const;
   const resolvedDataDir = coveDataDir(dataDir);
@@ -1494,13 +2001,17 @@ async function calendarSource(
     return { ...source, note: "not_configured" };
   }
   try {
-    const bounds = calendarDayBounds(targetLocalDate, targetTimezone);
+    const startBounds = calendarDayBounds(targetLocalDate, targetTimezone);
+    const endBounds = calendarDayBounds(
+      addCalendarDays(targetLocalDate, 7),
+      targetTimezone,
+    );
     const calendar = injectedGateway?.calendar ??
       createGoogleWorkspaceGateway({ dataDir: resolvedDataDir }).calendar;
     if (!calendar) return { ...source, note: "not_configured" };
     const events = await calendar.listEvents({
-      timeMin: bounds.timeMin,
-      timeMax: bounds.timeMax,
+      timeMin: startBounds.timeMin,
+      timeMax: endBounds.timeMin,
       timeZone: targetTimezone,
       maxResults: 250,
     });
@@ -1514,13 +2025,14 @@ async function calendarSource(
         : { dateTime: event.end },
       attendees: event.attendees.map((attendee) => ({
         email: attendee.email,
+        self: attendee.self,
         responseStatus: attendee.responseStatus,
       })),
-      hangoutLink: event.htmlLink.includes("meet.google.com") ? event.htmlLink : undefined,
+      hangoutLink: event.meetingUrl || undefined,
     }));
     return {
       ...source,
-      content: formatCalendarEvents(formatted, targetTimezone),
+      content: formatCalendarEvents(formatted, targetTimezone, targetLocalDate),
       asOf: now.toISOString(),
     };
   } catch (error) {
@@ -1896,6 +2408,12 @@ export async function collectMorningBriefSources(
     targetLocalDate,
     now,
   });
+  const emailQueuePromise = emailQueueSource({
+    fetchImpl,
+    baseUrl,
+    timeoutMs,
+    now,
+  });
   const inboundPromise = inboundSource({
     fetchImpl,
     baseUrl,
@@ -1913,20 +2431,27 @@ export async function collectMorningBriefSources(
   // dumps are typed on the MBP and the 7:30 brief runs on the Mini. Extraction
   // already reached the commitment ledger; what this adds is the reasoning
   // around it, which no extraction preserves.
-  let dumpContent: string | undefined;
-  let dumpAsOf: string | undefined;
+  //
+  // Status is deliberately NOT filtered. The raw text is his, and it exists from
+  // the moment he saves; extraction only adds structure on top of it. Requiring
+  // status === "succeeded" made the brief blind to the dump he had just written
+  // whenever settlement triggered generation inside the extraction window, and it
+  // fell back to the previous dump without saying so. On 2026-07-29 a closeout
+  // moving a client install to Monday was saved 2s before collection and finished
+  // 60s after it, so the brief planned the whole day off a five-day-old dump.
+  let localDumps: DayDump[] = [];
   try {
-    const succeeded = options.store
+    localDumps = options.store
       .listDayDumps()
-      .filter((dump) => dump.status === "succeeded" && dump.rawText.trim());
-    const newest = succeeded[succeeded.length - 1];
-    if (newest) {
-      dumpContent = newest.rawText.trim();
-      dumpAsOf = newest.createdAt;
-    }
+      .filter((dump) => dump.rawText.trim());
   } catch {
     // Fall through to the relay.
   }
+  // listDayDumps orders by created_at ascending, so the newest is last.
+  const newestLocalDump = localDumps[localDumps.length - 1];
+  let dumpContent = newestLocalDump?.rawText.trim();
+  let dumpAsOf = newestLocalDump?.createdAt;
+  let dumpLocalDate = newestLocalDump?.targetLocalDate;
   const relayDump = readDumpRelay({ dataDir: options.dataDir, now });
   if (relayDump) {
     const relayMs = Date.parse(relayDump.asOf);
@@ -1934,8 +2459,22 @@ export async function collectMorningBriefSources(
     if (!dumpContent || !Number.isFinite(localMs) || relayMs > localMs) {
       dumpContent = relayDump.content;
       dumpAsOf = relayDump.asOf;
+      dumpLocalDate = relayDump.targetLocalDate;
     }
   }
+  const closeoutGap = closeoutGapWeekdays(dumpLocalDate, targetLocalDate);
+  // Current means "no working day has gone by without one". A closeout dated on
+  // or after the target day is same-day or later, which is fresher still. An
+  // unrecorded date cannot be judged either way, and the header says so.
+  const closeoutIsCurrent = closeoutGap === 0 ||
+    dumpLocalDate === undefined ||
+    dumpLocalDate >= targetLocalDate;
+  const closeoutHeader = closeoutTimestampHeader({
+    asOf: dumpAsOf,
+    closeoutLocalDate: dumpLocalDate,
+    targetLocalDate,
+    targetTimezone,
+  });
   const autonomyCheckin = autonomyCheckinSource({
     dataDir: options.dataDir,
     now,
@@ -1950,11 +2489,15 @@ export async function collectMorningBriefSources(
           required: false,
           maxChars: 12_000,
           priority: 0,
-          content: dumpContent,
+          // Provenance leads so it survives the character cap: trimming takes
+          // from the end, and a timestamp trimmed off is a timestamp unread.
+          content: `${closeoutHeader}\n\n${dumpContent}`,
           asOf: dumpAsOf,
-          // A dump two nights old is still the freshest statement of direction
-          // he has made; older than that and it describes a finished week.
-          freshnessThresholdHours: staleThresholdHours("day_dump", 60),
+          // Freshness is the working-day gap, never elapsed hours. Friday's
+          // closeout read on Monday is ~60 hours old and is still the most
+          // recent one that exists, so an hours threshold would mark the normal
+          // Monday case stale every week.
+          freshness: closeoutIsCurrent ? "current" : "stale",
         }
       : {
           id: "day_dump",
@@ -1964,6 +2507,17 @@ export async function collectMorningBriefSources(
           priority: 0,
           note: "day_dump_unavailable",
         },
+    recentDumpsSource({
+      dumps: localDumps,
+      newestId: newestLocalDump?.id,
+      targetLocalDate,
+      now,
+    }),
+    recentBriefsSource({
+      store: options.store,
+      targetLocalDate,
+      now,
+    }),
     await inboundPromise,
     projectProgressSource({
       store: options.store,
@@ -1992,13 +2546,16 @@ export async function collectMorningBriefSources(
         ]
       : []),
     ...(autonomyCheckin ? [autonomyCheckin] : []),
-    fileSource("goals", "GOALS", filePolicy.goals.path, {
-      required: filePolicy.goals.required,
-      maxChars: 9000,
-      priority: 1,
-      // Goals change rarely; a month untouched is worth flagging.
-      freshnessThresholdHours: staleThresholdHours("goals", 24 * 30),
-    }),
+    {
+      ...fileSource("goals", "GOALS", filePolicy.goals.path, {
+        required: filePolicy.goals.required,
+        maxChars: 20_000,
+        priority: 1,
+        // Goals change rarely; a month untouched is worth flagging.
+        freshnessThresholdHours: staleThresholdHours("goals", 24 * 30),
+      }),
+      contentTrimmer: preserveGoalsNeverSections,
+    },
     operatorProfileSource,
     fileSource(
       "leadup",
@@ -2035,6 +2592,7 @@ export async function collectMorningBriefSources(
     freshnessThresholdHours: staleThresholdHours("email_brief", 24),
   };
   sources.push(await commitmentsPromise);
+  sources.push(await emailQueuePromise);
   try {
     const [taskRows, columnRows] = await Promise.all([
       fetchRows(fetchImpl, baseUrl, "tasks", timeoutMs),
@@ -2043,6 +2601,40 @@ export async function collectMorningBriefSources(
     const columns = new Map(
       (columnRows as ColumnRow[]).map((column) => [column.id, column.name]),
     );
+    const completedCutoff = now.getTime() - 48 * 60 * 60 * 1000;
+    const completed = (taskRows as TaskRow[])
+      .flatMap((row) => {
+        if (row.status !== "done" || !row.updated_at) return [];
+        const updatedMs = Date.parse(row.updated_at);
+        if (
+          !Number.isFinite(updatedMs) ||
+          updatedMs < completedCutoff ||
+          updatedMs > now.getTime()
+        ) {
+          return [];
+        }
+        return [{ row, updatedMs }];
+      })
+      .sort((left, right) => right.updatedMs - left.updatedMs);
+    const completedLines = completed.slice(0, 15).map(({ row }) =>
+      `- "${compactLine(row.title, 96) || "Untitled task"}"` +
+      ` project=${compactLine(row.project, 48) || "Atlas"}` +
+      ` updated=${row.updated_at}`
+    );
+    if (completed.length > completedLines.length) {
+      completedLines.push(`+${completed.length - completedLines.length} more`);
+    }
+    sources.push({
+      id: "completed_recently",
+      label: "COMPLETED_RECENTLY",
+      required: false,
+      maxChars: 3000,
+      priority: 6,
+      content: completedLines.length > 0
+        ? completedLines.join("\n")
+        : "Nothing marked done in the last two days.",
+      asOf: completed[0]?.row.updated_at,
+    });
     const lines: string[] = [];
     let newestUpdate = "";
     for (const row of taskRows as TaskRow[]) {
@@ -2091,6 +2683,14 @@ export async function collectMorningBriefSources(
       freshnessThresholdHours: staleThresholdHours("task_snapshot", 72),
     });
   } catch (error) {
+    sources.push({
+      id: "completed_recently",
+      label: "COMPLETED_RECENTLY",
+      required: false,
+      maxChars: 3000,
+      priority: 6,
+      note: error instanceof Error ? error.message.slice(0, 200) : "completed_recently_failed",
+    });
     sources.push({
       id: "task_snapshot",
       label: "OPEN_TASKS",

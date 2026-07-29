@@ -29,9 +29,15 @@ export type CalendarEvent = {
   description: string;
   location: string;
   htmlLink: string;
+  meetingUrl: string;
   start: string;
   end: string;
-  attendees: Array<{ email: string; displayName?: string; responseStatus?: string }>;
+  attendees: Array<{
+    email: string;
+    displayName?: string;
+    responseStatus?: string;
+    self?: boolean;
+  }>;
 };
 
 export interface RestrictedMailGateway {

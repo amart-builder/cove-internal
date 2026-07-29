@@ -18,21 +18,72 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-07-29T10:48:25-0700
-- **task:** Move Cove host from Mini back to MacBook
+- **since:** 2026-07-29T15:24:17-0700
+- **task:** integrate email architecture redesign into Cove main
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-07-29 (Alex's install migrated off Supabase to local mode on the MacBook, single machine, Mini fully retired; build wave COMPLETE; ONE click left: refresh + flip amart-builder/cove public)
+**Last updated:** 2026-07-29 (email architecture redesign integrated with committed Morning Brief Phase 1a, 1b, and 2 work; Alex's install remains local mode on the MacBook, single machine, Mini fully retired)
 
-## 2026-07-29 email architecture redesign, isolated branch
+## 2026-07-29 Morning brief Phase 1b (built and verified, prompt v14, NOT yet committed)
 
-- Branch `codex/email-architecture-redesign` replaces active Composio email, meeting, Calendar, and document paths with Cove's direct restricted Google Workspace gateway. Historical Composio entries below remain as history and are superseded for active setup and runtime.
+Four additions now close the recommendation feedback loop without changing the existing Emails card or either Morning Brief contract version:
+
+1. `email_queue` reads open email items and draft states with explicit forge-rest queries that do not assume a `position` column. It sorts action items first, ignores orphan drafts, and gives the writer a compact per-thread decision queue.
+2. `recent_briefs` now joins each proposed task to the operator's plan decision, settlement disposition, completed task ids, and sales action states. It separates declined recommendations from accepted work that carried, progressed, or finished.
+3. The mandate has one short precedence order for closeouts, calendar, completion evidence, promises, and goals. Client delivery remains the default first block, but a named hard deadline or existing commitment can visibly override it.
+4. Every real generation atomically writes its exact bounded sections and manifest to `data/brief-inputs/<artifactId>.json`. `scripts/brief-backtest.mjs` rebuilds the current prompt from one artifact or the latest N, and can optionally pay for a fresh toolless Claude comparison with `--run`.
+
+Independent review fixes now preserve the real operator decision states (`not_decided`, `set_aside`, `dismissed`, `accepted`), use the brief actually attached to each plan, recover legacy headlines from the narrative, count and sort the full email queue before displaying 25, quote every email text field, and retain only the newest 60 private generation inputs. Input-write and retention failures remain outside the generation success path.
+
+Verification: `node --import tsx --test tests/*.test.mjs` passed 687 of 687, including the Phase 2 transcript tests. `npm run typecheck` passed. The paid `--run` replay was not executed during implementation.
+
+Morning Brief Phase 2 shipped in `scripts/cove-progress-reconcile.mjs`: project digests now add up to three redacted assistant wrap-ups from the real Claude Code transcripts, using bounded head and tail reads instead of loading transcript files. The model is told these are self-reports, and `likely_done` still requires Git corroboration or a specific verified claim. Discovery, extraction, redaction, and prompt-budget failures fall back to the prior evidence path, so the reconciler remains ping-count-only for any project without readable transcripts. Verification passed all 685 tests and the TypeScript typecheck.
+
+A second independent review of the combined 1b+2 work found five defects, all fixed and re-verified (688 of 688 tests, typecheck clean, plus a replay against Alex's real transcripts and email queue): transcript directory names replace every non-alphanumeric character with a dash (dots included; `/Users/x/.buzz` maps to `-Users-x--buzz`); a trailing assistant message starting with "API Error:" is never stored as a wrap-up (an earlier real message is used instead); redaction keeps absolute file paths but still catches slashless opaque blobs plus a new rule for URL-embedded tokens like Slack webhooks; `email_queue` maxChars is 12,000 so the "showing 25 of N" head line stays truthful at worst-case render (~10.7k); and when a plan's attached brief is missing or unparseable, the newest parseable brief is used and always labelled "(not the brief attached to the plan)". Known accepted behavior: a day whose briefs all fail to parse is silently omitted from RECENT_BRIEFS rather than rendered as an error line. The scoped re-review returned PASS; its two remaining optional notes (a behavioral cap test for the email fixture, plan-aware wording of the fallback suffix) are logged here, not built.
+
+## 2026-07-29 Morning brief read the wrong closeout (fixed, prompt v14, NOT yet committed)
+
+Alex closed out his day saying the Gary Gersh install had moved from Wednesday to Monday. The brief that ran minutes later told him to spend the morning on Gary Gersh install prep "on the call at 3."
+
+**Root cause was a race, not a missing source.** The dump was saved at 11:55:17, brief collection started at 11:55:19, and dump extraction finished at 11:56:19. The collector required `status = 'succeeded'`, so it skipped the 2-second-old dump, fell back to the 2026-07-24 one, labelled it `freshness: stale` in the manifest, and wrote the day's plan off it anyway. Both halves matter: it read the wrong dump, and nothing stopped it from planning confidently off a five-day-old one.
+
+Three changes shipped together (Alex chose the full scope over the surgical fix):
+
+1. **Status is no longer filtered.** Newest dump by `created_at` wins regardless of extraction state; the raw text is his and exists from the moment he saves. Extraction only adds structure on top.
+
+   This fix is same-host scoped. The cross-machine dump relay still publishes only after extraction succeeds, which is acceptable while Cove is single-machine and is tracked for whenever multi-machine operation returns.
+2. **Closeout provenance, and the writer judges age itself.** Every closeout is prepended with a factual `CLOSEOUT PROVENANCE` line: when it was saved, which working day it covers, which day the brief is for, and how many working days went by without another one. No verdict, no prohibition (a test asserts the line contains no "never"/"do not"). The mandate gives the writer the reasoning frame instead of a rule: direction survives a gap, a specific time or a "today" does not, and the wider the gap the more it should cross-check against the board, calendar, and ledger.
+
+   **Alex's call, and he was right.** The first version hard-coded a 24-hour staleness warning. That breaks every Monday: Friday's closeout is ~60 hours old on Monday morning and is still the most recent one that exists, so the guardrail would have stamped "NOT last night's closeout, do not state its schedule" on a perfectly current note once a week. Freshness is now the **working-day gap** (`closeoutGapWeekdays`), never elapsed hours. Do not reintroduce an hours-based rule here.
+3. **Five-weekday lookback.** New `recent_dumps` (older closeouts, read for drift) and `recent_briefs` (Cove's own past headlines, explicitly NOT evidence, there so it notices a headline it has repeated for days). Weekends skipped by design.
+
+Context budget went 60k -> 90k chars: the 07-29 brief already used 58,469 of 60,000, so the new sources would have silently trimmed `email_brief` and `settlement_summary` instead.
+
+**Verified** against a live `.backup` of forge.db: `day_dump` resolves to the 07-29 closeout (was 07-24), and the provenance line reads correctly across gaps (target 07-29 -> "immediately before this one", current; target 07-30 -> "1 working day (Wednesday, Jul 29) went by", stale; target 08-03 -> "3 working days", stale). `recent_dumps` picks up the 07-23 closeout, `recent_briefs` returns 07-29/07-28/07-27/07-24 with the weekend skipped. Full suite 672/672.
+
+## 2026-07-29 Morning brief Phase 1a (built by Sol under orchestrator mode, reviewed, NOT committed)
+
+Follow-on from the same-day context review (full findings in the review chat; plan phases recorded below). Three changes, all still prompt v14 since v14 has never produced a live artifact:
+
+1. **Goals tail preservation.** GOALS.md (14,285 chars) was capped at 9,000 and the "## Never drop" / "## Never do" sections start at byte 12,436, so every brief since 2026-07-19 was written without its watch-item backbone while the manifest reported `trimmed: true` unread. Now: 20,000 cap, `preserveGoalsNeverSections` structural trimmer (head + marker + every `## Never` section in full, throws if the Never sections alone exceed the cap), `trimmedRequired` surfaced from `assembleMorningBriefContext` and logged by the worker. The total-cap pass also routes through `contentTrimmer` (a fresh-context review caught it blind-slicing the tail and deleting exactly what the per-source trimmer preserved).
+2. **`completed_recently` source** (priority 6, cap 3k): done tasks from the existing board fetch, 48h `updated_at` window, 15 lines max plus "+N more". The 07-27T20:55 migration burst (98 rows, one shared millisecond) ages out of any 48h window from 07-29 evening onward.
+3. **Calendar 7-day window** (cap 5k): target day plus six, grouped by day, first line reports the exact window and event count; a failed Composio call still reports `calendar_failed`, never a fake window claim.
+
+Review trail: Sonnet full-diff review (Opus lane was 529-overloaded) found the total-cap defeat + missing recentDumpsSource catch; both fixed; Opus re-gate PASS. Ops note: `codex exec resume --last` grabbed another live Codex session once (Alex runs parallel instances); resume by explicit session id from the run log header, never `--last`.
+
+**Next phase from the review (not built):** Phase 3 remains held until v14 runs live: operator-state layer, strategy kernel, and full backtest harness.
+
+**Not verified end to end:** no live brief has been generated against prompt v14. Tomorrow's 7:30 run is the real test; if it still misreads a closeout, check the manifest's `day_dump.as_of` and the provenance line first.
+
+## 2026-07-29 email architecture redesign, integrated
+
+- Main now replaces active Composio email, meeting, Calendar, and document paths with Cove's direct restricted Google Workspace gateway. Historical Composio entries below remain as history and are superseded for active setup and runtime.
 - Gmail is simple: Inbox means it still needs Alex, Archive means handled, search keeps history. New processing no longer writes Reply, Action, FYI, Done, or Archived workflow labels. One rolling `Email` card shows only open replies and actions. FYI and automatic archives go to Recent activity.
 - The model is tool-free and returns bounded structured judgments only. Deterministic code owns message claims, provisional grounded commitment candidates, drafts, exact-message archive, receipts, retries, and failure surfacing. No send, delete, trash, forward, settings, generic request, or raw-token path exists on the public gateway.
 - SQLite migration 12 adds canonical thread state, per-message claims, and a durable Gmail operation outbox. Existing dated Email cards become history. Legacy rows without message ids are repaired from Gmail before a card operation.
-- Validation on the isolated worktree: TypeScript clean; changed implementation lint clean; full suite 642/642; production build clean. The repository-wide lint command still has unrelated baseline errors in the concurrently edited Morning Arrival/Fable files.
+- Integration validation: TypeScript clean; changed implementation lint clean; full suite 675/675; production build clean; fresh-context integration review passed after preserving Fable's seven-day Calendar window, self-declined filtering, and real Google Meet links.
 - Activation still requires running `scripts/cove-google-connect.ts connect` with a Google desktop OAuth client, then the live Gmail/Calendar/Docs smoke checks in `SETUP.md`. This branch does not contain or migrate private credentials.
 
 ## 2026-07-29 Alex's install: Supabase -> local mode on the MacBook, single machine (done, verified)

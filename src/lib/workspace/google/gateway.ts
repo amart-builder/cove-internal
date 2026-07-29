@@ -705,6 +705,24 @@ class GoogleCalendarGateway implements ReadonlyCalendarGateway {
       const end = event.end && typeof event.end === "object" && !Array.isArray(event.end)
         ? event.end as Json
         : {};
+      const conferenceData =
+        event.conferenceData &&
+        typeof event.conferenceData === "object" &&
+        !Array.isArray(event.conferenceData)
+          ? event.conferenceData as Json
+          : {};
+      const conferenceEntryPoints = Array.isArray(conferenceData.entryPoints)
+        ? conferenceData.entryPoints
+        : [];
+      const meetingUrl = boundedText(event.hangoutLink, 2_000) ||
+        conferenceEntryPoints.flatMap((entry) => {
+          if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+          const item = entry as Json;
+          return item.entryPointType === "video" && typeof item.uri === "string"
+            ? [item.uri.slice(0, 2_000)]
+            : [];
+        })[0] ||
+        "";
       return [{
         id: boundedText(event.id, 500),
         status: boundedText(event.status, 100),
@@ -712,6 +730,7 @@ class GoogleCalendarGateway implements ReadonlyCalendarGateway {
         description: boundedText(event.description, 20_000),
         location: boundedText(event.location, 2_000),
         htmlLink: boundedText(event.htmlLink, 2_000),
+        meetingUrl,
         start: boundedText(start.dateTime ?? start.date, 100),
         end: boundedText(end.dateTime ?? end.date, 100),
         attendees: (Array.isArray(event.attendees) ? event.attendees : []).flatMap((attendee) => {
@@ -722,6 +741,7 @@ class GoogleCalendarGateway implements ReadonlyCalendarGateway {
             email: item.email.slice(0, 500),
             ...(typeof item.displayName === "string" ? { displayName: item.displayName.slice(0, 500) } : {}),
             ...(typeof item.responseStatus === "string" ? { responseStatus: item.responseStatus.slice(0, 100) } : {}),
+            ...(typeof item.self === "boolean" ? { self: item.self } : {}),
           }];
         }),
       }];

@@ -53,6 +53,7 @@ import {
   morningBriefModelConfig,
   parseMorningBriefOutput,
 } from "./brief-commands";
+import { writeMorningBriefInput } from "./brief-inputs";
 import {
   configuredMorningBriefWriter,
   createCodexMorningBriefAttempt,
@@ -90,6 +91,7 @@ import {
   createFallbackInboundTask,
 } from "../intake/task-writer";
 import { coveEnv } from "../env";
+import { coveDataDir } from "../operator";
 import { recordReceipt, type ReceiptOutcome } from "../reliability/receipts";
 
 export { fallbackInboundDueAt } from "../intake/task-writer";
@@ -594,6 +596,9 @@ export type BriefRelayOptions = {
 export type MorningBriefWorkerOptions = ClaudeWorkerOptions & {
   // Test seam; production uses the real collector (files + loopback task fetch).
   collectBriefSources?: (store: DayPlanStore) => Promise<CollectedBriefSources>;
+  // The persisted replay input lives beside forge.db. Tests set this to their
+  // temporary data directory so generation never touches the installed data.
+  dataDir?: string;
   briefTimeoutMs?: number;
   briefWriter?: MorningBriefWriter;
   codexPath?: string;
@@ -1156,6 +1161,7 @@ export async function runOneMorningBrief(
   };
   const targetTimezone = resolveBriefTimezone(options.store);
   const relay = options.relay;
+  const briefDataDir = coveDataDir(options.dataDir ?? relay?.dataDir);
   const relayHost = relay?.host ?? originHost();
   // Fail a brief and, when relaying, publish a failed status so the peer machine
   // stops waiting on this attempt.
@@ -1210,12 +1216,15 @@ export async function runOneMorningBrief(
           // Without this the collector falls back to the forge.db directory,
           // so on a relaying machine it reads a different settlement relay than
           // the one every other call in this function writes to.
-          dataDir: relay?.dataDir,
+          dataDir: briefDataDir,
         }));
     const collected = await collect(options.store);
     const context = assembleMorningBriefContext(collected.sources, {
       now: clock(),
     });
+    if (context.trimmedRequired.length > 0) {
+      console.error(`brief warning: required source trimmed: ${context.trimmedRequired.join(",")}`);
+    }
     if (context.missingRequired.length > 0) {
       failBrief(`required_source_missing:${context.missingRequired.join(",")}`);
       return true;
@@ -1258,6 +1267,26 @@ export async function runOneMorningBrief(
       manifest: context.manifest,
     };
     const prompt = buildMorningBriefPrompt(promptInput);
+    try {
+      writeMorningBriefInput(
+        {
+          artifact_id: claimed.id,
+          target_local_date: claimed.targetLocalDate,
+          target_timezone: targetTimezone,
+          prompt_version: MORNING_BRIEF_PROMPT_VERSION,
+          schema_version: MORNING_BRIEF_SCHEMA_VERSION,
+          sections: context.sections,
+          manifest: context.manifest,
+          written_at: clock().toISOString(),
+        },
+        briefDataDir,
+      );
+    } catch (error) {
+      const reason = (error instanceof Error ? error.message : "brief_input_write_failed")
+        .replace(/\s+/g, " ")
+        .slice(0, 160);
+      console.error(`brief input write failed: ${reason}`);
+    }
     const sourceIds = new Set(
       context.manifest.sources
         .filter((source) => source.freshness !== "missing" && source.chars > 0)

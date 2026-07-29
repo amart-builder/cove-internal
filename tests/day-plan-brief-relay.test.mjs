@@ -395,7 +395,12 @@ test('the dump relay carries last night’s brain dump to a machine with no loca
     fetchImpl: async () => ({ ok: true, json: async () => [] }),
   });
   const dump = collected.sources.find((source) => source.id === 'day_dump');
-  assert.equal(dump.content, 'The hotel guest agent is now a top three priority.');
+  assert.match(dump.content, /The hotel guest agent is now a top three priority\.$/);
+  // A relayed closeout carries the same provenance line as a local one: the
+  // relay records the working day it covers, so the gap is still computable.
+  assert.ok(dump.content.startsWith('CLOSEOUT PROVENANCE'));
+  assert.match(dump.content, /Covers the working day Monday, Jul 13\./);
+  assert.equal(dump.freshness, 'current');
   // Priority 0: it outranks the hand-written goals and sprint memo, which is
   // the whole point. Anything above 0 lets a stale file win a disagreement.
   assert.equal(dump.priority, 0);

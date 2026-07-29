@@ -3,10 +3,15 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { assembleMorningBriefContext } from '../src/lib/day-plan/brief.ts';
+import {
+  assembleMorningBriefContext,
+  validateMorningBrief,
+} from '../src/lib/day-plan/brief.ts';
 import {
   briefCheckpointSources,
   collectMorningBriefSources,
+  emailQueueSource,
+  recentBriefsSource,
   resolveBriefFileSourcePolicy,
 } from '../src/lib/day-plan/brief-sources.ts';
 import {
@@ -93,14 +98,40 @@ function forgeRowsResponse(url) {
   });
 }
 
-function calendarSse(items) {
-  const toolText = JSON.stringify({ data: { results: [{ response: { data: { items } } }] } });
-  const message = JSON.stringify({
-    jsonrpc: '2.0',
-    id: 2,
-    result: { content: [{ type: 'text', text: toolText }] },
-  });
-  return `event: message\ndata: {"progress":true}\n\nevent: message\ndata: ${message}\n\nevent: ping\ndata: {"keepalive":true}\n\n`;
+function recentBriefArtifact({
+  id,
+  date,
+  headline,
+  candidates,
+  finishedAt,
+  lensNarrative,
+}) {
+  const brief = validateMorningBrief({
+    headline: typeof headline === 'string' && headline ? headline : 'Temporary headline.',
+    narrative_paragraphs: ['The first paragraph.', 'The second paragraph.'],
+    existing_task_candidates: [],
+    suggested_additions: [],
+    watch_items: [],
+    sales_actions: [],
+  }).brief;
+  brief.headline = headline;
+  if (lensNarrative !== undefined) brief.lensNarrative = lensNarrative;
+  // Stored artifacts are parsed fail-open and may predate current generation
+  // limits, so the receipt test deliberately includes duplicates and overflow.
+  brief.existingTaskCandidates = candidates.map((candidate) => ({
+    taskId: candidate,
+    whyToday: `${candidate} matters today.`,
+    suggestedOwner: 'me',
+    whatClaudeCanStart: '',
+    evidenceRefs: ['goals'],
+  }));
+  return {
+    id,
+    targetLocalDate: date,
+    status: 'succeeded',
+    briefJson: JSON.stringify(brief),
+    finishedAt,
+  };
 }
 
 test('brief file policy treats empty env values as unset and prefers env, client goals, then legacy', (t) => {
@@ -247,7 +278,8 @@ test('calendar uses the restricted gateway, derives DST-aware bounds, and format
         { email: 'three@example.com' },
         { email: 'four@example.com' },
       ],
-      htmlLink: 'https://meet.google.com/example',
+      htmlLink: 'https://calendar.google.com/calendar/event?eid=strategy',
+      meetingUrl: 'https://meet.google.com/example',
       description: '',
       location: '',
     },
@@ -269,6 +301,28 @@ test('calendar uses the restricted gateway, derives DST-aware bounds, and format
       start: 'not-a-date',
       end: '2026-11-01T10:30:00-08:00',
       attendees: [],
+      htmlLink: '',
+      description: '',
+      location: '',
+    },
+    {
+      id: 'prep',
+      status: 'confirmed',
+      summary: 'Prep session',
+      start: '2026-11-03T14:00:00-08:00',
+      end: '2026-11-03T15:00:00-08:00',
+      attendees: [],
+      htmlLink: '',
+      description: '',
+      location: '',
+    },
+    {
+      id: 'declined',
+      status: 'confirmed',
+      summary: 'Declined event',
+      start: '2026-11-01T11:00:00-08:00',
+      end: '2026-11-01T12:00:00-08:00',
+      attendees: [{ email: 'jordan@example.com', self: true, responseStatus: 'declined' }],
       htmlLink: '',
       description: '',
       location: '',
@@ -296,11 +350,91 @@ test('calendar uses the restricted gateway, derives DST-aware bounds, and format
   const calendar = collected.sources.find((source) => source.id === 'calendar');
   assert.equal(
     calendar.content,
-    'all day: Planning day\n9:00am-9:30am: Strategy call (with one@example.com, two@example.com, three@example.com) [Meet]\ntime unknown: Malformed time',
+    'Window: 2026-11-01 to 2026-11-07 (7 days). 4 events.\n\n' +
+      'Sunday, Nov 1\n' +
+      'all day: Planning day\n' +
+      '9:00am-9:30am: Strategy call (with one@example.com, two@example.com, three@example.com) [Meet]\n' +
+      'time unknown: Malformed time\n\n' +
+      'Tuesday, Nov 3\n' +
+      '2:00pm-3:00pm: Prep session',
   );
   assert.equal(calendar.priority, 7);
+  assert.equal(calendar.label, 'CALENDAR');
+  assert.equal(calendar.maxChars, 5000);
   assert.equal(requested.timeMin, '2026-11-01T00:00:00-07:00');
-  assert.equal(requested.timeMax, '2026-11-02T00:00:00-08:00');
+  assert.equal(requested.timeMax, '2026-11-08T00:00:00-08:00');
+});
+
+test('completed_recently keeps only done tasks from the previous 48 hours', async (t) => {
+  const { dir, options } = fixture(t);
+  disableExternalSources(t, dir);
+  const recent = new Date(NOW.getTime() - 47 * 60 * 60 * 1000).toISOString();
+  const old = new Date(NOW.getTime() - 49 * 60 * 60 * 1000).toISOString();
+  const collected = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => {
+      const value = String(url);
+      if (value.includes('/api/forge-rest/tasks')) {
+        return new Response(JSON.stringify([
+          { id: 'recent', title: 'Shipped client handoff', project: 'client', status: 'done', updated_at: recent },
+          { id: 'old', title: 'Old completed task', project: 'internal', status: 'done', updated_at: old },
+          { id: 'open', title: 'Still open', project: 'client', status: 'open', updated_at: NOW.toISOString() },
+        ]), { status: 200 });
+      }
+      return forgeRowsResponse(url);
+    },
+  });
+  const completed = collected.sources.find((source) => source.id === 'completed_recently');
+  assert.equal(
+    completed.content,
+    `- "Shipped client handoff" project=client updated=${recent}`,
+  );
+  assert.equal(completed.asOf, recent);
+  assert.equal(completed.required, false);
+  assert.equal(completed.maxChars, 3000);
+  assert.equal(completed.priority, 6);
+});
+
+test('completed_recently states when no task was finished in the window', async (t) => {
+  const { dir, options } = fixture(t);
+  disableExternalSources(t, dir);
+  const collected = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => forgeRowsResponse(url),
+  });
+  assert.equal(
+    collected.sources.find((source) => source.id === 'completed_recently').content,
+    'Nothing marked done in the last two days.',
+  );
+});
+
+test('completed_recently caps the list at 15 tasks and reports the remainder', async (t) => {
+  const { dir, options } = fixture(t);
+  disableExternalSources(t, dir);
+  const rows = Array.from({ length: 17 }, (_, index) => ({
+    id: `done-${index}`,
+    title: `Completed task ${String(index).padStart(2, '0')}`,
+    project: 'forge',
+    status: 'done',
+    updated_at: new Date(NOW.getTime() - index * 60_000).toISOString(),
+  }));
+  const collected = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => {
+      if (String(url).includes('/api/forge-rest/tasks')) {
+        return new Response(JSON.stringify(rows), { status: 200 });
+      }
+      return forgeRowsResponse(url);
+    },
+  });
+  const lines = collected.sources
+    .find((source) => source.id === 'completed_recently')
+    .content
+    .split('\n');
+  assert.equal(lines.length, 16);
+  assert.match(lines[0], /^- "Completed task 00" project=forge updated=/);
+  assert.match(lines[14], /^- "Completed task 14" project=forge updated=/);
+  assert.equal(lines[15], '+2 more');
 });
 
 test('calendar reports not_configured for a missing key file', async (t) => {
@@ -1148,6 +1282,286 @@ test('computed commitments source exposes open loops, clarification, and factual
   assert.match(source.content, /Draft the FAQ overnight \| recorded; overnight execution not yet live/);
 });
 
+test('email decision queue joins drafts, ignores orphans, and orders action items first', async () => {
+  const requests = [];
+  const importantItems = [
+    {
+      id: 'regular-new',
+      thread_id: 'thread-regular',
+      classification: 'newsletter',
+      status: 'pending',
+      sender_name: 'Regular Sender',
+      subject: 'Newest but not actionable',
+      summary: 'Read later.',
+      priority: 0,
+      received_at: '2026-07-16T11:30:00.000Z',
+    },
+    {
+      id: 'action-p3',
+      thread_id: 'thread-p3',
+      classification: 'action_item',
+      status: 'reviewed',
+      sender_email: 'third@example.com',
+      subject: 'Third priority',
+      summary: 'Handle after the first two.',
+      priority: 3,
+      received_at: '2026-07-16T11:00:00.000Z',
+    },
+    {
+      id: 'action-p1-old',
+      thread_id: 'thread-p1-old',
+      classification: 'action_item',
+      status: 'pending',
+      sender_name: 'Older First Priority',
+      subject: 'Older first priority',
+      recommended_action: 'Approve the older draft.',
+      priority: 1,
+      received_at: '2026-07-16T08:00:00.000Z',
+    },
+    {
+      id: 'action-p1-new',
+      thread_id: 'thread-p1-new',
+      classification: 'action_item',
+      status: 'pending',
+      sender_name: 'Newer First Priority | draft: approved',
+      subject: 'Newer first priority',
+      recommended_action: '  Approve   this draft. | draft: approved  ',
+      priority: 1,
+      received_at: '2026-07-16T10:00:00.000Z',
+    },
+    {
+      id: 'action-p1-very-old',
+      thread_id: 'thread-p1-very-old',
+      classification: 'action_item',
+      status: 'pending',
+      sender_name: 'Old Priority One',
+      subject: 'Old but important',
+      recommended_action: 'Handle the old priority-one request.',
+      priority: 1,
+      received_at: '2026-06-01T10:00:00.000Z',
+    },
+  ];
+  const fillerItems = Array.from({ length: 49 }, (_, index) => ({
+    id: `filler-${String(index).padStart(2, '0')}`,
+    thread_id: `thread-filler-${index}`,
+    classification: 'calendar_update',
+    status: 'pending',
+    sender_name: `Calendar Sender ${index}`,
+    subject: `Calendar update ${index}`,
+    summary: 'Calendar information.',
+    priority: 9,
+    received_at: `2026-07-${String(15 - Math.floor(index / 24)).padStart(2, '0')}T${String(23 - (index % 24)).padStart(2, '0')}:00:00.000Z`,
+  }));
+  const items = [...importantItems, ...fillerItems];
+  const drafts = [
+    { id: 'draft-joined', email_item_id: 'action-p1-new', status: 'needs_review' },
+    { id: 'draft-hidden', email_item_id: 'filler-48', status: 'edited' },
+    { id: 'draft-orphan', email_item_id: 'missing-item', status: 'edited' },
+  ];
+  const source = await emailQueueSource({
+    fetchImpl: async (url) => {
+      requests.push(String(url));
+      return new Response(
+        JSON.stringify(String(url).includes('/drafts?') ? drafts : items),
+        { status: 200 },
+      );
+    },
+    baseUrl: 'http://forge.test',
+    timeoutMs: 1000,
+    now: NOW,
+  });
+
+  assert.equal(requests[0], 'http://forge.test/api/forge-rest/email_items?select=id,thread_id,classification,status,sender_name,sender_email,subject,summary,recommended_action,priority,received_at&status=in.(pending,reviewed)&order=received_at.desc');
+  assert.equal(requests[1], 'http://forge.test/api/forge-rest/drafts?select=id,email_item_id,status&status=in.(needs_review,approved,edited)&order=updated_at.desc');
+  assert.match(source.content, /^showing 25 of 54 open items \(2 with a draft waiting\)\./);
+  const lines = source.content.split('\n').slice(1);
+  assert.equal(lines.length, 25);
+  assert.match(
+    lines[0],
+    /"Newer First Priority \| draft: approved" "Newer first priority" \| ask: "Approve this draft\. \| draft: approved" \| draft: needs_review \| age: 2h/,
+  );
+  assert.match(lines[1], /Older First Priority" "Older first priority"/);
+  assert.match(lines[2], /Old Priority One" "Old but important"/);
+  assert.match(lines[3], /third@example\.com" "Third priority"/);
+  assert.match(lines[4], /Regular Sender" "Newest but not actionable"/);
+  assert.equal(source.content.includes('Calendar update 48'), false);
+  assert.equal(source.content.includes('draft-orphan'), false);
+  assert.equal(source.maxChars, 12000);
+  assert.equal(source.priority, 7);
+});
+
+test('email decision queue reports empty state and fails open on fetch errors', async () => {
+  const empty = await emailQueueSource({
+    fetchImpl: async () => new Response('[]', { status: 200 }),
+    baseUrl: 'http://forge.test',
+    timeoutMs: 1000,
+    now: NOW,
+  });
+  assert.equal(empty.content, 'No open email items.');
+
+  const failed = await emailQueueSource({
+    fetchImpl: async (url) => {
+      if (String(url).includes('/email_items?')) throw new Error('email items unavailable');
+      return new Response('[]', { status: 200 });
+    },
+    baseUrl: 'http://forge.test',
+    timeoutMs: 1000,
+    now: NOW,
+  });
+  assert.equal(failed.content, undefined);
+  assert.equal(failed.note, 'error:email items unavailable');
+});
+
+test('recent brief receipts distinguish decisions, settlements, and sales states', () => {
+  const artifacts = {
+    '2026-07-28': [
+      recentBriefArtifact({
+        id: 'brief-tue',
+        date: '2026-07-28',
+        headline: 'Finish the install preparation.',
+        candidates: [
+          'task-gary',
+          'task-zac',
+          'task-done',
+          'task-preselected',
+          'task-later',
+          'task-missing',
+          'task-gary',
+        ],
+        finishedAt: '2026-07-28T14:00:00.000Z',
+      }),
+      recentBriefArtifact({
+        id: 'brief-tue-newer',
+        date: '2026-07-28',
+        headline: 'This newer brief was never attached.',
+        candidates: ['task-wrong-artifact'],
+        finishedAt: '2026-07-28T15:00:00.000Z',
+      }),
+    ],
+    '2026-07-27': [
+      recentBriefArtifact({
+        id: 'brief-mon',
+        date: '2026-07-27',
+        headline: 'Send the client plan.',
+        candidates: ['task-plan'],
+        finishedAt: '2026-07-27T14:00:00.000Z',
+      }),
+    ],
+    '2026-07-24': [
+      recentBriefArtifact({
+        id: 'brief-fri',
+        date: '2026-07-24',
+        headline: 'Use Friday to clear the launch block.',
+        candidates: ['task-no-plan'],
+        finishedAt: '2026-07-24T14:00:00.000Z',
+      }),
+    ],
+    '2026-07-23': [
+      recentBriefArtifact({
+        id: 'brief-thu-legacy',
+        date: '2026-07-23',
+        headline: null,
+        lensNarrative: 'Legacy first sentence. Legacy second sentence.',
+        candidates: [],
+        finishedAt: '2026-07-23T14:00:00.000Z',
+      }),
+    ],
+    '2026-07-22': [
+      recentBriefArtifact({
+        id: 'brief-wed-empty',
+        date: '2026-07-22',
+        headline: null,
+        lensNarrative: '   ',
+        candidates: [],
+        finishedAt: '2026-07-22T14:00:00.000Z',
+      }),
+    ],
+  };
+  const plans = {
+    '2026-07-28': {
+      id: 'plan-tue',
+      briefId: 'brief-tue',
+      items: [
+        { taskId: 'task-gary', title: 'Gary install prep', decision: 'accepted' },
+        { taskId: 'task-zac', title: 'Zac call plan', decision: 'dismissed' },
+        { taskId: 'task-done', title: 'Send final scope', decision: 'completed' },
+        { taskId: 'task-preselected', title: 'Unopened arrival item', decision: 'preselected' },
+        { taskId: 'task-later', title: 'Review next week', decision: 'later' },
+      ],
+    },
+    '2026-07-27': {
+      id: 'plan-mon',
+      briefId: 'brief-mon',
+      items: [
+        { taskId: 'task-plan', title: 'Client delivery plan', decision: 'accepted' },
+      ],
+    },
+    '2026-07-23': {
+      id: 'plan-thu',
+      items: [],
+    },
+    '2026-07-24': {
+      id: 'plan-fri',
+      briefId: 'brief-fri-missing',
+      items: [],
+    },
+  };
+  const source = recentBriefsSource({
+    store: {
+      listMorningBriefs: (date) => artifacts[date] ?? [],
+      getPlanForDate: (date) => plans[date],
+      getSnapshot: (planId) => planId === 'plan-tue'
+        ? {
+            body: {
+              completedHumanTaskIds: ['task-done'],
+              unresolvedItems: [
+                { taskId: 'task-gary', disposition: 'carry' },
+              ],
+            },
+          }
+        : undefined,
+      listMorningBriefSalesActionStates: (briefId) => briefId === 'brief-tue'
+        ? [
+            { state: 'skipped' },
+            { state: 'skipped' },
+            { state: 'skipped' },
+            { state: 'skipped' },
+            { state: 'future_state' },
+          ]
+        : [{ state: 'approved' }, { state: 'edited' }],
+    },
+    targetLocalDate: '2026-07-29',
+    now: new Date('2026-07-29T14:00:00.000Z'),
+  });
+
+  assert.equal(source.maxChars, 8000);
+  assert.match(source.content, /not evidence/i);
+  assert.match(source.content, /work never decided/);
+  assert.match(source.content, /2026-07-28: Finish the install preparation\./);
+  assert.equal(source.content.includes('This newer brief was never attached.'), false);
+  assert.match(
+    source.content,
+    /candidates: 'Gary install prep' accepted then carry; 'Zac call plan' dismissed then not_settled; 'Send final scope' accepted then done; 'Unopened arrival item' not_decided then not_settled; 'Review next week' set_aside then not_settled; taskId=task-missing dropped_before_arrival \| sales: 4 skipped/,
+  );
+  assert.equal(source.content.includes("'task-missing'"), false);
+  assert.equal(source.content.match(/Gary install prep/g)?.length, 1);
+  assert.match(
+    source.content,
+    /candidates: 'Client delivery plan' accepted then not_settled \| sales: 1 approved, 1 edited/,
+  );
+  const lines = source.content.split('\n');
+  const fridayIndex = lines.findIndex((line) => line.includes('2026-07-24:'));
+  assert.ok(fridayIndex >= 0);
+  assert.match(lines[fridayIndex], /Use Friday to clear the launch block\./);
+  assert.match(lines[fridayIndex], /\(not the brief attached to the plan\)$/);
+  assert.equal(lines[fridayIndex + 1]?.startsWith('  candidates:') ?? false, false);
+  assert.match(
+    source.content,
+    /2026-07-23: Legacy first sentence\. \(not the brief attached to the plan\)/,
+  );
+  assert.equal(source.content.includes('2026-07-22:'), false);
+});
+
 test('project progress source shows yesterday and today digests and heartbeat warnings', async (t) => {
   const { dir, options } = fixture(t);
   disableExternalSources(t, dir);
@@ -1465,7 +1879,7 @@ test('real source ids overwrite coverage fallbacks, while failed fetches remain 
     COVE_BRIEF_JARVIS_TOKEN_PATH: tokenPath,
     COVE_BRIEF_JARVIS_URL: 'http://memory.test',
   });
-  const successFetch = async (url, init = {}) => {
+  const successFetch = async (url) => {
     const forge = forgeRowsResponse(url);
     if (forge) return forge;
     if (String(url).includes('api.attio.com')) {
@@ -1484,6 +1898,8 @@ test('real source ids overwrite coverage fallbacks, while failed fetches remain 
     included.sources.map((source) => [source.id, source.priority]),
     [
       ['day_dump', 0],
+      ['recent_dumps', 2],
+      ['recent_briefs', 3],
       ['untriaged_inbound', 0],
       ['project_progress', 1],
       ['recent_activity', 4],
@@ -1494,6 +1910,8 @@ test('real source ids overwrite coverage fallbacks, while failed fetches remain 
       ['leadup', 3],
       ['sprint_memo', 4],
       ['commitments', 5],
+      ['email_queue', 7],
+      ['completed_recently', 6],
       ['task_snapshot', 6],
       ['calendar', 7],
       ['settlement_summary', 8],
@@ -1511,6 +1929,7 @@ test('real source ids overwrite coverage fallbacks, while failed fetches remain 
       { id: 'leadup', label: 'LEADUP', required: false, maxChars: 9000 },
     ],
   );
+  assert.equal(included.sources.find((source) => source.id === 'goals').maxChars, 20000);
   const includedCoverage = assembleMorningBriefContext(included.sources, { now: NOW }).manifest.coverage;
   assert.equal(includedCoverage.calendar, 'included');
   assert.equal(includedCoverage.crm_last_touch, 'included');
