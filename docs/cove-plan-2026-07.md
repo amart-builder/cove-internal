@@ -2,7 +2,7 @@
 
 The running plan from the system-by-system architecture walkthrough. We extend it section by section, settle it once (with a cross-model red-team on the settled version), then action it all in one build wave. Decisions recorded here are Alex's calls from the walkthrough sessions.
 
-Status: IN PROGRESS. Sections settled: Task Management. Pending walkthroughs: Email, CRM, Setup and Teaching, Buddy and Execution.
+Status: SETTLED 2026-07-28 evening (all walkthroughs done; cross-model red-team applied; Alex signed off on the four contested calls). Build wave is internally SEQUENCED; see "Wave order and reliability spine" at the end.
 
 ## Already shipped during the audit (2026-07-28)
 
@@ -76,7 +76,7 @@ Deeper-email items CONFIRMED by Alex (2026-07-28 evening):
 
 1. **CRM-aware drafting** (confirmed): when drafting a reply, pull the sender's record through the CRM interface (relationship history, last touch, open waiting-on items) so drafts read like they know the person. Writes a contact activity for meaningful correspondence (create-or-append, same interface as meeting notes).
 2. **Commitment capture from email** (confirmed): promises in sent replies and inbound threads ("I'll get this to you Friday") land in the commitments ledger as follow_up / waiting_on with the source quote.
-3. **Attachment awareness** (confirmed): triage reads common attachments for classification and draft context (an invoice is an action item, not a notification).
+3. **Attachment awareness** (confirmed; Alex kept it in the wave, guarded): triage reads common attachments for classification and draft context (an invoice is an action item, not a notification). Guardrails required at build: size caps, common formats only, no OCR in v1, attachment content treated strictly as untrusted data (never as instructions), bounded cost per run.
 4. **Meeting-notes fallback bucket** (confirmed; also Meeting Notes item 3): triage recognizes meeting-notes emails and routes them into the meeting pipeline instead of normal reply handling.
 5. **Long-sleep catch-up**: first triage after days of lid-closed must reach back to the last successful run, not a fixed 2-day window. Verify and fix.
 
@@ -123,7 +123,7 @@ Keep: interview-first structure, the private-draft quality gate, prove-don't-pro
 
 Alex's semantics, replacing the workspace-gated meaning:
 
-- **"Claude" owner** = open a Claude session in AUTO mode, seeded with the task detail, expected to complete the entire task autonomously with no explanation beyond what the task carries. Full laptop reach (whatever the user could do themselves), because it is literally a Claude session on their machine. Hard line in the seed instructions: no binding or final actions (no sending, publishing, purchasing, nothing irreversible); it produces drafts, files, and ready-to-fire work product.
+- **"Claude" owner** = open a Claude session in AUTO-EDITS permission mode (settled by Alex after red-team: file edits and task work run autonomously; consequential actions still hit Claude Code's own approval prompt; never bypassPermissions, because the no-finals rule must be a lock, not an instruction), seeded with the task detail, expected to complete the entire task autonomously with no explanation beyond what the task carries. Full laptop reach (whatever the user could do themselves), because it is literally a Claude session on their machine. Hard line in the seed instructions: no binding or final actions (no sending, publishing, purchasing, nothing irreversible); it produces drafts, files, and ready-to-fire work product.
 - **"Together" owner** = the same seeded session, opened in PLAN mode.
 - No workspace allowlist or git repo required for the chips. Deliverables default to a Cove-managed outputs folder so results are always findable; results and resume links still land back on the board.
 - The existing gated headless lane (allowlisted workspace, budget, clean repo) is NOT deleted: it remains the machinery for unattended/overnight execution later. The chips just stop depending on it.
@@ -148,8 +148,25 @@ Alex's ask: a recurring agent that checks whether Cove is functioning and achiev
 - Output respects the attention laws: a morning-brief section when something needs the user; Telegram ping only for hard failures (e.g. triage dead 3 consecutive runs); no unprompted conversations. User can ask "how is Cove doing?" anytime.
 - Optional, opt-in with full disclosure: a weekly system-facts-only health email from client installs to the operator's Jarvis Pro support address, so fleet problems surface before the client calls. Alex decides per client.
 
+## Wave order and reliability spine (settled after cross-model red-team, 2026-07-28 evening)
+
+The wave builds in this order; later stages depend on earlier ones:
+
+1. **Reliability spine first**: one background-job scheduler with leases, priorities, and backoff (a lid-open morning must not stampede six jobs); idempotency keys on every automated write; receipts (source, time, actions, retries) on every automated action; a **visible failure inbox** surface where unprocessed mail, failed notes, expired logins, dead jobs, and partial writes appear instead of vanishing; versioned migrations; automated backups with a TESTED restore.
+2. **Gmail connector feasibility spike**, hard pass bar: headless auth works unattended, least-privilege scopes, token refresh, and a send-denial test proving the send capability is structurally excluded. Any red = stay on Composio.
+3. **CRM interface + local backend** with contact identity resolution (dedupe before auto-creating people). External adapters are NOT shipped code: they are wired per client at setup when a real client has a connectable CRM (Alex's call; the connect-first setup flow is unchanged).
+4. **One shared meeting/email ingestion pipeline**, deduped by Gmail message id, feeding both the watcher and the email-triage fallback so the same notes can never double-process.
+5. **Features**: recurrence (with a DB uniqueness constraint per template per local day, settlement interaction defined, and user confirmation before a recurrence template is created from natural language), stale-task watchdog, archive-with-undo, card-inbox sync, commitment capture, CRM-aware drafting, attachment awareness (guarded), meeting-notes SETUP step, health COLLECTORS.
+6. **Setup, receipts UX, mid-day replan wiring, plain-English vocabulary.**
+7. **UI unification pass** (All Work + People to the water aesthetic) with live design review.
+8. **Owner chips last**, after task/run lifecycle states exist (running, awaiting approval, failed, output ready, abandoned; and rules for a task settled or deleted while its session runs). Chip modes are enforced by session permission mode: Claude = auto-edits, Together = plan.
+
+Hard-failure alerting goes to Telegram directly, never only the brief (a broken brief cannot report itself).
+
+**Fast-follows (the week after the wave)**: reopen-day undo, fleet-health email (opt-in), Claude-judged adoption coaching (collectors ship in the wave), external CRM adapters as clients need them.
+
 ## Process
 
-1. Walk each remaining system with Alex; extend this plan.
-2. Settle the full plan; one cross-model red-team pass on the settled version.
-3. Action everything in one build wave with per-item verification and a final fresh-context review.
+1. Walk each remaining system with Alex; extend this plan. DONE.
+2. Settle the full plan; one cross-model red-team pass on the settled version. DONE (red-team findings folded in above; Alex decided the four contested calls 2026-07-28 evening).
+3. Action everything in the sequenced build wave with per-item verification, cross-system integration checks at each stage boundary, and a final fresh-context review.
