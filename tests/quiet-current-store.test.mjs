@@ -17,7 +17,7 @@ import {
 function isolatedStore(t) {
   const file = path.join(
     os.tmpdir(),
-    `forge-quiet-current-${process.pid}-${Date.now()}-${Math.random()}.json`,
+    `cove-quiet-current-${process.pid}-${Date.now()}-${Math.random()}.json`,
   );
   setQuietCurrentStorePathForTests(file);
   setQuietCurrentNowForTests(undefined);
@@ -117,7 +117,7 @@ test('observed progress targets an existing task and deterministic relay ids rep
 test('default Quiet Current storage follows COVE_DATA_DIR instead of cwd', (t) => {
   const dir = path.join(
     os.tmpdir(),
-    `forge-quiet-current-data-dir-${process.pid}-${Date.now()}-${Math.random()}`,
+    `cove-quiet-current-data-dir-${process.pid}-${Date.now()}-${Math.random()}`,
   );
   const previous = process.env.COVE_DATA_DIR;
   process.env.COVE_DATA_DIR = dir;

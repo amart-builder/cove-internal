@@ -11,7 +11,7 @@ function denied(request: NextRequest): NextResponse | undefined {
   if (!hasDayPlanRouteAccess(request)) {
     return NextResponse.json({ error: "Untrusted request host." }, { status: 403 });
   }
-  if (request.headers.get("x-forge-csrf") !== getQuietCurrentCsrfToken()) {
+  if (request.headers.get("x-cove-csrf") !== getQuietCurrentCsrfToken()) {
     return NextResponse.json({ error: "Cove request token is missing." }, { status: 403 });
   }
 }

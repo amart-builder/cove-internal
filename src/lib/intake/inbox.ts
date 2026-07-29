@@ -64,7 +64,7 @@ class InboxDatabaseError extends Error {
 function tableName(): string {
   const prefix =
     coveEnv("TABLE_PREFIX") ??
-    process.env.NEXT_PUBLIC_FORGE_TABLE_PREFIX ??
+    process.env.NEXT_PUBLIC_COVE_TABLE_PREFIX ??
     "";
   return prefix ? `${prefix}inbound_events` : "inbound_events";
 }
@@ -138,7 +138,7 @@ async function atomicResolveEvent(input: {
     throw new InboxDatabaseError("Supabase inbox is not configured.");
   }
   const response = await fetch(
-    new URL("/rest/v1/rpc/forge_resolve_inbound_event", baseUrl),
+    new URL("/rest/v1/rpc/cove_resolve_inbound_event", baseUrl),
     {
       method: "POST",
       headers: {
@@ -253,7 +253,7 @@ async function withSpoolLock<T>(
     .slice(0, 24);
   // Keep lock state off Syncthing and let SQLite release it on process death.
   const lockDb = new Database(
-    path.join(os.tmpdir(), `forge-intake-spool-lock-${lockKey}.sqlite`),
+    path.join(os.tmpdir(), `cove-intake-spool-lock-${lockKey}.sqlite`),
   );
   lockDb.pragma(`busy_timeout = ${options.reclaimStale ? 1000 : 0}`);
   let locked = false;

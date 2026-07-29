@@ -7,7 +7,7 @@ else
   session_id=$(printf '%s' "$payload" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
 fi
 
-marker_file=${HOME}/.forge/orchestrator-sessions
+marker_file=${HOME}/.cove/orchestrator-sessions
 if [ -n "$session_id" ] && [ -f "$marker_file" ] && grep -F -x -e "$session_id" "$marker_file" >/dev/null 2>&1; then
   printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"This is a Cove task session. Before any other work, invoke the Skill tool with skill: orchestrator, announce the mode, then execute the seeded task brief."}}'
 fi

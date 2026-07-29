@@ -254,13 +254,13 @@ Tell them:
 
 ## Running on more than one device
 
-Cove keeps local data in `data/forge.db`. That is the private, simple default.
+Cove keeps local data in `data/cove.db`. That is the private, simple default.
 
 If the user asks for more than one device, offer Supabase or Convex. The user creates the cloud account once. Name one Cove install as the main server and point every browser and agent at it. Do not set up cloud storage by default.
 
 ## Storage modes
 
-Cove uses `NEXT_PUBLIC_FORGE_RUNTIME`. The old `FORGE` word stays because this public value is built into the browser code. Other settings use `COVE_*`.
+Cove uses `NEXT_PUBLIC_COVE_RUNTIME`. A pre-rename `NEXT_PUBLIC_FORGE_RUNTIME` value remains supported as a migration fallback. Other settings use `COVE_*`.
 
 | Value | Storage | Account | Best for |
 | --- | --- | --- | --- |
@@ -270,4 +270,4 @@ Cove uses `NEXT_PUBLIC_FORGE_RUNTIME`. The old `FORGE` word stays because this p
 
 Cove never asks the user to log in. The cloud account belongs to the storage provider.
 
-Only add `NEXT_PUBLIC_FORGE_RUNTIME` to `.env.local` when leaving local mode. Do not choose Convex for a new install.
+Only add `NEXT_PUBLIC_COVE_RUNTIME` to `.env.local` when leaving local mode. Do not choose Convex for a new install.

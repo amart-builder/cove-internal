@@ -1,15 +1,15 @@
-export type ForgeId = string;
+export type CoveId = string;
 
 export type TaskColumn = {
-  id: ForgeId;
+  id: CoveId;
   name: string;
   position: number;
   is_default: boolean;
 };
 
 export type Task = {
-  id: ForgeId;
-  column_id: ForgeId | null;
+  id: CoveId;
+  column_id: CoveId | null;
   title: string;
   description: string;
   priority: "low" | "medium" | "high";
@@ -29,7 +29,7 @@ export type Task = {
 };
 
 export type Company = {
-  id: ForgeId;
+  id: CoveId;
   name: string;
   domain: string | null;
   website: string | null;
@@ -45,8 +45,8 @@ export type Company = {
 };
 
 export type Contact = {
-  id: ForgeId;
-  company_id: ForgeId | null;
+  id: CoveId;
+  company_id: CoveId | null;
   name: string;
   email: string | null;
   phone: string | null;
@@ -64,9 +64,9 @@ export type Contact = {
 };
 
 export type ContactActivity = {
-  id: ForgeId;
-  contact_id: ForgeId | null;
-  company_id: ForgeId | null;
+  id: CoveId;
+  contact_id: CoveId | null;
+  company_id: CoveId | null;
   source_ref?: string | null;
   activity_type: string;
   title: string | null;
@@ -78,9 +78,9 @@ export type ContactActivity = {
 };
 
 export type EmailItem = {
-  id: ForgeId;
-  contact_id: ForgeId | null;
-  company_id: ForgeId | null;
+  id: CoveId;
+  contact_id: CoveId | null;
+  company_id: CoveId | null;
   message_id: string | null;
   thread_id: string | null;
   classification: "action_item" | "tiding" | "log_only";
@@ -119,8 +119,8 @@ export type EmailItem = {
 };
 
 export type Draft = {
-  id: ForgeId;
-  email_item_id: ForgeId | null;
+  id: CoveId;
+  email_item_id: CoveId | null;
   subject?: string | null;
   body: string;
   status: "needs_review" | "edited" | "approved" | "sent" | "dismissed";
@@ -131,15 +131,15 @@ export type Draft = {
 };
 
 export type EmailActionLog = {
-  id: ForgeId;
-  email_item_id: ForgeId | null;
+  id: CoveId;
+  email_item_id: CoveId | null;
   action_type: string;
   description: string;
   created_at: string;
 };
 
 export type EmailTriageRun = {
-  id: ForgeId;
+  id: CoveId;
   summary: string | null;
   created_at: string;
 };
@@ -160,12 +160,12 @@ export type CommitmentSourceKind =
   | "brief";
 
 export type Commitment = {
-  id: ForgeId;
+  id: CoveId;
   kind: CommitmentKind;
   title: string;
   details: string | null;
   counterparty: string | null;
-  contact_id: ForgeId | null;
+  contact_id: CoveId | null;
   source_kind: CommitmentSourceKind;
   source_quote: string | null;
   source_ref: string | null;
@@ -186,13 +186,13 @@ export type InboundEventState =
   | "dismissed";
 
 export type InboundEvent = {
-  id: ForgeId;
+  id: CoveId;
   source: string;
   source_id: string;
   raw_text: string;
   machine: string | null;
   state: InboundEventState;
-  task_id: ForgeId | null;
+  task_id: CoveId | null;
   error: string | null;
   attempts: number;
   created_at: string;

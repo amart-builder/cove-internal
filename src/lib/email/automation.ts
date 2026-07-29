@@ -644,7 +644,7 @@ export async function archiveEmailItemFromCard(input: {
     try {
       repair.transaction(() => {
         repair.prepare(
-          `INSERT OR IGNORE INTO forge_email_messages
+          `INSERT OR IGNORE INTO cove_email_messages
              (message_id, thread_id, email_item_id, internal_date, direction,
               state, attempts, observed_at, processed_at, updated_at)
            VALUES (?, ?, ?, ?, 'inbound', 'processed', 0, ?, ?, ?)`,

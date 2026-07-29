@@ -310,7 +310,7 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       // The first local database used `columns`; map its aliases through the
       // shared canonical lane vocabulary before rebuilding task rows.
       db.exec(`
-        CREATE TEMP TABLE forge_legacy_column_map (
+        CREATE TEMP TABLE cove_legacy_column_map (
           legacy_id TEXT PRIMARY KEY,
           target_id TEXT NOT NULL
         )
@@ -329,7 +329,7 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
          VALUES (?, ?, ?, 1, ?, ?)`,
       );
       const insertMap = db.prepare(
-        "INSERT INTO forge_legacy_column_map (legacy_id, target_id) VALUES (?, ?)",
+        "INSERT INTO cove_legacy_column_map (legacy_id, target_id) VALUES (?, ?)",
       );
       for (const legacy of legacyColumns) {
         const canonical = canonicalColumn(legacy.name);
@@ -361,10 +361,10 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
           UPDATE tasks
           SET column_id = (
             SELECT target_id
-            FROM forge_legacy_column_map
+            FROM cove_legacy_column_map
             WHERE legacy_id = tasks.column_id
           )
-          WHERE column_id IN (SELECT legacy_id FROM forge_legacy_column_map)
+          WHERE column_id IN (SELECT legacy_id FROM cove_legacy_column_map)
         `);
       }
 
@@ -401,7 +401,7 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
           DROP TABLE tasks_migration_legacy;
         `);
       }
-      db.exec("DROP TABLE forge_legacy_column_map");
+      db.exec("DROP TABLE cove_legacy_column_map");
       db.exec("UPDATE tasks SET project = 'Atlas' WHERE project IS NULL");
       db.exec(
         "CREATE INDEX IF NOT EXISTS tasks_project_status_idx ON tasks(project, status)",
@@ -562,7 +562,7 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
     version: 3,
     name: "reliability-spine",
     up: (db) => db.exec(`
-      CREATE TABLE IF NOT EXISTS forge_jobs (
+      CREATE TABLE IF NOT EXISTS cove_jobs (
         id TEXT PRIMARY KEY,
         type TEXT NOT NULL,
         payload TEXT NOT NULL DEFAULT '{}',
@@ -579,12 +579,12 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
         finished_at TEXT,
         last_error TEXT
       );
-      CREATE INDEX IF NOT EXISTS forge_jobs_ready_idx
-        ON forge_jobs(status, priority DESC, run_after);
-      CREATE INDEX IF NOT EXISTS forge_jobs_lease_idx
-        ON forge_jobs(status, lease_until);
+      CREATE INDEX IF NOT EXISTS cove_jobs_ready_idx
+        ON cove_jobs(status, priority DESC, run_after);
+      CREATE INDEX IF NOT EXISTS cove_jobs_lease_idx
+        ON cove_jobs(status, lease_until);
 
-      CREATE TABLE IF NOT EXISTS forge_receipts (
+      CREATE TABLE IF NOT EXISTS cove_receipts (
         id TEXT PRIMARY KEY,
         source TEXT NOT NULL,
         started_at TEXT NOT NULL,
@@ -596,12 +596,12 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
           CHECK (outcome IN ('success','partial','failed','skipped')),
         created_at TEXT NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS forge_receipts_recent_idx
-        ON forge_receipts(finished_at DESC);
-      CREATE INDEX IF NOT EXISTS forge_receipts_source_idx
-        ON forge_receipts(source, finished_at DESC);
+      CREATE INDEX IF NOT EXISTS cove_receipts_recent_idx
+        ON cove_receipts(finished_at DESC);
+      CREATE INDEX IF NOT EXISTS cove_receipts_source_idx
+        ON cove_receipts(source, finished_at DESC);
 
-      CREATE TABLE IF NOT EXISTS forge_failure_inbox (
+      CREATE TABLE IF NOT EXISTS cove_failure_inbox (
         id TEXT PRIMARY KEY,
         source TEXT NOT NULL,
         source_id TEXT NOT NULL,
@@ -612,8 +612,8 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
         created_at TEXT NOT NULL,
         UNIQUE (source, source_id)
       );
-      CREATE INDEX IF NOT EXISTS forge_failure_inbox_open_idx
-        ON forge_failure_inbox(dismissed_at, occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS cove_failure_inbox_open_idx
+        ON cove_failure_inbox(dismissed_at, occurred_at DESC);
     `),
   },
   {
@@ -676,7 +676,7 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
           ON contact_activities(source_ref)
           WHERE source_ref IS NOT NULL;
 
-        CREATE TABLE IF NOT EXISTS forge_message_ingestion (
+        CREATE TABLE IF NOT EXISTS cove_message_ingestion (
           message_id TEXT PRIMARY KEY,
           thread_id TEXT NOT NULL,
           source_door TEXT NOT NULL
@@ -694,10 +694,10 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS forge_message_ingestion_status_lease_idx
-          ON forge_message_ingestion(status, lease_until);
-        CREATE INDEX IF NOT EXISTS forge_message_ingestion_receipt_idx
-          ON forge_message_ingestion(receipt_id);
+        CREATE INDEX IF NOT EXISTS cove_message_ingestion_status_lease_idx
+          ON cove_message_ingestion(status, lease_until);
+        CREATE INDEX IF NOT EXISTS cove_message_ingestion_receipt_idx
+          ON cove_message_ingestion(receipt_id);
       `);
     },
   },
@@ -970,7 +970,7 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       for (const threadId of winners.keys()) winnerForDuplicate.get(threadId);
 
       db.exec(`
-        CREATE TABLE forge_email_messages (
+        CREATE TABLE cove_email_messages (
           message_id TEXT PRIMARY KEY,
           thread_id TEXT NOT NULL,
           email_item_id TEXT NOT NULL REFERENCES email_items(id),
@@ -988,17 +988,17 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
           processed_at TEXT,
           updated_at TEXT NOT NULL
         );
-        CREATE INDEX forge_email_messages_thread_date_idx
-          ON forge_email_messages(thread_id, internal_date);
-        CREATE INDEX forge_email_messages_state_idx
-          ON forge_email_messages(state, updated_at);
+        CREATE INDEX cove_email_messages_thread_date_idx
+          ON cove_email_messages(thread_id, internal_date);
+        CREATE INDEX cove_email_messages_state_idx
+          ON cove_email_messages(state, updated_at);
 
-        CREATE TABLE forge_gmail_operations (
+        CREATE TABLE cove_gmail_operations (
           id TEXT PRIMARY KEY,
           email_item_id TEXT NOT NULL REFERENCES email_items(id),
           thread_id TEXT NOT NULL,
           expected_message_id TEXT NOT NULL
-            REFERENCES forge_email_messages(message_id),
+            REFERENCES cove_email_messages(message_id),
           expected_thread_version INTEGER NOT NULL CHECK (expected_thread_version > 0),
           kind TEXT NOT NULL CHECK (kind IN ('upsert_draft','archive_messages')),
           operation_key TEXT NOT NULL UNIQUE,
@@ -1013,11 +1013,11 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
           updated_at TEXT NOT NULL,
           completed_at TEXT
         );
-        CREATE UNIQUE INDEX forge_gmail_operations_one_active_thread
-          ON forge_gmail_operations(thread_id)
+        CREATE UNIQUE INDEX cove_gmail_operations_one_active_thread
+          ON cove_gmail_operations(thread_id)
           WHERE status IN ('pending','uncertain');
-        CREATE INDEX forge_gmail_operations_status_idx
-          ON forge_gmail_operations(status, updated_at);
+        CREATE INDEX cove_gmail_operations_status_idx
+          ON cove_gmail_operations(status, updated_at);
       `);
 
       const managedRows = db.prepare(
@@ -1043,7 +1043,7 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
          WHERE id = ?`,
       );
       const insertMessage = db.prepare(
-        `INSERT OR IGNORE INTO forge_email_messages
+        `INSERT OR IGNORE INTO cove_email_messages
            (message_id, thread_id, email_item_id, internal_date, direction,
             state, classification_json, attempts, observed_at, processed_at,
             updated_at)
@@ -1172,19 +1172,105 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       }
     },
   },
+  {
+    version: 13,
+    name: "canonical-cove-storage",
+    foreignKeysOff: true,
+    up: (db) => {
+      const tableExists = (name: string) => Boolean(db.prepare(
+        "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?",
+      ).get(name));
+      const legacyTables = [
+        ["forge_jobs", "cove_jobs"],
+        ["forge_receipts", "cove_receipts"],
+        ["forge_failure_inbox", "cove_failure_inbox"],
+        ["forge_message_ingestion", "cove_message_ingestion"],
+        ["forge_email_messages", "cove_email_messages"],
+        ["forge_gmail_operations", "cove_gmail_operations"],
+      ] as const;
+      for (const [legacyName, coveName] of legacyTables) {
+        const legacyExists = tableExists(legacyName);
+        const coveExists = tableExists(coveName);
+        if (legacyExists && coveExists) {
+          throw new Error(
+            `Cannot migrate ${legacyName}: ${coveName} already exists.`,
+          );
+        }
+        if (legacyExists) {
+          db.exec(`ALTER TABLE "${legacyName}" RENAME TO "${coveName}"`);
+        }
+      }
+
+      db.exec(`
+        DROP INDEX IF EXISTS forge_jobs_ready_idx;
+        DROP INDEX IF EXISTS forge_jobs_lease_idx;
+        DROP INDEX IF EXISTS forge_receipts_recent_idx;
+        DROP INDEX IF EXISTS forge_receipts_source_idx;
+        DROP INDEX IF EXISTS forge_failure_inbox_open_idx;
+        DROP INDEX IF EXISTS forge_message_ingestion_status_lease_idx;
+        DROP INDEX IF EXISTS forge_message_ingestion_receipt_idx;
+        DROP INDEX IF EXISTS forge_email_messages_thread_date_idx;
+        DROP INDEX IF EXISTS forge_email_messages_state_idx;
+        DROP INDEX IF EXISTS forge_gmail_operations_one_active_thread;
+        DROP INDEX IF EXISTS forge_gmail_operations_status_idx;
+
+        CREATE INDEX IF NOT EXISTS cove_jobs_ready_idx
+          ON cove_jobs(status, priority DESC, run_after);
+        CREATE INDEX IF NOT EXISTS cove_jobs_lease_idx
+          ON cove_jobs(status, lease_until);
+        CREATE INDEX IF NOT EXISTS cove_receipts_recent_idx
+          ON cove_receipts(finished_at DESC);
+        CREATE INDEX IF NOT EXISTS cove_receipts_source_idx
+          ON cove_receipts(source, finished_at DESC);
+        CREATE INDEX IF NOT EXISTS cove_failure_inbox_open_idx
+          ON cove_failure_inbox(dismissed_at, occurred_at DESC);
+        CREATE INDEX IF NOT EXISTS cove_message_ingestion_status_lease_idx
+          ON cove_message_ingestion(status, lease_until);
+        CREATE INDEX IF NOT EXISTS cove_message_ingestion_receipt_idx
+          ON cove_message_ingestion(receipt_id);
+        CREATE INDEX IF NOT EXISTS cove_email_messages_thread_date_idx
+          ON cove_email_messages(thread_id, internal_date);
+        CREATE INDEX IF NOT EXISTS cove_email_messages_state_idx
+          ON cove_email_messages(state, updated_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS cove_gmail_operations_one_active_thread
+          ON cove_gmail_operations(thread_id)
+          WHERE status IN ('pending','uncertain');
+        CREATE INDEX IF NOT EXISTS cove_gmail_operations_status_idx
+          ON cove_gmail_operations(status, updated_at);
+      `);
+    },
+  },
 ];
 
-export function runLocalMigrations(
-  db: Database.Database,
-  now: () => Date = () => new Date(),
-): void {
+function migrationTableExists(db: Database.Database, name: string): boolean {
+  return Boolean(db.prepare(
+    "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?",
+  ).get(name));
+}
+
+function ensureMigrationLedger(db: Database.Database): void {
+  if (
+    !migrationTableExists(db, "cove_schema_migrations") &&
+    migrationTableExists(db, "forge_schema_migrations")
+  ) {
+    db.exec(
+      "ALTER TABLE forge_schema_migrations RENAME TO cove_schema_migrations",
+    );
+  }
   db.exec(`
-    CREATE TABLE IF NOT EXISTS forge_schema_migrations (
+    CREATE TABLE IF NOT EXISTS cove_schema_migrations (
       version INTEGER PRIMARY KEY,
       name TEXT NOT NULL,
       applied_at TEXT NOT NULL
     )
   `);
+}
+
+export function runLocalMigrations(
+  db: Database.Database,
+  now: () => Date = () => new Date(),
+): void {
+  ensureMigrationLedger(db);
   for (const migration of LOCAL_MIGRATIONS) {
     applyLocalMigration(db, migration, now);
   }
@@ -1195,15 +1281,9 @@ export function applyLocalMigration(
   migration: LocalMigration,
   now: () => Date = () => new Date(),
 ): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS forge_schema_migrations (
-      version INTEGER PRIMARY KEY,
-      name TEXT NOT NULL,
-      applied_at TEXT NOT NULL
-    )
-  `);
+  ensureMigrationLedger(db);
   const alreadyApplied = db.prepare(
-    "SELECT 1 FROM forge_schema_migrations WHERE version = ?",
+    "SELECT 1 FROM cove_schema_migrations WHERE version = ?",
   );
   if (alreadyApplied.get(migration.version)) return;
 
@@ -1226,7 +1306,7 @@ export function applyLocalMigration(
       if (alreadyApplied.get(migration.version)) return;
       migration.up(db);
       db.prepare(
-        "INSERT INTO forge_schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
+        "INSERT INTO cove_schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
       ).run(migration.version, migration.name, now().toISOString());
     }).immediate();
   } finally {

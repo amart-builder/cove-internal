@@ -113,7 +113,7 @@ test('expired leases are retried and a max-attempt failure becomes dead', async 
   }).job;
   const direct = new Database(dbPath);
   direct.prepare(
-    `UPDATE forge_jobs
+    `UPDATE cove_jobs
      SET status = 'leased', attempts = 1, lease_token = 'old-lease',
          lease_until = '2026-07-28T11:59:00.000Z'
      WHERE id = ?`,
@@ -267,32 +267,32 @@ test('scheduler ticks sweep terminal reliability history by age', async (t) => {
   const old = '2026-04-01T00:00:00.000Z';
   const recent = '2026-07-27T00:00:00.000Z';
   db.prepare(
-    `INSERT INTO forge_jobs
+    `INSERT INTO cove_jobs
        (id, type, payload, priority, run_after, attempts, max_attempts, status,
         idempotency_key, created_at, finished_at)
      VALUES (?, 'test', '{}', 0, ?, 1, 1, ?, ?, ?, ?)`,
   ).run('old-done', old, 'done', 'old-done', old, old);
   db.prepare(
-    `INSERT INTO forge_jobs
+    `INSERT INTO cove_jobs
        (id, type, payload, priority, run_after, attempts, max_attempts, status,
         idempotency_key, created_at, finished_at)
      VALUES (?, 'test', '{}', 0, ?, 1, 1, ?, ?, ?, ?)`,
   ).run('recent-dead', recent, 'dead', 'recent-dead', recent, recent);
   db.prepare(
-    `INSERT INTO forge_jobs
+    `INSERT INTO cove_jobs
        (id, type, payload, priority, run_after, attempts, max_attempts, status,
         idempotency_key, created_at)
      VALUES (?, 'test', '{}', 0, ?, 0, 1, 'queued', ?, ?)`,
   ).run('old-queued', '2026-08-01T00:00:00.000Z', 'old-queued', old);
   db.prepare(
-    `INSERT INTO forge_receipts
+    `INSERT INTO cove_receipts
        (id, source, started_at, finished_at, summary, actions_json,
         retry_count, outcome, created_at)
      VALUES ('old-receipt', 'test', ?, ?, 'old', '{}', 0, 'success', ?),
             ('recent-receipt', 'test', ?, ?, 'recent', '{}', 0, 'success', ?)`,
   ).run(old, old, old, recent, recent, recent);
   db.prepare(
-    `INSERT INTO forge_failure_inbox
+    `INSERT INTO cove_failure_inbox
        (id, source, source_id, message, details_json, occurred_at,
         dismissed_at, created_at)
      VALUES ('old-failure', 'test', 'old', 'old', '{}', ?, ?, ?),
@@ -301,15 +301,15 @@ test('scheduler ticks sweep terminal reliability history by age', async (t) => {
 
   await scheduler.runAvailable();
   assert.deepEqual(
-    db.prepare('SELECT id FROM forge_jobs ORDER BY id').pluck().all(),
+    db.prepare('SELECT id FROM cove_jobs ORDER BY id').pluck().all(),
     ['old-queued', 'recent-dead'],
   );
   assert.deepEqual(
-    db.prepare('SELECT id FROM forge_receipts ORDER BY id').pluck().all(),
+    db.prepare('SELECT id FROM cove_receipts ORDER BY id').pluck().all(),
     ['recent-receipt'],
   );
   assert.deepEqual(
-    db.prepare('SELECT id FROM forge_failure_inbox ORDER BY id').pluck().all(),
+    db.prepare('SELECT id FROM cove_failure_inbox ORDER BY id').pluck().all(),
     ['open-failure'],
   );
 });

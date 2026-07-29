@@ -73,7 +73,7 @@ export function createEmailClassificationHandler(input: {
     const db = openLocalDatabase(input.dbPath);
     try {
       const state = db.prepare(
-        "SELECT state FROM forge_email_messages WHERE message_id = ?",
+        "SELECT state FROM cove_email_messages WHERE message_id = ?",
       ).get(claim.messageId) as { state: string } | undefined;
       if (!state) throw new Error("Email message claim was not found.");
       if (state.state === "processed") {
@@ -108,7 +108,7 @@ export function createEmailClassificationHandler(input: {
         };
       }
       db.prepare(
-        `UPDATE forge_email_messages
+        `UPDATE cove_email_messages
          SET state = 'classifying', attempts = attempts + 1, updated_at = ?
          WHERE message_id = ? AND state IN ('observed','classifying','failed')`,
       ).run((input.now ?? (() => new Date()))().toISOString(), claim.messageId);

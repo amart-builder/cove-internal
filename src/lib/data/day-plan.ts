@@ -85,7 +85,7 @@ async function postDayPlan<T = DayPlanMutationResult>(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Forge-CSRF": csrfToken!,
+      "X-Cove-CSRF": csrfToken!,
     },
     body: JSON.stringify(body),
     cache: "no-store",
@@ -108,7 +108,7 @@ async function postProtected<T>(endpoint: string, body: Record<string, unknown>)
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Forge-CSRF": csrfToken!,
+      "X-Cove-CSRF": csrfToken!,
     },
     body: JSON.stringify(body),
     cache: "no-store",

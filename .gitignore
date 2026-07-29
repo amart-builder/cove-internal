@@ -43,10 +43,13 @@ next-env.d.ts
 # local data, including Quiet Current history and its per-install CSRF token
 /data/buddy-home/
 /data/*
-!/data/forge-meetings.json
+!/data/cove-meetings.json
 !/data/cove-meetings.example.json
 !/data/cove-support.example.json
 !/data/cove-workspace.example.json
+# Legacy pre-Cove local files remain ignored during in-place migration.
+/data/forge.db*
+/data/forge-*.json
 .gstack/
 
 # on-device voice transcription environment (large; installed per-machine)

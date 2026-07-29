@@ -115,7 +115,7 @@ test('the arrival backfill queues for today, and waits on a live peer attempt', 
 function isolatedStore(t, initialClock = '2026-07-24T16:00:00.000Z') {
   const file = path.join(
     os.tmpdir(),
-    `forge-brief-gate-${process.pid}-${Date.now()}-${Math.random()}.db`,
+    `cove-brief-gate-${process.pid}-${Date.now()}-${Math.random()}.db`,
   );
   let clock = new Date(initialClock);
   const store = createDayPlanStore({ dbPath: file, now: () => new Date(clock) });
@@ -238,7 +238,7 @@ test('recent brief durations feed the estimate and ignore unfinished runs', (t) 
 // ---------------------------------------------------------------------------
 
 function relayDir(t) {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'forge-closure-relay-'));
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cove-closure-relay-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
 }

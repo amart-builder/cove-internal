@@ -34,7 +34,7 @@ export async function createSqliteBackup(input: {
   mkdirSync(input.backupDir, { recursive: true, mode: 0o700 });
   const destination = path.join(
     input.backupDir,
-    `forge-${backupStamp(now)}.db`,
+    `cove-${backupStamp(now)}.db`,
   );
   let reused = false;
   if (existsSync(destination)) {
@@ -74,7 +74,7 @@ export async function createSqliteBackup(input: {
   }
 
   const backups = readdirSync(input.backupDir)
-    .filter((name) => /^forge-(?:\d{14}|\d{8}-\d{6})\.db$/.test(name))
+    .filter((name) => /^(?:cove|forge)-(?:\d{14}|\d{8}-\d{6})\.db$/.test(name))
     .map((name) => path.join(input.backupDir, name))
     .sort((left, right) => {
       const modified = statSync(right).mtimeMs - statSync(left).mtimeMs;

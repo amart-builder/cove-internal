@@ -5,19 +5,19 @@ import path from 'node:path';
 import { mkdirSync, rmSync } from 'node:fs';
 import { NextRequest } from 'next/server';
 import {
-  forgeRestMutationAccessFailure,
+  coveRestMutationAccessFailure,
   GET,
   POST,
   targetsSpecificRows,
   DELETE,
-} from '../src/app/api/forge-rest/[table]/route.ts';
+} from '../src/app/api/cove-rest/[table]/route.ts';
 import { getQuietCurrentCsrfToken } from '../src/lib/quiet-current/store.ts';
 import { handleLocalRest } from '../src/lib/local/db.ts';
 import { LocalCRMBackend } from '../src/lib/crm/index.ts';
 
-const context = { params: Promise.resolve({ table: 'not_a_forge_table' }) };
+const context = { params: Promise.resolve({ table: 'not_a_cove_table' }) };
 
-test('forge-rest keeps GET host-only while mutations require route access and CSRF', async (t) => {
+test('cove-rest keeps GET host-only while mutations require route access and CSRF', async (t) => {
   const previousAccessMode = process.env.COVE_DAY_PLAN_ACCESS_MODE;
   delete process.env.COVE_DAY_PLAN_ACCESS_MODE;
   t.after(() => {
@@ -25,41 +25,41 @@ test('forge-rest keeps GET host-only while mutations require route access and CS
     else process.env.COVE_DAY_PLAN_ACCESS_MODE = previousAccessMode;
   });
 
-  const untrustedGet = await GET(new NextRequest('http://evil.example/api/forge-rest/tasks', {
+  const untrustedGet = await GET(new NextRequest('http://evil.example/api/cove-rest/tasks', {
     headers: { host: 'evil.example', origin: 'http://evil.example' },
   }), context);
   assert.equal(untrustedGet.status, 403);
 
-  const trustedGet = await GET(new NextRequest('http://localhost:3200/api/forge-rest/not_a_forge_table', {
+  const trustedGet = await GET(new NextRequest('http://localhost:3200/api/cove-rest/not_a_cove_table', {
     headers: { host: 'localhost:3200', origin: 'http://localhost:3200' },
   }), context);
   assert.equal(trustedGet.status, 404);
 
-  const missingToken = await POST(new NextRequest('http://localhost:3200/api/forge-rest/not_a_forge_table', {
+  const missingToken = await POST(new NextRequest('http://localhost:3200/api/cove-rest/not_a_cove_table', {
     method: 'POST',
     headers: { host: 'localhost:3200', origin: 'http://localhost:3200', 'content-type': 'application/json' },
     body: '{}',
   }), context);
   assert.equal(missingToken.status, 403);
 
-  const allowedMutation = new NextRequest('http://localhost:3200/api/forge-rest/not_a_forge_table', {
+  const allowedMutation = new NextRequest('http://localhost:3200/api/cove-rest/not_a_cove_table', {
     method: 'POST',
     headers: {
       host: 'localhost:3200',
       origin: 'http://localhost:3200',
       'content-type': 'application/json',
-      'x-forge-csrf': 'test-token',
+      'x-cove-csrf': 'test-token',
     },
     body: '{}',
   });
-  assert.equal(forgeRestMutationAccessFailure(allowedMutation, 'test-token'), undefined);
+  assert.equal(coveRestMutationAccessFailure(allowedMutation, 'test-token'), undefined);
 });
 
 test('local PATCH returns the rows it updated even when the filter tests an overwritten column', async (t) => {
-  const dir = path.join(os.tmpdir(), `forge-rest-cas-${process.pid}-${Date.now()}`);
+  const dir = path.join(os.tmpdir(), `cove-rest-cas-${process.pid}-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
   const previousDbPath = process.env.COVE_DB_PATH;
-  process.env.COVE_DB_PATH = path.join(dir, 'forge.db');
+  process.env.COVE_DB_PATH = path.join(dir, 'cove.db');
   t.after(() => {
     if (previousDbPath === undefined) delete process.env.COVE_DB_PATH;
     else process.env.COVE_DB_PATH = previousDbPath;
@@ -137,12 +137,12 @@ test('local REST treats an empty string mutation body as an empty object', () =>
 });
 
 test('a legacy tasks table upgrades in place instead of failing per query', async () => {
-  const dir = path.join(os.tmpdir(), `forge-legacy-db-${process.pid}-${Date.now()}`);
+  const dir = path.join(os.tmpdir(), `cove-legacy-db-${process.pid}-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, 'forge.db');
+  const file = path.join(dir, 'cove.db');
   const previousPath = process.env.COVE_DB_PATH;
   const globalKey = globalThis;
-  const previousDb = globalKey.__forgeDb;
+  const previousDb = globalKey.__coveDb;
 
   const { default: Database } = await import('better-sqlite3');
   const seed = new Database(file);
@@ -156,7 +156,7 @@ test('a legacy tasks table upgrades in place instead of failing per query', asyn
   seed.close();
 
   process.env.COVE_DB_PATH = file;
-  delete globalKey.__forgeDb;
+  delete globalKey.__coveDb;
   try {
     const result = handleLocalRest(
       'tasks',
@@ -190,8 +190,8 @@ test('a legacy tasks table upgrades in place instead of failing per query', asyn
       occurrence_local_date: null,
     }]);
   } finally {
-    delete globalKey.__forgeDb;
-    if (previousDb !== undefined) globalKey.__forgeDb = previousDb;
+    delete globalKey.__coveDb;
+    if (previousDb !== undefined) globalKey.__coveDb = previousDb;
     if (previousPath === undefined) delete process.env.COVE_DB_PATH;
     else process.env.COVE_DB_PATH = previousPath;
     rmSync(dir, { recursive: true, force: true });
@@ -199,11 +199,11 @@ test('a legacy tasks table upgrades in place instead of failing per query', asyn
 });
 
 test('local task migration adds project with the Atlas default and index', async () => {
-  const dir = path.join(os.tmpdir(), `forge-task-project-${process.pid}-${Date.now()}`);
+  const dir = path.join(os.tmpdir(), `cove-task-project-${process.pid}-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, 'forge.db');
+  const file = path.join(dir, 'cove.db');
   const previousPath = process.env.COVE_DB_PATH;
-  const previousDb = globalThis.__forgeDb;
+  const previousDb = globalThis.__coveDb;
   const { default: Database } = await import('better-sqlite3');
   const seed = new Database(file);
   seed.exec(`
@@ -222,7 +222,7 @@ test('local task migration adds project with the Atlas default and index', async
   `);
   seed.close();
   process.env.COVE_DB_PATH = file;
-  delete globalThis.__forgeDb;
+  delete globalThis.__coveDb;
   try {
     const inserted = handleLocalRest(
       'tasks',
@@ -232,8 +232,8 @@ test('local task migration adds project with the Atlas default and index', async
     );
     assert.equal(inserted.status, 201);
     assert.equal(inserted.body[0].project, 'Atlas');
-    globalThis.__forgeDb.close();
-    delete globalThis.__forgeDb;
+    globalThis.__coveDb.close();
+    delete globalThis.__coveDb;
     const inspect = new Database(file, { readonly: true });
     const columns = inspect.prepare('PRAGMA table_info(tasks)').all();
     assert.equal(columns.find((column) => column.name === 'project').dflt_value, "'Atlas'");
@@ -244,9 +244,9 @@ test('local task migration adds project with the Atlas default and index', async
     );
     inspect.close();
   } finally {
-    globalThis.__forgeDb?.close();
-    delete globalThis.__forgeDb;
-    if (previousDb !== undefined) globalThis.__forgeDb = previousDb;
+    globalThis.__coveDb?.close();
+    delete globalThis.__coveDb;
+    if (previousDb !== undefined) globalThis.__coveDb = previousDb;
     if (previousPath === undefined) delete process.env.COVE_DB_PATH;
     else process.env.COVE_DB_PATH = previousPath;
     rmSync(dir, { recursive: true, force: true });
@@ -256,11 +256,11 @@ test('local task migration adds project with the Atlas default and index', async
 test('the route rejects broad deletes and limits task hard-delete to Recently deleted', async (t) => {
   // The CSRF gate runs first, so an unauthenticated probe never reaches this
   // guard. Authenticate properly to prove the guard itself is load-bearing.
-  const dir = path.join(os.tmpdir(), `forge-rest-nofilter-${process.pid}-${Date.now()}`);
+  const dir = path.join(os.tmpdir(), `cove-rest-nofilter-${process.pid}-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
   const previousDbPath = process.env.COVE_DB_PATH;
   const previousAccessMode = process.env.COVE_DAY_PLAN_ACCESS_MODE;
-  process.env.COVE_DB_PATH = path.join(dir, 'forge.db');
+  process.env.COVE_DB_PATH = path.join(dir, 'cove.db');
   delete process.env.COVE_DAY_PLAN_ACCESS_MODE;
   t.after(() => {
     if (previousDbPath === undefined) delete process.env.COVE_DB_PATH;
@@ -273,12 +273,12 @@ test('the route rejects broad deletes and limits task hard-delete to Recently de
   const headers = {
     host: 'localhost:3200',
     origin: 'http://localhost:3200',
-    'x-forge-csrf': getQuietCurrentCsrfToken(),
+    'x-cove-csrf': getQuietCurrentCsrfToken(),
   };
   const tasksContext = { params: Promise.resolve({ table: 'tasks' }) };
 
   const filterless = await DELETE(
-    new NextRequest('http://localhost:3200/api/forge-rest/tasks', { method: 'DELETE', headers }),
+    new NextRequest('http://localhost:3200/api/cove-rest/tasks', { method: 'DELETE', headers }),
     tasksContext,
   );
   assert.equal(filterless.status, 400, 'a filterless DELETE would empty the table');
@@ -286,7 +286,7 @@ test('the route rejects broad deletes and limits task hard-delete to Recently de
 
   // Response-shaping parameters alone are still not a filter.
   const shapedOnly = await DELETE(
-    new NextRequest('http://localhost:3200/api/forge-rest/tasks?select=id&limit=10', {
+    new NextRequest('http://localhost:3200/api/cove-rest/tasks?select=id&limit=10', {
       method: 'DELETE',
       headers,
     }),
@@ -297,7 +297,7 @@ test('the route rejects broad deletes and limits task hard-delete to Recently de
   // An arbitrary task DELETE is still blocked. Hard delete belongs only to
   // the Recently deleted view and only for a row already archived.
   const arbitraryTaskDelete = await DELETE(
-    new NextRequest('http://localhost:3200/api/forge-rest/tasks?id=eq.does-not-exist', {
+    new NextRequest('http://localhost:3200/api/cove-rest/tasks?id=eq.does-not-exist', {
       method: 'DELETE',
       headers,
     }),
@@ -307,7 +307,7 @@ test('the route rejects broad deletes and limits task hard-delete to Recently de
 
   const recentlyDeleted = await DELETE(
     new NextRequest(
-      'http://localhost:3200/api/forge-rest/tasks?id=eq.does-not-exist&status=eq.archived',
+      'http://localhost:3200/api/cove-rest/tasks?id=eq.does-not-exist&status=eq.archived',
       {
         method: 'DELETE',
         headers: {
@@ -326,16 +326,16 @@ test('supabase-mode contact requests bypass the local CRM compatibility branch',
   concurrency: false,
 }, async (t) => {
   const previous = {
-    runtime: process.env.NEXT_PUBLIC_FORGE_RUNTIME,
+    runtime: process.env.NEXT_PUBLIC_COVE_RUNTIME,
     url: process.env.NEXT_PUBLIC_SUPABASE_URL,
     key: process.env.SUPABASE_SERVICE_ROLE_KEY,
     prefix: process.env.COVE_TABLE_PREFIX,
     fetch: globalThis.fetch,
   };
-  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'supabase';
+  process.env.NEXT_PUBLIC_COVE_RUNTIME = 'supabase';
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key';
-  process.env.COVE_TABLE_PREFIX = 'forge_';
+  process.env.COVE_TABLE_PREFIX = 'cove_';
   const calls = [];
   globalThis.fetch = async (url) => {
     calls.push(String(url));
@@ -345,8 +345,8 @@ test('supabase-mode contact requests bypass the local CRM compatibility branch',
     });
   };
   t.after(() => {
-    if (previous.runtime === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
-    else process.env.NEXT_PUBLIC_FORGE_RUNTIME = previous.runtime;
+    if (previous.runtime === undefined) delete process.env.NEXT_PUBLIC_COVE_RUNTIME;
+    else process.env.NEXT_PUBLIC_COVE_RUNTIME = previous.runtime;
     if (previous.url === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
     else process.env.NEXT_PUBLIC_SUPABASE_URL = previous.url;
     if (previous.key === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -357,7 +357,7 @@ test('supabase-mode contact requests bypass the local CRM compatibility branch',
   });
 
   const response = await GET(
-    new NextRequest('http://localhost:3200/api/forge-rest/contacts?select=*', {
+    new NextRequest('http://localhost:3200/api/cove-rest/contacts?select=*', {
       headers: { host: 'localhost:3200', origin: 'http://localhost:3200' },
     }),
     { params: Promise.resolve({ table: 'contacts' }) },
@@ -368,21 +368,21 @@ test('supabase-mode contact requests bypass the local CRM compatibility branch',
     name: 'Cloud Contact',
   }]);
   assert.equal(calls.length, 1);
-  assert.match(calls[0], /^https:\/\/supabase\.example\/rest\/v1\/forge_contacts/);
+  assert.match(calls[0], /^https:\/\/supabase\.example\/rest\/v1\/cove_contacts/);
 });
 
 test('local email equality filter returns only the exact normalized email', {
   concurrency: false,
 }, async (t) => {
-  const dir = path.join(os.tmpdir(), `forge-rest-crm-email-${process.pid}-${Date.now()}`);
+  const dir = path.join(os.tmpdir(), `cove-rest-crm-email-${process.pid}-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
-  const previousRuntime = process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+  const previousRuntime = process.env.NEXT_PUBLIC_COVE_RUNTIME;
   const previousDbPath = process.env.COVE_DB_PATH;
-  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'local';
-  process.env.COVE_DB_PATH = path.join(dir, 'forge.db');
+  process.env.NEXT_PUBLIC_COVE_RUNTIME = 'local';
+  process.env.COVE_DB_PATH = path.join(dir, 'cove.db');
   t.after(() => {
-    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
-    else process.env.NEXT_PUBLIC_FORGE_RUNTIME = previousRuntime;
+    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_COVE_RUNTIME;
+    else process.env.NEXT_PUBLIC_COVE_RUNTIME = previousRuntime;
     if (previousDbPath === undefined) delete process.env.COVE_DB_PATH;
     else process.env.COVE_DB_PATH = previousDbPath;
     rmSync(dir, { recursive: true, force: true });
@@ -406,7 +406,7 @@ test('local email equality filter returns only the exact normalized email', {
 
   const response = await GET(
     new NextRequest(
-      'http://localhost:3200/api/forge-rest/contacts?email=eq.target%40example.com',
+      'http://localhost:3200/api/cove-rest/contacts?email=eq.target%40example.com',
       { headers: { host: 'localhost:3200', origin: 'http://localhost:3200' } },
     ),
     { params: Promise.resolve({ table: 'contacts' }) },

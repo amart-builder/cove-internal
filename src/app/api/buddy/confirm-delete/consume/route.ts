@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { BUDDY_DELETE_TABLES } from "@/lib/buddy/receipts";
 import { getBuddyStore } from "@/lib/buddy/store";
-import { isLoopbackForgeRequest } from "@/lib/request-security";
+import { isLoopbackCoveRequest } from "@/lib/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
-  if (!isLoopbackForgeRequest(request)) {
+  if (!isLoopbackCoveRequest(request)) {
     return NextResponse.json({ error: "Delete tokens can only be consumed from loopback." }, { status: 403 });
   }
   try {

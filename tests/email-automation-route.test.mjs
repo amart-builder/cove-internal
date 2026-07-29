@@ -31,7 +31,7 @@ test("email automation accepts the loopback plus CSRF gate before validating act
   const response = await POST(request(
     "http://127.0.0.1:3200/api/email/automation",
     { action: "unknown" },
-    { "X-Forge-CSRF": getQuietCurrentCsrfToken() },
+    { "X-Cove-CSRF": getQuietCurrentCsrfToken() },
   ));
   assert.equal(response.status, 400);
   assert.match((await response.json()).error, /unknown email automation action/i);

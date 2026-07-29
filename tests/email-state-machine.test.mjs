@@ -17,7 +17,7 @@ function fixture(t) {
   t.after(() => {
     // The OS temporary directory is left for its normal cleanup policy.
   });
-  return path.join(dir, "forge.db");
+  return path.join(dir, "cove.db");
 }
 
 function row(dbPath, sql, ...params) {
@@ -74,7 +74,7 @@ test("one inbound message creates one canonical thread and one classification jo
     1,
   );
   assert.equal(
-    row(dbPath, "SELECT COUNT(*) AS count FROM forge_jobs WHERE type = 'email-classify'").count,
+    row(dbPath, "SELECT COUNT(*) AS count FROM cove_jobs WHERE type = 'email-classify'").count,
     1,
   );
 });
@@ -164,7 +164,7 @@ test("ungrounded model commitment quotes never enter the durable artifact job", 
   });
   const artifactPayload = row(
     dbPath,
-    "SELECT payload FROM forge_jobs WHERE type = 'email-artifacts'",
+    "SELECT payload FROM cove_jobs WHERE type = 'email-artifacts'",
   ).payload;
   assert.deepEqual(JSON.parse(artifactPayload).commitments, []);
 });
@@ -294,7 +294,7 @@ test("new inbound reopens the same thread and supersedes an older archive operat
     latest_inbound_message_id: "m-new",
   });
   assert.equal(
-    row(dbPath, "SELECT status FROM forge_gmail_operations WHERE id = ?", completion.operationId).status,
+    row(dbPath, "SELECT status FROM cove_gmail_operations WHERE id = ?", completion.operationId).status,
     "superseded",
   );
 });
@@ -325,10 +325,10 @@ test("a dead archive operation can be requeued without duplicating its ledger ro
   const db = openLocalDatabase(dbPath);
   try {
     db.prepare(
-      "UPDATE forge_gmail_operations SET status = 'dead' WHERE id = ?",
+      "UPDATE cove_gmail_operations SET status = 'dead' WHERE id = ?",
     ).run(first.operationId);
     db.prepare(
-      "UPDATE forge_jobs SET status = 'dead', attempts = max_attempts WHERE id = ?",
+      "UPDATE cove_jobs SET status = 'dead', attempts = max_attempts WHERE id = ?",
     ).run(first.jobId);
   } finally {
     db.close();
@@ -345,8 +345,8 @@ test("a dead archive operation can be requeued without duplicating its ledger ro
       dbPath,
       `SELECT operation.status AS operation_status, job.status AS job_status,
               job.attempts
-       FROM forge_gmail_operations operation
-       JOIN forge_jobs job ON job.id = operation.job_id
+       FROM cove_gmail_operations operation
+       JOIN cove_jobs job ON job.id = operation.job_id
        WHERE operation.id = ?`,
       first.operationId,
     ),
@@ -380,9 +380,9 @@ test("a purged dead archive job is replaced and the operation points to it", (t)
   const db = openLocalDatabase(dbPath);
   try {
     db.prepare(
-      "UPDATE forge_gmail_operations SET status = 'dead' WHERE id = ?",
+      "UPDATE cove_gmail_operations SET status = 'dead' WHERE id = ?",
     ).run(first.operationId);
-    db.prepare("DELETE FROM forge_jobs WHERE id = ?").run(first.jobId);
+    db.prepare("DELETE FROM cove_jobs WHERE id = ?").run(first.jobId);
   } finally {
     db.close();
   }
@@ -400,8 +400,8 @@ test("a purged dead archive job is replaced and the operation points to it", (t)
       `SELECT operation.status AS operation_status,
               operation.job_id AS operation_job_id,
               job.status AS job_status
-       FROM forge_gmail_operations operation
-       JOIN forge_jobs job ON job.id = operation.job_id
+       FROM cove_gmail_operations operation
+       JOIN cove_jobs job ON job.id = operation.job_id
        WHERE operation.id = ?`,
       first.operationId,
     ),
@@ -425,13 +425,13 @@ test("a dead classification is requeued when Gmail presents the untriaged messag
   const db = openLocalDatabase(dbPath);
   try {
     db.prepare(
-      "UPDATE forge_email_messages SET state = 'failed' WHERE message_id = ?",
+      "UPDATE cove_email_messages SET state = 'failed' WHERE message_id = ?",
     ).run("m-classify-requeue");
     db.prepare(
       "UPDATE email_items SET workflow_state = 'failed' WHERE id = ?",
     ).run(first.emailItemId);
     db.prepare(
-      `UPDATE forge_jobs SET status = 'dead', attempts = max_attempts
+      `UPDATE cove_jobs SET status = 'dead', attempts = max_attempts
        WHERE idempotency_key = ?`,
     ).run("email-classify:m-classify-requeue");
   } finally {
@@ -451,8 +451,8 @@ test("a dead classification is requeued when Gmail presents the untriaged messag
       dbPath,
       `SELECT message.state AS message_state, job.status AS job_status,
               job.attempts
-       FROM forge_email_messages message
-       JOIN forge_jobs job
+       FROM cove_email_messages message
+       JOIN cove_jobs job
          ON job.idempotency_key = 'email-classify:' || message.message_id
        WHERE message.message_id = ?`,
       "m-classify-requeue",
@@ -483,7 +483,7 @@ test("an uncertain draft create is observed and never blindly created again", as
   const db = openLocalDatabase(dbPath);
   try {
     db.prepare(
-      "UPDATE forge_gmail_operations SET status = 'uncertain' WHERE id = ?",
+      "UPDATE cove_gmail_operations SET status = 'uncertain' WHERE id = ?",
     ).run(classified.operationId);
   } finally {
     db.close();
@@ -524,7 +524,7 @@ test("draft recovery pages through drafts and matches Cove's operation header", 
   });
   const operationKey = row(
     dbPath,
-    "SELECT operation_key FROM forge_gmail_operations WHERE id = ?",
+    "SELECT operation_key FROM cove_gmail_operations WHERE id = ?",
     classified.operationId,
   ).operation_key;
   const pageTokens = [];

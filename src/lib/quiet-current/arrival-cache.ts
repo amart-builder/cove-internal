@@ -36,7 +36,7 @@ export type ArrivalSnapshot = {
 type StorageReader = Pick<Storage, 'getItem'>;
 type StorageWriter = Pick<Storage, 'setItem'>;
 
-export const ARRIVAL_CACHE_KEY = 'forge.quiet-current.arrival.v1';
+export const ARRIVAL_CACHE_KEY = 'cove.quiet-current.arrival.v1';
 export const ARRIVAL_CACHE_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 

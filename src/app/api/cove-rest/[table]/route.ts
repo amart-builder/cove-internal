@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getRuntimeMode } from "@/lib/runtime/mode";
 import { handleLocalRest } from "@/lib/local/db";
 import { getQuietCurrentCsrfToken } from "@/lib/quiet-current/store";
-import { hasDayPlanRouteAccess, isTrustedForgeRequest } from "@/lib/request-security";
+import { hasDayPlanRouteAccess, isTrustedCoveRequest } from "@/lib/request-security";
 import {
   COVE_CRM_COMPAT_TABLES,
   COVE_REST_TABLES,
-} from "@/lib/data/forge-tables";
+} from "@/lib/data/cove-tables";
 import { coveEnv } from "../../../../lib/env";
 import {
   createCRMBackend,
@@ -40,7 +40,7 @@ const NON_FILTER_PARAMS = new Set([
  * True when the query names at least one row to act on.
  *
  * A filterless PATCH or DELETE is not an error to PostgREST, it is a whole-table
- * operation: `DELETE /api/forge-rest/tasks` empties the board and returns 200.
+ * operation: `DELETE /api/cove-rest/tasks` empties the board and returns 200.
  * The local SQLite path already refuses both, but the Supabase path passes the
  * query straight through, so the guard belongs here where every runtime and
  * every caller (UI, worker, Buddy's CLI) goes through it.
@@ -52,12 +52,12 @@ export function targetsSpecificRows(params: URLSearchParams): boolean {
   return false;
 }
 
-export function forgeRestMutationAccessFailure(
+export function coveRestMutationAccessFailure(
   request: NextRequest,
   expectedCsrfToken?: string,
 ): "host" | "csrf" | undefined {
   if (!hasDayPlanRouteAccess(request)) return "host";
-  if (request.headers.get("x-forge-csrf") !== (expectedCsrfToken ?? getQuietCurrentCsrfToken())) {
+  if (request.headers.get("x-cove-csrf") !== (expectedCsrfToken ?? getQuietCurrentCsrfToken())) {
     return "csrf";
   }
 }
@@ -66,6 +66,7 @@ export const dynamic = "force-dynamic";
 
 function configuredTablePrefix(): string {
   return coveEnv("TABLE_PREFIX") ??
+    process.env.NEXT_PUBLIC_COVE_TABLE_PREFIX ??
     process.env.NEXT_PUBLIC_FORGE_TABLE_PREFIX ??
     "";
 }
@@ -261,7 +262,7 @@ async function handleRequest(
 ): Promise<NextResponse> {
   const method = request.method;
   if (MUTATING_METHODS.has(method)) {
-    const accessFailure = forgeRestMutationAccessFailure(request);
+    const accessFailure = coveRestMutationAccessFailure(request);
     if (accessFailure === "host") {
       return new NextResponse("Untrusted request host.", { status: 403 });
     }
@@ -269,7 +270,7 @@ async function handleRequest(
       return new NextResponse("Cove request token is missing.", { status: 403 });
     }
   }
-  if (!MUTATING_METHODS.has(method) && !isTrustedForgeRequest(request)) {
+  if (!MUTATING_METHODS.has(method) && !isTrustedCoveRequest(request)) {
     return new NextResponse("Untrusted request host.", { status: 403 });
   }
   if (

@@ -2,8 +2,8 @@
  * Local SQLite backend for Cove.
  *
  * This is the default data layer: everything lives in a single file
- * (data/forge.db by default), no account and no login required. The app's
- * data layer talks to `/api/forge-rest/[table]` using a small subset of
+ * (data/cove.db by default), no account and no login required. The app's
+ * data layer talks to `/api/cove-rest/[table]` using a small subset of
  * PostgREST query syntax; this module answers those same requests against
  * SQLite so the existing UI works unchanged.
  *
@@ -11,7 +11,7 @@
  */
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
-import { COVE_REST_TABLES } from "../data/forge-tables";
+import { COVE_REST_TABLES } from "../data/cove-tables";
 import { TASK_COLUMNS } from "../tasks/columns";
 import { syncRecurringOccurrenceForTask } from "../tasks/recurrence";
 import { recordFailureInDatabase } from "../reliability/failures";
@@ -58,20 +58,20 @@ const OPERATORS: Record<string, string> = {
   ilike: "LIKE", // SQLite LIKE is already case-insensitive for ASCII
 };
 
-type ForgeGlobal = {
-  __forgeDb?: Database.Database;
+type CoveGlobal = {
+  __coveDb?: Database.Database;
 };
 const databasePaths = new WeakMap<Database.Database, string>();
 
 function getDb(): Database.Database {
-  const g = globalThis as unknown as ForgeGlobal;
+  const g = globalThis as unknown as CoveGlobal;
   const file = localDatabasePath();
-  if (g.__forgeDb && databasePaths.get(g.__forgeDb) === file) return g.__forgeDb;
-  if (g.__forgeDb?.open) g.__forgeDb.close();
+  if (g.__coveDb && databasePaths.get(g.__coveDb) === file) return g.__coveDb;
+  if (g.__coveDb?.open) g.__coveDb.close();
 
   const conn = openLocalDatabase(file);
   seedDefaults(conn);
-  g.__forgeDb = conn;
+  g.__coveDb = conn;
   databasePaths.set(conn, file);
   return conn;
 }
@@ -189,7 +189,7 @@ export function resolveLocalInboundEvent(input: {
       });
     } else {
       db.prepare(
-        `UPDATE forge_failure_inbox
+        `UPDATE cove_failure_inbox
          SET dismissed_at = ?
          WHERE source = 'inbound-event' AND source_id = ?
            AND dismissed_at IS NULL`,
@@ -418,7 +418,7 @@ function deleteRows(table: string, params: URLSearchParams): RestResult {
 }
 
 /**
- * Answer a forge-rest request against the local database.
+ * Answer a cove-rest request against the local database.
  * `table` is the unprefixed table name. Direct callers may pass raw JSON;
  * routes that already parsed a request may pass the decoded payload.
  */

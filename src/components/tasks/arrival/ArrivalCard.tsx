@@ -84,7 +84,7 @@ export default function ArrivalCard({
       <article
         aria-labelledby={titleId}
         aria-describedby={`${contextId} ${metadataId}`}
-        className={`flex h-full flex-col rounded-2xl border bg-card p-5 shadow-sm transition-[box-shadow,border-color] duration-200 ease-[var(--ease-out-forge)] sm:p-6 ${
+        className={`flex h-full flex-col rounded-2xl border bg-card p-5 shadow-sm transition-[box-shadow,border-color] duration-200 ease-[var(--ease-out-cove)] sm:p-6 ${
           controlBusy ? 'sm:cursor-default' : 'sm:cursor-grab sm:active:cursor-grabbing'
         } ${
           isDragging

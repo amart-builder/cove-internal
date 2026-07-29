@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getQuietCurrentCsrfToken } from "@/lib/quiet-current/store";
 import {
   hasDayPlanRouteAccess,
-  isTrustedForgeRequest,
+  isTrustedCoveRequest,
 } from "@/lib/request-security";
 import { getRuntimeMode } from "@/lib/runtime/mode";
 import {
@@ -41,7 +41,7 @@ function requireLocalRuntime(): void {
 
 export async function GET(request: NextRequest) {
   try {
-    if (!isTrustedForgeRequest(request)) {
+    if (!isTrustedCoveRequest(request)) {
       return NextResponse.json({ error: "Untrusted request host." }, {
         status: 403,
       });
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
         status: 403,
       });
     }
-    if (request.headers.get("x-forge-csrf") !== getQuietCurrentCsrfToken()) {
+    if (request.headers.get("x-cove-csrf") !== getQuietCurrentCsrfToken()) {
       return NextResponse.json({ error: "Cove request token is missing." }, {
         status: 403,
       });

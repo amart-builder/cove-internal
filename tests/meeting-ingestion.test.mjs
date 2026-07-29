@@ -33,7 +33,7 @@ function fixture(t) {
     `cove-meeting-ingestion-${process.pid}-${Date.now()}-${Math.random()}`,
   );
   mkdirSync(dir, { recursive: true });
-  const dbPath = path.join(dir, "forge.db");
+  const dbPath = path.join(dir, "cove.db");
   const crm = new LocalCRMBackend({ dbPath, now: () => START });
   t.after(() => {
     crm.close();
@@ -47,7 +47,7 @@ function pipelineOptions(files, overrides = {}) {
     sourceDoor: "watcher",
     dbPath: files.dbPath,
     dataDir: files.dir,
-    baseUrl: "http://forge.test",
+    baseUrl: "http://cove.test",
     now: () => START,
     crmBackend: files.crm,
     extractFollowUps: async () => [{
@@ -168,7 +168,7 @@ test("waiting-on writes receive and persist the resolved contact id", async (t) 
     {
       sourceId: "gmail-contact:0",
       meetingTitle: "Client planning",
-      baseUrl: "http://forge.test",
+      baseUrl: "http://cove.test",
       contactId: "contact-real-1",
     },
     {

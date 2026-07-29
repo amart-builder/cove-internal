@@ -12,7 +12,7 @@ import {
 function fixture(t) {
   const engineDir = path.join(
     os.tmpdir(),
-    `forge-gap-detectors-${process.pid}-${Date.now()}-${Math.random()}`,
+    `cove-gap-detectors-${process.pid}-${Date.now()}-${Math.random()}`,
   );
   const queueDir = path.join(engineDir, 'pipeline', 'queue');
   const postedDir = path.join(engineDir, 'pipeline', 'posted');

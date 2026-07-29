@@ -82,7 +82,7 @@ test('buddy dry-run resolves the repo from its script and prints a receipt from 
 }, async (t) => {
   const foreign = path.join(
     os.tmpdir(),
-    `forge-buddy-foreign-${process.pid}-${Date.now()}`,
+    `cove-buddy-foreign-${process.pid}-${Date.now()}`,
   );
   mkdirSync(foreign, { recursive: true });
   const previousCwd = process.cwd();
@@ -142,7 +142,7 @@ test('buddy data CLI parses and submits a spawned-session request', async () => 
     write: (line) => lines.push(line),
   });
   assert.match(calls[1].url, /\/api\/buddy\/spawn-session$/);
-  assert.equal(calls[1].init.headers['X-Forge-CSRF'], 'token');
+  assert.equal(calls[1].init.headers['X-Cove-CSRF'], 'token');
   assert.deepEqual(JSON.parse(lines[0].slice('SESSION '.length)), {
     sessionId: 'session-1', dir: '/Users/operator/Atlas/demo', title: 'Demo',
   });
@@ -234,7 +234,7 @@ test('day-plan apply sends CSRF and prints one receipt per operation', async () 
     'day-plan', 'apply', '--json', '{"expectedVersion":4,"operations":[{"operation":"set_owner","itemId":"i1","owner":"claude"}]}',
   ]), { fetch: fetchMock, write: (line) => lines.push(line) });
   assert.match(calls[1].url, /\/api\/day-plan\/assistant-apply$/);
-  assert.equal(calls[1].init.headers['X-Forge-CSRF'], 'token');
+  assert.equal(calls[1].init.headers['X-Cove-CSRF'], 'token');
   assert.match(lines[0], /^RECEIPT {"table":"day_plan","action":"update"/);
 });
 
@@ -276,11 +276,11 @@ test('buddy data CLI refuses delete without a confirmation token before fetch', 
 test('buddy task delete archives without a token and never calls the delete endpoint', {
   concurrency: false,
 }, async (t) => {
-  const previousRuntime = process.env.NEXT_PUBLIC_FORGE_RUNTIME;
-  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'local';
+  const previousRuntime = process.env.NEXT_PUBLIC_COVE_RUNTIME;
+  process.env.NEXT_PUBLIC_COVE_RUNTIME = 'local';
   t.after(() => {
-    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
-    else process.env.NEXT_PUBLIC_FORGE_RUNTIME = previousRuntime;
+    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_COVE_RUNTIME;
+    else process.env.NEXT_PUBLIC_COVE_RUNTIME = previousRuntime;
   });
   const calls = [];
   const lines = [];
@@ -323,11 +323,11 @@ test('buddy task delete archives without a token and never calls the delete endp
 test('buddy Supabase task delete keeps the prior confirmation-token hard-delete flow', {
   concurrency: false,
 }, async (t) => {
-  const previousRuntime = process.env.NEXT_PUBLIC_FORGE_RUNTIME;
-  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'supabase';
+  const previousRuntime = process.env.NEXT_PUBLIC_COVE_RUNTIME;
+  process.env.NEXT_PUBLIC_COVE_RUNTIME = 'supabase';
   t.after(() => {
-    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
-    else process.env.NEXT_PUBLIC_FORGE_RUNTIME = previousRuntime;
+    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_COVE_RUNTIME;
+    else process.env.NEXT_PUBLIC_COVE_RUNTIME = previousRuntime;
   });
   await assert.rejects(
     runBuddyDataCommand(parseBuddyDataArgs(['delete', 'tasks', '--id', 't1']), {
@@ -395,8 +395,8 @@ test('buddy data CLI emits one machine-readable receipt after a mocked mutation'
   assert.equal(code, 0);
   assert.equal(calls.length, 2);
   assert.match(calls[0].url, /\/api\/day-plan$/);
-  assert.match(calls[1].url, /\/api\/forge-rest\/tasks\?id=eq\.t1$/);
-  assert.equal(calls[1].init.headers['X-Forge-CSRF'], 'token');
+  assert.match(calls[1].url, /\/api\/cove-rest\/tasks\?id=eq\.t1$/);
+  assert.equal(calls[1].init.headers['X-Cove-CSRF'], 'token');
   assert.equal(lines.length, 1);
   assert.deepEqual(JSON.parse(lines[0].slice('RECEIPT '.length)), {
     table: 'tasks', action: 'update', id: 't1', summary: "Updated 'Gym'",
@@ -419,11 +419,11 @@ test('confirmed delete consumes the exact token before deleting', async () => {
     { fetch: fetchMock, appUrl: 'http://127.0.0.1:3200', write: (line) => lines.push(line) },
   );
   assert.match(calls[0].url, /\/api\/day-plan$/);
-  assert.match(calls[1].url, /forge-rest\/contacts\?id=eq\.c1&limit=1$/);
+  assert.match(calls[1].url, /cove-rest\/contacts\?id=eq\.c1&limit=1$/);
   assert.match(calls[2].url, /confirm-delete\/consume$/);
-  assert.match(calls[3].url, /forge-rest\/contacts\?id=eq\.c1$/);
-  assert.equal(calls[3].init.headers['X-Forge-CSRF'], 'token');
-  assert.match(calls[4].url, /forge-rest\/contacts\?id=eq\.c1&limit=1$/);
+  assert.match(calls[3].url, /cove-rest\/contacts\?id=eq\.c1$/);
+  assert.equal(calls[3].init.headers['X-Cove-CSRF'], 'token');
+  assert.match(calls[4].url, /cove-rest\/contacts\?id=eq\.c1&limit=1$/);
   assert.match(lines[0], /^RECEIPT /);
 });
 

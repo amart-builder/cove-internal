@@ -70,7 +70,7 @@ import {
   type DumpExistingCommitment,
   type DumpResolution,
 } from "./dump-commands";
-import { markForgeOrchestratorSession } from "./orchestrator-session";
+import { markCoveOrchestratorSession } from "./orchestrator-session";
 import {
   notifyExecutionRun,
   rememberNotificationTransition,
@@ -490,7 +490,7 @@ export async function runOneExecution(options: ClaudeWorkerOptions): Promise<boo
         childPid = child.pid;
         if (!childPid) return;
         try {
-          (options.markSession ?? markForgeOrchestratorSession)(run.claudeSessionId);
+          (options.markSession ?? markCoveOrchestratorSession)(run.claudeSessionId);
         } catch (error) {
           console.error("Could not mark Cove orchestrator session.", error);
         }
@@ -596,7 +596,7 @@ export type BriefRelayOptions = {
 export type MorningBriefWorkerOptions = ClaudeWorkerOptions & {
   // Test seam; production uses the real collector (files + loopback task fetch).
   collectBriefSources?: (store: DayPlanStore) => Promise<CollectedBriefSources>;
-  // The persisted replay input lives beside forge.db. Tests set this to their
+  // The persisted replay input lives beside cove.db. Tests set this to their
   // temporary data directory so generation never touches the installed data.
   dataDir?: string;
   briefTimeoutMs?: number;
@@ -672,7 +672,7 @@ function correctionPrompt(prompt: string, error: unknown): string {
   return `${prompt}\n\nYour previous output failed validation: ${reason}. Emit ONLY the required JSON object.`;
 }
 
-async function forgeCsrfToken(
+async function coveCsrfToken(
   fetchImpl: typeof fetch,
   baseUrl: string,
   timeoutMs: number,
@@ -798,7 +798,7 @@ export async function runOneDayDump(
         const attempt = createCodexStructuredAttempt({
           prompt,
           executable: options.codexPath,
-          tempPrefix: "forge-day-dump-",
+          tempPrefix: "cove-day-dump-",
         });
         if (!attempt) break;
         try {
@@ -894,7 +894,7 @@ export async function runOneDayDump(
     let csrfToken: string | undefined;
     if (validated.items.length > 0 || validated.resolutions.length > 0) {
       try {
-        csrfToken = await forgeCsrfToken(fetchImpl, baseUrl, fetchTimeoutMs);
+        csrfToken = await coveCsrfToken(fetchImpl, baseUrl, fetchTimeoutMs);
       } catch (error) {
         const reason = (error instanceof Error ? error.message : "day_plan_token_failed")
           .replace(/\s+/g, " ")
@@ -911,11 +911,11 @@ export async function runOneDayDump(
       for (const item of csrfToken ? validated.items : []) {
         const id = randomUUID();
         try {
-          const response = await fetchImpl(`${baseUrl}/api/forge-rest/commitments`, {
+          const response = await fetchImpl(`${baseUrl}/api/cove-rest/commitments`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "X-Forge-CSRF": csrfToken!,
+              "X-Cove-CSRF": csrfToken!,
             },
             body: JSON.stringify({
               id,
@@ -929,7 +929,7 @@ export async function runOneDayDump(
             signal: AbortSignal.timeout(fetchTimeoutMs),
             cache: "no-store",
           });
-          if (!response.ok) throw new Error(`forge-rest commitments ${response.status}`);
+          if (!response.ok) throw new Error(`cove-rest commitments ${response.status}`);
           created.push({ id, title: item.title });
         } catch (error) {
           failed.push({
@@ -978,7 +978,7 @@ export async function runOneDayDump(
           patch.due_at = resolution.due_at;
         }
         const response = await fetchImpl(
-          `${baseUrl}/api/forge-rest/commitments` +
+          `${baseUrl}/api/cove-rest/commitments` +
             `?id=eq.${encodeURIComponent(id)}&status=eq.open&` +
             (row.evidence === null || row.evidence === undefined
               ? "evidence=is.null"
@@ -987,14 +987,14 @@ export async function runOneDayDump(
             method: "PATCH",
             headers: {
               "Content-Type": "application/json",
-              "X-Forge-CSRF": csrfToken!,
+              "X-Cove-CSRF": csrfToken!,
             },
             body: JSON.stringify(patch),
             signal: AbortSignal.timeout(fetchTimeoutMs),
             cache: "no-store",
           },
         );
-        if (!response.ok) throw new Error(`forge-rest commitments ${response.status}`);
+        if (!response.ok) throw new Error(`cove-rest commitments ${response.status}`);
         const patchedRows = await response.json() as unknown;
         if (
           !Array.isArray(patchedRows) ||
@@ -1213,7 +1213,7 @@ export async function runOneMorningBrief(
           targetLocalDate: claimed.targetLocalDate,
           targetTimezone,
           now: clock(),
-          // Without this the collector falls back to the forge.db directory,
+          // Without this the collector falls back to the cove.db directory,
           // so on a relaying machine it reads a different settlement relay than
           // the one every other call in this function writes to.
           dataDir: briefDataDir,

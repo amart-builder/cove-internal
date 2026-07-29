@@ -9,15 +9,15 @@
     <string>/usr/bin/env</string>
     <string>node</string>
     <string>--env-file=.env.local</string>
-    <string>/Users/operator/Atlas/Projects/astack/forge/scripts/cove-meeting-watch.mjs</string>
+    <string>/Users/operator/Atlas/Projects/astack/cove/scripts/cove-meeting-watch.mjs</string>
     <string>--once</string>
   </array>
-  <!-- /Users/operator/Atlas/Projects/astack/forge is a placeholder layout.
+  <!-- /Users/operator/Atlas/Projects/astack/cove is a placeholder layout.
        install-cove-local.sh rewrites every absolute repo/data/workspace/home
        path for the machine it runs on. Edit by hand only if you install this
        agent without that script. -->
   <key>WorkingDirectory</key>
-  <string>/Users/operator/Atlas/Projects/astack/forge</string>
+  <string>/Users/operator/Atlas/Projects/astack/cove</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>
@@ -25,7 +25,7 @@
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/Users/operator/.local/bin:/usr/bin:/bin</string>
     <key>COVE_DATA_DIR</key>
-    <string>/Users/operator/Atlas/Projects/astack/forge/data</string>
+    <string>/Users/operator/Atlas/Projects/astack/cove/data</string>
   </dict>
   <key>StartInterval</key>
   <integer>300</integer>

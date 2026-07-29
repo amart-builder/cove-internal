@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
       { status: 403 },
     );
   }
-  if (request.headers.get("x-forge-csrf") !== getQuietCurrentCsrfToken()) {
+  if (request.headers.get("x-cove-csrf") !== getQuietCurrentCsrfToken()) {
     return NextResponse.json(
       { error: "Cove request token is missing." },
       { status: 403 },

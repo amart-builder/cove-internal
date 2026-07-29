@@ -11,35 +11,35 @@ import { coveDataDir } from "../operator";
 import { coveConfigPath, coveConfigWritePath } from "../env";
 
 // "full" stays reserved until reviewed full-task execution exists.
-export type ForgeAutonomyLevel = "off" | "groundwork";
+export type CoveAutonomyLevel = "off" | "groundwork";
 
-export type ForgeAutonomySettings = {
-  level: ForgeAutonomyLevel;
+export type CoveAutonomySettings = {
+  level: CoveAutonomyLevel;
   first_groundwork_at: string | null;
   checkin_answered: boolean;
   checkin_presented_count: number;
 };
 
-export const DEFAULT_AUTONOMY_SETTINGS: ForgeAutonomySettings = {
+export const DEFAULT_AUTONOMY_SETTINGS: CoveAutonomySettings = {
   level: "off",
   first_groundwork_at: null,
   checkin_answered: false,
   checkin_presented_count: 0,
 };
 
-export function forgeAutonomySettingsPath(dataDir?: string): string {
+export function coveAutonomySettingsPath(dataDir?: string): string {
   return coveConfigPath(coveDataDir(dataDir), "autonomy.json");
 }
 
 // Writes always land on the new name; an install that still has the old
-// forge-autonomy.json is read from it once and migrated on the next write.
+// cove-autonomy.json is read from it once and migrated on the next write.
 function autonomySettingsWritePath(dataDir?: string): string {
   return coveConfigWritePath(coveDataDir(dataDir), "autonomy.json");
 }
 
-function validateSettings(value: unknown): ForgeAutonomySettings {
+function validateSettings(value: unknown): CoveAutonomySettings {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("forge_autonomy_invalid");
+    throw new Error("cove_autonomy_invalid");
   }
   const row = value as Record<string, unknown>;
   const presentedCount = row.checkin_presented_count === undefined
@@ -59,7 +59,7 @@ function validateSettings(value: unknown): ForgeAutonomySettings {
     Number(presentedCount) < 0 ||
     Number(presentedCount) > 3
   ) {
-    throw new Error("forge_autonomy_invalid");
+    throw new Error("cove_autonomy_invalid");
   }
   return {
     level: row.level,
@@ -71,7 +71,7 @@ function validateSettings(value: unknown): ForgeAutonomySettings {
 
 function atomicWriteSettings(
   file: string,
-  settings: ForgeAutonomySettings,
+  settings: CoveAutonomySettings,
 ): void {
   mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const temporary = path.join(
@@ -90,11 +90,11 @@ function atomicWriteSettings(
   }
 }
 
-export function readForgeAutonomySettings(options: {
+export function readCoveAutonomySettings(options: {
   dataDir?: string;
   createIfMissing?: boolean;
-} = {}): ForgeAutonomySettings | undefined {
-  const file = forgeAutonomySettingsPath(options.dataDir);
+} = {}): CoveAutonomySettings | undefined {
+  const file = coveAutonomySettingsPath(options.dataDir);
   try {
     return validateSettings(JSON.parse(readFileSync(file, "utf8")) as unknown);
   } catch (error) {
@@ -105,10 +105,10 @@ export function readForgeAutonomySettings(options: {
   }
 }
 
-export function ensureForgeAutonomySettings(
+export function ensureCoveAutonomySettings(
   dataDir?: string,
-): ForgeAutonomySettings {
-  return readForgeAutonomySettings({
+): CoveAutonomySettings {
+  return readCoveAutonomySettings({
     dataDir,
     createIfMissing: true,
   })!;
@@ -119,8 +119,8 @@ export function markFirstGroundworkSuccess(
     dataDir?: string;
     now?: Date;
   } = {},
-): ForgeAutonomySettings {
-  const current = ensureForgeAutonomySettings(options.dataDir);
+): CoveAutonomySettings {
+  const current = ensureCoveAutonomySettings(options.dataDir);
   if (current.first_groundwork_at) return current;
   const next = {
     ...current,
@@ -131,7 +131,7 @@ export function markFirstGroundworkSuccess(
 }
 
 export function groundworkCheckinDue(
-  settings: ForgeAutonomySettings,
+  settings: CoveAutonomySettings,
   now = new Date(),
 ): boolean {
   if (
@@ -152,8 +152,8 @@ export function recordGroundworkCheckinPresentation(
   options: {
     dataDir?: string;
   } = {},
-): ForgeAutonomySettings {
-  const current = ensureForgeAutonomySettings(options.dataDir);
+): CoveAutonomySettings {
+  const current = ensureCoveAutonomySettings(options.dataDir);
   const presentedCount = Math.min(3, current.checkin_presented_count + 1);
   const next = {
     ...current,

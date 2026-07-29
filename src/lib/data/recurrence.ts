@@ -24,7 +24,7 @@ async function mutate(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Forge-CSRF": await token(),
+      "X-Cove-CSRF": await token(),
     },
     body: JSON.stringify(body),
     cache: "no-store",

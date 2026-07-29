@@ -25,7 +25,7 @@ The independent reviewer BLOCKed three stages before they shipped. The two worth
 
 ## Your one click (before Monday)
 
-github.com/amart-builder/cove is still PRIVATE, and it does not have this week's work yet. Before Gary's install: push the new forge main to the cove mirror, then flip it public. The runbook (docs/gary-install-runbook-2026-08-03.md) now has both steps at the top, updated for Monday.
+github.com/amart-builder/cove is still PRIVATE, and it does not have this week's work yet. Before Gary's install: push the new cove main to the cove mirror, then flip it public. The runbook (docs/gary-install-runbook-2026-08-03.md) now has both steps at the top, updated for Monday.
 
 ## One decision, no rush
 

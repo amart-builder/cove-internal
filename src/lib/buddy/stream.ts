@@ -20,8 +20,8 @@ type ActiveBuddyTurn = {
 };
 
 type BuddyProcessGlobal = {
-  __forgeActiveBuddyTurn?: ActiveBuddyTurn;
-  __forgeBuddyShutdownHandlersRegistered?: boolean;
+  __coveActiveBuddyTurn?: ActiveBuddyTurn;
+  __coveBuddyShutdownHandlersRegistered?: boolean;
 };
 
 function buddyProcessGlobal(): BuddyProcessGlobal {
@@ -29,7 +29,7 @@ function buddyProcessGlobal(): BuddyProcessGlobal {
 }
 
 function stopActiveBuddyTurn(): void {
-  const active = buddyProcessGlobal().__forgeActiveBuddyTurn;
+  const active = buddyProcessGlobal().__coveActiveBuddyTurn;
   if (!active) return;
   if (active.child) signalProcessGroup(active.child, "SIGTERM");
   try {
@@ -41,13 +41,13 @@ function stopActiveBuddyTurn(): void {
   } catch {
     // Process shutdown is best-effort; never prevent the server from exiting.
   }
-  buddyProcessGlobal().__forgeActiveBuddyTurn = undefined;
+  buddyProcessGlobal().__coveActiveBuddyTurn = undefined;
 }
 
 function ensureBuddyShutdownHandlers(): void {
   const global = buddyProcessGlobal();
-  if (global.__forgeBuddyShutdownHandlersRegistered) return;
-  global.__forgeBuddyShutdownHandlersRegistered = true;
+  if (global.__coveBuddyShutdownHandlersRegistered) return;
+  global.__coveBuddyShutdownHandlersRegistered = true;
   process.once("SIGTERM", () => {
     stopActiveBuddyTurn();
     process.exit(143);
@@ -65,16 +65,16 @@ export function registerActiveBuddyTurn(
 ): () => void {
   ensureBuddyShutdownHandlers();
   const active = { store, turnId };
-  buddyProcessGlobal().__forgeActiveBuddyTurn = active;
+  buddyProcessGlobal().__coveActiveBuddyTurn = active;
   return () => {
-    if (buddyProcessGlobal().__forgeActiveBuddyTurn === active) {
-      buddyProcessGlobal().__forgeActiveBuddyTurn = undefined;
+    if (buddyProcessGlobal().__coveActiveBuddyTurn === active) {
+      buddyProcessGlobal().__coveActiveBuddyTurn = undefined;
     }
   };
 }
 
 function registerActiveBuddyChild(child: ChildProcessWithoutNullStreams): () => void {
-  const active = buddyProcessGlobal().__forgeActiveBuddyTurn;
+  const active = buddyProcessGlobal().__coveActiveBuddyTurn;
   if (!active) return () => {};
   active.child = child;
   return () => {

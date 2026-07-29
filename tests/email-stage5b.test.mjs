@@ -22,7 +22,7 @@ function fixture(t) {
     `cove-email-stage5b-${process.pid}-${Date.now()}-${Math.random()}`,
   );
   mkdirSync(dir, { recursive: true });
-  const dbPath = path.join(dir, "forge.db");
+  const dbPath = path.join(dir, "cove.db");
   openLocalDatabase(dbPath).close();
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   return { dir, dbPath };
@@ -50,7 +50,7 @@ function insertEmail(dbPath, input) {
       NOW.toISOString(),
     );
     db.prepare(
-      `INSERT INTO forge_email_messages
+      `INSERT INTO cove_email_messages
          (message_id, thread_id, email_item_id, internal_date, direction,
           state, attempts, observed_at, processed_at, updated_at)
        VALUES (?, ?, ?, '1000', 'inbound', 'processed', 0, ?, ?, ?)`,
@@ -208,8 +208,8 @@ test("card completion removes INBOX from the exact message and fails closed", as
     assert.deepEqual(
       completed.prepare(
         `SELECT operation.status AS operation_status, job.status AS job_status
-         FROM forge_gmail_operations operation
-         JOIN forge_jobs job ON job.id = operation.job_id
+         FROM cove_gmail_operations operation
+         JOIN cove_jobs job ON job.id = operation.job_id
          WHERE operation.email_item_id = 'email-card'`,
       ).get(),
       { operation_status: "succeeded", job_status: "done" },
@@ -241,8 +241,8 @@ test("card completion removes INBOX from the exact message and fails closed", as
     assert.deepEqual(
       failed.prepare(
         `SELECT operation.status AS operation_status, job.status AS job_status
-         FROM forge_gmail_operations operation
-         JOIN forge_jobs job ON job.id = operation.job_id
+         FROM cove_gmail_operations operation
+         JOIN cove_jobs job ON job.id = operation.job_id
          WHERE operation.email_item_id = 'email-card-fail'`,
       ).get(),
       { operation_status: "pending", job_status: "failed" },
@@ -298,11 +298,11 @@ test("card completion repairs a migrated thread that had no legacy message id", 
 });
 
 test("hosted mode cannot report handled without Gmail confirmation", async (t) => {
-  const previous = process.env.NEXT_PUBLIC_FORGE_RUNTIME;
-  process.env.NEXT_PUBLIC_FORGE_RUNTIME = "supabase";
+  const previous = process.env.NEXT_PUBLIC_COVE_RUNTIME;
+  process.env.NEXT_PUBLIC_COVE_RUNTIME = "supabase";
   t.after(() => {
-    if (previous === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
-    else process.env.NEXT_PUBLIC_FORGE_RUNTIME = previous;
+    if (previous === undefined) delete process.env.NEXT_PUBLIC_COVE_RUNTIME;
+    else process.env.NEXT_PUBLIC_COVE_RUNTIME = previous;
   });
   await assert.rejects(
     archiveEmailItemFromCardData("hosted-email"),

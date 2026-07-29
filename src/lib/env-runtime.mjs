@@ -11,7 +11,7 @@ import path from "node:path";
  *
  * The one exception is NEXT_PUBLIC_*: Next.js inlines those into the browser
  * bundle at build time, so they cannot be resolved at runtime. Those keep their
- * FORGE_ names (see src/lib/runtime/mode.ts and src/lib/supabase/rest.ts).
+ * legacy FORGE_ names (see src/lib/runtime/mode.ts and src/lib/supabase/rest.ts).
  *
  * @param {string} suffix
  * @param {Record<string, string | undefined>} [env]

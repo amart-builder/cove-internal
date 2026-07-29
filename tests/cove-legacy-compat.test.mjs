@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -12,8 +12,8 @@ import {
 } from '../src/lib/env.ts';
 import { coveDataDir, operatorName, operatorTimezone } from '../src/lib/operator.ts';
 
-// Forge was renamed to Cove. A machine installed before the rename still sets
-// only FORGE_* and still has data/forge-*.json on disk, and must keep working
+// Cove was formerly Forge. A machine installed before the rename may still set
+// only FORGE_* and still have data/forge-*.json on disk, and must keep working
 // with no edits. These tests are the contract for that.
 
 function tempDir(t) {
@@ -96,12 +96,12 @@ test('the operator profile is read from a pre-rename data/forge-profile.json', (
     JSON.stringify({ name: 'Casey', timezone: 'America/New_York' }),
   );
   withEnv(t, {
-    COVE_PROFILE_PATH: undefined,
     FORGE_PROFILE_PATH: undefined,
-    COVE_OPERATOR_NAME: undefined,
+    COVE_PROFILE_PATH: undefined,
     FORGE_OPERATOR_NAME: undefined,
-    COVE_TIMEZONE: undefined,
+    COVE_OPERATOR_NAME: undefined,
     FORGE_TIMEZONE: undefined,
+    COVE_TIMEZONE: undefined,
     COVE_DATA_DIR: undefined,
     FORGE_DATA_DIR: dir,
   });
@@ -116,7 +116,7 @@ test('the operator profile is read from a pre-rename data/forge-profile.json', (
 });
 
 test('FORGE_TAILSCALE_TRUSTED_HOSTS alone still authorizes a trusted host', async () => {
-  const { getForgeAllowedHosts, dayPlanLoopbackHosts, isTrustedRequestOrigin } =
+  const { getCoveAllowedHosts, dayPlanLoopbackHosts, isTrustedRequestOrigin } =
     await import('../src/lib/request-security.ts');
 
   // A machine that has never heard of Cove: only the pre-rename names are set.
@@ -126,7 +126,7 @@ test('FORGE_TAILSCALE_TRUSTED_HOSTS alone still authorizes a trusted host', asyn
     FORGE_ALLOWED_HOSTS: 'extra.local',
   };
 
-  const allowed = getForgeAllowedHosts(legacyEnv);
+  const allowed = getCoveAllowedHosts(legacyEnv);
   assert.ok(allowed.includes('mini.tail1234.ts.net'));
   assert.ok(allowed.includes('cove.local'));
   assert.ok(allowed.includes('extra.local'));
@@ -158,7 +158,7 @@ test('FORGE_TAILSCALE_TRUSTED_HOSTS alone still authorizes a trusted host', asyn
 
   // And the new name still wins when both are present.
   assert.ok(
-    getForgeAllowedHosts({
+    getCoveAllowedHosts({
       ...legacyEnv,
       COVE_TAILSCALE_TRUSTED_HOSTS: 'new.tail1234.ts.net',
     }).includes('new.tail1234.ts.net'),
@@ -197,12 +197,22 @@ test('the brief writer, codex binary, notify gate, and dump writer read FORGE_ t
 
   assert.equal(configuredMorningBriefWriter({ FORGE_BRIEF_WRITER: 'claude' }), 'claude');
   assert.equal(
-    configuredMorningBriefWriter({ FORGE_BRIEF_WRITER: 'claude', COVE_BRIEF_WRITER: 'codex' }),
-    'codex',
+    configuredMorningBriefWriter({ COVE_BRIEF_WRITER: 'claude', FORGE_BRIEF_WRITER: 'codex' }),
+    'claude',
   );
   assert.equal(configuredDayDumpWriter({ FORGE_DUMP_WRITER: 'claude' }), 'claude');
   assert.equal(
     resolveCodexBinary({ env: { FORGE_CODEX_BIN: '/opt/homebrew/bin/codex' }, exists: () => true }),
     '/opt/homebrew/bin/codex',
   );
+});
+
+test('the installer removes only the pre-rename orchestrator hook', () => {
+  const installer = readFileSync(
+    new URL('../scripts/install-cove-local.sh', import.meta.url),
+    'utf8',
+  );
+  assert.match(installer, /rm -f "\$HOOK_DIR\/forge-orchestrator\.sh"/);
+  assert.doesNotMatch(installer, /rm -f "\$HOOK_DIR\/cove-orchestrator\.sh"/);
+  assert.match(installer, /hook\.command\.endsWith\('\/forge-orchestrator\.sh'\)/);
 });

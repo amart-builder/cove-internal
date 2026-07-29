@@ -53,7 +53,7 @@ LOG_DIR="$HOME/Library/Logs"
 LA_DIR="$HOME/Library/LaunchAgents"
 UID_NUM="$(id -u)"
 
-# The product was called Forge before this release, so an older install has
+# The product was formerly called Forge, so an older install can still have
 # com.forge.* LaunchAgents. Two agents for the same role would run side by side
 # against one database, so every com.cove.* agent this script installs first
 # unloads and deletes its com.forge.* predecessor. Safe when none exists.
@@ -106,12 +106,12 @@ mark_lane_installed() {
 }
 
 # --- Optional Mini profile: scheduled brief plus the same standard lanes ----
-# The Mini already runs its own web + worker via com.atlas.forge-web. This
+# The Mini already runs its own web + worker via com.atlas.cove-web. This
 # profile adds the scheduled brief and installs the same meeting/progress lanes.
 # Logs go to ~/Library/Logs (TCC blocks launchd writes under ~/Desktop).
 if [ "$MINI" = "1" ]; then
   # SAFETY GATE: the Mini agent is a second live SQLite writer on a tree that
-  # Syncthing used to sync wholesale. Bootstrapping it before forge.db is
+  # Syncthing used to sync wholesale. Bootstrapping it before cove.db is
   # excluded from sync ON BOTH machines is a documented corruption vector, so
   # this refuses to proceed until the operator confirms. Confirm with
   # COVE_MINI_CONFIRM_STIGNORE=1 or interactively below.
@@ -124,16 +124,16 @@ and the Cove web + worker processes on both machines must have been STOPPED
 when the block was applied:
 
 // --- Cove machine-private runtime state (brief-relay change) ---
-// Each machine keeps its OWN forge.db now; a live SQLite file must never sync
+// Each machine keeps its OWN cove.db now; a live SQLite file must never sync
 // (torn-write corruption). -wal/-shm are already covered by the global rules
 // above. The relay dirs (brief-relay/, settlement-relay/, progress-relay/) and
 // source-checkpoint.json are the transport and MUST keep syncing — not listed.
-projects/astack/forge/data/forge.db
-projects/astack/forge/data/claude-runs
-projects/astack/forge/data/claude-runs/**
-projects/astack/forge/data/claude-worker.heartbeat
-projects/astack/forge/data/backups
-projects/astack/forge/data/backups/**
+projects/astack/cove/data/cove.db
+projects/astack/cove/data/claude-runs
+projects/astack/cove/data/claude-runs/**
+projects/astack/cove/data/claude-worker.heartbeat
+projects/astack/cove/data/backups
+projects/astack/cove/data/backups/**
 ================================================================================
 STIGNORE_BLOCK
   if [ "${COVE_MINI_CONFIRM_STIGNORE:-0}" != "1" ]; then
@@ -239,7 +239,7 @@ const path = require("node:path");
 const [source, destination, repoDir, homeDir, atlasRoot, dataDir] = process.argv.slice(2);
 const template = fs.readFileSync(source, "utf8");
 const templateRepo = template.match(
-  /<string>([^<]*\/Atlas\/Projects\/astack\/forge)(?:\/[^<]*)?<\/string>/,
+  /<string>([^<]*\/Atlas\/Projects\/astack\/cove)(?:\/[^<]*)?<\/string>/,
 )?.[1];
 if (!templateRepo) throw new Error(`Could not locate the repo path in ${source}`);
 const templateAtlas = path.resolve(templateRepo, "../../..");
@@ -264,7 +264,7 @@ const path = require("node:path");
 const [source, destination, repoDir, homeDir, atlasRoot, dataDir] = process.argv.slice(2);
 const template = fs.readFileSync(source, "utf8");
 const templateRepo = template.match(
-  /<string>([^<]*\/Atlas\/Projects\/astack\/forge)(?:\/[^<]*)?<\/string>/,
+  /<string>([^<]*\/Atlas\/Projects\/astack\/cove)(?:\/[^<]*)?<\/string>/,
 )?.[1];
 if (!templateRepo) throw new Error(`Could not locate the repo path in ${source}`);
 const templateAtlas = path.resolve(templateRepo, "../../..");
@@ -407,7 +407,7 @@ const path = require("node:path");
 const [source, destination, repoDir, homeDir, atlasRoot, dataDir] = process.argv.slice(2);
 const template = fs.readFileSync(source, "utf8");
 const templateRepo = template.match(
-  /<string>([^<]*\/Atlas\/Projects\/astack\/forge)(?:\/[^<]*)?<\/string>/,
+  /<string>([^<]*\/Atlas\/Projects\/astack\/cove)(?:\/[^<]*)?<\/string>/,
 )?.[1];
 if (!templateRepo) throw new Error(`Could not locate the repo path in ${source}`);
 const templateAtlas = path.resolve(templateRepo, "../../..");
@@ -761,6 +761,31 @@ launchctl bootout "gui/$UID_NUM/com.cove.progress" 2>/dev/null || true
 # removal): the Mini owns scheduled generation now.
 launchctl bootout "gui/$UID_NUM/com.cove.morning-brief" 2>/dev/null || true
 rm -f "$LA_DIR/com.cove.morning-brief.plist"
+
+# Move machine-private pre-Cove data only after every writer is stopped.
+# Never overwrite a canonical file: two copies means the operator must decide
+# which one is authoritative instead of the installer guessing.
+for suffix in "" "-wal" "-shm"; do
+  legacy_db="$REPO_DIR/data/forge.db$suffix"
+  cove_db="$REPO_DIR/data/cove.db$suffix"
+  if [ -e "$legacy_db" ] && [ -e "$cove_db" ]; then
+    echo "Both $legacy_db and $cove_db exist. Refusing to choose between them." >&2
+    exit 1
+  fi
+  if [ -e "$legacy_db" ]; then
+    mv "$legacy_db" "$cove_db"
+  fi
+done
+for legacy_config in "$REPO_DIR"/data/forge-*.json; do
+  [ -e "$legacy_config" ] || continue
+  cove_config="$REPO_DIR/data/cove-${legacy_config##*forge-}"
+  if [ -e "$cove_config" ]; then
+    echo "Keeping canonical config and leaving legacy file untouched: $legacy_config"
+    continue
+  fi
+  mv "$legacy_config" "$cove_config"
+done
+
 launchctl bootstrap "gui/$UID_NUM" "$SERVER_PLIST"
 launchctl bootstrap "gui/$UID_NUM" "$BACKUP_PLIST"
 launchctl bootstrap "gui/$UID_NUM" "$JOBS_PLIST"

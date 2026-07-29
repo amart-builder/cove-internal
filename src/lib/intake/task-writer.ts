@@ -1,4 +1,4 @@
-import { ensureForgeAutonomySettings } from "../autonomy/settings";
+import { ensureCoveAutonomySettings } from "../autonomy/settings";
 import type { InboundEvent, Task } from "../data/types";
 import { localDateInTimezone } from "../day-plan/brief";
 import { operatorTimezone } from "../operator";
@@ -52,12 +52,12 @@ async function rows(
   query: string,
 ): Promise<unknown[]> {
   const response = await fetchImpl(
-    `${baseUrl}/api/forge-rest/${table}?${query}`,
+    `${baseUrl}/api/cove-rest/${table}?${query}`,
     { signal: AbortSignal.timeout(timeoutMs), cache: "no-store" },
   );
-  if (!response.ok) throw new Error(`forge-rest ${table} ${response.status}`);
+  if (!response.ok) throw new Error(`cove-rest ${table} ${response.status}`);
   const value = await response.json() as unknown;
-  if (!Array.isArray(value)) throw new Error(`forge-rest ${table} shape`);
+  if (!Array.isArray(value)) throw new Error(`cove-rest ${table} shape`);
   return value;
 }
 
@@ -148,7 +148,7 @@ function groundworkTaskRow(value: unknown): Task | undefined {
       task.status !== "archived"
     )
   ) {
-    throw new Error("forge-rest tasks row shape");
+    throw new Error("cove-rest tasks row shape");
   }
   return task as Task;
 }
@@ -187,7 +187,7 @@ export async function listGroundworkRunningTasks(
   return listGroundworkTasksWithTag("groundwork-running", options);
 }
 
-export async function getTaskThroughForgeRest(
+export async function getTaskThroughCoveRest(
   id: string,
   options: InboundTaskWriterOptions = {},
 ): Promise<Task | undefined> {
@@ -202,7 +202,7 @@ export async function getTaskThroughForgeRest(
   return groundworkTaskRow(values[0]);
 }
 
-export async function updateTaskThroughForgeRest(
+export async function updateTaskThroughCoveRest(
   id: string,
   patch: Partial<Task>,
   options: InboundTaskWriterOptions = {},
@@ -213,7 +213,7 @@ export async function updateTaskThroughForgeRest(
   const timeoutMs = options.fetchTimeoutMs ?? 10_000;
   const token = await csrfToken(fetchImpl, baseUrl, timeoutMs);
   const response = await fetchImpl(
-    `${baseUrl}/api/forge-rest/tasks?id=eq.${encodeURIComponent(id)}${
+    `${baseUrl}/api/cove-rest/tasks?id=eq.${encodeURIComponent(id)}${
       guard.expectedTag
         ? `&tags=cs.${encodeURIComponent(`{${guard.expectedTag}}`)}`
         : ""
@@ -222,7 +222,7 @@ export async function updateTaskThroughForgeRest(
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
-        "X-Forge-CSRF": token,
+        "X-Cove-CSRF": token,
       },
       body: JSON.stringify(patch),
       signal: AbortSignal.timeout(timeoutMs),
@@ -231,7 +231,7 @@ export async function updateTaskThroughForgeRest(
   );
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(`forge-rest tasks ${response.status}: ${text.slice(0, 300)}`);
+    throw new Error(`cove-rest tasks ${response.status}: ${text.slice(0, 300)}`);
   }
   try {
     const value = JSON.parse(text) as unknown;
@@ -241,7 +241,7 @@ export async function updateTaskThroughForgeRest(
     if (value.length === 0) return undefined;
     return groundworkTaskRow(value[0]);
   } catch {
-    throw new Error("forge-rest tasks patch shape");
+    throw new Error("cove-rest tasks patch shape");
   }
 }
 
@@ -258,11 +258,11 @@ async function createTask(
   }
   const token = await csrfToken(fetchImpl, baseUrl, timeoutMs);
   const send = async (payload: Record<string, unknown>) => {
-    const response = await fetchImpl(`${baseUrl}/api/forge-rest/tasks`, {
+    const response = await fetchImpl(`${baseUrl}/api/cove-rest/tasks`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Forge-CSRF": token,
+        "X-Cove-CSRF": token,
       },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(timeoutMs),
@@ -296,7 +296,7 @@ async function createTask(
   if (await existingTask(event.id, { fetchImpl, baseUrl, timeoutMs })) {
     return event.id;
   }
-  throw new Error(`forge-rest tasks ${result.response.status}: ${result.text.slice(0, 300)}`);
+  throw new Error(`cove-rest tasks ${result.response.status}: ${result.text.slice(0, 300)}`);
 }
 
 function withoutProject(
@@ -478,7 +478,7 @@ export async function createTriagedInboundTask(
   let queueGroundwork = false;
   try {
     queueGroundwork =
-      ensureForgeAutonomySettings(options.dataDir).level !== "off" &&
+      ensureCoveAutonomySettings(options.dataDir).level !== "off" &&
       triage.autonomy !== "none";
   } catch (error) {
     console.error("Cove autonomy setting unavailable; groundwork was not queued.", error);

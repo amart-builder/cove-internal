@@ -1,7 +1,7 @@
 #!/usr/bin/env -S node --import tsx
 
 /*
- * PRIVATE DATA WARNING: Stored inputs contain the same private data as forge.db.
+ * PRIVATE DATA WARNING: Stored inputs contain the same private data as cove.db.
  * Results go to stdout only. A run with --run costs about $1.50.
  */
 
@@ -22,7 +22,7 @@ import { coveEnv } from "../src/lib/env.ts";
 import { coveDataDir } from "../src/lib/operator.ts";
 
 export const BACKTEST_WARNING =
-  "PRIVATE DATA: brief inputs have the same sensitivity as forge.db. Output goes to stdout only. --run costs about $1.50.";
+  "PRIVATE DATA: brief inputs have the same sensitivity as cove.db. Output goes to stdout only. --run costs about $1.50.";
 
 export function parseBacktestArgs(argv) {
   const run = argv.includes("--run");
@@ -203,7 +203,7 @@ export async function main(argv = process.argv.slice(2)) {
   const dataDir = coveDataDir();
   const inputDir = path.join(dataDir, "brief-inputs");
   if (!existsSync(inputDir)) throw new Error(`No brief input directory at ${inputDir}`);
-  const dbPath = coveEnv("DB_PATH") ?? path.join(dataDir, "forge.db");
+  const dbPath = coveEnv("DB_PATH") ?? path.join(dataDir, "cove.db");
   const database = existsSync(dbPath)
     ? new Database(dbPath, { readonly: true, fileMustExist: true })
     : undefined;

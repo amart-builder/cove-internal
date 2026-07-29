@@ -10,7 +10,7 @@ export const COVE_REST_TABLES = [
   "inbound_events",
 ] as const;
 
-export type ForgeRestTable = typeof COVE_REST_TABLES[number];
+export type CoveRestTable = typeof COVE_REST_TABLES[number];
 
 export const COVE_CRM_COMPAT_TABLES = [
   "contacts",

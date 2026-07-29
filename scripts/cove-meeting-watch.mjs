@@ -68,7 +68,7 @@ const defaultDataDir = coveEnv("DATA_DIR")?.trim() ||
   path.join(repoDir, "data");
 const DEFAULT_CONFIG_PATH = coveConfigPath(defaultDataDir, "meetings.json");
 const DEFAULT_EMAIL_CONFIG_PATH = path.join(defaultDataDir, "cove-workspace.json");
-const DEFAULT_STATE_PATH = path.join(defaultDataDir, "forge-meeting-state.json");
+const DEFAULT_STATE_PATH = path.join(defaultDataDir, "cove-meeting-state.json");
 const DEFAULT_HEARTBEAT_PATH = path.join(defaultDataDir, "intake", "heartbeats.json");
 const MAX_PROCESSED_IDS = 500;
 const MAX_FAILURES = 500;
@@ -122,8 +122,8 @@ function loadEmailConfig(file = DEFAULT_EMAIL_CONFIG_PATH) {
   }
   return {
     accountEmail: parsed.account_email.trim(),
-    forgeUrl: typeof parsed.forge_url === "string" && parsed.forge_url.trim()
-      ? parsed.forge_url.trim().replace(/\/$/, "")
+    coveUrl: typeof parsed.cove_url === "string" && parsed.cove_url.trim()
+      ? parsed.cove_url.trim().replace(/\/$/, "")
       : "http://127.0.0.1:3200",
   };
 }
@@ -420,7 +420,7 @@ export async function runMeetingWatch(options = {}) {
   const runtimeDataDir = options.dataDir ?? path.dirname(configPath);
   const dbPath = options.dbPath ||
     coveEnvTrimmed("DB_PATH") ||
-    path.join(runtimeDataDir, "forge.db");
+    path.join(runtimeDataDir, "cove.db");
   const dryRun = options.dryRun === true;
   let disabled = false;
   let machineIdentity = options.machineIdentity
@@ -632,7 +632,7 @@ export async function runMeetingWatch(options = {}) {
             dbPath,
             repoDir: options.repoDir ?? repoDir,
             dataDir: runtimeDataDir,
-            baseUrl: emailConfig.forgeUrl,
+            baseUrl: emailConfig.coveUrl,
             now,
             fetchImpl: options.fetchImpl ?? fetch,
             fetchTimeoutMs: options.fetchTimeoutMs ?? 10_000,
@@ -783,7 +783,7 @@ export async function main(args = process.argv.slice(2), options = {}) {
       (options.recordRunReceiptImpl ?? recordReceipt)({
         dbPath: options.dbPath ||
           coveEnvTrimmed("DB_PATH") ||
-          path.join(defaultDataDir, "forge.db"),
+          path.join(defaultDataDir, "cove.db"),
         source: "meeting-watch",
         startedAt,
         summary: outcome === "success"

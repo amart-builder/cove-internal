@@ -64,7 +64,7 @@ async function quietCurrentRequest<T>(body?: Record<string, unknown>): Promise<T
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(csrfToken ? { "X-Forge-CSRF": csrfToken } : {}),
+      ...(csrfToken ? { "X-Cove-CSRF": csrfToken } : {}),
     },
     body: JSON.stringify(body),
     cache: "no-store",

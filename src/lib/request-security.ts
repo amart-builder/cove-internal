@@ -19,7 +19,7 @@ type RequestLike = {
 export type DayPlanAccessMode = 'loopback' | 'session';
 const LOOPBACK_ACCESS_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
 
-type ForgeHostEnvironment = {
+type CoveHostEnvironment = {
   [key: string]: string | undefined;
   COVE_PUBLIC_URL?: string;
   COVE_TAILSCALE_TRUSTED_HOSTS?: string;
@@ -80,8 +80,8 @@ function isAllowedHost(publicHost: string, allowedHosts: string[]): boolean {
   });
 }
 
-export function getForgeAllowedHosts(
-  environment: ForgeHostEnvironment = process.env,
+export function getCoveAllowedHosts(
+  environment: CoveHostEnvironment = process.env,
 ): string[] {
   const configured = [
     coveEnv('PUBLIC_URL', environment),
@@ -121,9 +121,9 @@ export function isTrustedRequestOrigin(input: TrustedOriginInput): boolean {
   return !publicProtocol || origin.protocol === publicProtocol;
 }
 
-export function isTrustedForgeRequest(
+export function isTrustedCoveRequest(
   request: RequestLike,
-  allowedHosts = getForgeAllowedHosts(),
+  allowedHosts = getCoveAllowedHosts(),
 ): boolean {
   const trustProxy = coveEnv("TRUST_PROXY") === '1';
   return isTrustedRequestOrigin({
@@ -137,8 +137,8 @@ export function isTrustedForgeRequest(
   });
 }
 
-export function isLoopbackForgeRequest(request: RequestLike): boolean {
-  return isTrustedForgeRequest(request, LOOPBACK_ACCESS_HOSTS);
+export function isLoopbackCoveRequest(request: RequestLike): boolean {
+  return isTrustedCoveRequest(request, LOOPBACK_ACCESS_HOSTS);
 }
 
 /**
@@ -152,7 +152,7 @@ export function isLoopbackForgeRequest(request: RequestLike): boolean {
  * sends is its domain, never one on this list.
  */
 export function dayPlanLoopbackHosts(
-  environment: ForgeHostEnvironment = process.env,
+  environment: CoveHostEnvironment = process.env,
 ): string[] {
   const tailnet = (coveEnv('TAILSCALE_TRUSTED_HOSTS', environment) ?? '')
     .split(',')
@@ -180,11 +180,11 @@ export function hasDayPlanRouteAccess(
 ): boolean {
   const accessMode = options.accessMode ?? currentDayPlanAccessMode();
   if (accessMode === 'loopback') {
-    return isTrustedForgeRequest(request, options.loopbackHosts ?? dayPlanLoopbackHosts());
+    return isTrustedCoveRequest(request, options.loopbackHosts ?? dayPlanLoopbackHosts());
   }
-  if (!isTrustedForgeRequest(request)) return false;
+  if (!isTrustedCoveRequest(request)) return false;
   if (accessMode !== 'session') return false;
-  const supplied = request.headers.get('x-forge-day-plan-session');
+  const supplied = request.headers.get('x-cove-day-plan-session');
   if (!options.sessionToken || !supplied) return false;
   const expectedBytes = Buffer.from(options.sessionToken);
   const suppliedBytes = Buffer.from(supplied);

@@ -20,7 +20,7 @@ function fixture(t) {
     `cove-health-stage5b-${process.pid}-${Date.now()}-${Math.random()}`,
   );
   mkdirSync(path.join(dir, "intake"), { recursive: true });
-  const dbPath = path.join(dir, "forge.db");
+  const dbPath = path.join(dir, "cove.db");
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   return { dir, dbPath };
 }

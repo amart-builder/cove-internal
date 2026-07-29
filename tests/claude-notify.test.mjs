@@ -52,7 +52,7 @@ test('terminal-notifier receives sanitized values as separate argv and dedupes a
   assert.deepEqual(calls[0].args, [
     '-title', 'Cove needs you',
     '-message', 'Plan ready: Finish launch brief. Claude has questions only you can answer.',
-    '-group', 'forge-run-123',
+    '-group', 'cove-run-123',
     '-open', 'claude://resume?session=session%20with%20spaces',
   ]);
   assert.deepEqual(calls[0].options, { detached: true, stdio: 'ignore', shell: false });

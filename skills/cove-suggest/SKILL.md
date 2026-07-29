@@ -14,7 +14,7 @@ Inferred work belongs in pencil. Never create a committed task merely because it
 ## 1. Check the current first
 
 ```bash
-curl -s 'http://localhost:3200/api/forge-rest/tasks?select=*&order=position.asc'
+curl -s 'http://localhost:3200/api/cove-rest/tasks?select=*&order=position.asc'
 curl -s 'http://localhost:3200/api/quiet-current'
 ```
 

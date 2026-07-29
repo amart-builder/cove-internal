@@ -160,7 +160,7 @@ function meetingOwner(dataDir: string): {
 function backupFileTime(backupDir: string): string | null {
   if (!existsSync(backupDir)) return null;
   const files = readdirSync(backupDir)
-    .filter((name) => /^forge-(?:\d{14}|\d{8}-\d{6})\.db$/.test(name))
+    .filter((name) => /^cove-(?:\d{14}|\d{8}-\d{6})\.db$/.test(name))
     .map((name) => statSync(path.join(backupDir, name)).mtime)
     .sort((left, right) => right.getTime() - left.getTime());
   return files[0]?.toISOString() ?? null;
@@ -216,7 +216,7 @@ export function collectCoveHealth(input: {
   const now = input.now ?? new Date();
   const collectedAt = now.toISOString();
   const dataDir = input.dataDir ??
-    path.dirname(input.dbPath ?? path.join(process.cwd(), "data", "forge.db"));
+    path.dirname(input.dbPath ?? path.join(process.cwd(), "data", "cove.db"));
   const backupDir = input.backupDir ?? path.join(dataDir, "backups");
   const thirtyDaysAgo = new Date(now.getTime() - 30 * DAY_MS).toISOString();
   const staleCutoff = new Date(now.getTime() - 14 * DAY_MS).toISOString();
@@ -233,7 +233,7 @@ export function collectCoveHealth(input: {
       : null;
     const triageRows = db.prepare(
       `SELECT outcome, finished_at
-       FROM forge_receipts
+       FROM cove_receipts
        WHERE source = 'email-triage' AND finished_at >= ?
        ORDER BY finished_at DESC LIMIT 100`,
     ).all(thirtyDaysAgo) as Array<{
@@ -245,7 +245,7 @@ export function collectCoveHealth(input: {
     const owner = meetingOwner(dataDir);
     const lastBackupReceipt = scalarText(
       db,
-      `SELECT finished_at FROM forge_receipts
+      `SELECT finished_at FROM cove_receipts
        WHERE source = 'backup' AND outcome = 'success'
        ORDER BY finished_at DESC LIMIT 1`,
     );
@@ -287,20 +287,20 @@ export function collectCoveHealth(input: {
       jobs: {
         queueDepth: scalarNumber(
           db,
-          "SELECT COUNT(*) FROM forge_jobs WHERE status IN ('queued','leased')",
+          "SELECT COUNT(*) FROM cove_jobs WHERE status IN ('queued','leased')",
         ),
         failed: scalarNumber(
           db,
-          "SELECT COUNT(*) FROM forge_jobs WHERE status = 'failed'",
+          "SELECT COUNT(*) FROM cove_jobs WHERE status = 'failed'",
         ),
         dead: scalarNumber(
           db,
-          "SELECT COUNT(*) FROM forge_jobs WHERE status = 'dead'",
+          "SELECT COUNT(*) FROM cove_jobs WHERE status = 'dead'",
         ),
       },
       failureInboxCount: scalarNumber(
         db,
-        "SELECT COUNT(*) FROM forge_failure_inbox WHERE dismissed_at IS NULL",
+        "SELECT COUNT(*) FROM cove_failure_inbox WHERE dismissed_at IS NULL",
       ),
       backup: {
         lastSuccessAt: lastBackupSuccess,

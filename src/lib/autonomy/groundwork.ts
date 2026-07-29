@@ -20,17 +20,17 @@ import path from "node:path";
 import type { Task } from "../data/types";
 import { coveDataDir, workspaceRoot } from "../operator";
 import {
-  getTaskThroughForgeRest,
+  getTaskThroughCoveRest,
   listGroundworkQueuedTasks,
   listGroundworkRunningTasks,
-  updateTaskThroughForgeRest,
+  updateTaskThroughCoveRest,
   type InboundTaskWriterOptions,
 } from "../intake/task-writer";
 import {
   DEFAULT_AUTONOMY_SETTINGS,
   markFirstGroundworkSuccess,
-  readForgeAutonomySettings,
-  type ForgeAutonomySettings,
+  readCoveAutonomySettings,
+  type CoveAutonomySettings,
 } from "./settings";
 import { coveEnv } from "../env";
 
@@ -40,7 +40,7 @@ const ATTEMPTED_TAG = "groundwork-attempted";
 const FAILED_TAG = "groundwork-failed";
 const HELD_TAG = "jarvis-held";
 const GROUNDWORK_HEADER = "## Groundwork (Cove)";
-const GROUNDWORK_END = "<!-- /forge-groundwork -->";
+const GROUNDWORK_END = "<!-- /cove-groundwork -->";
 const MAX_GROUNDWORK_SECTION = 4_000;
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 const GROUNDWORK_TOOLS = "Read,Grep,Glob,WebSearch";
@@ -59,7 +59,7 @@ export type GroundworkWorkerOptions = InboundTaskWriterOptions & {
   repoDir?: string;
   spawnImpl?: SpawnImpl;
   timeoutMs?: number;
-  readSettings?: () => ForgeAutonomySettings | undefined;
+  readSettings?: () => CoveAutonomySettings | undefined;
   listQueuedTasks?: () => Promise<Task[]>;
   listRunningTasks?: () => Promise<Task[]>;
   getTask?: (id: string) => Promise<Task | undefined>;
@@ -548,7 +548,7 @@ export async function runOneGroundwork(
   const now = clock();
   const settings = options.readSettings
     ? options.readSettings()
-    : readForgeAutonomySettings({
+    : readCoveAutonomySettings({
         dataDir: options.dataDir,
         createIfMissing: !dryRun,
       });
@@ -604,7 +604,7 @@ export async function runOneGroundwork(
     goals: goalsExcerpt(projectDir, repoDir),
   });
   const getCurrentTask = options.getTask ??
-    ((id: string) => getTaskThroughForgeRest(id, options));
+    ((id: string) => getTaskThroughCoveRest(id, options));
   if (dryRun) {
     const output = await (
       options.runClaude ??
@@ -627,7 +627,7 @@ export async function runOneGroundwork(
   }
   const updateTask = options.updateTask ??
     ((id: string, patch: Partial<Task>, expectedTag: string) =>
-      updateTaskThroughForgeRest(id, patch, options, { expectedTag }));
+      updateTaskThroughCoveRest(id, patch, options, { expectedTag }));
   const expectedTag = task.tags.includes(RUNNING_TAG)
     ? RUNNING_TAG
     : GROUNDWORK_TAG;

@@ -87,12 +87,12 @@ test("legacy Gemini config remains the default-compatible shape", (t) => {
   );
   mkdirSync(dir, { recursive: true });
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const file = path.join(dir, "forge-meetings.json");
+  const file = path.join(dir, "cove-meetings.json");
   const legacy = {
     enabled: true,
     query: 'from:(gemini-noreply@google.com) OR subject:("Notes:" OR "Meeting notes")',
     window: "newer_than:2d",
-    processed_label: "Forge/Meeting-Processed",
+    processed_label: "Cove/Meeting-Processed",
   };
   writeFileSync(file, JSON.stringify(legacy));
   writeFileSync(

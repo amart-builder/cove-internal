@@ -31,7 +31,7 @@ function fixture(t, meeting = {}) {
     version: 1,
     provider: "google-api",
     account_email: "alex@example.com",
-    forge_url: "http://127.0.0.1:3200",
+    cove_url: "http://127.0.0.1:3200",
   }));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   return { dir, configPath, emailConfigPath, statePath, heartbeatPath };
@@ -86,7 +86,7 @@ function runOptions(files, mail, extra = {}) {
     statePath: files.statePath,
     heartbeatPath: files.heartbeatPath,
     dataDir: files.dir,
-    dbPath: path.join(files.dir, "forge.db"),
+    dbPath: path.join(files.dir, "cove.db"),
     gateway: mail,
     machineIdentity: {
       id: "11111111-1111-4111-8111-111111111111",

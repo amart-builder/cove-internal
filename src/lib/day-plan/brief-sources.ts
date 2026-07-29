@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import {
   groundworkCheckinDue,
-  readForgeAutonomySettings,
+  readCoveAutonomySettings,
   recordGroundworkCheckinPresentation,
 } from "../autonomy/settings";
 import type { Commitment, CommitmentKind } from "../data/types";
@@ -184,11 +184,11 @@ export type MorningBriefSourceOptions = {
   targetTimezone?: string;
   now?: Date;
   // Loopback base URL of the Cove web app; the task snapshot goes through the
-  // same forge-rest surface the UI uses, so local and Supabase runtimes both work.
+  // same cove-rest surface the UI uses, so local and Supabase runtimes both work.
   webBaseUrl?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
-  // Overrides the relay data directory (defaults to the forge.db directory).
+  // Overrides the relay data directory (defaults to the cove.db directory).
   // Tests point this at a temp dir to exercise the settlement relay fallback.
   dataDir?: string;
   machineIdentity?: {
@@ -441,12 +441,12 @@ export async function fetchRows(
   query = "select=*&order=position.asc",
 ): Promise<unknown[]> {
   const response = await fetchImpl(
-    `${baseUrl}/api/forge-rest/${table}?${query}`,
+    `${baseUrl}/api/cove-rest/${table}?${query}`,
     { signal: AbortSignal.timeout(timeoutMs), cache: "no-store" },
   );
-  if (!response.ok) throw new Error(`forge-rest ${table} ${response.status}`);
+  if (!response.ok) throw new Error(`cove-rest ${table} ${response.status}`);
   const rows = (await response.json()) as unknown;
-  if (!Array.isArray(rows)) throw new Error(`forge-rest ${table} shape`);
+  if (!Array.isArray(rows)) throw new Error(`cove-rest ${table} shape`);
   return rows;
 }
 
@@ -883,7 +883,7 @@ function recurringRhythmSource(input: {
   } as const;
   try {
     const rhythms = recurringRhythmSnapshot({
-      dbPath: path.join(coveDataDir(input.dataDir), "forge.db"),
+      dbPath: path.join(coveDataDir(input.dataDir), "cove.db"),
       now: input.now,
       timezone: input.targetTimezone,
       localDate: input.targetLocalDate,
@@ -920,7 +920,7 @@ function recentActivitySource(input: {
   } as const;
   try {
     const digest = buildReceiptDigest({
-      dbPath: path.join(coveDataDir(input.dataDir), "forge.db"),
+      dbPath: path.join(coveDataDir(input.dataDir), "cove.db"),
     });
     return {
       ...base,
@@ -945,7 +945,7 @@ function staleTasksSource(input: {
   } as const;
   try {
     const tasks = detectStaleTasks({
-      dbPath: path.join(coveDataDir(input.dataDir), "forge.db"),
+      dbPath: path.join(coveDataDir(input.dataDir), "cove.db"),
       dataDir: input.dataDir,
       now: input.now,
     });
@@ -1090,7 +1090,7 @@ export function autonomyCheckinSource(input: {
     priority: 1,
   } as const;
   try {
-    const settings = readForgeAutonomySettings({
+    const settings = readCoveAutonomySettings({
       dataDir: input.dataDir,
       createIfMissing: false,
     });
@@ -1106,10 +1106,10 @@ export function autonomyCheckinSource(input: {
     return {
       ...source,
       content: `WARNING: Cove autonomy setting is unreadable (${
-        errorNote(error, "forge_autonomy_invalid").replace(/^error:/, "")
+        errorNote(error, "cove_autonomy_invalid").replace(/^error:/, "")
       }).`,
       asOf: input.now.toISOString(),
-      note: "error:forge_autonomy_invalid",
+      note: "error:cove_autonomy_invalid",
     };
   }
 }
@@ -1465,7 +1465,7 @@ export async function emailQueueSource(input: {
     freshness: "current",
   };
   try {
-    // These tables have no position column. Explicit queries keep forge-rest
+    // These tables have no position column. Explicit queries keep cove-rest
     // from applying its default position ordering to columns that do not exist.
     const [itemRows, draftRows] = await Promise.all([
       fetchRows(

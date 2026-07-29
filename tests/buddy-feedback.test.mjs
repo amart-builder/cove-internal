@@ -18,7 +18,7 @@ function fixture(t) {
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   return {
     dir,
-    dbPath: path.join(dir, 'forge.db'),
+    dbPath: path.join(dir, 'cove.db'),
   };
 }
 

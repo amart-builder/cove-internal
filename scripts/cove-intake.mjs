@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 require("tsx/cjs");
-const { runForgeIntake } = require("../src/lib/intake/run.ts");
+const { runCoveIntake } = require("../src/lib/intake/run.ts");
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const SOURCES = new Set([
@@ -29,7 +29,7 @@ function option(args, name, { allowLeadingDash = false } = {}) {
   return value;
 }
 
-export function parseForgeIntakeArgs(args) {
+export function parseCoveIntakeArgs(args) {
   const text = option(args, "--text", { allowLeadingDash: true });
   const file = option(args, "--file");
   if (Boolean(text) === Boolean(file)) {
@@ -53,7 +53,7 @@ export function parseForgeIntakeArgs(args) {
 
 export async function main(args = process.argv.slice(2)) {
   try {
-    const result = await runForgeIntake(parseForgeIntakeArgs(args), {
+    const result = await runCoveIntake(parseCoveIntakeArgs(args), {
       repoDir,
     });
     return result.exitCode;

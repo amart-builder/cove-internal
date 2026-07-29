@@ -151,8 +151,8 @@ function taskSessionInput(
 
 const JARVIS_HELD_TAG = 'jarvis-held';
 const BLOCKED_TAG = 'blocked';
-const FOCUS_KEY = 'forge.quiet-current.focus';
-const NOTES_KEY = 'forge.quiet-current.notes';
+const FOCUS_KEY = 'cove.quiet-current.focus';
+const NOTES_KEY = 'cove.quiet-current.notes';
 
 // The hoisted DayRitualLayer stays mounted across ritual views; these stable ids let
 // each view's heading label the dialog and receive focus after a content swap.

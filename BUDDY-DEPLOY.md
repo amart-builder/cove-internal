@@ -27,7 +27,7 @@ The Mini uses the same block with `COVE_BUDDY_DEEPLINKS` set to `0`. `COVE_BUDDY
 The local installer creates the `com.cove.local` service. Run:
 
 ```bash
-cd /path/to/forge
+cd /path/to/cove
 npm run build
 
 PLIST="$HOME/Library/LaunchAgents/com.cove.local.plist"
@@ -46,17 +46,17 @@ Connect to the always-on machine (use your own SSH host and the repo path on tha
 
 ```bash
 ssh <user>@<always-on-mac>
-cd <path-to-forge-repo>
+cd <path-to-cove-repo>
 npm run build
 
-PLIST="$HOME/Library/LaunchAgents/com.atlas.forge-web.plist"
+PLIST="$HOME/Library/LaunchAgents/com.atlas.cove-web.plist"
 /usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:COVE_DAY_PLAN_ACCESS_MODE loopback" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:COVE_DAY_PLAN_ACCESS_MODE string loopback" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:COVE_BUDDY_DEEPLINKS 0" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:COVE_BUDDY_DEEPLINKS string 0" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:COVE_BUDDY_APP_URL http://127.0.0.1:3200" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:COVE_BUDDY_APP_URL string http://127.0.0.1:3200" "$PLIST"
 
-launchctl bootout "gui/$(id -u)/com.atlas.forge-web" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.atlas.cove-web" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
-launchctl kickstart -k "gui/$(id -u)/com.atlas.forge-web"
+launchctl kickstart -k "gui/$(id -u)/com.atlas.cove-web"
 ```
 
 ## Confirm Buddy loads

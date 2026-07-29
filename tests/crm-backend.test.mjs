@@ -19,7 +19,7 @@ function fixture(t) {
     `cove-crm-${process.pid}-${Date.now()}-${Math.random()}`,
   );
   mkdirSync(dir, { recursive: true });
-  const dbPath = path.join(dir, 'forge.db');
+  const dbPath = path.join(dir, 'cove.db');
   const backend = new LocalCRMBackend({
     dbPath,
     now: () => new Date('2026-07-28T12:00:00.000Z'),
@@ -439,7 +439,7 @@ test('CRM config defaults local and external selection throws the setup message'
     `cove-crm-config-${process.pid}-${Date.now()}-${Math.random()}`,
   );
   mkdirSync(dir, { recursive: true });
-  const dbPath = path.join(dir, 'forge.db');
+  const dbPath = path.join(dir, 'cove.db');
   t.after(() => rmSync(dir, { recursive: true, force: true }));
 
   const local = createCRMBackend({ dataDir: dir, dbPath });

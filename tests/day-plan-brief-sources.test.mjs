@@ -25,7 +25,7 @@ const MACHINE_ID = '12345678-1234-4234-8234-123456789abc';
 const MACHINE = { id: MACHINE_ID, hostname: 'brief-test-mac.local' };
 
 function fixture(t) {
-  const dir = path.join(os.tmpdir(), `forge-brief-sources-${process.pid}-${Date.now()}-${Math.random()}`);
+  const dir = path.join(os.tmpdir(), `cove-brief-sources-${process.pid}-${Date.now()}-${Math.random()}`);
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, 'goals.md'), 'Grow Edge AI.');
   writeFileSync(path.join(dir, 'operator-profile.md'), 'Jordan Rivers runs three operating lanes.');
@@ -41,7 +41,7 @@ function fixture(t) {
       leadupPath: path.join(dir, 'leadup.md'),
       sprintMemoPath: path.join(dir, 'memo.md'),
       dataDir: dir,
-      webBaseUrl: 'http://forge.test',
+      webBaseUrl: 'http://cove.test',
       targetLocalDate: '2026-07-16',
       targetTimezone: 'America/Los_Angeles',
       now: NOW,
@@ -90,8 +90,8 @@ function writeOperatorProfile(t, dir, profile) {
   return profilePath;
 }
 
-function forgeRowsResponse(url) {
-  if (!String(url).startsWith('http://forge.test/api/forge-rest/')) return undefined;
+function coveRowsResponse(url) {
+  if (!String(url).startsWith('http://cove.test/api/cove-rest/')) return undefined;
   return new Response(JSON.stringify([]), {
     status: 200,
     headers: { 'content-type': 'application/json' },
@@ -135,7 +135,7 @@ function recentBriefArtifact({
 }
 
 test('brief file policy treats empty env values as unset and prefers env, client goals, then legacy', (t) => {
-  const dir = path.join(os.tmpdir(), `forge-source-policy-${process.pid}-${Date.now()}-${Math.random()}`);
+  const dir = path.join(os.tmpdir(), `cove-source-policy-${process.pid}-${Date.now()}-${Math.random()}`);
   const homeDir = path.join(dir, 'home');
   const dataDir = path.join(dir, 'data');
   const legacyGoals = path.join(homeDir, 'Atlas', 'brain', 'GOALS.md');
@@ -173,7 +173,7 @@ test('brief file policy treats empty env values as unset and prefers env, client
 });
 
 test('an absent default sprint memo is optional in collection and checkpoint verification', async (t) => {
-  const dir = path.join(os.tmpdir(), `forge-optional-sprint-${process.pid}-${Date.now()}-${Math.random()}`);
+  const dir = path.join(os.tmpdir(), `cove-optional-sprint-${process.pid}-${Date.now()}-${Math.random()}`);
   const homeDir = path.join(dir, 'home');
   const dataDir = path.join(dir, 'data');
   const clientGoals = path.join(dataDir, 'brief', 'goals.md');
@@ -193,11 +193,11 @@ test('an absent default sprint memo is optional in collection and checkpoint ver
     store: { listRecentSnapshots: () => [] },
     homeDir,
     dataDir,
-    webBaseUrl: 'http://forge.test',
+    webBaseUrl: 'http://cove.test',
     targetLocalDate: '2026-07-16',
     targetTimezone: 'America/Los_Angeles',
     now: NOW,
-    fetchImpl: async (url) => forgeRowsResponse(url),
+    fetchImpl: async (url) => coveRowsResponse(url),
   });
   const sprint = collected.sources.find((source) => source.id === 'sprint_memo');
   assert.equal(sprint.required, false);
@@ -213,7 +213,7 @@ test('an absent default sprint memo is optional in collection and checkpoint ver
 });
 
 test('operator profile falls back to a bounded readable JSON whitelist', async (t) => {
-  const dir = path.join(os.tmpdir(), `forge-json-profile-${process.pid}-${Date.now()}-${Math.random()}`);
+  const dir = path.join(os.tmpdir(), `cove-json-profile-${process.pid}-${Date.now()}-${Math.random()}`);
   const homeDir = path.join(dir, 'home');
   const dataDir = path.join(dir, 'data');
   mkdirSync(path.join(dataDir, 'brief'), { recursive: true });
@@ -243,11 +243,11 @@ test('operator profile falls back to a bounded readable JSON whitelist', async (
     store: { listRecentSnapshots: () => [] },
     homeDir,
     dataDir,
-    webBaseUrl: 'http://forge.test',
+    webBaseUrl: 'http://cove.test',
     targetLocalDate: '2026-07-16',
     targetTimezone: 'America/New_York',
     now: NOW,
-    fetchImpl: async (url) => forgeRowsResponse(url),
+    fetchImpl: async (url) => coveRowsResponse(url),
   });
   const profile = collected.sources.find((source) => source.id === 'operator_profile');
   assert.match(profile.content, /^Name: Jordan/m);
@@ -329,8 +329,8 @@ test('calendar uses the restricted gateway, derives DST-aware bounds, and format
     },
   ];
   const fetchImpl = async (url, init = {}) => {
-    const forge = forgeRowsResponse(url);
-    if (forge) return forge;
+    const cove = coveRowsResponse(url);
+    if (cove) return cove;
     throw new Error(`unexpected fetch ${url} ${init.method ?? 'GET'}`);
   };
   const collected = await collectMorningBriefSources({
@@ -374,14 +374,14 @@ test('completed_recently keeps only done tasks from the previous 48 hours', asyn
     ...options,
     fetchImpl: async (url) => {
       const value = String(url);
-      if (value.includes('/api/forge-rest/tasks')) {
+      if (value.includes('/api/cove-rest/tasks')) {
         return new Response(JSON.stringify([
           { id: 'recent', title: 'Shipped client handoff', project: 'client', status: 'done', updated_at: recent },
           { id: 'old', title: 'Old completed task', project: 'internal', status: 'done', updated_at: old },
           { id: 'open', title: 'Still open', project: 'client', status: 'open', updated_at: NOW.toISOString() },
         ]), { status: 200 });
       }
-      return forgeRowsResponse(url);
+      return coveRowsResponse(url);
     },
   });
   const completed = collected.sources.find((source) => source.id === 'completed_recently');
@@ -400,7 +400,7 @@ test('completed_recently states when no task was finished in the window', async 
   disableExternalSources(t, dir);
   const collected = await collectMorningBriefSources({
     ...options,
-    fetchImpl: async (url) => forgeRowsResponse(url),
+    fetchImpl: async (url) => coveRowsResponse(url),
   });
   assert.equal(
     collected.sources.find((source) => source.id === 'completed_recently').content,
@@ -414,17 +414,17 @@ test('completed_recently caps the list at 15 tasks and reports the remainder', a
   const rows = Array.from({ length: 17 }, (_, index) => ({
     id: `done-${index}`,
     title: `Completed task ${String(index).padStart(2, '0')}`,
-    project: 'forge',
+    project: 'cove',
     status: 'done',
     updated_at: new Date(NOW.getTime() - index * 60_000).toISOString(),
   }));
   const collected = await collectMorningBriefSources({
     ...options,
     fetchImpl: async (url) => {
-      if (String(url).includes('/api/forge-rest/tasks')) {
+      if (String(url).includes('/api/cove-rest/tasks')) {
         return new Response(JSON.stringify(rows), { status: 200 });
       }
-      return forgeRowsResponse(url);
+      return coveRowsResponse(url);
     },
   });
   const lines = collected.sources
@@ -432,15 +432,15 @@ test('completed_recently caps the list at 15 tasks and reports the remainder', a
     .content
     .split('\n');
   assert.equal(lines.length, 16);
-  assert.match(lines[0], /^- "Completed task 00" project=forge updated=/);
-  assert.match(lines[14], /^- "Completed task 14" project=forge updated=/);
+  assert.match(lines[0], /^- "Completed task 00" project=cove updated=/);
+  assert.match(lines[14], /^- "Completed task 14" project=cove updated=/);
   assert.equal(lines[15], '+2 more');
 });
 
 test('calendar reports not_configured for a missing key file', async (t) => {
   const { dir, options } = fixture(t);
   disableExternalSources(t, dir);
-  const collected = await collectMorningBriefSources({ ...options, fetchImpl: async (url) => forgeRowsResponse(url) });
+  const collected = await collectMorningBriefSources({ ...options, fetchImpl: async (url) => coveRowsResponse(url) });
   const calendar = collected.sources.find((source) => source.id === 'calendar');
   assert.equal(calendar.content, undefined);
   assert.equal(calendar.note, 'not_configured');
@@ -450,8 +450,8 @@ test('calendar fetch failures stay optional and leave the other sources availabl
   const { dir, options } = fixture(t);
   disableExternalSources(t, dir);
   const fetchImpl = async (url) => {
-    const forge = forgeRowsResponse(url);
-    if (forge) return forge;
+    const cove = coveRowsResponse(url);
+    if (cove) return cove;
     throw new Error('gateway unavailable');
   };
   const collected = await collectMorningBriefSources({
@@ -537,8 +537,8 @@ test('CRM handles Attio value variants and formats recent and quiet contacts', a
     { values: { name: [{ full_name: 'No History' }], last_email_interaction: [], last_interaction: [] } },
   ];
   const fetchImpl = async (url, init = {}) => {
-    const forge = forgeRowsResponse(url);
-    if (forge) return forge;
+    const cove = coveRowsResponse(url);
+    if (cove) return cove;
     assert.equal(String(url), 'https://api.attio.com/v2/objects/people/records/query');
     assert.deepEqual(JSON.parse(init.body), {
       limit: 250,
@@ -569,8 +569,8 @@ test('the own-record CRM filter comes from the profile and defaults to filtering
     },
   }];
   const fetchImpl = async (url) => {
-    const forge = forgeRowsResponse(url);
-    if (forge) return forge;
+    const cove = coveRowsResponse(url);
+    if (cove) return cove;
     return new Response(JSON.stringify({ data: { data: records } }), { status: 200 });
   };
   const withoutProfile = await collectMorningBriefSources({ ...options, fetchImpl });
@@ -593,8 +593,8 @@ test('.env.local strips unquoted inline comments but preserves hashes inside quo
   const previousCwd = process.cwd();
   const authorizations = [];
   const fetchImpl = async (url, init = {}) => {
-    const forge = forgeRowsResponse(url);
-    if (forge) return forge;
+    const cove = coveRowsResponse(url);
+    if (cove) return cove;
     assert.equal(String(url), 'https://api.attio.com/v2/objects/people/records/query');
     authorizations.push(init.headers.Authorization);
     return new Response(JSON.stringify({ data: [] }), { status: 200 });
@@ -617,7 +617,7 @@ test('.env.local strips unquoted inline comments but preserves hashes inside quo
 test('CRM reports not_configured when neither Attio credential is present', async (t) => {
   const { dir, options } = fixture(t);
   disableExternalSources(t, dir);
-  const collected = await collectMorningBriefSources({ ...options, fetchImpl: async (url) => forgeRowsResponse(url) });
+  const collected = await collectMorningBriefSources({ ...options, fetchImpl: async (url) => coveRowsResponse(url) });
   assert.equal(collected.sources.find((source) => source.id === 'crm_last_touch').note, 'not_configured');
 });
 
@@ -637,10 +637,10 @@ test('memory decisions prefer decision-tagged Jarvis results and bound each line
     ['recent decisions, commitments, and direction changes', [
       { uuid: 'long', score: 0.9, content: longDecision },
       { uuid: 'background', score: 0.4, content: 'Background context that should be filtered out.' },
-      { uuid: 'forge', score: 0.8, content: '[DECISION] Keep Cove as the command center.' },
+      { uuid: 'cove', score: 0.8, content: '[DECISION] Keep Cove as the command center.' },
     ]],
     ['what Jordan Rivers worked on in Claude sessions the last three days', [
-      { uuid: 'forge', score: 0.95, content: '[DECISION] Keep Cove as the source of truth.' },
+      { uuid: 'cove', score: 0.95, content: '[DECISION] Keep Cove as the source of truth.' },
       { uuid: 'route', score: 0.7, content: '[DECISION] Route from the latest saved state.' },
     ]],
     ["current state of the operator's active projects and business lines", [
@@ -648,8 +648,8 @@ test('memory decisions prefer decision-tagged Jarvis results and bound each line
     ]],
   ]);
   const fetchImpl = async (url, init = {}) => {
-    const forge = forgeRowsResponse(url);
-    if (forge) return forge;
+    const cove = coveRowsResponse(url);
+    if (cove) return cove;
     assert.equal(String(url), 'http://memory.test/api/v2/scored_search');
     const body = JSON.parse(init.body);
     requests.push(body.query);
@@ -674,8 +674,8 @@ test('memory decisions preserve file-path mode without calling Jarvis', async (t
   writeFileSync(memoryPath, '[DECISION] Preserve the file fallback.\n');
   disableExternalSources(t, dir);
   const fetchImpl = async (url) => {
-    const forge = forgeRowsResponse(url);
-    if (forge) return forge;
+    const cove = coveRowsResponse(url);
+    if (cove) return cove;
     throw new Error(`unexpected network call: ${url}`);
   };
   const collected = await collectMorningBriefSources({ ...options, memoryDecisionsPath: memoryPath, fetchImpl });
@@ -691,8 +691,8 @@ test('memory decisions resolve the hub from env, then the profile, and otherwise
   disableExternalSources(t, dir, { COVE_BRIEF_JARVIS_TOKEN_PATH: tokenPath });
   const requested = [];
   const fetchImpl = async (url) => {
-    const forge = forgeRowsResponse(url);
-    if (forge) return forge;
+    const cove = coveRowsResponse(url);
+    if (cove) return cove;
     requested.push(String(url));
     return new Response(JSON.stringify({ results: [{ uuid: 'a', score: 1, content: '[DECISION] Configured.' }] }), { status: 200 });
   };
@@ -721,7 +721,7 @@ test('memory decisions resolve the hub from env, then the profile, and otherwise
 test('memory decisions report not_configured when the hub token file is missing', async (t) => {
   const { dir, options } = fixture(t);
   disableExternalSources(t, dir);
-  const collected = await collectMorningBriefSources({ ...options, fetchImpl: async (url) => forgeRowsResponse(url) });
+  const collected = await collectMorningBriefSources({ ...options, fetchImpl: async (url) => coveRowsResponse(url) });
   assert.equal(collected.sources.find((source) => source.id === 'memory_decisions').note, 'not_configured');
 });
 
@@ -737,8 +737,8 @@ test('memory decisions stop after the first Jarvis search fails', async (t) => {
   const collected = await collectMorningBriefSources({
     ...options,
     fetchImpl: async (url) => {
-      const forge = forgeRowsResponse(url);
-      if (forge) return forge;
+      const cove = coveRowsResponse(url);
+      if (cove) return cove;
       searches += 1;
       throw new Error('Jarvis unavailable');
     },
@@ -811,11 +811,11 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
     ...options,
     fetchImpl: async (url) => {
       const value = String(url);
-      if (value.includes('/api/forge-rest/inbound_events')) {
+      if (value.includes('/api/cove-rest/inbound_events')) {
         inboundUrl = value;
         return new Response(JSON.stringify(inbound), { status: 200 });
       }
-      if (value.includes('/api/forge-rest/tasks')) {
+      if (value.includes('/api/cove-rest/tasks')) {
         return new Response(JSON.stringify([
           {
             id: 'waiting-1',
@@ -830,20 +830,20 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
             id: 'backlog-1',
             column_id: 'backlog',
             title: 'Backlog item stays visible',
-            project: 'forge',
+            project: 'cove',
             status: 'open',
             priority: 'low',
             tags: [],
           },
         ]), { status: 200 });
       }
-      if (value.includes('/api/forge-rest/task_columns')) {
+      if (value.includes('/api/cove-rest/task_columns')) {
         return new Response(JSON.stringify([
           { id: 'waiting', name: 'Waiting' },
           { id: 'backlog', name: 'Backlog' },
         ]), { status: 200 });
       }
-      return forgeRowsResponse(url);
+      return coveRowsResponse(url);
     },
   });
   const source = collected.sources.find((entry) => entry.id === 'untriaged_inbound');
@@ -872,16 +872,16 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
   );
   assert.match(
     tasks.content,
-    /\[not_started\] id=backlog-1 "Backlog item stays visible" priority=low project=forge/,
+    /\[not_started\] id=backlog-1 "Backlog item stays visible" priority=low project=cove/,
   );
 
   const warning = await collectMorningBriefSources({
     ...options,
     fetchImpl: async (url) => {
-      if (String(url).includes('/api/forge-rest/inbound_events')) {
+      if (String(url).includes('/api/cove-rest/inbound_events')) {
         return new Response('table missing', { status: 404 });
       }
-      return forgeRowsResponse(url);
+      return coveRowsResponse(url);
     },
   });
   const warningSource = warning.sources.find((entry) => entry.id === 'untriaged_inbound');
@@ -908,7 +908,7 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
   );
   const stale = await collectMorningBriefSources({
     ...options,
-    fetchImpl: async (url) => forgeRowsResponse(url),
+    fetchImpl: async (url) => coveRowsResponse(url),
   });
   assert.match(
     stale.sources.find((entry) => entry.id === 'untriaged_inbound').content,
@@ -937,7 +937,7 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
   );
   const deadLetters = await collectMorningBriefSources({
     ...options,
-    fetchImpl: async (url) => forgeRowsResponse(url),
+    fetchImpl: async (url) => coveRowsResponse(url),
   });
   assert.match(
     deadLetters.sources.find((entry) => entry.id === 'untriaged_inbound').content,
@@ -961,7 +961,7 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
   );
   const disabled = await collectMorningBriefSources({
     ...options,
-    fetchImpl: async (url) => forgeRowsResponse(url),
+    fetchImpl: async (url) => coveRowsResponse(url),
   });
   assert.match(
     disabled.sources.find((entry) => entry.id === 'untriaged_inbound').content,
@@ -974,7 +974,7 @@ test('missing background heartbeats warn only after their lanes were installed',
   disableExternalSources(t, dir);
   const beforeInstall = await collectMorningBriefSources({
     ...options,
-    fetchImpl: async (url) => forgeRowsResponse(url),
+    fetchImpl: async (url) => coveRowsResponse(url),
   });
   assert.match(
     beforeInstall.sources.find((entry) => entry.id === 'untriaged_inbound').content,
@@ -1009,7 +1009,7 @@ test('missing background heartbeats warn only after their lanes were installed',
   );
   const otherMachineOnly = await collectMorningBriefSources({
     ...options,
-    fetchImpl: async (url) => forgeRowsResponse(url),
+    fetchImpl: async (url) => coveRowsResponse(url),
   });
   assert.doesNotMatch(
     otherMachineOnly.sources.find((entry) => entry.id === 'untriaged_inbound').content,
@@ -1035,7 +1035,7 @@ test('missing background heartbeats warn only after their lanes were installed',
   );
   const afterInstall = await collectMorningBriefSources({
     ...options,
-    fetchImpl: async (url) => forgeRowsResponse(url),
+    fetchImpl: async (url) => coveRowsResponse(url),
   });
   assert.match(
     afterInstall.sources.find((entry) => entry.id === 'untriaged_inbound').content,
@@ -1110,7 +1110,7 @@ test('brief reads owner health without letting a local stand-down marker hide wa
 
   const collected = await collectMorningBriefSources({
     ...options,
-    fetchImpl: async (url) => forgeRowsResponse(url),
+    fetchImpl: async (url) => coveRowsResponse(url),
   });
   const inbound = collected.sources.find(
     (source) => source.id === 'untriaged_inbound',
@@ -1183,7 +1183,7 @@ test('brief keeps reading the local owner heartbeat after its hostname changes',
       id: MACHINE_ID,
       hostname: 'brief-test-mac.lan',
     },
-    fetchImpl: async (url) => forgeRowsResponse(url),
+    fetchImpl: async (url) => coveRowsResponse(url),
   });
   assert.match(
     collected.sources.find((source) => source.id === 'untriaged_inbound').content,
@@ -1260,11 +1260,11 @@ test('computed commitments source exposes open loops, clarification, and factual
     },
   ];
   const fetchImpl = async (url) => {
-    if (String(url).includes('/api/forge-rest/commitments')) {
+    if (String(url).includes('/api/cove-rest/commitments')) {
       return new Response(JSON.stringify(commitments), { status: 200 });
     }
-    const forge = forgeRowsResponse(url);
-    if (forge) return forge;
+    const cove = coveRowsResponse(url);
+    if (cove) return cove;
     throw new Error(`unexpected network call: ${url}`);
   };
   const collected = await collectMorningBriefSources({ ...options, fetchImpl });
@@ -1366,13 +1366,13 @@ test('email decision queue joins drafts, ignores orphans, and orders action item
         { status: 200 },
       );
     },
-    baseUrl: 'http://forge.test',
+    baseUrl: 'http://cove.test',
     timeoutMs: 1000,
     now: NOW,
   });
 
-  assert.equal(requests[0], 'http://forge.test/api/forge-rest/email_items?select=id,thread_id,classification,status,sender_name,sender_email,subject,summary,recommended_action,priority,received_at&status=in.(pending,reviewed)&order=received_at.desc');
-  assert.equal(requests[1], 'http://forge.test/api/forge-rest/drafts?select=id,email_item_id,status&status=in.(needs_review,approved,edited)&order=updated_at.desc');
+  assert.equal(requests[0], 'http://cove.test/api/cove-rest/email_items?select=id,thread_id,classification,status,sender_name,sender_email,subject,summary,recommended_action,priority,received_at&status=in.(pending,reviewed)&order=received_at.desc');
+  assert.equal(requests[1], 'http://cove.test/api/cove-rest/drafts?select=id,email_item_id,status&status=in.(needs_review,approved,edited)&order=updated_at.desc');
   assert.match(source.content, /^showing 25 of 54 open items \(2 with a draft waiting\)\./);
   const lines = source.content.split('\n').slice(1);
   assert.equal(lines.length, 25);
@@ -1393,7 +1393,7 @@ test('email decision queue joins drafts, ignores orphans, and orders action item
 test('email decision queue reports empty state and fails open on fetch errors', async () => {
   const empty = await emailQueueSource({
     fetchImpl: async () => new Response('[]', { status: 200 }),
-    baseUrl: 'http://forge.test',
+    baseUrl: 'http://cove.test',
     timeoutMs: 1000,
     now: NOW,
   });
@@ -1404,7 +1404,7 @@ test('email decision queue reports empty state and fails open on fetch errors', 
       if (String(url).includes('/email_items?')) throw new Error('email items unavailable');
       return new Response('[]', { status: 200 });
     },
-    baseUrl: 'http://forge.test',
+    baseUrl: 'http://cove.test',
     timeoutMs: 1000,
     now: NOW,
   });
@@ -1602,7 +1602,7 @@ test('project progress source shows yesterday and today digests and heartbeat wa
   const collected = await collectMorningBriefSources({
     ...options,
     store,
-    fetchImpl: async (url) => forgeRowsResponse(url),
+    fetchImpl: async (url) => coveRowsResponse(url),
   });
   const progress = collected.sources.find((source) => source.id === 'project_progress');
   assert.equal(progress.label, 'PROJECT_PROGRESS');
@@ -1629,7 +1629,7 @@ test('project progress source shows yesterday and today digests and heartbeat wa
   const stale = await collectMorningBriefSources({
     ...options,
     store,
-    fetchImpl: async (url) => forgeRowsResponse(url),
+    fetchImpl: async (url) => coveRowsResponse(url),
   });
   assert.match(
     stale.sources.find((source) => source.id === 'project_progress').content,
@@ -1648,7 +1648,7 @@ test('a due autonomy check-in is included in collected brief sources', async (t)
   }));
   const collected = await collectMorningBriefSources({
     ...options,
-    fetchImpl: async (url) => forgeRowsResponse(url),
+    fetchImpl: async (url) => coveRowsResponse(url),
   });
   const checkin = collected.sources.find(
     (source) => source.id === 'autonomy_checkin',
@@ -1683,7 +1683,7 @@ test('project progress falls back to the immutable Mini digest relay', async (t)
     digest: {
       id: 'progress-0123456789abcdef0123456789abcdef',
       runAt: '2026-07-16T11:00:00.000Z',
-      project: 'forge',
+      project: 'cove',
       summary: 'Relayed progress reached the MacBook brief.',
       perTask: [],
       evidence: { fingerprint: 'one' },
@@ -1695,11 +1695,11 @@ test('project progress falls back to the immutable Mini digest relay', async (t)
       listRecentSnapshots: () => [],
       listSessionDigests: () => [],
     },
-    fetchImpl: async (url) => forgeRowsResponse(url),
+    fetchImpl: async (url) => coveRowsResponse(url),
   });
   assert.match(
     collected.sources.find((source) => source.id === 'project_progress').content,
-    /forge: Relayed progress reached the MacBook brief\./,
+    /cove: Relayed progress reached the MacBook brief\./,
   );
 });
 
@@ -1774,10 +1774,10 @@ test('commitments source surfaces recent note resolutions and updates in the req
     ...options,
     fetchImpl: async (url) => {
       const value = String(url);
-      if (value.includes('/api/forge-rest/commitments')) {
+      if (value.includes('/api/cove-rest/commitments')) {
         return new Response(JSON.stringify(value.includes('status=eq.done') ? done : open), { status: 200 });
       }
-      return forgeRowsResponse(url);
+      return coveRowsResponse(url);
     },
   });
   const content = collected.sources.find((entry) => entry.id === 'commitments').content;
@@ -1798,10 +1798,10 @@ test('commitments source surfaces recent note resolutions and updates in the req
   const empty = await collectMorningBriefSources({
     ...options,
     fetchImpl: async (url) => {
-      if (String(url).includes('/api/forge-rest/')) {
+      if (String(url).includes('/api/cove-rest/')) {
         return new Response('[]', { status: 200 });
       }
-      return forgeRowsResponse(url);
+      return coveRowsResponse(url);
     },
   });
   assert.equal(
@@ -1842,12 +1842,12 @@ test('commitments source marks either partial fetch failure without asserting fa
     ...options,
     fetchImpl: async (url) => {
       const value = String(url);
-      if (value.includes('/api/forge-rest/commitments')) {
+      if (value.includes('/api/cove-rest/commitments')) {
         const status = value.includes('status=eq.done') ? 'done' : 'open';
         if (status === failedStatus) throw new Error(`${status} commitments unavailable`);
         return new Response(JSON.stringify(status === 'done' ? done : open), { status: 200 });
       }
-      return forgeRowsResponse(url);
+      return coveRowsResponse(url);
     },
   });
 
@@ -1880,8 +1880,8 @@ test('real source ids overwrite coverage fallbacks, while failed fetches remain 
     COVE_BRIEF_JARVIS_URL: 'http://memory.test',
   });
   const successFetch = async (url) => {
-    const forge = forgeRowsResponse(url);
-    if (forge) return forge;
+    const cove = coveRowsResponse(url);
+    if (cove) return cove;
     if (String(url).includes('api.attio.com')) {
       return new Response(JSON.stringify({ data: [] }), { status: 200 });
     }
@@ -1936,8 +1936,8 @@ test('real source ids overwrite coverage fallbacks, while failed fetches remain 
   assert.equal(includedCoverage.memory_decisions, 'included');
 
   const failedFetch = async (url) => {
-    const forge = forgeRowsResponse(url);
-    if (forge) return forge;
+    const cove = coveRowsResponse(url);
+    if (cove) return cove;
     throw new Error('network down');
   };
   const failed = await collectMorningBriefSources({

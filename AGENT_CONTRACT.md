@@ -13,8 +13,8 @@ Claude and Codex use the same local HTTP contract. Cove normally runs at `http:/
 ## Read the current
 
 ```bash
-curl -s 'http://localhost:3200/api/forge-rest/task_columns?select=*&order=position.asc'
-curl -s 'http://localhost:3200/api/forge-rest/tasks?select=*&order=position.asc'
+curl -s 'http://localhost:3200/api/cove-rest/task_columns?select=*&order=position.asc'
+curl -s 'http://localhost:3200/api/cove-rest/tasks?select=*&order=position.asc'
 curl -s 'http://localhost:3200/api/quiet-current'
 ```
 

@@ -15,16 +15,16 @@ export function selectExecutionModel(item: DayPlanItem): DayPlanExecutionConfig[
   return "fable";
 }
 
-export type ForgeExecutionWorkspace = {
+export type CoveExecutionWorkspace = {
   id: string;
   path: string;
   autonomousEnabled: boolean;
   maximumBudgetUsd: number;
 };
 
-export type ForgeExecutionEnvironment = {
+export type CoveExecutionEnvironment = {
   autonomousEnabled: boolean;
-  workspaces: Map<string, ForgeExecutionWorkspace>;
+  workspaces: Map<string, CoveExecutionWorkspace>;
   now?: () => Date;
 };
 
@@ -78,16 +78,16 @@ function finitePositive(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
-export function loadForgeExecutionEnvironment(
+export function loadCoveExecutionEnvironment(
   options: {
     configPath?: string;
     autonomousEnabled?: boolean;
   } = {},
-): ForgeExecutionEnvironment {
+): CoveExecutionEnvironment {
   const configPath = options.configPath ??
     coveEnv("EXECUTION_CONFIG") ??
     coveConfigPath(path.join(process.cwd(), "data"), "execution.json");
-  const workspaces = new Map<string, ForgeExecutionWorkspace>();
+  const workspaces = new Map<string, CoveExecutionWorkspace>();
 
   if (existsSync(configPath)) {
     try {
@@ -123,7 +123,7 @@ export function loadForgeExecutionEnvironment(
   };
 }
 
-function workspaceFacts(workspace: ForgeExecutionWorkspace): {
+function workspaceFacts(workspace: CoveExecutionWorkspace): {
   exists: boolean;
   path?: string;
   isGit: boolean;
@@ -155,7 +155,7 @@ function workspaceFacts(workspace: ForgeExecutionWorkspace): {
 export function assessDayPlanExecutionReadiness(input: {
   item: DayPlanItem;
   config?: DayPlanExecutionConfig;
-  environment: ForgeExecutionEnvironment;
+  environment: CoveExecutionEnvironment;
 }): DayPlanExecutionReadiness {
   const { item, config, environment } = input;
   const codes: DayPlanReadinessCode[] = [];

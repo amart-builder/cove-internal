@@ -13,7 +13,7 @@ import {
 } from '../src/lib/operator.ts';
 
 function fixture(t) {
-  const dir = path.join(os.tmpdir(), `forge-operator-${process.pid}-${Date.now()}-${Math.random()}`);
+  const dir = path.join(os.tmpdir(), `cove-operator-${process.pid}-${Date.now()}-${Math.random()}`);
   mkdirSync(dir, { recursive: true });
   const profilePath = path.join(dir, 'cove-profile.json');
   const previousProfilePath = process.env.COVE_PROFILE_PATH;
@@ -75,15 +75,15 @@ test('workspace root uses a trimmed env override, then an existing legacy Atlas 
   }), null);
 });
 
-test('forge data directory prefers an explicit argument, then COVE_DATA_DIR', (t) => {
+test('cove data directory prefers an explicit argument, then COVE_DATA_DIR', (t) => {
   const previous = process.env.COVE_DATA_DIR;
   t.after(() => {
     if (previous === undefined) delete process.env.COVE_DATA_DIR;
     else process.env.COVE_DATA_DIR = previous;
   });
-  process.env.COVE_DATA_DIR = ' /srv/forge-data ';
-  assert.equal(coveDataDir(), '/srv/forge-data');
-  assert.equal(coveDataDir('/tmp/explicit-forge-data'), '/tmp/explicit-forge-data');
+  process.env.COVE_DATA_DIR = ' /srv/cove-data ';
+  assert.equal(coveDataDir(), '/srv/cove-data');
+  assert.equal(coveDataDir('/tmp/explicit-cove-data'), '/tmp/explicit-cove-data');
 });
 
 test('operatorTimezone prefers the shared profile, then the env var, then this machine', (t) => {

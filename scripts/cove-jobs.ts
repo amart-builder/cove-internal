@@ -39,7 +39,7 @@ function voiceGuide(): string {
 
 function paths(): { dbPath: string; backupDir: string } {
   const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  const dbPath = coveEnv("DB_PATH") ?? path.join(repoDir, "data", "forge.db");
+  const dbPath = coveEnv("DB_PATH") ?? path.join(repoDir, "data", "cove.db");
   return {
     dbPath,
     backupDir: coveEnv("BACKUP_DIR") ?? path.join(path.dirname(dbPath), "backups"),

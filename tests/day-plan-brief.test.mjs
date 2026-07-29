@@ -171,11 +171,11 @@ function candidatePool() {
 }
 
 function briefFixture(t) {
-  const dir = path.join(os.tmpdir(), `forge-brief-${process.pid}-${Date.now()}-${Math.random()}`);
+  const dir = path.join(os.tmpdir(), `cove-brief-${process.pid}-${Date.now()}-${Math.random()}`);
   mkdirSync(dir, { recursive: true });
   let nowIso = CLOCK;
   const store = createDayPlanStore({
-    dbPath: path.join(dir, 'forge.db'),
+    dbPath: path.join(dir, 'cove.db'),
     now: () => new Date(nowIso),
   });
   t.after(() => {
@@ -443,7 +443,7 @@ test('the task snapshot default web base targets the installed port 3200', () =>
 });
 
 test('the collector marks candidate_ok only on the arrival-eligible tasks', async (t) => {
-  const dir = path.join(os.tmpdir(), `forge-brief-collect-${process.pid}-${Date.now()}`);
+  const dir = path.join(os.tmpdir(), `cove-brief-collect-${process.pid}-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   writeFileSync(path.join(dir, 'goals.md'), 'North star: 30k a month.');
@@ -474,7 +474,7 @@ test('the collector marks candidate_ok only on the arrival-eligible tasks', asyn
     dataDir: dir,
     goalsPath: path.join(dir, 'goals.md'),
     sprintMemoPath: path.join(dir, 'memo.md'),
-    webBaseUrl: 'http://forge.test',
+    webBaseUrl: 'http://cove.test',
     fetchImpl: async (url) => ({
       ok: true,
       json: async () => (String(url).includes('task_columns') ? columns : tasks),
@@ -548,7 +548,7 @@ test('the closeout provenance line states facts and passes no verdict', () => {
 });
 
 test('the collector reads the closeout still being extracted, not the previous one', async (t) => {
-  const dir = path.join(os.tmpdir(), `forge-brief-dump-${process.pid}-${Date.now()}`);
+  const dir = path.join(os.tmpdir(), `cove-brief-dump-${process.pid}-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   writeFileSync(path.join(dir, 'goals.md'), 'North star: 30k a month.');
@@ -580,7 +580,7 @@ test('the collector reads the closeout still being extracted, not the previous o
     targetLocalDate: '2026-07-27',
     targetTimezone: 'America/Los_Angeles',
     now: new Date('2026-07-27T14:30:00.000Z'),
-    webBaseUrl: 'http://forge.test',
+    webBaseUrl: 'http://cove.test',
     fetchImpl: async () => ({ ok: true, json: async () => [] }),
   });
   const byId = Object.fromEntries(collected.sources.map((source) => [source.id, source]));
@@ -603,7 +603,7 @@ test('the collector reads the closeout still being extracted, not the previous o
 });
 
 test('a closeout with working days behind it carries its provenance ahead of the text', async (t) => {
-  const dir = path.join(os.tmpdir(), `forge-brief-stale-${process.pid}-${Date.now()}`);
+  const dir = path.join(os.tmpdir(), `cove-brief-stale-${process.pid}-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   writeFileSync(path.join(dir, 'goals.md'), 'North star: 30k a month.');
@@ -622,7 +622,7 @@ test('a closeout with working days behind it carries its provenance ahead of the
     targetLocalDate: '2026-07-27',
     targetTimezone: 'America/Los_Angeles',
     now: new Date('2026-07-27T14:30:00.000Z'),
-    webBaseUrl: 'http://forge.test',
+    webBaseUrl: 'http://cove.test',
     fetchImpl: async () => ({ ok: true, json: async () => [] }),
   });
   const dump = collected.sources.find((source) => source.id === 'day_dump');
@@ -643,7 +643,7 @@ test('a closeout with working days behind it carries its provenance ahead of the
 });
 
 test('a malformed recent dump returns a scoped failure note without aborting collection', async (t) => {
-  const dir = path.join(os.tmpdir(), `forge-brief-malformed-dump-${process.pid}-${Date.now()}`);
+  const dir = path.join(os.tmpdir(), `cove-brief-malformed-dump-${process.pid}-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   writeFileSync(path.join(dir, 'goals.md'), 'North star: 30k a month.');
@@ -664,7 +664,7 @@ test('a malformed recent dump returns a scoped failure note without aborting col
     targetLocalDate: '2026-07-27',
     targetTimezone: 'America/Los_Angeles',
     now: new Date('2026-07-27T14:30:00.000Z'),
-    webBaseUrl: 'http://forge.test',
+    webBaseUrl: 'http://cove.test',
     fetchImpl: async () => ({ ok: true, json: async () => [] }),
   });
   const recent = collected.sources.find((source) => source.id === 'recent_dumps');
@@ -1552,7 +1552,7 @@ test('backtest helpers parse selections, recover candidate ids, and summarize cu
 });
 
 test('brief input retention keeps only the newest sixty private snapshots', (t) => {
-  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'forge-brief-input-retention-'));
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'cove-brief-input-retention-'));
   t.after(() => rmSync(dataDir, { recursive: true, force: true }));
   const manifest = {
     sources: [],
@@ -1660,7 +1660,7 @@ test('the preferred Codex writer retries invalid JSON once and records its prove
 test('the scheduled lane will not drain a row that was queued before the day went open', async (t) => {
   const { dir, store } = briefFixture(t);
   const claude = fakeClaude(dir, JSON.stringify(WIRE_BRIEF));
-  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'forge-drain-gate-'));
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'cove-drain-gate-'));
   t.after(() => rmSync(dataDir, { recursive: true, force: true }));
   const now = new Date(CLOCK);
 
@@ -2055,7 +2055,7 @@ test('the scheduled lane resolves timezone as plan, then snapshot, then system, 
   // An empty relay dir, always. Without it the lane resolves the repo's real
   // data/settlement-relay/closure.json and this test's outcome depends on
   // whether the developer running it happens to have closed yesterday.
-  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'forge-due-lane-'));
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'cove-due-lane-'));
   t.after(() => rmSync(dataDir, { recursive: true, force: true }));
   const relay = { relay: { dataDir } };
 
@@ -2086,7 +2086,7 @@ test('the scheduled lane resolves timezone as plan, then snapshot, then system, 
 });
 
 test('the scheduled lane holds the brief when the ritual machine says yesterday is open', (t) => {
-  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'forge-due-gate-'));
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'cove-due-gate-'));
   t.after(() => rmSync(dataDir, { recursive: true, force: true }));
   const now = new Date('2026-07-14T16:00:00.000Z');
 

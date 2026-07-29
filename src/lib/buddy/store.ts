@@ -416,27 +416,27 @@ export function createBuddyStore(options: { dbPath: string; now?: Clock; process
 export type BuddyStore = ReturnType<typeof createBuddyStore>;
 export const BUDDY_STORE_API_VERSION = 7;
 type BuddyGlobal = {
-  __forgeBuddyStore?: BuddyStore;
-  __forgeBuddyStoreVersion?: number;
+  __coveBuddyStore?: BuddyStore;
+  __coveBuddyStoreVersion?: number;
 };
 
 export function getBuddyStore(): BuddyStore {
   const global = globalThis as unknown as BuddyGlobal;
-  const current = global.__forgeBuddyStore;
+  const current = global.__coveBuddyStore;
   const stale = current && (
-    global.__forgeBuddyStoreVersion !== BUDDY_STORE_API_VERSION ||
+    global.__coveBuddyStoreVersion !== BUDDY_STORE_API_VERSION ||
     typeof current.completeTurn !== "function" || typeof current.consumePendingDelete !== "function" ||
     typeof current.createSpawnedSession !== "function"
   );
   if (stale) {
     if (!current.getRunningTurn?.()) current.close?.();
-    global.__forgeBuddyStore = undefined;
+    global.__coveBuddyStore = undefined;
   }
-  if (!global.__forgeBuddyStore) {
-    global.__forgeBuddyStore = createBuddyStore({
-      dbPath: coveEnv("DB_PATH") ?? path.join(process.cwd(), "data", "forge.db"),
+  if (!global.__coveBuddyStore) {
+    global.__coveBuddyStore = createBuddyStore({
+      dbPath: coveEnv("DB_PATH") ?? path.join(process.cwd(), "data", "cove.db"),
     });
-    global.__forgeBuddyStoreVersion = BUDDY_STORE_API_VERSION;
+    global.__coveBuddyStoreVersion = BUDDY_STORE_API_VERSION;
   }
-  return global.__forgeBuddyStore;
+  return global.__coveBuddyStore;
 }

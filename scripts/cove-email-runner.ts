@@ -86,7 +86,7 @@ async function runEmailTriageUnchecked(options: RunnerOptions = {}): Promise<{
   const repoDir = options.repoDir ??
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const dataDir = options.dataDir ?? path.join(repoDir, "data");
-  const dbPath = options.dbPath ?? path.join(dataDir, "forge.db");
+  const dbPath = options.dbPath ?? path.join(dataDir, "cove.db");
   const now = options.now ?? (() => new Date());
   const startedAt = now().toISOString();
   const config = readWorkspaceConfig(dataDir);
@@ -189,7 +189,7 @@ async function runEmailTriageUnchecked(options: RunnerOptions = {}): Promise<{
     try {
       classified = (
         db.prepare(
-          `SELECT COUNT(*) AS count FROM forge_email_messages
+          `SELECT COUNT(*) AS count FROM cove_email_messages
            WHERE state = 'processed' AND processed_at >= ?`,
         ).get(startedAt) as { count: number }
       ).count;
@@ -249,7 +249,7 @@ export async function runEmailTriage(options: RunnerOptions = {}): Promise<{
     const repoDir = options.repoDir ??
       path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
     const dataDir = options.dataDir ?? path.join(repoDir, "data");
-    const dbPath = options.dbPath ?? path.join(dataDir, "forge.db");
+    const dbPath = options.dbPath ?? path.join(dataDir, "cove.db");
     const occurredAt = (options.now ?? (() => new Date()))().toISOString();
     const failure = safeWorkspaceFailure(error);
     try {

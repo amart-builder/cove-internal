@@ -31,7 +31,7 @@ import {
 import { coveConfigPath, coveEnv } from "../src/lib/env-runtime.mjs";
 
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const dbPath = coveEnv("DB_PATH") || path.join(repoDir, "data", "forge.db");
+const dbPath = coveEnv("DB_PATH") || path.join(repoDir, "data", "cove.db");
 
 function loadReminderConfig() {
   let raw;

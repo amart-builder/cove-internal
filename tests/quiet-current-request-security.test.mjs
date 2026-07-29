@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  getForgeAllowedHosts,
+  getCoveAllowedHosts,
   isTrustedRequestOrigin,
 } from '../src/lib/request-security.ts';
 
@@ -20,12 +20,12 @@ test('accepts the browser host when Next uses a different bind hostname', () => 
 test('accepts a public proxy host and protocol', () => {
   assert.equal(
     isTrustedRequestOrigin({
-      origin: 'https://forge.example.com',
+      origin: 'https://cove.example.com',
       host: 'localhost:3200',
-      forwardedHost: 'forge.example.com',
+      forwardedHost: 'cove.example.com',
       forwardedProto: 'https',
       requestProtocol: 'http:',
-      allowedHosts: ['forge.example.com'],
+      allowedHosts: ['cove.example.com'],
       trustProxy: true,
     }),
     true,
@@ -35,12 +35,12 @@ test('accepts a public proxy host and protocol', () => {
 test('ignores forwarded host and protocol unless proxy trust is explicit', () => {
   assert.equal(
     isTrustedRequestOrigin({
-      origin: 'https://forge.example.com',
+      origin: 'https://cove.example.com',
       host: 'localhost:3200',
-      forwardedHost: 'forge.example.com',
+      forwardedHost: 'cove.example.com',
       forwardedProto: 'https',
       requestProtocol: 'http:',
-      allowedHosts: ['forge.example.com'],
+      allowedHosts: ['cove.example.com'],
     }),
     false,
   );
@@ -50,27 +50,27 @@ test('rejects cross-origin, invalid, and protocol-mismatched requests', () => {
   assert.equal(
     isTrustedRequestOrigin({
       origin: 'https://evil.example',
-      host: 'forge.example.com',
+      host: 'cove.example.com',
       requestProtocol: 'https:',
-      allowedHosts: ['forge.example.com'],
+      allowedHosts: ['cove.example.com'],
     }),
     false,
   );
   assert.equal(
     isTrustedRequestOrigin({
       origin: 'not a URL',
-      host: 'forge.example.com',
+      host: 'cove.example.com',
       requestProtocol: 'https:',
-      allowedHosts: ['forge.example.com'],
+      allowedHosts: ['cove.example.com'],
     }),
     false,
   );
   assert.equal(
     isTrustedRequestOrigin({
-      origin: 'http://forge.example.com',
-      forwardedHost: 'forge.example.com',
+      origin: 'http://cove.example.com',
+      forwardedHost: 'cove.example.com',
       forwardedProto: 'https',
-      allowedHosts: ['forge.example.com'],
+      allowedHosts: ['cove.example.com'],
       trustProxy: true,
     }),
     false,
@@ -81,9 +81,9 @@ test('allows non-browser clients only on a trusted host', () => {
   assert.equal(
     isTrustedRequestOrigin({
       origin: null,
-      host: 'forge.example.com',
+      host: 'cove.example.com',
       requestProtocol: 'https:',
-      allowedHosts: ['forge.example.com'],
+      allowedHosts: ['cove.example.com'],
     }),
     true,
   );
@@ -92,7 +92,7 @@ test('allows non-browser clients only on a trusted host', () => {
       origin: null,
       host: 'evil.example',
       requestProtocol: 'https:',
-      allowedHosts: ['forge.example.com'],
+      allowedHosts: ['cove.example.com'],
     }),
     false,
   );
@@ -111,9 +111,9 @@ test('rejects DNS rebinding and literal null origins', () => {
   assert.equal(
     isTrustedRequestOrigin({
       origin: 'null',
-      host: 'forge.example.com',
+      host: 'cove.example.com',
       requestProtocol: 'https:',
-      allowedHosts: ['forge.example.com'],
+      allowedHosts: ['cove.example.com'],
     }),
     false,
   );
@@ -122,10 +122,10 @@ test('rejects DNS rebinding and literal null origins', () => {
 test('configured ports stay exact while loopback names accept any port', () => {
   assert.equal(
     isTrustedRequestOrigin({
-      origin: 'https://forge.example.com:444',
-      host: 'forge.example.com:444',
+      origin: 'https://cove.example.com:444',
+      host: 'cove.example.com:444',
       requestProtocol: 'https:',
-      allowedHosts: ['forge.example.com:443'],
+      allowedHosts: ['cove.example.com:443'],
     }),
     false,
   );
@@ -142,15 +142,15 @@ test('configured ports stay exact while loopback names accept any port', () => {
 
 test('builds the server allowlist from existing Cove setup variables', () => {
   assert.deepEqual(
-    getForgeAllowedHosts({
-      COVE_PUBLIC_URL: 'https://forge.example.com:443/tasks',
+    getCoveAllowedHosts({
+      COVE_PUBLIC_URL: 'https://cove.example.com:443/tasks',
       COVE_TAILSCALE_TRUSTED_HOSTS: 'mini.example.ts.net, backup.example.ts.net:3200',
     }),
     [
       'localhost',
       '127.0.0.1',
       '[::1]',
-      'https://forge.example.com:443/tasks',
+      'https://cove.example.com:443/tasks',
       'mini.example.ts.net',
       'backup.example.ts.net:3200',
     ],

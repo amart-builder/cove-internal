@@ -131,13 +131,13 @@ export function observeInboundMessage(input: {
     return db.transaction(() => {
       const existingMessage = db.prepare(
         `SELECT email_item_id, state
-         FROM forge_email_messages WHERE message_id = ?`,
+         FROM cove_email_messages WHERE message_id = ?`,
       ).get(messageId) as { email_item_id: string; state: string } | undefined;
       if (existingMessage) {
         const thread = currentThread(db, threadId);
         if (existingMessage.state === "failed" && thread) {
           db.prepare(
-            `UPDATE forge_email_messages
+            `UPDATE cove_email_messages
              SET state = 'observed', last_error = NULL, updated_at = ?
              WHERE message_id = ? AND state = 'failed'`,
           ).run(now, messageId);
@@ -148,11 +148,11 @@ export function observeInboundMessage(input: {
           ).run(now, existingMessage.email_item_id);
           const key = `email-classify:${messageId}`;
           const job = db.prepare(
-            "SELECT id FROM forge_jobs WHERE idempotency_key = ?",
+            "SELECT id FROM cove_jobs WHERE idempotency_key = ?",
           ).get(key) as { id: string } | undefined;
           if (job) {
             db.prepare(
-              `UPDATE forge_jobs
+              `UPDATE cove_jobs
                SET status = 'queued', run_after = ?, lease_until = NULL,
                    lease_token = NULL, attempts = 0, finished_at = NULL,
                    last_error = NULL
@@ -191,7 +191,7 @@ export function observeInboundMessage(input: {
       const previousMessage = thread?.latest_inbound_message_id
         ? db.prepare(
           `SELECT message_id, internal_date, gmail_history_id
-           FROM forge_email_messages WHERE message_id = ?`,
+           FROM cove_email_messages WHERE message_id = ?`,
         ).get(thread.latest_inbound_message_id) as {
           message_id: string;
           internal_date: string | null;
@@ -244,7 +244,7 @@ export function observeInboundMessage(input: {
       }
 
       db.prepare(
-        `INSERT INTO forge_email_messages
+        `INSERT INTO cove_email_messages
            (message_id, thread_id, email_item_id, gmail_history_id,
             internal_date, direction, state, attempts, observed_at, updated_at)
          VALUES (?, ?, ?, ?, ?, 'inbound', ?, 0, ?, ?)`,
@@ -262,7 +262,7 @@ export function observeInboundMessage(input: {
       if (newer && thread) {
         const nextVersion = wasNewThread ? 1 : thread.thread_version + 1;
         db.prepare(
-          `UPDATE forge_gmail_operations
+          `UPDATE cove_gmail_operations
            SET status = 'superseded', updated_at = ?, completed_at = ?
            WHERE thread_id = ? AND status IN ('pending','uncertain')`,
         ).run(now, now, threadId);
@@ -326,7 +326,7 @@ function enqueueOperation(
   const operationKey = gmailOperationKey(input);
   const operationId = stableUuid(`gmail-operation:${operationKey}`);
   const inserted = db.prepare(
-    `INSERT INTO forge_gmail_operations
+    `INSERT INTO cove_gmail_operations
        (id, email_item_id, thread_id, expected_message_id,
         expected_thread_version, kind, operation_key, payload_json, status,
         created_at, updated_at)
@@ -346,7 +346,7 @@ function enqueueOperation(
   );
   const operation = db.prepare(
     `SELECT id, status, job_id
-     FROM forge_gmail_operations WHERE operation_key = ?`,
+     FROM cove_gmail_operations WHERE operation_key = ?`,
   ).get(operationKey) as {
     id: string;
     status: string;
@@ -357,14 +357,14 @@ function enqueueOperation(
     (operation.status === "dead" || operation.status === "superseded")
   ) {
     db.prepare(
-      `UPDATE forge_gmail_operations
+      `UPDATE cove_gmail_operations
        SET status = 'pending', remote_id = NULL, result_json = NULL,
            last_error = NULL, updated_at = ?, completed_at = NULL
        WHERE id = ?`,
     ).run(input.now, operation.id);
     if (operation.job_id) {
       db.prepare(
-        `UPDATE forge_jobs
+        `UPDATE cove_jobs
          SET status = 'queued', run_after = ?, lease_until = NULL,
              lease_token = NULL, attempts = 0, finished_at = NULL,
              last_error = NULL
@@ -380,7 +380,7 @@ function enqueueOperation(
   }, new Date(input.now));
   if (operation.job_id !== job.job.id) {
     db.prepare(
-      `UPDATE forge_gmail_operations
+      `UPDATE cove_gmail_operations
        SET job_id = ?, updated_at = ?
        WHERE id = ?`,
     ).run(job.job.id, input.now, operation.id);
@@ -422,7 +422,7 @@ export function applyEmailClassification(input: {
         thread.latest_inbound_message_id !== input.messageId
       ) {
         db.prepare(
-          `UPDATE forge_email_messages
+          `UPDATE cove_email_messages
            SET state = 'superseded', updated_at = ?
            WHERE message_id = ? AND state IN ('observed','classifying')`,
         ).run(now, input.messageId);
@@ -432,7 +432,7 @@ export function applyEmailClassification(input: {
         throw new Error("Reply classification requires a draft body.");
       }
       db.prepare(
-        `UPDATE forge_email_messages
+        `UPDATE cove_email_messages
          SET state = 'processed', classification_json = ?, model_version = ?,
              processed_at = ?, updated_at = ?
          WHERE message_id = ?`,
@@ -561,7 +561,7 @@ export function requestEmailCompletion(input: {
       });
       const existing = db.prepare(
         `SELECT id, job_id
-         FROM forge_gmail_operations
+         FROM cove_gmail_operations
          WHERE operation_key = ? AND status IN ('pending','uncertain')`,
       ).get(operationKey) as { id: string; job_id: string | null } | undefined;
       if (existing) {
@@ -591,7 +591,7 @@ export function requestEmailCompletion(input: {
         };
       }
       db.prepare(
-        `UPDATE forge_gmail_operations
+        `UPDATE cove_gmail_operations
          SET status = 'superseded', updated_at = ?, completed_at = ?
          WHERE thread_id = ? AND status IN ('pending','uncertain')`,
       ).run(now, now, row.thread_id);

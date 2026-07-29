@@ -12,7 +12,7 @@ import { getBuddyStore, type BuddyStore } from "@/lib/buddy/store";
 import { seedBuddySession } from "@/lib/buddy/spawn-session";
 import { getQuietCurrentCsrfToken } from "@/lib/quiet-current/store";
 import { hasDayPlanRouteAccess } from "@/lib/request-security";
-import { markForgeOrchestratorSession } from "@/lib/claude-execution/orchestrator-session";
+import { markCoveOrchestratorSession } from "@/lib/claude-execution/orchestrator-session";
 import { workspaceRoot } from "@/lib/operator";
 import { coveEnv } from "../../../../lib/env";
 
@@ -32,7 +32,7 @@ type SpawnRouteDependencies = {
   resolveProject?: (hint: string) => string | null;
   listProjects?: () => string[];
   seed?: typeof seedBuddySession;
-  markSession?: typeof markForgeOrchestratorSession;
+  markSession?: typeof markCoveOrchestratorSession;
 };
 
 class SpawnRequestError extends Error {}
@@ -57,7 +57,7 @@ function denied(request: NextRequest, csrf: boolean): NextResponse | undefined {
   if (!hasDayPlanRouteAccess(request)) {
     return NextResponse.json({ error: "Untrusted request host." }, { status: 403 });
   }
-  if (csrf && request.headers.get("x-forge-csrf") !== getQuietCurrentCsrfToken()) {
+  if (csrf && request.headers.get("x-cove-csrf") !== getQuietCurrentCsrfToken()) {
     return NextResponse.json({ error: "Cove request token is missing." }, { status: 403 });
   }
 }
@@ -141,7 +141,7 @@ export async function handleSpawnSessionPost(
     (dependencies.seed ?? seedBuddySession)({ store, sessionId, dir, prompt, title });
     const seededState = store.getSpawnedSession(sessionId)?.state;
     if (seededState && ["started", "ready", "incomplete"].includes(seededState)) {
-      (dependencies.markSession ?? markForgeOrchestratorSession)(sessionId);
+      (dependencies.markSession ?? markCoveOrchestratorSession)(sessionId);
     }
     return NextResponse.json({ sessionId, state: "seeding", dir });
   } catch (error) {

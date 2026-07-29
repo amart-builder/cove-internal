@@ -24,8 +24,8 @@ type OperationRow = {
 function operation(db: Database.Database, id: string): OperationRow | undefined {
   return db.prepare(
     `SELECT operation.*, message.internal_date AS expected_internal_date
-     FROM forge_gmail_operations operation
-     JOIN forge_email_messages message
+     FROM cove_gmail_operations operation
+     JOIN cove_email_messages message
        ON message.message_id = operation.expected_message_id
      WHERE operation.id = ?`,
   ).get(id) as OperationRow | undefined;
@@ -146,7 +146,7 @@ export function createGmailOperationHandler(input: {
       }
       if (!currentVersion(inspect, found)) {
         inspect.prepare(
-          `UPDATE forge_gmail_operations
+          `UPDATE cove_gmail_operations
            SET status = 'superseded', updated_at = ?, completed_at = ?
            WHERE id = ? AND status IN ('pending','uncertain')`,
         ).run(now, now, found.id);
@@ -222,7 +222,7 @@ export function createGmailOperationHandler(input: {
         const db = openLocalDatabase(input.dbPath);
         try {
           db.prepare(
-            `UPDATE forge_gmail_operations
+            `UPDATE cove_gmail_operations
              SET status = 'uncertain', last_error = ?, updated_at = ?
              WHERE id = ? AND status IN ('pending','uncertain')`,
           ).run(error.message.slice(0, 2_000), now, row.id);
@@ -240,7 +240,7 @@ export function createGmailOperationHandler(input: {
         if (!current || !currentVersion(finalize, current)) {
           if (current) {
             finalize.prepare(
-              `UPDATE forge_gmail_operations
+              `UPDATE cove_gmail_operations
                SET status = 'superseded', updated_at = ?, completed_at = ?
                WHERE id = ?`,
             ).run(now, now, current.id);
@@ -251,7 +251,7 @@ export function createGmailOperationHandler(input: {
           };
         }
         finalize.prepare(
-          `UPDATE forge_gmail_operations
+          `UPDATE cove_gmail_operations
            SET status = 'succeeded', remote_id = ?, result_json = ?,
                last_error = NULL, updated_at = ?, completed_at = ?
            WHERE id = ?`,
@@ -334,7 +334,7 @@ export function createGmailOperationHandler(input: {
         ).get());
         ensureRollingEmailCardInDatabase(finalize, { now, open });
         finalize.prepare(
-          `UPDATE forge_failure_inbox
+          `UPDATE cove_failure_inbox
            SET dismissed_at = ?
            WHERE source = 'job' AND source_id = ? AND dismissed_at IS NULL`,
         ).run(now, job.id);
@@ -369,14 +369,14 @@ export function reconcileDeadEmailJobs(input: {
     return db.transaction(() => {
       const deadOperations = db.prepare(
         `SELECT operation.id, operation.email_item_id
-         FROM forge_gmail_operations operation
-         JOIN forge_jobs job ON job.id = operation.job_id
+         FROM cove_gmail_operations operation
+         JOIN cove_jobs job ON job.id = operation.job_id
          WHERE job.status = 'dead'
            AND operation.status IN ('pending','uncertain')`,
       ).all() as Array<{ id: string; email_item_id: string }>;
       for (const operation of deadOperations) {
         db.prepare(
-          `UPDATE forge_gmail_operations
+          `UPDATE cove_gmail_operations
            SET status = 'dead', updated_at = ?, completed_at = ? WHERE id = ?`,
         ).run(now, now, operation.id);
         db.prepare(
@@ -387,15 +387,15 @@ export function reconcileDeadEmailJobs(input: {
       }
       const deadClassifications = db.prepare(
         `SELECT message.message_id, message.email_item_id
-         FROM forge_email_messages message
-         JOIN forge_jobs job
+         FROM cove_email_messages message
+         JOIN cove_jobs job
            ON job.idempotency_key = 'email-classify:' || message.message_id
          WHERE job.status = 'dead'
            AND message.state IN ('observed','classifying','failed')`,
       ).all() as Array<{ message_id: string; email_item_id: string }>;
       for (const message of deadClassifications) {
         db.prepare(
-          `UPDATE forge_email_messages
+          `UPDATE cove_email_messages
            SET state = 'failed', updated_at = ? WHERE message_id = ?`,
         ).run(now, message.message_id);
         db.prepare(
