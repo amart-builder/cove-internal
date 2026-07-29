@@ -15,7 +15,9 @@ import type {
 // v8: settlement progress, explicit next steps, and carried streaks guide continuity.
 // v9: headline plus real paragraphs, and the label tics ("Quick re-anchor:") the
 //     v8 worked example was teaching the model to write are gone.
-export const MORNING_BRIEF_PROMPT_VERSION = 13;
+// 14: five-weekday lookback (recent_dumps, recent_briefs) plus the stale-dump
+// guardrail in the chief-of-staff mandate.
+export const MORNING_BRIEF_PROMPT_VERSION = 14;
 export const MORNING_BRIEF_SCHEMA_VERSION = 3;
 
 export type MorningBriefStatus = "queued" | "running" | "succeeded" | "failed";
@@ -88,9 +90,8 @@ export type BriefSourceReport = {
 
 export type MorningBriefSourceManifest = {
   sources: BriefSourceReport[];
-  // Coverage names what the brief could and could not see. Calendar and CRM
-  // last-touch are missing by design in v1; the prompt must never imply they
-  // were checked.
+  // Coverage names what the brief could and could not see. Live integrations
+  // remain missing until their collected source supplies content.
   coverage: Record<string, "included" | "stale" | "missing">;
   trims: string[];
   totalChars: number;
@@ -152,6 +153,9 @@ export type BriefSourceInput = {
   required: boolean;
   // Per-source character cap applied before the total cap.
   maxChars: number;
+  // A plain prefix trim can erase structurally critical tail sections, so a
+  // source may choose how its per-source cap is applied.
+  contentTrimmer?: (content: string, maxChars: number) => string;
   // Lower number = more important. Total-cap trimming removes content from the
   // least important sources first.
   priority: number;
@@ -168,13 +172,19 @@ export type AssembledBriefContext = {
   sections: Array<{ id: string; label: string; text: string }>;
   manifest: MorningBriefSourceManifest;
   missingRequired: string[];
+  trimmedRequired: string[];
 };
 
 // Raised from 48k when the brain dump became a source. At 48k the budget sat
 // exactly full and the dump displaced the tail of memory_decisions, which is
-// the failure this whole change exists to stop. ~15k input tokens, a rounding
+// the failure this whole change exists to stop.
+//
+// Raised again from 60k when the five-weekday lookback (recent_dumps,
+// recent_briefs) landed: the 2026-07-29 brief already spent 58,469 of 60,000, so
+// the new sources would have paid for themselves by silently trimming the tail
+// off email_brief and settlement_summary. ~23k input tokens, still a rounding
 // error against the $1.50 brief budget.
-export const MORNING_BRIEF_TOTAL_MAX_CHARS = 60_000;
+export const MORNING_BRIEF_TOTAL_MAX_CHARS = 90_000;
 
 // Everything that shapes the generated brief participates in the input hash:
 // the exact bounded sections as sent to the selected writer (not the untrimmed source
@@ -338,7 +348,12 @@ export function assembleMorningBriefContext(
     let text = raw ?? "";
     let trimmed = false;
     if (text.length > source.maxChars) {
-      text = text.slice(0, source.maxChars);
+      text = source.contentTrimmer
+        ? source.contentTrimmer(text, source.maxChars)
+        : text.slice(0, source.maxChars);
+      if (text.length > source.maxChars) {
+        throw new Error(`brief_source_trimmer_exceeded_cap:${source.id}`);
+      }
       trimmed = true;
       trims.push(`${source.id}:source_cap`);
     }
@@ -356,8 +371,20 @@ export function assembleMorningBriefContext(
       const excess = total - totalMaxChars;
       const keep = Math.max(0, entry.text.length - excess);
       if (keep === entry.text.length) continue;
-      total -= entry.text.length - keep;
-      entry.text = entry.text.slice(0, keep);
+      const previousLength = entry.text.length;
+      // keep === 0 means trimmed out entirely; a content trimmer given a zero
+      // budget would throw instead of vanishing, so bypass it.
+      entry.text = keep === 0
+        ? ""
+        : entry.source.contentTrimmer
+          ? entry.source.contentTrimmer(entry.text, keep)
+          : entry.text.slice(0, keep);
+      if (entry.text.length > keep) {
+        throw new Error(`brief_source_trimmer_exceeded_cap:${entry.source.id}`);
+      }
+      // A source-aware trimmer may preserve less than its target. Account for
+      // what it actually returned so later sources receive the correct budget.
+      total -= previousLength - entry.text.length;
       entry.trimmed = true;
       trims.push(keep === 0 ? `${entry.source.id}:trimmed_out` : `${entry.source.id}:total_cap`);
     }
@@ -376,7 +403,8 @@ export function assembleMorningBriefContext(
   }));
 
   const coverage: MorningBriefSourceManifest["coverage"] = {
-    // Missing by design in v1. The brief must never imply these were checked.
+    // Keep unavailable live integrations explicit even when a caller omits
+    // their source rows entirely.
     calendar: "missing",
     crm_last_touch: "missing",
   };
@@ -412,6 +440,9 @@ export function assembleMorningBriefContext(
     // whatever emptied it.
     missingRequired: prepared
       .filter((entry) => entry.source.required && entry.text.length === 0)
+      .map((entry) => entry.source.id),
+    trimmedRequired: prepared
+      .filter((entry) => entry.source.required && entry.present && entry.trimmed)
       .map((entry) => entry.source.id),
   };
 }

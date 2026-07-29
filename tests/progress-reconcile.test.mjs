@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -12,16 +13,22 @@ import test from "node:test";
 import Database from "better-sqlite3";
 import { createDayPlanStore } from "../src/lib/day-plan/store.ts";
 import {
+  discoverTranscriptFiles,
+  evidenceText,
+  extractTranscriptWrapup,
   fetchOpenProjectTasks,
   groupRecentPings,
   hasNewProjectEvidence,
   mergeProgressHeartbeat,
   parseProgressOutput,
+  prepareProgressAnalysisInput,
   projectFromCwd,
   readPingFiles,
+  redactTranscriptText,
   resolvePingProject,
   runProgressReconcile,
   shouldProcessProject,
+  transcriptDirectoryForCwd,
   validateProgress,
 } from "../scripts/cove-progress-reconcile.mjs";
 import {
@@ -147,6 +154,251 @@ test("cwd project mapping tolerates both machines, nesting, and non-project path
   );
   assert.equal(projectFromCwd("/Users/operator/Atlas/brain"), "Atlas");
   assert.equal(projectFromCwd("/tmp"), "Atlas");
+});
+
+test("Claude transcript directory encoding matches absolute cwd punctuation", (t) => {
+  const dir = fixture(t);
+  const projectsDir = path.join(dir, ".claude", "projects");
+  assert.equal(
+    transcriptDirectoryForCwd(
+      "/Users/operator/Atlas/Projects/astack/forge",
+      { projectsDir },
+    ),
+    path.join(projectsDir, "-Users-operator-Atlas-Projects-astack-forge"),
+  );
+  assert.equal(
+    transcriptDirectoryForCwd(
+      "/Users/operator/Atlas/Projects/astack/forge/",
+      { projectsDir },
+    ),
+    path.join(projectsDir, "-Users-operator-Atlas-Projects-astack-forge-"),
+  );
+  assert.equal(
+    transcriptDirectoryForCwd("/opt/client-work/repo", { projectsDir }),
+    path.join(projectsDir, "-opt-client-work-repo"),
+  );
+  assert.equal(
+    transcriptDirectoryForCwd(
+      "/Users/operator/Atlas/.claude/worktrees/article-drafts/.render",
+      { projectsDir },
+    ),
+    path.join(
+      projectsDir,
+      "-Users-operator-Atlas--claude-worktrees-article-drafts--render",
+    ),
+  );
+  assert.equal(transcriptDirectoryForCwd("relative/repo", { projectsDir }), undefined);
+});
+
+test("transcript discovery uses raw cwd directories, the 24-hour window, and newest three", (t) => {
+  const dir = fixture(t);
+  const projectsDir = path.join(dir, ".claude", "projects");
+  const cwd = "/Users/operator/Atlas/Projects/astack/forge";
+  const transcriptDir = transcriptDirectoryForCwd(cwd, { projectsDir });
+  mkdirSync(transcriptDir, { recursive: true });
+  const files = [
+    ["old.jsonl", NOW.getTime() - 25 * 60 * 60_000],
+    ["one.jsonl", NOW.getTime() - 4_000],
+    ["two.jsonl", NOW.getTime() - 3_000],
+    ["three.jsonl", NOW.getTime() - 2_000],
+    ["four.jsonl", NOW.getTime() - 1_000],
+  ];
+  for (const [name, timestamp] of files) {
+    const file = path.join(transcriptDir, name);
+    writeFileSync(file, "{}\n");
+    const date = new Date(timestamp);
+    utimesSync(file, date, date);
+  }
+  writeFileSync(path.join(transcriptDir, "ignore.txt"), "{}\n");
+  assert.deepEqual(
+    discoverTranscriptFiles(
+      { pings: [{ cwd }, { cwd }, { cwd: "relative/repo" }] },
+      {
+        projectsDir,
+        windowStart: new Date(NOW.getTime() - 24 * 60 * 60_000),
+        windowEnd: NOW,
+      },
+    ).map((file) => path.basename(file)),
+    ["four.jsonl", "three.jsonl", "two.jsonl"],
+  );
+});
+
+test("tail extraction takes the last textual assistant message and ignores later line types", (t) => {
+  const dir = fixture(t);
+  const file = path.join(dir, "mixed.jsonl");
+  const lines = [
+    { type: "user", timestamp: "2026-07-27T20:00:00.000Z", message: { content: "Build it" } },
+    { type: "system", timestamp: "2026-07-27T20:00:01.000Z", message: "system" },
+    { type: "attachment", timestamp: "2026-07-27T20:00:02.000Z" },
+    {
+      type: "assistant",
+      timestamp: "2026-07-27T20:30:00.000Z",
+      message: {
+        content: [
+          { type: "thinking", thinking: "hidden" },
+          { type: "text", text: "Implemented the route. " },
+          { type: "tool_use", name: "Bash", input: { command: "npm test" } },
+          { type: "text", text: "Verified 12 tests." },
+        ],
+      },
+    },
+    { type: "mode", timestamp: "2026-07-27T20:30:01.000Z", mode: "plan" },
+  ];
+  writeFileSync(
+    file,
+    `${lines.map((line) => JSON.stringify(line)).join("\n")}\n{"type":`,
+  );
+  assert.deepEqual(extractTranscriptWrapup(file), {
+    session_file: "mixed.jsonl",
+    started_at: "2026-07-27T20:00:00.000Z",
+    ended_at: "2026-07-27T20:30:00.000Z",
+    text: "Implemented the route. Verified 12 tests.",
+  });
+});
+
+test("tail extraction skips a final API error and uses the earlier assistant wrap-up", (t) => {
+  const dir = fixture(t);
+  const file = path.join(dir, "transport-error.jsonl");
+  writeFileSync(
+    file,
+    [
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-07-27T20:30:00.000Z",
+        message: { content: "Implemented the route and verified 12 tests." },
+      }),
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-07-27T20:31:00.000Z",
+        message: { content: "API Error: 529 Overloaded. Please retry later." },
+      }),
+    ].join("\n"),
+  );
+  assert.deepEqual(extractTranscriptWrapup(file), {
+    session_file: "transport-error.jsonl",
+    started_at: "2026-07-27T20:30:00.000Z",
+    ended_at: "2026-07-27T20:30:00.000Z",
+    text: "Implemented the route and verified 12 tests.",
+  });
+});
+
+test("tail extraction skips transcripts without assistant text", (t) => {
+  const dir = fixture(t);
+  const file = path.join(dir, "no-assistant.jsonl");
+  writeFileSync(
+    file,
+    [
+      JSON.stringify({ type: "user", timestamp: NOW.toISOString() }),
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use" }] } }),
+      JSON.stringify({ type: "mode", mode: "plan" }),
+    ].join("\n"),
+  );
+  assert.equal(extractTranscriptWrapup(file), undefined);
+});
+
+test("tail extraction caps long assistant text by keeping its ending", (t) => {
+  const dir = fixture(t);
+  const file = path.join(dir, "long.jsonl");
+  const text = `discard-this-opening-${"bounded words ".repeat(140)}wrapup-ending`;
+  writeFileSync(
+    file,
+    `${JSON.stringify({
+      type: "assistant",
+      timestamp: NOW.toISOString(),
+      message: { content: text },
+    })}\n`,
+  );
+  const wrapup = extractTranscriptWrapup(file);
+  assert.equal(wrapup.text.length, 1_500);
+  assert.equal(wrapup.text, text.slice(-1_500));
+  assert.equal(wrapup.text.includes("discard-this-opening"), false);
+  assert.equal(wrapup.text.endsWith("wrapup-ending"), true);
+});
+
+test("transcript redaction covers every secret pattern and leaves clean text unchanged", () => {
+  // The AWS fixture is assembled at runtime so the repo's secret scanner does not
+  // flag this synthetic sample as a real leaked key.
+  const fakeAwsKey = ["AK", "IA", "1234567890ABCDEF"].join("");
+  const cases = [
+    ["sk-1234567890abcdef", "[redacted]"],
+    ["ghp_12345678901234567890", "[redacted]"],
+    ["gho_12345678901234567890", "[redacted]"],
+    [fakeAwsKey, "[redacted]"],
+    ["xoxb-1234567890", "[redacted]"],
+    ["Bearer abcdefghijklmnop", "[redacted]"],
+    [
+      "-----BEGIN RSA PRIVATE KEY-----\nprivate\n-----END RSA PRIVATE KEY-----",
+      "[redacted]",
+    ],
+    ["password=abcdefgh", "password=[redacted]"],
+    ["api_key: abcdefgh", "api_key: [redacted]"],
+    ["A".repeat(48), "[redacted]"],
+  ];
+  for (const [input, expected] of cases) {
+    assert.equal(redactTranscriptText(input), expected);
+  }
+  const fileEvidence =
+    "Read /Users/alexanderjmartin/Atlas/Projects/astack/forge/src/lib/day-plan/brief-sources.ts and patched it.";
+  assert.equal(redactTranscriptText(fileEvidence), fileEvidence);
+  // Slash-bearing secrets still redact even though "/" is excluded from the opaque-run class.
+  const webhook =
+    "posted via https://hooks.slack.com/services/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 today";
+  assert.ok(!webhook.includes("[redacted]"));
+  assert.ok(redactTranscriptText(webhook).includes("[redacted]"));
+  assert.ok(!redactTranscriptText(webhook).includes("xLmQ9wErTyUiOpAsDfGhJkZx"));
+  assert.equal(redactTranscriptText("Z".repeat(48)), "[redacted]");
+  const clean = "Implemented the project digest and verified twelve tests.";
+  assert.equal(redactTranscriptText(clean), clean);
+});
+
+test("rendered evidence contains transcript wrap-up text verbatim", () => {
+  const wrapup = "Implemented the route.\nVerified the held-out failure case.";
+  const rendered = evidenceText({
+    ping_count: 2,
+    session_span: "start to end",
+    ping_events: [],
+    git_log: [],
+    current_state: "",
+    session_wrapups: [{
+      session_file: "session.jsonl",
+      started_at: "start",
+      ended_at: "end",
+      text: wrapup,
+    }],
+  });
+  assert.match(
+    rendered,
+    /SESSION WRAP-UPS \(assistant self-reports, redacted\)/,
+  );
+  assert.equal(rendered.includes(wrapup), true);
+  assert.equal(rendered.includes("Verified the held-out failure case."), true);
+});
+
+test("prompt budget drops transcript wrap-ups oldest first", () => {
+  const evidence = {
+    ping_count: 2,
+    session_span: "start to end",
+    ping_events: [],
+    git_log: [],
+    current_state: "s".repeat(55_000),
+    session_wrapups: [
+      { session_file: "newest.jsonl", text: `newest-${"n".repeat(1_493)}` },
+      { session_file: "middle.jsonl", text: `middle-${"m".repeat(1_493)}` },
+      { session_file: "oldest.jsonl", text: `oldest-${"o".repeat(1_493)}` },
+    ],
+  };
+  const prepared = prepareProgressAnalysisInput({
+    project: "forge",
+    tasks: [],
+    evidence,
+  });
+  assert.ok(prepared.prompt.length <= 60_000);
+  assert.deepEqual(
+    prepared.evidence.session_wrapups.map((wrapup) => wrapup.session_file),
+    ["newest.jsonl", "middle.jsonl"],
+  );
+  assert.equal(prepared.evidence.wrapups_dropped_for_budget, 1);
+  assert.equal(prepared.prompt.includes("oldest.jsonl"), false);
 });
 
 test("cwd mapping selects the deepest bounded git repo and rejects hostile segments", (t) => {
@@ -561,6 +813,35 @@ test("dry-run performs analysis but writes no store, pencil, state, or heartbeat
   assert.equal(existsSync(path.join(dir, "state.json")), false);
   assert.equal(existsSync(path.join(dir, "heartbeats.json")), false);
   assert.equal(existsSync(path.join(dir, "day-plan.db")), false);
+});
+
+test("transcript stage errors fall back to the existing project evidence", async (t) => {
+  const dir = fixture(t);
+  const stderr = [];
+  const result = await runProgressReconcile({
+    machineIdentity: MACHINE,
+    dryRun: true,
+    dataDir: dir,
+    now: () => NOW,
+    readPings: () => [ping("forge", 10), ping("forge", 20)],
+    fetchTasks: async () => [],
+    gitEvidence: async () => ({ lines: [], head: "head-1" }),
+    readCurrentState: () => "",
+    collectSessionWrapups: () => {
+      throw new Error("unreadable transcript directory");
+    },
+    stderrWrite: (line) => stderr.push(line),
+    analyzeProject: async (input) => {
+      assert.deepEqual(input.evidence.session_wrapups, []);
+      assert.match(input.evidenceText, /SESSION WRAP-UPS[\s\S]*None found\./);
+      return { project_summary: "Ping-only fallback.", tasks: [] };
+    },
+  });
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.summary.errors, 0);
+  assert.equal(result.summary.projects.length, 1);
+  assert.equal(stderr.length, 1);
+  assert.match(stderr[0], /forge transcript evidence skipped: unreadable transcript directory\n$/);
 });
 
 test("one project failure does not freeze another project's cursor", async (t) => {
