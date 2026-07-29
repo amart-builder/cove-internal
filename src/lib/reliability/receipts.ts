@@ -172,7 +172,7 @@ export function listRecentReceipts(
   }
 }
 
-const ACTIVITY_SOURCES = [
+export const ACTIVITY_SOURCES = [
   "email-triage",
   "meeting-intake",
   "meeting-watch",
@@ -181,6 +181,14 @@ const ACTIVITY_SOURCES = [
   "buddy-feedback",
   "email-gmail-to-card",
   "email-card-to-gmail",
+  "task-session",
+  "email-commitments",
+  "email-correspondence",
+  "claude-child-reaper",
+  "health-collector",
+  "recurring-task-spawn",
+  "stale-task-watchdog",
+  "archived-task-purge",
 ] as const;
 
 function record(value: unknown): Record<string, unknown> {
@@ -192,6 +200,10 @@ function record(value: unknown): Record<string, unknown> {
 function count(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
+}
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value.trim().slice(0, 240) : "";
 }
 
 function plural(value: number, singular: string, pluralWord = `${singular}s`): string {
@@ -276,13 +288,136 @@ export function receiptActivity(receipt: Receipt): ReceiptActivity {
       needsAttention: false,
     };
   }
-  const gmailToCard = receipt.source === "email-gmail-to-card";
+  if (receipt.source === "email-gmail-to-card") {
+    return {
+      id: receipt.id,
+      title: "Gmail follow-through",
+      detail: `${plural(
+        count(actions.changedIds && Array.isArray(actions.changedIds)
+          ? actions.changedIds.length
+          : 0),
+        "item",
+      )} checked off from Gmail.`,
+      occurredAt: receipt.finishedAt,
+      needsAttention: receipt.outcome === "partial" || receipt.outcome === "failed",
+    };
+  }
+  if (receipt.source === "email-card-to-gmail") {
+    return {
+      id: receipt.id,
+      title: "Email card sync",
+      detail: "Your email card and Gmail were brought up to date.",
+      occurredAt: receipt.finishedAt,
+      needsAttention: receipt.outcome === "partial" || receipt.outcome === "failed",
+    };
+  }
+  if (receipt.source === "task-session") {
+    const taskTitle = text(actions.taskTitle ?? actions.title);
+    const subject = taskTitle ? `"${taskTitle}"` : "The task";
+    const detail = receipt.outcome === "success"
+      ? `${subject} is ready.`
+      : receipt.outcome === "partial"
+        ? `${subject} stopped before completion.`
+        : receipt.outcome === "failed"
+          ? `${subject} needs attention.`
+          : `${subject} was skipped.`;
+    return {
+      id: receipt.id,
+      title: "Claude session",
+      detail,
+      occurredAt: receipt.finishedAt,
+      needsAttention: receipt.outcome === "partial" || receipt.outcome === "failed",
+    };
+  }
+  if (receipt.source === "email-commitments") {
+    const inserted = count(actions.inserted);
+    const existing = count(actions.existing);
+    const detail = receipt.outcome === "success"
+      ? inserted > 0
+        ? `${plural(inserted, "promise")} added to Cove${existing > 0 ? `, ${plural(existing, "promise")} already present` : ""}.`
+        : existing > 0
+          ? `No new promises; ${plural(existing, "promise")} already present.`
+          : "No new promises were found."
+      : "Email promises need attention.";
+    return {
+      id: receipt.id,
+      title: "Promises captured from email",
+      detail,
+      occurredAt: receipt.finishedAt,
+      needsAttention: receipt.outcome === "partial" || receipt.outcome === "failed",
+    };
+  }
+  if (receipt.source === "email-correspondence") {
+    return {
+      id: receipt.id,
+      title: "People history updated",
+      detail: receipt.outcome === "success"
+        ? "A meaningful email was added to People."
+        : "An email history update needs attention.",
+      occurredAt: receipt.finishedAt,
+      needsAttention: receipt.outcome === "partial" || receipt.outcome === "failed",
+    };
+  }
+  if (receipt.source === "claude-child-reaper") {
+    const lane = text(actions.lane);
+    return {
+      id: receipt.id,
+      title: "Background cleanup",
+      detail: lane
+        ? `A stalled ${lane === "session" ? "Claude session" : `${lane} process`} was cleaned up.`
+        : "A stalled Claude process was cleaned up.",
+      occurredAt: receipt.finishedAt,
+      needsAttention: receipt.outcome === "partial" || receipt.outcome === "failed",
+    };
+  }
+  if (receipt.source === "health-collector") {
+    return {
+      id: receipt.id,
+      title: "Health check",
+      detail: receipt.outcome === "success"
+        ? "Cove's system and adoption signals were checked."
+        : "Cove's health check needs attention.",
+      occurredAt: receipt.finishedAt,
+      needsAttention: receipt.outcome === "partial" || receipt.outcome === "failed",
+    };
+  }
+  if (receipt.source === "recurring-task-spawn") {
+    return {
+      id: receipt.id,
+      title: "Recurring tasks",
+      detail: `${plural(count(actions.spawned), "task")} added, ${plural(
+        count(actions.missed),
+        "task",
+      )} missed.`,
+      occurredAt: receipt.finishedAt,
+      needsAttention: receipt.outcome === "partial" || receipt.outcome === "failed",
+    };
+  }
+  if (receipt.source === "stale-task-watchdog") {
+    return {
+      id: receipt.id,
+      title: "Stale-task check",
+      detail: `${plural(count(actions.stale), "stale task")} found, ${plural(
+        count(actions.suggestionsFiled),
+        "quiet check",
+      )} filed.`,
+      occurredAt: receipt.finishedAt,
+      needsAttention: receipt.outcome === "partial" || receipt.outcome === "failed",
+    };
+  }
+  if (receipt.source === "archived-task-purge") {
+    return {
+      id: receipt.id,
+      title: "Old task cleanup",
+      detail: `${plural(count(actions.purged), "old task")} permanently removed.`,
+      occurredAt: receipt.finishedAt,
+      needsAttention: receipt.outcome === "partial" || receipt.outcome === "failed",
+    };
+  }
   return {
     id: receipt.id,
     title: "Email and Cove sync",
-    detail: gmailToCard
-      ? `${plural(count(actions.changedIds && Array.isArray(actions.changedIds) ? actions.changedIds.length : 0), "item")} checked off from Gmail.`
-      : "Your email card and Gmail were brought up to date.",
+    detail: receipt.summary,
     occurredAt: receipt.finishedAt,
     needsAttention: receipt.outcome === "partial" || receipt.outcome === "failed",
   };

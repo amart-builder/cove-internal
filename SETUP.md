@@ -171,6 +171,8 @@ bash scripts/install-cove-local.sh
 
 The installer adds the task and contact skills, starts Cove at `http://localhost:3200`, starts it at login, restarts it after a crash, checks reminders each minute, and makes a daily database backup. Cove binds to `localhost` only.
 
+The tested restore path is `bash scripts/cove-restore-backup.sh --yes <backup-file>`.
+
 Do not show the first test brief as the user's brief.
 
 1. Confirm `data/cove-profile.json` parses and has a real name and timezone.
@@ -218,6 +220,7 @@ Guide the user through one five-minute practice:
 1. Open Arrival and read the real brief.
 2. Put two or three priorities in order.
 3. Assign one owner.
+   The Claude chip opens a task-working session with automatic file edits, while Together opens a planning session; neither can send, publish, or purchase.
 4. Tap "Start my day."
 5. Switch focus, mark a demo item done, undo it, hold it for Cove, and bring it back.
 6. Tell Buddy: "New urgent thing, reshuffle my afternoon." Buddy now handles this directly. Review the proposed changes and tap Apply. Buddy never applies the preview by itself.

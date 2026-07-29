@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { rmSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -15,9 +15,11 @@ import {
   recordFailure,
 } from '../src/lib/reliability/failures.ts';
 import {
+  ACTIVITY_SOURCES,
   buildReceiptDigest,
   listRecentReceiptActivity,
   listRecentReceipts,
+  receiptActivity,
   recordReceipt,
 } from '../src/lib/reliability/receipts.ts';
 
@@ -103,6 +105,57 @@ test('recent activity turns known receipts into calm plain-English rows', (t) =>
       cursor: page.nextCursor,
     }).activities[0].detail,
     '12 messages checked, 3 items need you.',
+  );
+});
+
+test('every recent activity source has a dedicated plain-English branch', () => {
+  const titles = {
+    'email-triage': 'Inbox check',
+    'meeting-intake': 'Meeting notes',
+    'meeting-watch': 'Meeting notes',
+    backup: 'Backup',
+    'morning-brief': 'Morning brief',
+    'buddy-feedback': 'Feedback',
+    'email-gmail-to-card': 'Gmail follow-through',
+    'email-card-to-gmail': 'Email card sync',
+    'task-session': 'Claude session',
+    'email-commitments': 'Promises captured from email',
+    'email-correspondence': 'People history updated',
+    'claude-child-reaper': 'Background cleanup',
+    'health-collector': 'Health check',
+    'recurring-task-spawn': 'Recurring tasks',
+    'stale-task-watchdog': 'Stale-task check',
+    'archived-task-purge': 'Old task cleanup',
+  };
+  assert.deepEqual([...ACTIVITY_SOURCES].sort(), Object.keys(titles).sort());
+  for (const source of ACTIVITY_SOURCES) {
+    const activity = receiptActivity({
+      id: `receipt-${source}`,
+      source,
+      startedAt: '2026-07-29T10:00:00.000Z',
+      finishedAt: '2026-07-29T10:01:00.000Z',
+      summary: `${source} finished.`,
+      actions: source === 'task-session'
+        ? { taskTitle: 'Prepare the launch package', status: 'output_ready' }
+        : {},
+      retryCount: 0,
+      outcome: 'success',
+    });
+    assert.equal(activity.title, titles[source]);
+    assert.notEqual(activity.title, 'Email and Cove sync');
+  }
+  assert.equal(
+    receiptActivity({
+      id: 'task-session-title',
+      source: 'task-session',
+      startedAt: '2026-07-29T10:00:00.000Z',
+      finishedAt: '2026-07-29T10:01:00.000Z',
+      summary: 'finished',
+      actions: { taskTitle: 'Prepare the launch package' },
+      retryCount: 0,
+      outcome: 'success',
+    }).detail,
+    '"Prepare the launch package" is ready.',
   );
 });
 
@@ -212,6 +265,44 @@ test('failure API accepts only a bounded id', () => {
   });
   assert.throws(() => parseFailureDismissBody({}), /valid failure id/);
   assert.throws(() => parseFailureDismissBody({ id: 'x'.repeat(201) }), /valid failure id/);
+});
+
+test('failure API stays disabled outside local mode without creating local data', {
+  concurrency: false,
+}, async (t) => {
+  const root = path.join(
+    os.tmpdir(),
+    `cove-failure-disabled-${process.pid}-${Date.now()}-${Math.random()}`,
+  );
+  const dbPath = path.join(root, 'forge.db');
+  const previousRuntime = process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+  const previousDb = process.env.COVE_DB_PATH;
+  const previousData = process.env.COVE_DATA_DIR;
+  process.env.NEXT_PUBLIC_FORGE_RUNTIME = 'supabase';
+  process.env.COVE_DB_PATH = dbPath;
+  process.env.COVE_DATA_DIR = root;
+  t.after(() => {
+    if (previousRuntime === undefined) delete process.env.NEXT_PUBLIC_FORGE_RUNTIME;
+    else process.env.NEXT_PUBLIC_FORGE_RUNTIME = previousRuntime;
+    if (previousDb === undefined) delete process.env.COVE_DB_PATH;
+    else process.env.COVE_DB_PATH = previousDb;
+    if (previousData === undefined) delete process.env.COVE_DATA_DIR;
+    else process.env.COVE_DATA_DIR = previousData;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const listed = await GET(new NextRequest('http://localhost/api/failures'));
+  assert.equal(listed.status, 200);
+  assert.deepEqual(await listed.json(), { enabled: false, failures: [] });
+  const dismissed = await POST(new NextRequest('http://localhost/api/failures', {
+    method: 'POST',
+    body: JSON.stringify({ id: 'failure-1' }),
+    headers: { 'Content-Type': 'application/json' },
+  }));
+  assert.equal(dismissed.status, 200);
+  assert.deepEqual(await dismissed.json(), { enabled: false, failures: [] });
+  assert.equal(existsSync(dbPath), false);
+  assert.equal(existsSync(`${path.join(root, 'quiet-current.json')}.token`), false);
 });
 
 test('failure API enforces trusted hosts and CSRF before dismissing', async (t) => {

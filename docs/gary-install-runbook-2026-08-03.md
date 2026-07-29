@@ -42,4 +42,5 @@ This is the wow moment. It only works if the brief has real material.
 
 - Clone fails: use the tarball, continue as normal.
 - Brief generation fails: check the setup log, fix or regenerate. Never end the session on a broken brief; a weaker-but-real brief beats an error.
+- Backup recovery: use `bash scripts/cove-restore-backup.sh --yes <backup-file>` as the tested restore path.
 - Anything you can't fix in 10 minutes: note it, keep moving, fix it remotely tonight. The practice morning and the one-pager matter more than any single feature working perfectly today.

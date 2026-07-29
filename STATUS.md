@@ -24,7 +24,14 @@
 
 ---
 
-**Last updated:** 2026-07-29 (build wave COMPLETE, all 8 stages; ONE click left: flip amart-builder/cove public)
+**Last updated:** 2026-07-29 (build wave COMPLETE, all 8 stages + whole-wave integration pass; ONE click left: refresh + flip amart-builder/cove public)
+
+## 2026-07-29 wave wrap-up: whole-wave integration review (verdict: nothing blocks Monday) + fixes
+
+- A final fresh-context reviewer walked the whole 18e37bb..HEAD diff for cross-stage seams. Fixed from its findings: installer now tells the truth about owner chips (they open real sessions; the flag/allowlist language is scoped to the batch execution lane) and SETUP Step 7 explains the chip tap; installer runs the first backup synchronously so Step 5.9's backup-receipt check can pass on day one; Recent activity now covers all eight receipt sources the wave writes (Claude sessions, captured commitments, health checks, recurring spawns, watchdog, purges, correspondence, reaper) with plain-English labels and a test pinning that no source falls into the generic fallback; the failures API and Issues tab are properly local-gated (a supabase install no longer creates a stray local DB); restore path documented in SETUP and the runbook; TabNav lint resolved.
+- Deferred to the fast-follow week (logged deliberately): quiet-current cross-process last-writer race (cosmetic), reaper unknown-fingerprint hardening, periodic predecessor recovery, pre-existing lint errors in untouched files, reopen-day undo, fleet-health email, adoption coaching, external CRM adapters.
+- Wave verified clean by the final reviewer: migrations 1..11 run clean on fresh and existing DBs; no job deadlocks or double-writes on a lid-open morning; SETUP.md references all resolve; drafts-only law holds repo-wide; no new dependencies; no em/en dashes in the entire wave diff; 656 tests green.
+- Morning summary for Alex: docs/wave-summary-2026-07-29.md.
 
 ## 2026-07-29 build wave Stage 8: owner chips are session launchers (committed after BLOCK->SHIP cycle)
 

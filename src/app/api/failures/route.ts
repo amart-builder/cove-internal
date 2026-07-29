@@ -8,6 +8,10 @@ import { listRecentReceiptActivity } from "@/lib/reliability/receipts";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function disabledFailuresResponse() {
+  return NextResponse.json({ enabled: false, failures: [] });
+}
+
 export function parseFailureDismissBody(value: unknown): { id: string } {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("A failure id is required.");
@@ -23,6 +27,7 @@ export async function GET(request: NextRequest) {
   if (!isTrustedForgeRequest(request)) {
     return NextResponse.json({ error: "Untrusted request host." }, { status: 403 });
   }
+  if (getRuntimeMode() !== "local") return disabledFailuresResponse();
   const receiptLimit = Math.max(
     1,
     Math.min(30, Number.parseInt(request.nextUrl.searchParams.get("receiptLimit") ?? "15", 10) || 15),
@@ -33,18 +38,15 @@ export async function GET(request: NextRequest) {
     cursorFinishedAt.length <= 64 && cursorId.length <= 200
     ? { finishedAt: cursorFinishedAt, id: cursorId }
     : undefined;
-  const activity = getRuntimeMode() === "local"
-    ? listRecentReceiptActivity({ limit: receiptLimit, cursor: receiptCursor })
-    : undefined;
+  const activity = listRecentReceiptActivity({
+    limit: receiptLimit,
+    cursor: receiptCursor,
+  });
   return NextResponse.json({
     failures: listFailures(),
-    ...(activity
-      ? {
-          activity: activity.activities,
-          activityHasMore: activity.hasMore,
-          activityNextCursor: activity.nextCursor,
-        }
-      : {}),
+    activity: activity.activities,
+    activityHasMore: activity.hasMore,
+    activityNextCursor: activity.nextCursor,
     csrfToken: getQuietCurrentCsrfToken(),
   });
 }
@@ -53,6 +55,7 @@ export async function POST(request: NextRequest) {
   if (!isTrustedForgeRequest(request)) {
     return NextResponse.json({ error: "Untrusted request host." }, { status: 403 });
   }
+  if (getRuntimeMode() !== "local") return disabledFailuresResponse();
   if (request.headers.get("x-forge-csrf") !== getQuietCurrentCsrfToken()) {
     return NextResponse.json(
       { error: "Cove request token is missing." },

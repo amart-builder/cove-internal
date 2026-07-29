@@ -815,6 +815,8 @@ if [ -n "$UP" ]; then
     echo "See: $LOG_DIR/cove-claude-worker.error.log" >&2
     exit 1
   fi
+  echo "Creating the first Cove database backup..."
+  "$TSX_BIN" "$REPO_DIR/scripts/cove-jobs.ts" enqueue-backup --run
   echo "Cove is running at http://localhost:3200 and will start automatically on login."
   echo "Server logs: $LOG_DIR/cove.log"
   echo "Daily database backups: $REPO_DIR/data/backups"
@@ -831,7 +833,8 @@ if [ -n "$UP" ]; then
     echo "Progress reconciler: skipped because $PROGRESS_OWNER owns this lane"
   fi
   echo "Morning Brief: on-open backfill/post-settlement; --mini optionally adds a 7:30 always-on lane"
-  echo "Autonomous execution remains off until COVE_CLAUDE_EXECUTION_ENABLED=1 and an allowlisted workspace config are explicitly added."
+  echo "Day-plan batch execution remains off until COVE_CLAUDE_EXECUTION_ENABLED=1 and an allowlisted workspace config are explicitly added."
+  echo "Task owner chips open Claude sessions: Claude works the task with automatic file edits; Together opens a planning session. Neither can send, publish, or purchase."
 else
   echo "Cove did not respond on http://localhost:3200 within 20 seconds." >&2
   echo "See the log for why: $LOG_DIR/cove.error.log" >&2

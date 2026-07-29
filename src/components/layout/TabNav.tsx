@@ -3,15 +3,29 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { getRuntimeMode, type RuntimeMode } from '@/lib/runtime/mode';
 
-const tabs = [
+const baseTabs = [
   { name: 'Today', href: '/tasks' },
   { name: 'People', href: '/crm' },
-  { name: 'Issues', href: '/failures' },
 ];
+
+export function tabNavItems(runtimeMode: RuntimeMode) {
+  return runtimeMode === 'local'
+    ? [...baseTabs, { name: 'Issues', href: '/failures' }]
+    : baseTabs;
+}
+
+export function preferredDarkTheme(
+  storedTheme: string | null,
+  systemPrefersDark: boolean,
+): boolean {
+  return storedTheme === 'dark' || (!storedTheme && systemPrefersDark);
+}
 
 export default function TabNav() {
   const pathname = usePathname();
+  const tabs = tabNavItems(getRuntimeMode());
   const [dark, setDark] = useState(
     () => typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
   );
@@ -22,12 +36,16 @@ export default function TabNav() {
     let wantDark: boolean;
     try {
       const stored = localStorage.getItem('theme');
-      wantDark = stored === 'dark' ||
-        (!stored && matchMedia('(prefers-color-scheme: dark)').matches);
+      wantDark = preferredDarkTheme(
+        stored,
+        matchMedia('(prefers-color-scheme: dark)').matches,
+      );
     } catch {
       return;
     }
     document.documentElement.classList.toggle('dark', wantDark);
+    // Hydration may replace the pre-paint class, so mirror its repaired state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDark(wantDark);
   }, []);
 

@@ -394,6 +394,7 @@ export function createTaskSessionManager(
         actions: {
           runId: run.id,
           taskId: run.taskId,
+          taskTitle: run.promptSnapshot.title,
           owner: run.owner,
           status: run.status,
           outputDir: run.outputDir,
