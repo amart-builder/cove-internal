@@ -9,22 +9,30 @@
 - **github:** PRIVATE development repo `amart-builder/cove-internal`; sanitized client mirror `amart-builder/cove`
 - **default_branch:** main
 - **owned_by:** shared
-- **deploy:** http://localhost:3200 on the Mac Mini, bound to 127.0.0.1 only. Reach it from any tailnet device at https://alexander-mac-mini.taildd6a98.ts.net (Tailscale Serve proxies 443 -> 127.0.0.1:3200). The old http://...:3200 URL is dead by design: port 3200 is no longer exposed to the home LAN.
+- **deploy:** http://localhost:3200 on the MacBook, bound to 127.0.0.1 only. The Mac Mini install is retired.
 - **never_commit:** .env*, data/cove.db*, secrets, private email/task/contact exports
 - **push:** use the repo safe-push flow when this repo is clean enough to commit; never raw git push
 <!-- END repo-identity -->
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** cowork
-- **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-07-29T15:40:46-0700
-- **task:** complete Forge to Cove rename across local app and GitHub
+- **system:** none
+- **device:** —
+- **since:** —
+- **task:** —
 <!-- END active-session -->
 
 ---
 
 **Last updated:** 2026-07-29 (email architecture redesign integrated with committed Morning Brief Phase 1a, 1b, and 2 work; Alex's install remains local mode on the MacBook, single machine, Mini fully retired)
+
+## 2026-07-29 Forge to Cove identity cutover
+
+- The private development repository is now `amart-builder/cove-internal`. The sanitized client mirror remains the separate `amart-builder/cove` repository.
+- The canonical local checkout is `~/Atlas/Projects/astack/cove`. LaunchAgents, Claude hooks, Codex and Claude skills, the wake canary, Jarvis Pro consumers, and Atlas Syncthing exclusions now point to Cove.
+- The live database is `data/cove.db`. Migration 13 renamed the old migration ledger and six operational `forge_*` tables in place; the verified live result preserved 108 tasks and 161 email records with SQLite integrity `ok`.
+- Runtime names are canonical Cove: `/api/cove-rest`, `COVE_*`, `NEXT_PUBLIC_COVE_*`, `cove_*` tables, Cove config filenames, and `~/.cove`. Hidden read-only migration fallbacks keep an old install upgradeable.
+- Production build passed, the full suite passed 678 of 678, `/tasks` and `/api/cove-rest` return 200, `/api/forge-rest` returns 404, and the one rolling Email card is open in the live app.
 
 ## 2026-07-29 Morning brief Phase 1b (built and verified, prompt v14, NOT yet committed)
 
