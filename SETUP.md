@@ -233,9 +233,28 @@ adapter. External CRM adapters are wired per client at setup. Do not select it
 until that client's adapter is installed. Supabase and Convex runtime modes
 keep their existing CRM paths and do not use the local backend selector.
 
-## 8. The finale: your first morning brief
+## 8. Set up Meeting Notes
 
-Everything real should be loaded now: goals, tasks, email, and contacts. Trigger a fresh morning-brief generation. Do not reuse the quiet smoke-test brief from step 4. Tell the user it takes about two minutes, wait with them while it runs, then open Morning Arrival and read the brief together.
+Ask: "Which meeting-notes tool do you use: Gemini, Granola, Fathom, Otter, something else, or none?"
+
+Explain the value plainly: "When meeting notes reach your inbox, Cove can use them as context and automatically capture your follow-ups and what other people owe you. You will see one quiet processed line on the email card, never a loud meeting ping."
+
+Use `data/cove-meetings.example.json` as the shape, then write the real, private `data/cove-meetings.json`:
+
+- Gemini, Granola, Fathom, or Otter: set `enabled` to `true` and put the selected lowercase name in `active_tools`. The known sender, subject, and Gmail-query patterns are already in `src/lib/intake/meeting-detection.ts`.
+- Multiple tools: include every selected lowercase name in `active_tools`.
+- Other: ask for one real sender and subject example. Add a `custom_patterns` entry with a narrow `sender_regex` or `subject_regex` plus `gmail_query`. Test that example before enabling it. Never use a catch-all inbox query.
+- None: write the file with `enabled:false`, `active_tools:[]`, `window:"newer_than:2d"`, `processed_label:"Cove/Meeting-Processed"`, and `custom_patterns:[]`. This records the choice without pretending the watcher is active.
+
+Keep the normal 2-day watcher window. The email triage lane provides the long-sleep catch-up and is the second door into the same deduplicated meeting pipeline.
+
+After writing the config, run `bash scripts/install-cove-local.sh`. That installer follows the lane-ownership rules in `scripts/lib/cove-lane-ownership.mjs`: this Mac claims `meeting_watch` only when another machine does not already own it. Verify `data/cove-lane-owners.json`, `data/intake/installed-lanes.json`, and one `node scripts/cove-meeting-watch.mjs --once` run. If another machine owns the lane, verify that owner instead of stealing it.
+
+Tell the user what success looks like: "After notes arrive, your follow-ups show up in Cove and the email card quietly says something like, 'Found meeting notes from Acme planning: 2 tasks, 1 waiting-on, 3 contacts linked.' Nothing is sent and there is no meeting ping."
+
+## 9. The finale: your first morning brief
+
+Everything real should be loaded now: goals, tasks, email, contacts, and meeting notes. Trigger a fresh morning-brief generation. Do not reuse the quiet smoke-test brief from step 4. Tell the user it takes about two minutes, wait with them while it runs, then open Morning Arrival and read the brief together.
 
 Read it critically: does it sound like it knows this person, their money, their people, and their week? If it reads generic, the profile or goals file is thin. Fix those files now, with the user still next to you, then generate a fresh brief and read it again. Do not declare setup done while the brief still reads like it could be about anyone.
 

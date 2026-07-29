@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { listAllEmailItems, updateEmailItem } from '@/lib/data/email';
+import { archiveEmailItemFromCard, listAllEmailItems } from '@/lib/data/email';
 import type { EmailItem } from '@/lib/data/types';
 import { useDataChanged } from '@/lib/data/refresh-bus';
 
@@ -55,6 +55,7 @@ export default function EmailCardDetail({ onClose }: { onClose: () => void }) {
   const [items, setItems] = useState<EmailItem[] | null>(null);
   const [error, setError] = useState<string>();
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [failureNote, setFailureNote] = useState<string>();
 
   const load = useCallback(async () => {
     try {
@@ -74,13 +75,18 @@ export default function EmailCardDetail({ onClose }: { onClose: () => void }) {
 
   async function markActioned(id: string) {
     setBusyId(id);
+    setFailureNote(undefined);
     const previous = items;
     // Optimistic: an actioned item drops out of the open sections immediately.
     setItems((cur) => (cur ? cur.map((e) => (e.id === id ? { ...e, status: 'actioned' } : e)) : cur));
     try {
-      await updateEmailItem(id, { status: 'actioned' });
+      await archiveEmailItemFromCard(id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setFailureNote(
+        `That thread could not be archived in Gmail, so Cove left it unchecked. ${
+          err instanceof Error ? err.message : "Try again."
+        }`,
+      );
       setItems(previous);
     } finally {
       setBusyId(null);
@@ -164,6 +170,14 @@ export default function EmailCardDetail({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="space-y-4">
+      {failureNote ? (
+        <p
+          role="status"
+          className="rounded-md border border-accent-orange/30 bg-accent-orange/10 px-3 py-2 text-[12px] text-foreground"
+        >
+          {failureNote}
+        </p>
+      ) : null}
       {nothingOpen ? (
         <p className="rounded-md border bg-card px-3 py-6 text-center text-sm text-muted-foreground">
           Inbox is clear. Nothing needs you right now.

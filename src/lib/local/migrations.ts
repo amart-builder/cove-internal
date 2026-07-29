@@ -787,6 +787,29 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       ).run(new Date().toISOString());
     },
   },
+  {
+    version: 9,
+    name: "email-automation-and-health-collectors",
+    up: (db) => {
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS commitments_email_quote_idx
+          ON commitments(source_ref, source_quote, kind)
+          WHERE source_ref LIKE 'gmail:%'
+            AND source_quote IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS cove_health_snapshots (
+          id TEXT PRIMARY KEY,
+          collected_at TEXT NOT NULL,
+          collector_version INTEGER NOT NULL,
+          system_json TEXT NOT NULL,
+          adoption_json TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS cove_health_snapshots_collected_idx
+          ON cove_health_snapshots(collected_at DESC, id);
+      `);
+    },
+  },
 ];
 
 export function runLocalMigrations(

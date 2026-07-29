@@ -509,6 +509,7 @@ export async function runMeetingWatch(options = {}) {
     matched: 0,
     processed: 0,
     processed_message_ids: [],
+    quiet_lines: [],
     parsed_items: 0,
     // With no operator name configured, ownership routing cannot distinguish
     // own items from waiting-on ones, so everything lands in the task lane.
@@ -740,6 +741,9 @@ export async function runMeetingWatch(options = {}) {
           zeroItems = pipeline.summary.parsedItems === 0;
           if (zeroItems) {
             summary.zero_item_messages += 1;
+          }
+          if (pipeline.quietLine) {
+            summary.quiet_lines.push(pipeline.quietLine);
           }
         }
 

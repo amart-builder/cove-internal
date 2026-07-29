@@ -84,7 +84,13 @@ export type EmailItem = {
   message_id: string | null;
   thread_id: string | null;
   classification: "action_item" | "tiding" | "log_only";
-  status: "pending" | "reviewed" | "actioned" | "dismissed" | "archived";
+  status:
+    | "pending"
+    | "archiving"
+    | "reviewed"
+    | "actioned"
+    | "dismissed"
+    | "archived";
   sender_name: string | null;
   sender_email: string | null;
   subject: string | null;

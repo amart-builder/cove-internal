@@ -19,6 +19,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_DIR"
 LOG="$HOME/Library/Logs/cove-email-triage.log"
 RECEIPT_STARTED_AT="$(date -u "+%Y-%m-%dT%H:%M:%SZ")"
+export COVE_EMAIL_TRIAGE_STARTED_AT="$RECEIPT_STARTED_AT"
 RECEIPT_OUTCOME=""
 RECEIPT_SUMMARY=""
 ENGINE=""
@@ -49,12 +50,18 @@ record_triage_receipt() {
       "$REPO_DIR/scripts/cove-record-receipt.ts" \
       --source email-triage \
       --started-at "$RECEIPT_STARTED_AT" \
+      --skip-if-existing \
       --outcome "$RECEIPT_OUTCOME" \
       --summary "$RECEIPT_SUMMARY" \
       --entry-point scripts/cove-email-triage.sh \
       --engine "${ENGINE:-not-started}" \
       --exit-code "$CODE" \
       --action-summary "$RECEIPT_ACTION_SUMMARY" \
+      --need-you-count 0 \
+      --action-count 0 \
+      --fyi-count 0 \
+      --auto-checked-count 0 \
+      --counts-available false \
       >> "$LOG" 2>&1 || echo "[$(ts)] could not record triage receipt." >> "$LOG"
   fi
   return "$CODE"

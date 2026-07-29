@@ -9,6 +9,10 @@ import {
   registerTaskMaintenanceHandlers,
 } from "../src/lib/tasks/maintenance";
 import { getRuntimeMode } from "../src/lib/runtime/mode";
+import {
+  collectCoveHealth,
+  enqueueDueHealthCollection,
+} from "../src/lib/health/collector";
 
 function localDateKey(date: Date): string {
   const year = date.getFullYear();
@@ -52,6 +56,29 @@ function schedulerWithHandlers(dbPath: string, backupDir: string): JobScheduler 
       },
     };
   });
+  scheduler.register("health-collector", async (job) => {
+    const requestedAt = (
+      job.payload &&
+      typeof job.payload === "object" &&
+      typeof (job.payload as { requestedAt?: unknown }).requestedAt === "string"
+    )
+      ? new Date((job.payload as { requestedAt: string }).requestedAt)
+      : new Date();
+    const snapshot = collectCoveHealth({
+      dbPath,
+      dataDir: path.dirname(dbPath),
+      backupDir,
+      now: Number.isNaN(requestedAt.getTime()) ? new Date() : requestedAt,
+    });
+    return {
+      summary: "Collected Cove system health and adoption signals.",
+      actions: {
+        snapshotId: snapshot.id,
+        collectedAt: snapshot.collectedAt,
+        collectorVersion: snapshot.collectorVersion,
+      },
+    };
+  });
   return getRuntimeMode() === "local"
     ? registerTaskMaintenanceHandlers(scheduler, {
         dbPath,
@@ -79,6 +106,7 @@ async function main(): Promise<number> {
     if (command === "run") {
       if (getRuntimeMode() === "local") {
         enqueueDailyTaskMaintenance(scheduler);
+        enqueueDueHealthCollection(scheduler, { dbPath });
       }
     }
     if (command === "enqueue-backup") {

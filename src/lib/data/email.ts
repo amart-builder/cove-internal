@@ -1,4 +1,6 @@
 import { forgeRest } from "../supabase/rest";
+import { getRuntimeMode } from "../runtime/mode";
+import { getDayPlanCsrfToken } from "./day-plan";
 import type { Draft, EmailActionLog, EmailItem, EmailTriageRun } from "./types";
 
 export async function listEmailItems(status = "pending"): Promise<EmailItem[]> {
@@ -66,6 +68,28 @@ export async function updateEmailItem(
     body: patch,
   });
   return rows[0];
+}
+
+export async function archiveEmailItemFromCard(id: string): Promise<void> {
+  if (getRuntimeMode() !== "local") {
+    await updateEmailItem(id, { status: "actioned" });
+    return;
+  }
+  const csrfToken = await getDayPlanCsrfToken();
+  const response = await fetch("/api/email/automation", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Forge-CSRF": csrfToken,
+    },
+    body: JSON.stringify({ action: "card_archive", emailItemId: id }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({})) as {
+      error?: string;
+    };
+    throw new Error(payload.error || "Gmail archive failed.");
+  }
 }
 
 export async function updateDraft(id: string, patch: Partial<Draft>): Promise<Draft> {

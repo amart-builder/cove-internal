@@ -110,7 +110,7 @@ export function loadMeetingDetectionConfig(
   const activeTools = configuredTools
     .filter((tool): tool is string => typeof tool === "string" && Boolean(tool.trim()))
     .map((tool) => tool.trim().toLowerCase());
-  if (activeTools.length === 0) {
+  if (parsed.enabled && activeTools.length === 0) {
     throw new Error("cove-meetings.json must enable at least one meeting tool.");
   }
   const customPatterns = Array.isArray(parsed.custom_patterns)
@@ -142,7 +142,7 @@ export function loadMeetingDetectionConfig(
     .map((query) => `(${query})`)
     .join(" OR ");
   const query = configuredQuery ?? generatedQuery;
-  if (!query) {
+  if (parsed.enabled && !query) {
     throw new Error(
       "cove-meetings.json needs query or gmail_query for custom-only tools.",
     );
@@ -158,7 +158,7 @@ export function loadMeetingDetectionConfig(
     enabled: parsed.enabled,
     activeTools,
     patterns,
-    query,
+    query: query ?? "",
     window,
     processedLabel,
   };

@@ -87,6 +87,7 @@ export type MeetingPipelineResult = {
     parsedItems: number;
   };
   receiptId?: string;
+  quietLine?: string;
 };
 
 function deterministicUuid(value: string): string {
@@ -481,6 +482,7 @@ export async function processMeetingNotesEmail(
       status: "processed",
       summary,
       receiptId: completed.receiptId ?? undefined,
+      quietLine: receiptSummary,
     };
   } catch (error) {
     failMessageIngestion({

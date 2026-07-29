@@ -144,3 +144,20 @@ export function listRecentReceipts(
     db.close();
   }
 }
+
+export function hasReceiptForSourceStartedAt(input: {
+  source: string;
+  startedAt: string;
+  dbPath?: string;
+}): boolean {
+  const db = openLocalDatabase(input.dbPath);
+  try {
+    return Boolean(db.prepare(
+      `SELECT 1 FROM forge_receipts
+       WHERE source = ? AND started_at = ?
+       LIMIT 1`,
+    ).get(input.source, input.startedAt));
+  } finally {
+    db.close();
+  }
+}
