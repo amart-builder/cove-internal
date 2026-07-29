@@ -104,13 +104,15 @@ The script installs the task-capture and contact skills, starts Cove at `http://
 Now prove it, before telling the user it is done:
 
 - **Prove Claude works headless.** Run one bounded request (`claude -p "say ok" --output-format json`) and check it returns cleanly. A worker that starts is not a worker that can think; this catches a signed-out Claude now instead of at 7:30 tomorrow.
-- **Prove the brief.** Trigger one real morning-brief generation end to end and read the result critically: does it sound like it knows this person, their money, their people, their week? If it reads generic, the profile or goals file is thin. Fix that now, with the user still next to you, not on day two.
+- **Hard-check the two files the brief lives on.** Before generating anything, verify `data/cove-profile.json` parses and has a real name and timezone, and that the goals file is not empty or near-empty (a goals file under a few hundred characters cannot carry a person's actual priorities). An empty goals file does not error anywhere; it just quietly produces a generic brief forever. If either file is thin, go back to the interview now.
+- **Prove the brief.** Trigger one real morning-brief generation end to end and read the result critically: does it sound like it knows this person, their money, their people, their week? If it reads generic, the profile or goals file is thin. Fix that now, with the user still next to you, not on day two. Do not declare setup done while the brief still reads like it could be about anyone.
 - **Say the readiness verdict out loud, per capability.** For tasks, email, CRM, and the brief: "can I run this well for this person tomorrow, and if not, what is missing?" Name what is missing instead of letting silence imply it all works.
 
 Then tell the user:
 
 - "Cove is running at `http://localhost:3200` and everything saves locally on your Mac. There is no account and no login."
 - "Tomorrow, open Today first. Tell me what changed, choose what is Now, and then begin. Cove learns from your corrections without silently changing your commitments."
+- "When your day changes at 2pm, you do not have to re-plan by hand. Just tell me in plain language: 'new urgent thing, reshuffle my afternoon' — I will restack today's priorities with you and update the board." Demonstrate it once during setup with a pretend interruption, so the first real one is familiar.
 - Complete one harmless demo loop together: switch focus, mark a demo task done, Undo it, hand it to Jarvis, and bring it back.
 
 ## 5. Set up Tasks
