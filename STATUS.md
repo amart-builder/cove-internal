@@ -24,7 +24,13 @@
 
 ---
 
-**Last updated:** 2026-07-28 evening (product renamed Cove; private mirror repo live at amart-builder/cove)
+**Last updated:** 2026-07-28 night (plan settled + sequenced; Gary install docs written; ONE click left: flip amart-builder/cove public)
+
+## 2026-07-28 night: plan settled, Gary docs ready (pushed 99c6c1e)
+
+- **docs/cove-plan-2026-07.md is SETTLED and SEQUENCED.** All walkthroughs done, Sol red-team folded in, Alex decided the four contested calls (chips: Claude = auto-edits, Together = plan, enforced by permission mode, never bypassPermissions; attachments in-wave but guarded; external CRM adapters wired per client at setup, not shipped; wave restructured). New "Wave order and reliability spine" section is the build order: spine first (job scheduler with leases, idempotency keys, receipts, failure inbox, tested backup restore), then Gmail spike, CRM interface, one deduped ingestion pipeline, features, setup/UX, UI pass, owner chips last. Build wave executes AFTER Gary.
+- **Gary install day (tomorrow 07-29):** docs/gary-install-runbook-2026-07-29.md (for Alex; pre-flight incl. tarball fallback, finale choreography, verify list) + docs/gary-handoff-one-pager.md (leave-behind, written in Alex's voice). Key beat: load 3 to 5 real priorities BEFORE the finale brief; force a fresh brief if it dedupes onto the smoke artifact.
+- **BLOCKING, Alex's click:** github.com/amart-builder/cove is still PRIVATE. Flip public before Gary's clone.
 
 ## 2026-07-28 evening: Forge -> COVE rename + client mirror (shipped, pushed)
 
