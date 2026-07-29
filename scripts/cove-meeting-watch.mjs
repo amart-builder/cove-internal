@@ -42,6 +42,7 @@ const require = createRequire(import.meta.url);
 require("tsx/cjs");
 const { recordEvent, resolveEvent } = require("../src/lib/intake/inbox.ts");
 const { runForgeIntake } = require("../src/lib/intake/run.ts");
+const { recordReceipt } = require("../src/lib/reliability/receipts.ts");
 
 const execFileAsync = promisify(execFile);
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -771,12 +772,36 @@ export async function runMeetingWatch(options = {}) {
 }
 
 export async function main(args = process.argv.slice(2)) {
+  const startedAt = new Date().toISOString();
   const unknown = args.filter((arg) => arg !== "--once" && arg !== "--dry-run");
   if (unknown.length > 0) {
     process.stderr.write(`Unknown option: ${unknown[0]}\n`);
     return 2;
   }
-  const result = await runMeetingWatch({ dryRun: args.includes("--dry-run") });
+  const dryRun = args.includes("--dry-run");
+  const result = await runMeetingWatch({ dryRun });
+  if (!dryRun) {
+    const outcome = result.exitCode !== 0
+      ? "failed"
+      : result.summary.errors > 0
+        ? "partial"
+        : "success";
+    try {
+      recordReceipt({
+        dbPath: coveEnv("DB_PATH")?.trim() || path.join(defaultDataDir, "forge.db"),
+        source: "meeting-watch",
+        startedAt,
+        summary: outcome === "success"
+          ? `Meeting notes processed ${result.summary.processed} message(s).`
+          : `Meeting notes processing finished with ${result.summary.errors} error(s).`,
+        actions: result.summary,
+        retryCount: 0,
+        outcome,
+      });
+    } catch (error) {
+      process.stderr.write(`Could not record meeting receipt: ${boundedError(error)}\n`);
+    }
+  }
   process.stdout.write(`${JSON.stringify(result.summary)}\n`);
   return result.exitCode;
 }

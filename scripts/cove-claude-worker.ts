@@ -78,6 +78,7 @@ async function main(): Promise<number> {
       fallbackCwd: repoDir,
       abortSignal: shutdown.signal,
       relay,
+      receiptDbPath: dbPath,
     };
     if (lane === "watch") {
       mkdirSync(path.dirname(heartbeatPath), { recursive: true, mode: 0o700 });

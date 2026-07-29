@@ -18,6 +18,48 @@ set -uo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_DIR"
 LOG="$HOME/Library/Logs/cove-email-triage.log"
+RECEIPT_STARTED_AT="$(date -u "+%Y-%m-%dT%H:%M:%SZ")"
+RECEIPT_OUTCOME=""
+RECEIPT_SUMMARY=""
+ENGINE=""
+record_triage_receipt() {
+  CODE=$?
+  trap - EXIT
+  if [ -z "$RECEIPT_OUTCOME" ]; then
+    if [ "$CODE" = "0" ]; then RECEIPT_OUTCOME="success"; else RECEIPT_OUTCOME="failed"; fi
+  fi
+  if [ -z "$RECEIPT_SUMMARY" ]; then
+    if [ "$CODE" = "0" ]; then
+      RECEIPT_SUMMARY="Email triage completed with ${ENGINE:-the configured engine}."
+    else
+      RECEIPT_SUMMARY="Email triage failed with exit code $CODE."
+    fi
+  fi
+  if [ "$RECEIPT_OUTCOME" = "skipped" ]; then
+    RECEIPT_ACTION_SUMMARY="No inbox actions were attempted."
+  elif [ "$CODE" = "0" ]; then
+    RECEIPT_ACTION_SUMMARY="The configured draft-only triage playbook completed; detailed Gmail changes remain in the triage log."
+  else
+    RECEIPT_ACTION_SUMMARY="The triage command stopped before confirming completion."
+  fi
+  RECEIPT_LOADER="$REPO_DIR/node_modules/tsx/dist/loader.mjs"
+  RECEIPT_NODE="$(node -p 'process.execPath' 2>/dev/null || true)"
+  if [ -n "$RECEIPT_NODE" ] && [ -f "$RECEIPT_LOADER" ]; then
+    "$RECEIPT_NODE" --import "$RECEIPT_LOADER" \
+      "$REPO_DIR/scripts/cove-record-receipt.ts" \
+      --source email-triage \
+      --started-at "$RECEIPT_STARTED_AT" \
+      --outcome "$RECEIPT_OUTCOME" \
+      --summary "$RECEIPT_SUMMARY" \
+      --entry-point scripts/cove-email-triage.sh \
+      --engine "${ENGINE:-not-started}" \
+      --exit-code "$CODE" \
+      --action-summary "$RECEIPT_ACTION_SUMMARY" \
+      >> "$LOG" 2>&1 || echo "[$(ts)] could not record triage receipt." >> "$LOG"
+  fi
+  return "$CODE"
+}
+trap record_triage_receipt EXIT
 # The config is data/cove-email.json. An install made before the Cove rename
 # still has data/forge-email.json, so fall back to it.
 CONFIG="$REPO_DIR/data/cove-email.json"
@@ -28,6 +70,8 @@ ts() { date "+%Y-%m-%d %H:%M:%S"; }
 
 # Only run if email is set up (the Email step writes this file).
 if [ ! -f "$CONFIG" ]; then
+  RECEIPT_OUTCOME="skipped"
+  RECEIPT_SUMMARY="Email triage skipped because email is not set up."
   echo "[$(ts)] email not set up (no data/cove-email.json); skipping." >> "$LOG"
   exit 0
 fi
@@ -56,6 +100,8 @@ except Exception:
 WEEKDAYS_ONLY="$(cfg weekdays_only)"
 DOW="$(date +%u)"
 if [ "$WEEKDAYS_ONLY" = "true" ] && { [ "$DOW" = "6" ] || [ "$DOW" = "7" ]; }; then
+  RECEIPT_OUTCOME="skipped"
+  RECEIPT_SUMMARY="Email triage skipped for the configured weekend."
   echo "[$(ts)] weekend, skipping (weekdays_only)." >> "$LOG"
   exit 0
 fi

@@ -18,13 +18,22 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-07-28T12:16:40-0700
-- **task:** Pre-launch systematic audit of Forge for first Jarvis Pro setup
+- **since:** 2026-07-28T20:41:36-0700
+- **task:** Build wave: settled Cove plan
 <!-- END active-session -->
 
 ---
 
 **Last updated:** 2026-07-28 night (plan settled + sequenced; Gary install docs written; ONE click left: flip amart-builder/cove public)
+
+## 2026-07-28 late night: reliability spine Stage 1 (working tree, reviewed)
+
+- Local SQLite now migrates through one ordered `forge_schema_migrations` ledger. A populated copy of the live `data/forge.db` migrates to the same semantic schema as a fresh install with no foreign-key errors.
+- New `forge_jobs`, `forge_receipts`, and `forge_failure_inbox` primitives provide leased priority jobs, bounded runners, retry/backoff, idempotency, durable action receipts, and one dismissible Issues surface. Long jobs renew their leases so a second runner cannot duplicate live work.
+- Daily database backups now run through the scheduler, use SQLite's online backup, keep 14 snapshots, and have a guarded restore script. The local installer adds a five-minute scheduler LaunchAgent and passes its absolute Node path into the backup LaunchAgent.
+- Existing triage, meeting-watch, and brief worker entry points remain direct but now write receipts. They were deliberately not folded into the generic queue in this stage because each already has its own durable lane and changing those execution contracts would add avoidable launch risk.
+- Verification (final, held-out, run by the orchestrator after the fix pass): TypeScript clean; production build OK; full suite 508/508; independent probes for priority order, future scheduling, idempotency dedupe, expired-lease recovery with backoff retry, dead-job failure inbox, live-db-copy migration parity, backup round trip, restore script (against a scratch db via COVE_DB_PATH), and 5-identical-failures-to-1-inbox-row dedupe. No live services were installed or reloaded. Note: the live data/forge.db DID receive migrations 1-3 early (review-side accident, integrity verified, zero row changes; the next app open applies the rest through the normal path).
+- Independent fresh-context review (Opus, post-build): SHIP-WITH-FIXES; two reproduced P1s (deferred-transaction claim race, failure-inbox dedupe never firing) plus P2s, all fixed in a follow-up pass before commit. Full suite 498/498 after fixes. The review also opened all stores concurrently against a copied legacy database and observed each of the 11 migration versions exactly once with zero foreign-key violations.
 
 ## 2026-07-28 night: plan settled, Gary docs ready (pushed 99c6c1e)
 

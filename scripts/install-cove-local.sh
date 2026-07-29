@@ -365,6 +365,7 @@ fi
 
 SERVER_PLIST="$LA_DIR/com.cove.local.plist"
 BACKUP_PLIST="$LA_DIR/com.cove.local.backup.plist"
+JOBS_PLIST="$LA_DIR/com.cove.jobs.plist"
 REMINDERS_PLIST="$LA_DIR/com.cove.reminders.plist"
 TRIAGE_PLIST="$LA_DIR/com.cove.email-triage.plist"
 WORKER_PLIST="$LA_DIR/com.cove.claude-worker.plist"
@@ -487,6 +488,8 @@ cat > "$BACKUP_PLIST" <<EOF
 <dict>
   <key>Label</key>
   <string>com.cove.local.backup</string>
+  <key>WorkingDirectory</key>
+  <string>$REPO_DIR</string>
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
@@ -501,6 +504,46 @@ cat > "$BACKUP_PLIST" <<EOF
   <string>$LOG_DIR/cove-backup.log</string>
   <key>StandardErrorPath</key>
   <string>$LOG_DIR/cove-backup.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>COVE_NODE_PATH</key>
+    <string>$NODE_REAL</string>
+  </dict>
+</dict>
+</plist>
+EOF
+
+# --- Reliability jobs: one bounded scheduler tick every five minutes ---
+cat > "$JOBS_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.cove.jobs</string>
+  <key>WorkingDirectory</key>
+  <string>$REPO_DIR</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$NODE_REAL</string>
+    <string>--import</string>
+    <string>$REPO_DIR/node_modules/tsx/dist/loader.mjs</string>
+    <string>$REPO_DIR/scripts/cove-jobs.ts</string>
+    <string>run</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartInterval</key>
+  <integer>300</integer>
+  <key>StandardOutPath</key>
+  <string>$LOG_DIR/cove-jobs.log</string>
+  <key>StandardErrorPath</key>
+  <string>$LOG_DIR/cove-jobs.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>$NODE_BIN:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+  </dict>
 </dict>
 </plist>
 EOF
@@ -606,6 +649,7 @@ fi
 # (Re)load all agents with the modern launchctl API (idempotent).
 retire_legacy_agent local
 retire_legacy_agent local.backup
+retire_legacy_agent jobs
 retire_legacy_agent reminders
 retire_legacy_agent email-triage
 retire_legacy_agent claude-worker
@@ -616,6 +660,7 @@ retire_legacy_agent claude-worker
 retire_legacy_agent web
 launchctl bootout "gui/$UID_NUM/com.cove.local" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.local.backup" 2>/dev/null || true
+launchctl bootout "gui/$UID_NUM/com.cove.jobs" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.reminders" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.email-triage" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.claude-worker" 2>/dev/null || true
@@ -625,11 +670,13 @@ launchctl bootout "gui/$UID_NUM/com.cove.morning-brief" 2>/dev/null || true
 rm -f "$LA_DIR/com.cove.morning-brief.plist"
 launchctl bootstrap "gui/$UID_NUM" "$SERVER_PLIST"
 launchctl bootstrap "gui/$UID_NUM" "$BACKUP_PLIST"
+launchctl bootstrap "gui/$UID_NUM" "$JOBS_PLIST"
 launchctl bootstrap "gui/$UID_NUM" "$REMINDERS_PLIST"
 launchctl bootstrap "gui/$UID_NUM" "$WORKER_PLIST"
 if [ -f "$TRIAGE_PLIST" ]; then launchctl bootstrap "gui/$UID_NUM" "$TRIAGE_PLIST"; fi
 launchctl enable "gui/$UID_NUM/com.cove.local" 2>/dev/null || true
 launchctl enable "gui/$UID_NUM/com.cove.claude-worker" 2>/dev/null || true
+launchctl enable "gui/$UID_NUM/com.cove.jobs" 2>/dev/null || true
 
 # Confirm the server actually came up. This catches the most common failure:
 # launchd not being able to find/run Node on the client's machine.
@@ -660,6 +707,7 @@ if [ -n "$UP" ]; then
   echo "Cove is running at http://localhost:3200 and will start automatically on login."
   echo "Server logs: $LOG_DIR/cove.log"
   echo "Daily database backups: $REPO_DIR/data/backups"
+  echo "Reliability jobs: bounded scheduler supervised by com.cove.jobs"
   echo "Claude worker: supervised by com.cove.claude-worker"
   echo "Morning Brief: generated on the Mac Mini (install there with --mini) + MBP backfill/post-settlement"
   echo "Autonomous execution remains off until COVE_CLAUDE_EXECUTION_ENABLED=1 and an allowlisted workspace config are explicitly added."

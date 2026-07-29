@@ -1,10 +1,13 @@
-import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { resolveProjectDirectory } from "../atlas-projects";
 import { hasPlanExecutionResultSubstance } from "../claude-execution/commands";
 import { coveEnv } from "../env";
+import { openSqliteDatabase } from "../local/database";
+import {
+  applyLocalMigration,
+  type LocalMigration,
+} from "../local/migrations";
 import type {
   DayPlan,
   DayPlanAssistantProposal,
@@ -254,6 +257,7 @@ type ExecutionRunRow = {
   error_code: string | null;
 };
 
+// Frozen by the migration ledger: edits affect fresh installs only; changes require a new migration.
 const DAY_PLAN_SCHEMA = `
 CREATE TABLE IF NOT EXISTS day_plans (
   id TEXT PRIMARY KEY,
@@ -476,6 +480,264 @@ CREATE TABLE IF NOT EXISTS day_plan_brief_action_states (
   FOREIGN KEY (brief_id) REFERENCES day_plan_briefs(id)
 );
 `;
+
+const DAY_PLAN_MIGRATIONS: readonly LocalMigration[] = [
+  {
+    version: 100,
+    name: "day-plan-baseline",
+    up: (db) => db.exec(DAY_PLAN_SCHEMA),
+  },
+  {
+    version: 101,
+    name: "day-plan-execution-columns",
+    up: (db) => {
+      const executionRunColumns = new Set(
+        (db.pragma("table_info(day_plan_execution_runs)") as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      for (const [column, definition] of [
+        ["pid", "INTEGER"],
+        ["heartbeat_at", "TEXT"],
+        ["log_path", "TEXT"],
+        ["result_summary_json", "TEXT"],
+        ["authorization_hash", "TEXT NOT NULL DEFAULT ''"],
+      ] as const) {
+        if (!executionRunColumns.has(column)) {
+          db.exec(
+            `ALTER TABLE day_plan_execution_runs ADD COLUMN ${column} ${definition}`,
+          );
+        }
+      }
+      const executionConfigColumns = new Set(
+        (db.pragma("table_info(day_plan_execution_configs)") as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      if (!executionConfigColumns.has("authorization_hash")) {
+        db.exec(
+          "ALTER TABLE day_plan_execution_configs ADD COLUMN authorization_hash TEXT NOT NULL DEFAULT ''",
+        );
+      }
+    },
+  },
+  {
+    version: 102,
+    name: "day-plan-fable-model",
+    foreignKeysOff: true,
+    up: (db) => {
+      const executionConfigSchema = db.prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'day_plan_execution_configs'",
+      ).get() as { sql: string } | undefined;
+      if (executionConfigSchema?.sql.includes("'fable'")) return;
+      db.exec(`
+        ALTER TABLE day_plan_execution_configs RENAME TO day_plan_execution_configs_model_legacy;
+        CREATE TABLE day_plan_execution_configs (
+          day_plan_id TEXT NOT NULL,
+          item_id TEXT NOT NULL,
+          mode TEXT NOT NULL CHECK (mode IN ('plan_review','autonomous')),
+          model_alias TEXT NOT NULL CHECK (model_alias IN ('sonnet','opus','fable')),
+          workspace_id TEXT,
+          budget_usd REAL,
+          brief_hash TEXT NOT NULL,
+          authorization_hash TEXT NOT NULL DEFAULT '',
+          last_mutation_id TEXT NOT NULL UNIQUE,
+          configured_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (day_plan_id, item_id),
+          FOREIGN KEY (day_plan_id) REFERENCES day_plans(id)
+        );
+        INSERT INTO day_plan_execution_configs
+          (day_plan_id, item_id, mode, model_alias, workspace_id, budget_usd,
+           brief_hash, authorization_hash, last_mutation_id, configured_at, updated_at)
+        SELECT day_plan_id, item_id, mode, model_alias, workspace_id, budget_usd,
+               brief_hash, authorization_hash, last_mutation_id, configured_at, updated_at
+        FROM day_plan_execution_configs_model_legacy;
+        DROP TABLE day_plan_execution_configs_model_legacy;
+
+        ALTER TABLE day_plan_execution_runs RENAME TO day_plan_execution_runs_model_legacy;
+        CREATE TABLE day_plan_execution_runs (
+          id TEXT PRIMARY KEY,
+          day_plan_id TEXT NOT NULL,
+          item_id TEXT NOT NULL,
+          task_id TEXT NOT NULL,
+          owner TEXT NOT NULL CHECK (owner IN ('claude','together')),
+          mode TEXT NOT NULL CHECK (mode IN ('plan_review','autonomous')),
+          model_alias TEXT NOT NULL CHECK (model_alias IN ('sonnet','opus','fable')),
+          status TEXT NOT NULL CHECK (status IN ('queued','starting','running','plan_ready','ready_to_join','awaiting_review','failed','interrupted','cancelling','cancelled')),
+          idempotency_key TEXT NOT NULL UNIQUE,
+          attempt INTEGER NOT NULL CHECK (attempt > 0),
+          claude_session_id TEXT NOT NULL UNIQUE,
+          brief_hash TEXT NOT NULL,
+          authorization_hash TEXT NOT NULL DEFAULT '',
+          prompt_json TEXT NOT NULL,
+          workspace_id TEXT,
+          workspace_path TEXT,
+          budget_usd REAL,
+          readiness_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          started_at TEXT,
+          finished_at TEXT,
+          pid INTEGER,
+          heartbeat_at TEXT,
+          log_path TEXT,
+          result_summary_json TEXT,
+          exit_code INTEGER,
+          error_code TEXT,
+          FOREIGN KEY (day_plan_id) REFERENCES day_plans(id)
+        );
+        INSERT INTO day_plan_execution_runs
+          (id, day_plan_id, item_id, task_id, owner, mode, model_alias, status,
+           idempotency_key, attempt, claude_session_id, brief_hash, authorization_hash,
+           prompt_json, workspace_id, workspace_path, budget_usd, readiness_json,
+           created_at, updated_at, started_at, finished_at, pid, heartbeat_at, log_path,
+           result_summary_json, exit_code, error_code)
+        SELECT id, day_plan_id, item_id, task_id, owner, mode, model_alias, status,
+               idempotency_key, attempt, claude_session_id, brief_hash, authorization_hash,
+               prompt_json, workspace_id, workspace_path, budget_usd, readiness_json,
+               created_at, updated_at, started_at, finished_at, pid, heartbeat_at, log_path,
+               result_summary_json, exit_code, error_code
+        FROM day_plan_execution_runs_model_legacy;
+        DROP TABLE day_plan_execution_runs_model_legacy;
+        CREATE INDEX day_plan_execution_runs_by_plan
+          ON day_plan_execution_runs(day_plan_id, created_at, id);
+        CREATE INDEX day_plan_execution_runs_queue
+          ON day_plan_execution_runs(status, created_at, id);
+      `);
+    },
+  },
+  {
+    version: 103,
+    name: "day-plan-late-columns",
+    up: (db) => {
+      const taskMutationColumns = new Set(
+        (db.pragma("table_info(day_plan_task_mutations)") as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      if (!taskMutationColumns.has("sequence")) {
+        db.exec(
+          "ALTER TABLE day_plan_task_mutations ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0",
+        );
+      }
+      const dayPlanColumns = new Set(
+        (db.pragma("table_info(day_plans)") as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      if (!dayPlanColumns.has("brief_id")) {
+        db.exec("ALTER TABLE day_plans ADD COLUMN brief_id TEXT");
+      }
+      if (!dayPlanColumns.has("arrival_interacted_at")) {
+        db.exec("ALTER TABLE day_plans ADD COLUMN arrival_interacted_at TEXT");
+      }
+    },
+  },
+  {
+    version: 104,
+    name: "day-plan-canonical-schema",
+    foreignKeysOff: true,
+    legacyAlterTable: true,
+    up: (db) => {
+      const dayPlanColumns = db.pragma(
+        "table_info(day_plans)",
+      ) as Array<{ name: string }>;
+      const canonicalDayPlanColumns = [
+        "id", "local_date", "timezone", "open_slot", "plan_state",
+        "arrival_state", "settlement_state", "version", "last_mutation_id",
+        "items_json", "brief_id", "recommended_first_item_id",
+        "recommended_first_task_id", "snoozed_until", "next_day_note",
+        "confirmed_at", "settled_at", "arrival_interacted_at", "created_at",
+        "updated_at",
+      ];
+      if (
+        dayPlanColumns.map((column) => column.name).join(",") !==
+        canonicalDayPlanColumns.join(",")
+      ) {
+        db.exec(`
+          ALTER TABLE day_plans RENAME TO day_plans_migration_legacy;
+          CREATE TABLE day_plans (
+            id TEXT PRIMARY KEY,
+            local_date TEXT NOT NULL UNIQUE,
+            timezone TEXT NOT NULL,
+            open_slot INTEGER UNIQUE CHECK (open_slot IS NULL OR open_slot = 1),
+            plan_state TEXT NOT NULL CHECK (plan_state IN ('draft','proposed','active','settling','settled','abandoned')),
+            arrival_state TEXT NOT NULL CHECK (arrival_state IN ('not_due','due','opened','snoozed','skipped','confirmed','bypassed','failed')),
+            settlement_state TEXT NOT NULL CHECK (settlement_state IN ('not_due','offered','in_progress','skipped','committed','settled')),
+            version INTEGER NOT NULL CHECK (version > 0),
+            last_mutation_id TEXT,
+            items_json TEXT NOT NULL,
+            brief_id TEXT,
+            recommended_first_item_id TEXT,
+            recommended_first_task_id TEXT,
+            snoozed_until TEXT,
+            next_day_note TEXT,
+            confirmed_at TEXT,
+            settled_at TEXT,
+            arrival_interacted_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+          INSERT INTO day_plans
+            (id, local_date, timezone, open_slot, plan_state, arrival_state,
+             settlement_state, version, last_mutation_id, items_json, brief_id,
+             recommended_first_item_id, recommended_first_task_id,
+             snoozed_until, next_day_note, confirmed_at, settled_at,
+             arrival_interacted_at, created_at, updated_at)
+          SELECT
+            id, local_date, timezone, open_slot, plan_state, arrival_state,
+            settlement_state, version, last_mutation_id, items_json, brief_id,
+            recommended_first_item_id, recommended_first_task_id,
+            snoozed_until, next_day_note, confirmed_at, settled_at,
+            arrival_interacted_at, created_at, updated_at
+          FROM day_plans_migration_legacy;
+          DROP TABLE day_plans_migration_legacy;
+        `);
+      }
+
+      const mutationColumns = db.pragma(
+        "table_info(day_plan_task_mutations)",
+      ) as Array<{ name: string; dflt_value: string | null }>;
+      const canonicalMutationColumns = [
+        "id", "day_plan_id", "assistant_turn_id", "task_id", "action",
+        "sequence", "payload_json", "state", "created_at", "applied_at",
+      ];
+      const sequence = mutationColumns.find((column) => column.name === "sequence");
+      if (
+        mutationColumns.map((column) => column.name).join(",") !==
+          canonicalMutationColumns.join(",") ||
+        sequence?.dflt_value !== null
+      ) {
+        db.exec(`
+          ALTER TABLE day_plan_task_mutations
+            RENAME TO day_plan_task_mutations_migration_legacy;
+          CREATE TABLE day_plan_task_mutations (
+            id TEXT PRIMARY KEY,
+            day_plan_id TEXT NOT NULL,
+            assistant_turn_id TEXT NOT NULL,
+            task_id TEXT NOT NULL,
+            action TEXT NOT NULL CHECK (action IN ('create','update','complete')),
+            sequence INTEGER NOT NULL,
+            payload_json TEXT NOT NULL,
+            state TEXT NOT NULL CHECK (state IN ('pending','applied')),
+            created_at TEXT NOT NULL,
+            applied_at TEXT,
+            UNIQUE (assistant_turn_id, task_id, action),
+            FOREIGN KEY (day_plan_id) REFERENCES day_plans(id),
+            FOREIGN KEY (assistant_turn_id) REFERENCES day_plan_assistant_turns(id)
+          );
+          INSERT INTO day_plan_task_mutations
+            (id, day_plan_id, assistant_turn_id, task_id, action, sequence,
+             payload_json, state, created_at, applied_at)
+          SELECT
+            id, day_plan_id, assistant_turn_id, task_id, action, sequence,
+            payload_json, state, created_at, applied_at
+          FROM day_plan_task_mutations_migration_legacy;
+          DROP TABLE day_plan_task_mutations_migration_legacy;
+          CREATE INDEX day_plan_task_mutations_pending
+            ON day_plan_task_mutations(state, created_at, id);
+        `);
+      }
+    },
+  },
+];
 
 export { DayPlanInvalidTransition, DayPlanNotFound, DayPlanVersionConflict };
 
@@ -766,154 +1028,16 @@ export function createDayPlanStore(options: {
   executionEnvironment?: ForgeExecutionEnvironment | (() => ForgeExecutionEnvironment);
   resolveProjectDirectory?: (hint: string) => string | null;
 }) {
-  mkdirSync(path.dirname(options.dbPath), { recursive: true });
-  const db = new Database(options.dbPath);
+  const db = openSqliteDatabase(options.dbPath);
   const now = options.now ?? (() => new Date());
   const executionEnvironment = () =>
     typeof options.executionEnvironment === "function"
       ? options.executionEnvironment()
       : options.executionEnvironment ?? loadForgeExecutionEnvironment();
   const projectDirectoryResolver = options.resolveProjectDirectory ?? resolveProjectDirectory;
-  db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
-  db.pragma("busy_timeout = 5000");
-  db.exec(DAY_PLAN_SCHEMA);
-  const executionRunColumns = new Set(
-    (db.pragma("table_info(day_plan_execution_runs)") as Array<{ name: string }>).map(
-      (column) => column.name,
-    ),
-  );
-  for (const [column, definition] of [
-    ["pid", "INTEGER"],
-    ["heartbeat_at", "TEXT"],
-    ["log_path", "TEXT"],
-    ["result_summary_json", "TEXT"],
-    ["authorization_hash", "TEXT NOT NULL DEFAULT ''"],
-  ] as const) {
-    if (!executionRunColumns.has(column)) {
-      db.exec(`ALTER TABLE day_plan_execution_runs ADD COLUMN ${column} ${definition}`);
-    }
-  }
-  const executionConfigColumns = new Set(
-    (db.pragma("table_info(day_plan_execution_configs)") as Array<{ name: string }>).map(
-      (column) => column.name,
-    ),
-  );
-  if (!executionConfigColumns.has("authorization_hash")) {
-    db.exec("ALTER TABLE day_plan_execution_configs ADD COLUMN authorization_hash TEXT NOT NULL DEFAULT ''");
-  }
-  const executionConfigSchema = db.prepare(
-    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'day_plan_execution_configs'",
-  ).get() as { sql: string } | undefined;
-  if (!executionConfigSchema?.sql.includes("'fable'")) {
-    db.pragma("foreign_keys = OFF");
-    try {
-      db.exec(`
-        BEGIN IMMEDIATE;
-        ALTER TABLE day_plan_execution_configs RENAME TO day_plan_execution_configs_model_legacy;
-        CREATE TABLE day_plan_execution_configs (
-          day_plan_id TEXT NOT NULL,
-          item_id TEXT NOT NULL,
-          mode TEXT NOT NULL CHECK (mode IN ('plan_review','autonomous')),
-          model_alias TEXT NOT NULL CHECK (model_alias IN ('sonnet','opus','fable')),
-          workspace_id TEXT,
-          budget_usd REAL,
-          brief_hash TEXT NOT NULL,
-          authorization_hash TEXT NOT NULL DEFAULT '',
-          last_mutation_id TEXT NOT NULL UNIQUE,
-          configured_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          PRIMARY KEY (day_plan_id, item_id),
-          FOREIGN KEY (day_plan_id) REFERENCES day_plans(id)
-        );
-        INSERT INTO day_plan_execution_configs
-          (day_plan_id, item_id, mode, model_alias, workspace_id, budget_usd,
-           brief_hash, authorization_hash, last_mutation_id, configured_at, updated_at)
-        SELECT day_plan_id, item_id, mode, model_alias, workspace_id, budget_usd,
-               brief_hash, authorization_hash, last_mutation_id, configured_at, updated_at
-        FROM day_plan_execution_configs_model_legacy;
-        DROP TABLE day_plan_execution_configs_model_legacy;
-
-        ALTER TABLE day_plan_execution_runs RENAME TO day_plan_execution_runs_model_legacy;
-        CREATE TABLE day_plan_execution_runs (
-          id TEXT PRIMARY KEY,
-          day_plan_id TEXT NOT NULL,
-          item_id TEXT NOT NULL,
-          task_id TEXT NOT NULL,
-          owner TEXT NOT NULL CHECK (owner IN ('claude','together')),
-          mode TEXT NOT NULL CHECK (mode IN ('plan_review','autonomous')),
-          model_alias TEXT NOT NULL CHECK (model_alias IN ('sonnet','opus','fable')),
-          status TEXT NOT NULL CHECK (status IN ('queued','starting','running','plan_ready','ready_to_join','awaiting_review','failed','interrupted','cancelling','cancelled')),
-          idempotency_key TEXT NOT NULL UNIQUE,
-          attempt INTEGER NOT NULL CHECK (attempt > 0),
-          claude_session_id TEXT NOT NULL UNIQUE,
-          brief_hash TEXT NOT NULL,
-          authorization_hash TEXT NOT NULL DEFAULT '',
-          prompt_json TEXT NOT NULL,
-          workspace_id TEXT,
-          workspace_path TEXT,
-          budget_usd REAL,
-          readiness_json TEXT NOT NULL,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          started_at TEXT,
-          finished_at TEXT,
-          pid INTEGER,
-          heartbeat_at TEXT,
-          log_path TEXT,
-          result_summary_json TEXT,
-          exit_code INTEGER,
-          error_code TEXT,
-          FOREIGN KEY (day_plan_id) REFERENCES day_plans(id)
-        );
-        INSERT INTO day_plan_execution_runs
-          (id, day_plan_id, item_id, task_id, owner, mode, model_alias, status,
-           idempotency_key, attempt, claude_session_id, brief_hash, authorization_hash,
-           prompt_json, workspace_id, workspace_path, budget_usd, readiness_json,
-           created_at, updated_at, started_at, finished_at, pid, heartbeat_at, log_path,
-           result_summary_json, exit_code, error_code)
-        SELECT id, day_plan_id, item_id, task_id, owner, mode, model_alias, status,
-               idempotency_key, attempt, claude_session_id, brief_hash, authorization_hash,
-               prompt_json, workspace_id, workspace_path, budget_usd, readiness_json,
-               created_at, updated_at, started_at, finished_at, pid, heartbeat_at, log_path,
-               result_summary_json, exit_code, error_code
-        FROM day_plan_execution_runs_model_legacy;
-        DROP TABLE day_plan_execution_runs_model_legacy;
-        CREATE INDEX day_plan_execution_runs_by_plan
-          ON day_plan_execution_runs(day_plan_id, created_at, id);
-        CREATE INDEX day_plan_execution_runs_queue
-          ON day_plan_execution_runs(status, created_at, id);
-        COMMIT;
-      `);
-    } catch (error) {
-      try {
-        db.exec("ROLLBACK");
-      } catch {
-        // Preserve the migration error.
-      }
-      throw error;
-    } finally {
-      db.pragma("foreign_keys = ON");
-    }
-  }
-  const taskMutationColumns = new Set(
-    (db.pragma("table_info(day_plan_task_mutations)") as Array<{ name: string }>).map(
-      (column) => column.name,
-    ),
-  );
-  if (!taskMutationColumns.has("sequence")) {
-    db.exec("ALTER TABLE day_plan_task_mutations ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0");
-  }
-  const dayPlanColumns = new Set(
-    (db.pragma("table_info(day_plans)") as Array<{ name: string }>).map(
-      (column) => column.name,
-    ),
-  );
-  if (!dayPlanColumns.has("brief_id")) {
-    db.exec("ALTER TABLE day_plans ADD COLUMN brief_id TEXT");
-  }
-  if (!dayPlanColumns.has("arrival_interacted_at")) {
-    db.exec("ALTER TABLE day_plans ADD COLUMN arrival_interacted_at TEXT");
+  for (const migration of DAY_PLAN_MIGRATIONS) {
+    applyLocalMigration(db, migration, now);
   }
   const selectPlan = db.prepare("SELECT * FROM day_plans WHERE id = ?");
   const selectOpenPlan = db.prepare("SELECT * FROM day_plans WHERE open_slot = 1 LIMIT 1");

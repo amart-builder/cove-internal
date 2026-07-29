@@ -1,31 +1,26 @@
 #!/usr/bin/env bash
-# Back up the local Cove database. Keeps the 14 most recent copies.
-# Run by the com.cove.local.backup LaunchAgent once a day.
+# Enqueue the daily local database backup and drain the scheduler once.
+# Run by the com.cove.local.backup LaunchAgent and safe to invoke by hand.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DB="${COVE_DB_PATH:-$REPO_DIR/data/forge.db}"
-BACKUP_DIR="$REPO_DIR/data/backups"
-
-mkdir -p "$BACKUP_DIR"
 
 if [ ! -f "$DB" ]; then
   echo "No database at $DB yet; nothing to back up."
   exit 0
 fi
 
-STAMP="$(date +%Y%m%d-%H%M%S)"
-DEST="$BACKUP_DIR/forge-$STAMP.db"
-
-# SQLite's online backup is consistent even while Cove is running.
-if command -v sqlite3 >/dev/null 2>&1; then
-  sqlite3 "$DB" ".backup '$DEST'"
-else
-  cp "$DB" "$DEST"
+TSX_LOADER="$REPO_DIR/node_modules/tsx/dist/loader.mjs"
+NODE_REAL="${COVE_NODE_PATH:-}"
+if [ -z "$NODE_REAL" ]; then
+  NODE_REAL="$(command -v node 2>/dev/null || true)"
 fi
-echo "Backed up to $DEST"
+if [ -z "$NODE_REAL" ] || [ ! -f "$TSX_LOADER" ]; then
+  echo "Could not find Node or the tsx loader. Run npm install first." >&2
+  exit 1
+fi
 
-# Keep only the 14 newest backups.
-ls -1t "$BACKUP_DIR"/forge-*.db 2>/dev/null | tail -n +15 | while read -r old; do
-  rm -f "$old"
-done
+exec env COVE_DB_PATH="$DB" \
+  "$NODE_REAL" --import "$TSX_LOADER" \
+  "$REPO_DIR/scripts/cove-jobs.ts" enqueue-backup --run

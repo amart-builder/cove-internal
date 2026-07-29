@@ -124,7 +124,7 @@ test('a filterless PATCH or DELETE is not treated as targeting rows', () => {
   assert.equal(targetsSpecificRows(new URLSearchParams('status=eq.open')), true);
 });
 
-test('a legacy tasks table is refused at startup instead of failing per query', async () => {
+test('a legacy tasks table upgrades in place instead of failing per query', async () => {
   const dir = path.join(os.tmpdir(), `forge-legacy-db-${process.pid}-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
   const file = path.join(dir, 'forge.db');
@@ -138,16 +138,40 @@ test('a legacy tasks table is refused at startup instead of failing per query', 
   seed.exec(
     'CREATE TABLE tasks (id TEXT PRIMARY KEY, column_id TEXT, title TEXT NOT NULL, due_date TEXT)',
   );
+  seed.prepare(
+    'INSERT INTO tasks (id, title, due_date) VALUES (?, ?, ?)',
+  ).run('legacy-task', 'Preserve this task', '2026-07-31');
   seed.close();
 
   process.env.COVE_DB_PATH = file;
   delete globalKey.__forgeDb;
   try {
-    assert.throws(
-      () => handleLocalRest('tasks', 'GET', new URLSearchParams(''), undefined),
-      /incompatible tasks table/,
-      'a legacy database must stop Cove with an actionable message',
+    const result = handleLocalRest(
+      'tasks',
+      'GET',
+      new URLSearchParams('id=eq.legacy-task'),
+      undefined,
     );
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body, [{
+      id: 'legacy-task',
+      column_id: null,
+      title: 'Preserve this task',
+      description: '',
+      priority: 'medium',
+      due_at: '2026-07-31',
+      due_date: '2026-07-31',
+      tags: [],
+      project: 'Atlas',
+      position: 0,
+      status: 'open',
+      source_type: 'manual',
+      remind_native: true,
+      remind_text: false,
+      notified_at: null,
+      created_at: null,
+      updated_at: null,
+    }]);
   } finally {
     delete globalKey.__forgeDb;
     if (previousDb !== undefined) globalKey.__forgeDb = previousDb;

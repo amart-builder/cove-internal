@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Restore one Cove SQLite backup after an explicit confirmation.
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+DB="${COVE_DB_PATH:-$REPO_DIR/data/forge.db}"
+BACKUP_DIR="${COVE_BACKUP_DIR:-$REPO_DIR/data/backups}"
+ASSUME_YES=0
+
+if [ "${1:-}" = "--yes" ]; then
+  ASSUME_YES=1
+  shift
+fi
+BACKUP="${1:-}"
+if [ -z "$BACKUP" ]; then
+  echo "Usage: bash scripts/cove-restore-backup.sh [--yes] <backup.db>" >&2
+  exit 2
+fi
+if [ ! -f "$BACKUP" ]; then
+  echo "Backup does not exist: $BACKUP" >&2
+  exit 2
+fi
+if [ -e "$DB" ] && [ "$BACKUP" -ef "$DB" ]; then
+  echo "Refusing to restore the database from itself." >&2
+  exit 2
+fi
+
+database_is_open() {
+  command -v lsof >/dev/null 2>&1 || return 1
+  lsof -t -- "$DB" >/dev/null 2>&1 ||
+    lsof -t -- "$DB-wal" >/dev/null 2>&1
+}
+
+# A live SQLite writer may replay the old WAL after replacement. Refuse when
+# lsof can cheaply prove that any process has the database or WAL open.
+if database_is_open; then
+  echo "Cove still has $DB open. Stop the Cove server and workers, then retry." >&2
+  exit 1
+fi
+
+"$(command -v node)" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$BACKUP"
+
+if [ "$ASSUME_YES" != "1" ]; then
+  if [ ! -t 0 ]; then
+    echo "Restore requires an interactive confirmation (or the explicit --yes flag)." >&2
+    exit 1
+  fi
+  printf 'Replace %s with %s? The current database will be archived. [y/N] ' "$DB" "$BACKUP"
+  read -r REPLY
+  case "$REPLY" in
+    y|Y|yes|YES) ;;
+    *) echo "Restore cancelled."; exit 0 ;;
+  esac
+fi
+
+mkdir -p "$(dirname "$DB")" "$BACKUP_DIR/recovery"
+TEMP="$DB.restore.$$"
+trap 'rm -f "$TEMP"' EXIT
+cp "$BACKUP" "$TEMP"
+chmod 600 "$TEMP"
+"$(command -v node)" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$TEMP"
+
+STAMP="$(date +%Y%m%d-%H%M%S)-$$"
+if [ -f "$DB" ]; then
+  cp -p "$DB" "$BACKUP_DIR/recovery/forge-pre-restore-$STAMP.db"
+fi
+if [ -f "$DB-wal" ]; then
+  cp -p "$DB-wal" "$BACKUP_DIR/recovery/forge-pre-restore-$STAMP.db-wal"
+fi
+if [ -f "$DB-shm" ]; then
+  cp -p "$DB-shm" "$BACKUP_DIR/recovery/forge-pre-restore-$STAMP.db-shm"
+fi
+
+# The prompt and archive copy can take time. Re-check immediately before the
+# atomic replacement, then ignore termination signals for the tiny swap window.
+if database_is_open; then
+  echo "Cove reopened $DB during restore. Stop the server and workers, then retry." >&2
+  exit 1
+fi
+trap '' HUP INT TERM
+mv -f "$TEMP" "$DB"
+rm -f "$DB-wal" "$DB-shm"
+trap - EXIT
+trap - HUP INT TERM
+echo "Restored $DB from $BACKUP."
+echo "Previous database files are in $BACKUP_DIR/recovery."

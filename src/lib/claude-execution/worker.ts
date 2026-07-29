@@ -85,6 +85,7 @@ import {
   createFallbackInboundTask,
 } from "../intake/task-writer";
 import { coveEnv } from "../env";
+import { recordReceipt, type ReceiptOutcome } from "../reliability/receipts";
 
 export { fallbackInboundDueAt } from "../intake/task-writer";
 
@@ -554,6 +555,7 @@ export type MorningBriefWorkerOptions = ClaudeWorkerOptions & {
   briefWriter?: MorningBriefWriter;
   codexPath?: string;
   relay?: BriefRelayOptions;
+  receiptDbPath?: string;
 };
 
 export type DayDumpWorkerOptions = ClaudeWorkerOptions & {
@@ -1074,6 +1076,28 @@ export async function runOneMorningBrief(
   }
   const claimed = options.store.claimNextMorningBrief();
   if (!claimed) return false;
+  const receiptStartedAt = claimed.startedAt ?? clock().toISOString();
+  let receiptRecorded = false;
+  const recordBriefReceipt = (
+    outcome: ReceiptOutcome,
+    summary: string,
+    actions: Record<string, unknown>,
+  ) => {
+    if (!options.receiptDbPath || receiptRecorded) return;
+    receiptRecorded = true;
+    try {
+      recordReceipt({
+        dbPath: options.receiptDbPath,
+        source: "morning-brief",
+        startedAt: receiptStartedAt,
+        summary,
+        actions: { briefId: claimed.id, targetLocalDate: claimed.targetLocalDate, ...actions },
+        outcome,
+      });
+    } catch (error) {
+      console.error("Could not record morning brief receipt.", error);
+    }
+  };
   const targetTimezone = resolveBriefTimezone(options.store);
   const relay = options.relay;
   const relayHost = relay?.host ?? originHost();
@@ -1081,6 +1105,7 @@ export async function runOneMorningBrief(
   // stops waiting on this attempt.
   const failBrief = (code: string) => {
     options.store.failMorningBrief(claimed.id, code);
+    recordBriefReceipt("failed", `Morning brief failed: ${code}`, { errorCode: code });
     if (relay) {
       writeBriefAttemptStatus(
         {
@@ -1164,7 +1189,12 @@ export async function runOneMorningBrief(
       schemaVersion: MORNING_BRIEF_SCHEMA_VERSION,
     });
     // Identical inputs already produced an artifact; nothing new to generate.
-    if (inputs.duplicateOfId) return true;
+    if (inputs.duplicateOfId) {
+      recordBriefReceipt("skipped", "Morning brief reused an identical result.", {
+        duplicateOfId: inputs.duplicateOfId,
+      });
+      return true;
+    }
     const promptInput = {
       targetLocalDate: claimed.targetLocalDate,
       targetTimezone,
@@ -1273,6 +1303,7 @@ export async function runOneMorningBrief(
       claimed.id,
       JSON.stringify({ ...dated.brief, writer }),
     );
+    recordBriefReceipt("success", "Morning brief completed.", { writer });
     console.info("Morning brief generated.", { briefId: claimed.id, writer });
     // Publish the immutable artifact to the relay so the other machine imports
     // it. The authoritative machine (the MBP) also refreshes the settlement

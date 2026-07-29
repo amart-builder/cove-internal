@@ -1,9 +1,13 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
 import path from "node:path";
 import type { BuddySpawnedSessionState } from "./spawned-session-state";
 import { coveEnv } from "../env";
+import { openSqliteDatabase } from "../local/database";
+import {
+  applyLocalMigration,
+  type LocalMigration,
+} from "../local/migrations";
 
 export { BUDDY_STALE_TURN_MS } from "./timing";
 
@@ -43,6 +47,7 @@ export type BuddySpawnedSession = {
   created_at: string;
 };
 
+// Frozen by the migration ledger: edits affect fresh installs only; changes require a new migration.
 const TABLE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS buddy_state (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -125,6 +130,7 @@ const REQUIRED_COLUMNS = {
   },
 } as const;
 
+// Frozen by the migration ledger: edits affect fresh installs only; changes require a new migration.
 function migrateRequiredColumns(db: Database.Database): void {
   for (const [table, definitions] of Object.entries(REQUIRED_COLUMNS)) {
     const existing = new Set((db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>)
@@ -135,20 +141,35 @@ function migrateRequiredColumns(db: Database.Database): void {
   }
 }
 
+const BUDDY_MIGRATIONS: readonly LocalMigration[] = [
+  {
+    version: 200,
+    name: "buddy-baseline",
+    up: (db) => db.exec(TABLE_SCHEMA),
+  },
+  {
+    version: 201,
+    name: "buddy-required-columns",
+    up: migrateRequiredColumns,
+  },
+  {
+    version: 202,
+    name: "buddy-indexes",
+    up: (db) => db.exec(INDEX_SCHEMA),
+  },
+];
+
 type Clock = () => Date;
 const PROCESS_STARTED_AT = new Date(Date.now() - process.uptime() * 1_000);
 const BUDDY_RETENTION_MS = 30 * 24 * 60 * 60_000;
 const BUDDY_MIN_RETAINED_TURNS = 500;
 
 export function createBuddyStore(options: { dbPath: string; now?: Clock; processStartedAt?: Date }) {
-  mkdirSync(path.dirname(options.dbPath), { recursive: true });
-  const db = new Database(options.dbPath);
+  const db = openSqliteDatabase(options.dbPath);
   const now = options.now ?? (() => new Date());
-  db.pragma("journal_mode = WAL");
-  db.pragma("busy_timeout = 5000");
-  db.exec(TABLE_SCHEMA);
-  migrateRequiredColumns(db);
-  db.exec(INDEX_SCHEMA);
+  for (const migration of BUDDY_MIGRATIONS) {
+    applyLocalMigration(db, migration, now);
+  }
   db.prepare(`INSERT OR IGNORE INTO buddy_state
     (id, head_session_id, created_at, turn_count, total_cost_usd)
     VALUES (1, NULL, ?, 0, 0)`).run(now().toISOString());
