@@ -26,6 +26,14 @@
 
 **Last updated:** 2026-07-29 (email architecture redesign integrated with committed Morning Brief Phase 1a, 1b, and 2 work; Alex's install remains local mode on the MacBook, single machine, Mini fully retired)
 
+## 2026-07-29 Google Workspace connected and Keychain persistence fixed
+
+- Cove's direct Google Workspace gateway is connected as `alex@joinedgeai.com`, with Gmail modify, Calendar read-only, and Google Docs read-only scopes. The refresh token and OAuth client secret live in macOS Keychain; the private non-secret settings live in ignored `data/cove-workspace.json`.
+- The live connect flow exposed a macOS Keychain bug: `security add-generic-password -w` prompts twice when the password is kept off argv, while Cove sent the value once through a plain pipe. Keychain therefore stored an empty password and unattended verification failed.
+- `writeGoogleSecret` now uses `/usr/bin/expect` only to supply the required pseudo-terminal and answer both prompts. The secret still travels only through stdin and is absent from process arguments, environment variables, and logs.
+- Verified with a real temporary Keychain write/read/delete, Google token refresh, live Calendar collection (1,056 characters with no source warning), TypeScript, and all 8 focused Google Workspace tests.
+- The 2026-07-29 prompt-v14 morning brief was written by Claude with the `opus` alias at high effort. A live resolution check confirmed that alias currently maps to `claude-opus-4-8`, not Opus 5.
+
 ## 2026-07-29 Forge to Cove identity cutover
 
 - The private development repository is now `amart-builder/cove-internal`. The sanitized client mirror remains the separate `amart-builder/cove` repository.
