@@ -4,6 +4,7 @@ import { WorkspaceGatewayError } from "../errors";
 
 const execFileAsync = promisify(execFile);
 const SECURITY_BIN = "/usr/bin/security";
+const EXPECT_BIN = "/usr/bin/expect";
 const SERVICE = "com.cove.google";
 
 type SecretChild = {
@@ -90,18 +91,28 @@ export async function writeGoogleSecret(
     });
   }
   const spawnProcess = options.spawnProcess ?? spawn as unknown as SpawnSecretProcess;
+  const accountName = account(profileId, kind);
+  // `security add-generic-password -w` prompts twice when no password is put
+  // on argv. A plain pipe is not a terminal, so security accepts an empty
+  // value instead of reading the piped secret. Expect supplies the required
+  // pseudo-terminal while the credential still travels only over stdin.
+  const expectScript = [
+    "set timeout 15",
+    "gets stdin secret",
+    "log_user 0",
+    `spawn ${SECURITY_BIN} add-generic-password -U -s ${SERVICE} -a ${accountName} -w`,
+    'expect "password data for new item: "',
+    'send -- "$secret\\r"',
+    'expect "retype password for new item: "',
+    'send -- "$secret\\r"',
+    "expect eof",
+    "set result [wait]",
+    "exit [lindex $result 3]",
+  ].join("; ");
   await new Promise<void>((resolve, reject) => {
     const child = spawnProcess(
-      SECURITY_BIN,
-      [
-        "add-generic-password",
-        "-U",
-        "-s",
-        SERVICE,
-        "-a",
-        account(profileId, kind),
-        "-w",
-      ],
+      EXPECT_BIN,
+      ["-c", expectScript],
       {
         env: minimalEnv(),
         stdio: ["pipe", "ignore", "pipe"],
