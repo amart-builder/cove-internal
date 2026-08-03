@@ -18,7 +18,7 @@ export default function SignIn() {
 
     try {
       await signIn("password", { email, password, flow: mode });
-    } catch (err) {
+    } catch {
       setError(mode === "signIn" ? "Invalid credentials" : "Could not create account");
     } finally {
       setLoading(false);

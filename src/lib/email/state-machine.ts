@@ -325,6 +325,19 @@ function enqueueOperation(
 ): { operationId: string; jobId: string } {
   const operationKey = gmailOperationKey(input);
   const operationId = stableUuid(`gmail-operation:${operationKey}`);
+  const resolvedOperationId = db.prepare(
+    "SELECT id FROM cove_gmail_operations WHERE operation_key = ?",
+  ).pluck().get(operationKey) as string | undefined;
+  db.prepare(
+    `UPDATE cove_gmail_operations
+     SET status = 'superseded', updated_at = ?, completed_at = ?
+     WHERE thread_id = ? AND status IN ('pending','uncertain') AND id != ?`,
+  ).run(
+    input.now,
+    input.now,
+    input.threadId,
+    resolvedOperationId ?? operationId,
+  );
   const inserted = db.prepare(
     `INSERT INTO cove_gmail_operations
        (id, email_item_id, thread_id, expected_message_id,
@@ -400,14 +413,19 @@ export function applyEmailClassification(input: {
   modelVersion: string;
   dbPath?: string;
   now?: Date;
-}): { applied: boolean; operationId?: string; cardId?: string } {
+}): {
+  applied: boolean;
+  operationId?: string;
+  cardId?: string;
+  cause?: "missing_item" | "item_not_open" | "version_mismatch";
+} {
   const now = (input.now ?? new Date()).toISOString();
   const db = openLocalDatabase(input.dbPath);
   try {
     return db.transaction(() => {
       const thread = db.prepare(
         `SELECT id, thread_id, thread_version, latest_inbound_message_id,
-                gmail_draft_id
+                gmail_draft_id, workflow_state, status
          FROM email_items WHERE id = ?`,
       ).get(input.emailItemId) as {
         id: string;
@@ -415,18 +433,30 @@ export function applyEmailClassification(input: {
         thread_version: number;
         latest_inbound_message_id: string | null;
         gmail_draft_id: string | null;
+        workflow_state: string;
+        status: string;
       } | undefined;
-      if (
-        !thread ||
-        thread.thread_version !== input.threadVersion ||
-        thread.latest_inbound_message_id !== input.messageId
-      ) {
+      const rejectClassification = (
+        cause: "missing_item" | "item_not_open" | "version_mismatch",
+      ) => {
         db.prepare(
           `UPDATE cove_email_messages
            SET state = 'superseded', updated_at = ?
            WHERE message_id = ? AND state IN ('observed','classifying')`,
         ).run(now, input.messageId);
-        return { applied: false };
+        return { applied: false, cause };
+      };
+      if (!thread) {
+        return rejectClassification("missing_item");
+      }
+      if (thread.status !== "pending" || thread.workflow_state !== "observed") {
+        return rejectClassification("item_not_open");
+      }
+      if (
+        thread.thread_version !== input.threadVersion ||
+        thread.latest_inbound_message_id !== input.messageId
+      ) {
+        return rejectClassification("version_mismatch");
       }
       if (input.bucket === "reply" && !input.draftBody?.trim()) {
         throw new Error("Reply classification requires a draft body.");
@@ -488,6 +518,20 @@ export function applyEmailClassification(input: {
            SET surfaced_message_id = ?, surfaced_at = ?, surface_receipt_id = ?
            WHERE id = ?`,
         ).run(input.messageId, now, receipt.id, input.emailItemId);
+      } else if (input.bucket === "noise") {
+        recordReceiptInDatabase(db, {
+          source: "email-surfaced",
+          startedAt: now,
+          finishedAt: now,
+          summary: "A low-value email was recorded before Cove queued it for archive.",
+          actions: {
+            emailItemId: input.emailItemId,
+            messageId: input.messageId,
+            threadId: thread.thread_id,
+            bucket: input.bucket,
+          },
+          outcome: "success",
+        });
       }
 
       let operationId: string | undefined;

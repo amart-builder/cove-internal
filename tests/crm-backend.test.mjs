@@ -148,7 +148,7 @@ test('name matching normalizes case, whitespace, punctuation, and diacritics', (
 });
 
 test('ambiguous identity returns candidates and never creates a contact', (t) => {
-  const { backend, dbPath } = fixture(t);
+  const { dbPath } = fixture(t);
   const db = new Database(dbPath);
   const insert = db.prepare(
     `INSERT INTO contacts

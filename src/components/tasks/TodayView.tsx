@@ -30,10 +30,15 @@ import {
 } from '@/lib/quiet-current/arrival-cache';
 import { realTimeLabel } from '@/lib/quiet-current/presentation';
 import { taskColumnKeyForName, type TaskColumnKey } from '@/lib/tasks/columns';
-import { buildDayPlanCandidates } from '@/lib/day-plan/candidates';
+import {
+  buildDayPlanCandidates,
+  orderArrivalCandidatesByTier,
+  selectArrivalCandidateTasks,
+} from '@/lib/day-plan/candidates';
 import {
   combineSurfaceErrors,
   firstContinuingItem,
+  formatArrivalDueDate,
   helpfulProjectLabel,
   reorderDayPlanItems,
   selectBoardExecutionPresentation,
@@ -72,6 +77,7 @@ import {
   type LaunchTaskSessionInput,
   type TaskSessionRun,
 } from '@/lib/task-sessions/types';
+import CoveReadinessStrip from './CoveReadinessStrip';
 
 type TaskStatus = ArrivalTaskStatus;
 type ColumnData = ArrivalColumn;
@@ -683,6 +689,9 @@ function TodayExperience({
     localMode ? tasks.map((task) => task._id) : [],
   );
   const [suggestions, setSuggestions] = useState<WorkSuggestion[]>([]);
+  const [briefPickedTasks, setBriefPickedTasks] = useState<
+    Array<{ taskId: string; whyToday: string }>
+  >([]);
   const [rhythmTemplates, setRhythmTemplates] = useState<RecurringTemplate[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(true);
   const [surfaceError, setSurfaceError] = useState<string>();
@@ -788,12 +797,22 @@ function TodayExperience({
     const refreshedAt = candidateEvidence?.refreshedAt ?? new Date(0).toISOString();
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     const localDate = localDateInTimezone(new Date(), timezone);
-    // A pool of up to ten deterministic candidates: the Morning Brief overlay
-    // ranks within this pool server-side, and the plan still keeps three.
-    return buildDayPlanCandidates({
+    const candidateTasks = selectArrivalCandidateTasks(openTasks, {
       localDate,
       timezone,
-      tasks: commitments.map((task) => ({
+      todayColumnId: todayColumn?._id,
+      inFlightColumnId: inFlightColumn?._id,
+      localMode,
+      preferredTaskIds: briefPickedTasks.map((picked) => picked.taskId),
+      maximum: 10,
+    });
+    const briefPickedIds = new Set(briefPickedTasks.map((picked) => picked.taskId));
+    // A pool of up to ten deterministic candidates: the Morning Brief overlay
+    // ranks within this pool server-side, and the plan still keeps three.
+    const candidates = buildDayPlanCandidates({
+      localDate,
+      timezone,
+      tasks: candidateTasks.map((task) => ({
         id: task._id,
         title: task.title,
         description: task.description,
@@ -801,20 +820,48 @@ function TodayExperience({
         priority: task.priority,
         dueAt: task.dueAt,
         position: task.position,
-        column: task.columnId === inFlightColumn?._id ? 'in_flight' : 'today',
+        column: task.columnId === inFlightColumn?._id
+          ? 'in_flight'
+          : task.columnId === todayColumn?._id
+            ? 'today'
+            : 'due_backlog',
         status: task.status ?? 'open',
         updatedAt: task.updatedAt > 0 ? new Date(task.updatedAt).toISOString() : refreshedAt,
         refreshedAt,
         freshness: candidateEvidence?.freshness ?? 'stale',
         project: task.tags[0],
+        briefPicked: briefPickedIds.has(task._id),
       })),
     }, 10);
-  }, [candidateEvidence, commitments, inFlightColumn?._id]);
+    const tierByTaskId = new Map(
+      candidateTasks.map((task, index) => [task._id, index]),
+    );
+    return orderArrivalCandidatesByTier(candidates, tierByTaskId);
+  }, [
+    candidateEvidence,
+    briefPickedTasks,
+    inFlightColumn?._id,
+    localMode,
+    openTasks,
+    todayColumn?._id,
+  ]);
+
+  const onBriefPicksChange = useCallback(async (
+    picks: ReadonlyArray<{ taskId: string; whyToday: string }>,
+    briefReady: boolean,
+  ) => {
+    setBriefPickedTasks((current) => {
+      const next = [...picks];
+      return JSON.stringify(current) === JSON.stringify(next) ? current : next;
+    });
+    if (briefReady) await retry().catch(() => undefined);
+  }, [retry]);
 
   const dayRitual = useDayRitual({
     enabled: !loading && Boolean(todayColumn && doneColumn),
     candidates: dayPlanCandidates,
     candidatesReady: candidateEvidence?.freshness === 'current',
+    onBriefPicksChange,
   });
   const ritualView: OverlayRitualView | undefined =
     dayRitual.view === 'arrival' ||
@@ -1758,7 +1805,7 @@ function TodayExperience({
         definitionOfDone: item.definitionOfDone,
         project: helpfulProjectLabel(item.project),
         deadline: item.dueAt
-          ? new Date(item.dueAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+          ? formatArrivalDueDate(item.dueAt)
           : undefined,
       };
     }),
@@ -2010,6 +2057,21 @@ function TodayExperience({
             <p className="current-today-label">Today</p>
             <time className="current-time" dateTime={now.toISOString()}>{timeLabel}</time>
             <p className="current-greeting">{greeting}</p>
+            {dayRitual.weekendGate && (
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <p className="text-sm text-muted-foreground">
+                  It&apos;s {dayRitual.weekendGate.weekday}. Cove plans weekdays.
+                </p>
+                <button
+                  type="button"
+                  className="current-capture-toggle"
+                  disabled={dayRitual.planningWeekend}
+                  onClick={() => void dayRitual.planWeekendAnyway()}
+                >
+                  {dayRitual.planningWeekend ? 'Planning…' : 'Plan today anyway'}
+                </button>
+              </div>
+            )}
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -2046,6 +2108,7 @@ function TodayExperience({
                 <button type="submit" disabled={!capture.trim() || capturing}>Add</button>
               </form>
             )}
+            <CoveReadinessStrip />
             {visibleSurfaceError && (
               <p role="alert" className="current-surface-error">{visibleSurfaceError}</p>
             )}
@@ -2663,6 +2726,8 @@ function TodayExperience({
                 recommendation={recommendation}
                 brief={dayRitual.morningBrief}
                 briefGeneration={dayRitual.briefGeneration}
+                briefAttachTimedOut={dayRitual.briefAttachTimedOut}
+                arrivalInteracted={dayRitual.arrivalInteracted}
                 onForceBrief={() => void dayRitual.forceBrief()}
                 forcingBrief={dayRitual.forcingBrief}
                 recap={morningRecap}
@@ -2674,7 +2739,7 @@ function TodayExperience({
                   : 'Using the latest verified task evidence'}
                 expandedItemId={expandedArrivalItemId}
                 busy={dayRitual.busy}
-                error={dayRitual.error}
+                error={combineSurfaceErrors(dayRitual.error, surfaceError)}
                 titleId={RITUAL_TITLE_IDS.arrival}
                 descriptionId={RITUAL_DESCRIPTION_IDS.arrival}
                 escapeRef={arrivalEscapeRef}
@@ -2691,7 +2756,6 @@ function TodayExperience({
                   if (position >= 0) await dayRitual.reorder(activeId, position, title);
                 }}
                 onDismiss={dayRitual.dismissItem}
-                onSalesAction={dayRitual.markBriefSalesAction}
                 onAddSuggestion={dayRitual.addItem}
                 onSnooze={() => dayRitual.snooze().catch(() => undefined)}
                 onSkip={() => dayRitual.skip().catch(() => undefined)}
@@ -2713,7 +2777,7 @@ function TodayExperience({
                 proposedTomorrowTitle={proposedTomorrow?.title}
                 savingItemIds={dayRitual.savingItemIds}
                 closing={dayRitual.busy}
-                error={dayRitual.error}
+                error={combineSurfaceErrors(dayRitual.error, surfaceError)}
                 note={settlementNote}
                 canDefer={Boolean(notStartedColumn)}
                 titleId={RITUAL_TITLE_IDS.settlement}

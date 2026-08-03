@@ -15,7 +15,16 @@ Turn a natural-language request into a task on the local Cove board at
 `http://localhost:3200`, with a sensible due date and a reminder. Confirm in one
 short, human sentence when done.
 
-## 1. Read the board
+## 1. Read the request token and board
+
+Read the current day-plan state first. Keep its `csrfToken`; every POST or
+PATCH below must send it as `X-Cove-CSRF`.
+
+```bash
+curl -s 'http://localhost:3200/api/day-plan'
+```
+
+Then read the board:
 
 ```bash
 curl -s 'http://localhost:3200/api/cove-rest/task_columns?select=*&order=position.asc'
@@ -79,6 +88,7 @@ they can correct it.
 ```bash
 curl -s -X POST 'http://localhost:3200/api/cove-rest/tasks' \
   -H 'Content-Type: application/json' \
+  -H 'X-Cove-CSRF: <token from the day-plan GET>' \
   -d '{
     "column_id": "<chosen column id>",
     "title": "<title>",

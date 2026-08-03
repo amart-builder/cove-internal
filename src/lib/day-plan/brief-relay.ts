@@ -475,7 +475,8 @@ export function parseRelayFile(
 // are skipped via the caller-owned set, and the DB dedupes on the composite key
 // regardless. Fully fail-open; returns the number of rows imported/adopted.
 export function scanAndImportBriefRelay(options: {
-  store: Pick<DayPlanStore, "importMorningBrief">;
+  store: Pick<DayPlanStore, "importMorningBrief"> &
+    Partial<Pick<DayPlanStore, "stageMorningBriefBoardActions">>;
   targetLocalDate: string;
   includeYesterday?: boolean;
   dataDir?: string;
@@ -529,7 +530,10 @@ export function scanAndImportBriefRelay(options: {
       if (!artifact) continue;
       try {
         const result = options.store.importMorningBrief(artifact);
-        if (result.imported) imported += 1;
+        if (result.imported) {
+          imported += 1;
+          if (result.briefId) options.store.stageMorningBriefBoardActions?.(result.briefId);
+        }
       } catch (error) {
         logLine(
           options.log,

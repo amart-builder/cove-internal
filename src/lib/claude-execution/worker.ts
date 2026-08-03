@@ -50,7 +50,9 @@ import {
 import {
   buildMorningBriefCommand,
   buildMorningBriefPrompt,
+  chiefOfStaffMandate,
   morningBriefModelConfig,
+  morningBriefStaleAfterMs,
   parseMorningBriefOutput,
 } from "./brief-commands";
 import { writeMorningBriefInput } from "./brief-inputs";
@@ -218,6 +220,11 @@ function spawnCommand(
     timeoutMs: number;
     maxStdoutBytes: number;
     maxStderrBytes: number;
+    // Some commands write their real result to a separate bounded artifact.
+    // Their console stream is progress chatter, so crossing the diagnostic
+    // buffer cap must not invalidate that artifact. The streams are still
+    // drained; bytes beyond the caps are simply discarded.
+    allowOutputOverflow?: boolean;
     onSpawn?: (child: ChildProcessWithoutNullStreams) => void;
     onChunk?: (stream: "stdout" | "stderr", chunk: Buffer) => void;
     onPulse?: () => boolean;
@@ -308,7 +315,7 @@ function spawnCommand(
       if (stdoutBytes + chunk.length <= options.maxStdoutBytes) {
         stdout += chunk.toString("utf8");
         stdoutBytes += chunk.length;
-      } else {
+      } else if (!options.allowOutputOverflow) {
         overflowed = true;
       }
     });
@@ -318,7 +325,7 @@ function spawnCommand(
       if (stderrBytes + chunk.length <= options.maxStderrBytes) {
         stderr += chunk.toString("utf8");
         stderrBytes += chunk.length;
-      } else {
+      } else if (!options.allowOutputOverflow) {
         overflowed = true;
       }
     });
@@ -1112,9 +1119,8 @@ export async function runOneMorningBrief(
   const clock = options.now ?? (() => new Date());
   // The stale sweep must always outlast the configured run timeout, or a
   // long-budget brief could be marked interrupted while still running.
-  const staleAfterMs = Math.max(
-    20 * 60 * 1000,
-    (options.briefTimeoutMs ?? morningBriefModelConfig().timeoutMs) + 5 * 60 * 1000,
+  const staleAfterMs = morningBriefStaleAfterMs(
+    options.briefTimeoutMs ?? morningBriefModelConfig().timeoutMs,
   );
   options.store.interruptStaleMorningBriefs(cutoff(clock(), staleAfterMs));
   // Gating the enqueue is not enough on its own. A row queued while the relay
@@ -1248,6 +1254,7 @@ export async function runOneMorningBrief(
         effort: claimed.effort,
         budgetUsd: claimed.budgetUsd,
         writer: preferredWriter,
+        mandate: chiefOfStaffMandate(),
       }),
       sourceManifest: context.manifest,
       promptVersion: MORNING_BRIEF_PROMPT_VERSION,
@@ -1294,29 +1301,40 @@ export async function runOneMorningBrief(
     );
     const validateOutput = (raw: string) => validateMorningBrief(parseMorningBriefOutput(raw), {
       knownTaskIds: collected.knownTaskIds,
-      // Bounded grounding: watch items and sales actions must cite sources the
+      taskUpdatedAtById: collected.taskUpdatedAtById,
+      recurringTaskIds: collected.recurringTaskIds,
+      // Bounded grounding: watch items must cite sources the
       // model actually received bytes of (missing or fully-trimmed-out sources
       // cannot ground anything; citing them is fabrication by construction).
       sourceIds,
     });
     const timeoutMs = options.briefTimeoutMs ?? morningBriefModelConfig().timeoutMs;
-    let writer: MorningBriefWriter = preferredWriter;
+    const writer: MorningBriefWriter = preferredWriter;
     let validated: ReturnType<typeof validateMorningBrief> | undefined;
 
     if (writer === "codex") {
+      let failureCode = "codex_failed";
       let codexPrompt = prompt;
       for (let attemptIndex = 0; attemptIndex < 2 && !validated; attemptIndex += 1) {
         const attempt = createCodexMorningBriefAttempt({
           prompt: codexPrompt,
           executable: options.codexPath,
         });
-        if (!attempt) break;
+        if (!attempt) {
+          failureCode = "codex_unavailable";
+          break;
+        }
         try {
           const result = await spawnCommand(attempt.command, {
             spawnImpl: options.spawnImpl ?? spawn,
             timeoutMs,
             maxStdoutBytes: 1024 * 1024,
             maxStderrBytes: 64 * 1024,
+            // Codex writes the only output Cove consumes to outputPath.
+            // Its stdout/stderr can be much larger than the brief because it
+            // includes progress and reasoning status. Keep a bounded diagnostic
+            // prefix, discard the rest, and validate the final artifact below.
+            allowOutputOverflow: true,
             terminationGraceMs: options.terminationGraceMs ?? 2000,
             abortSignal: options.abortSignal,
             childRegistration: {
@@ -1332,11 +1350,17 @@ export async function runOneMorningBrief(
             return true;
           }
           if (result.exitCode !== 0 || result.signal || result.terminatedBy || result.overflowed) {
+            failureCode = result.terminatedBy === "timeout"
+              ? "codex_timeout"
+              : result.overflowed
+                ? "brief_output_too_large"
+                : "codex_failed";
             break;
           }
           try {
             validated = validateOutput(readCodexMorningBriefOutput(attempt));
           } catch (error) {
+            failureCode = "codex_invalid_output";
             if (attemptIndex === 0) {
               const reason = (error instanceof Error ? error.message : "validation failed")
                 .replace(/\s+/g, " ")
@@ -1348,7 +1372,13 @@ export async function runOneMorningBrief(
           attempt.cleanup();
         }
       }
-      if (!validated) writer = "claude";
+      // Writer identity is part of the product contract. If Sol cannot produce
+      // a valid brief, surface the failure instead of silently substituting a
+      // different model whose judgment and voice may materially differ.
+      if (!validated) {
+        failBrief(failureCode);
+        return true;
+      }
     }
 
     if (!validated) {
@@ -1402,6 +1432,13 @@ export async function runOneMorningBrief(
       claimed.id,
       JSON.stringify({ ...dated.brief, writer }),
     );
+    if (completed) {
+      options.store.stageMorningBriefBoardActions(completed.id);
+      const activationNow = clock();
+      if (localDateInTimezone(activationNow, targetTimezone) === claimed.targetLocalDate) {
+        options.store.activateBriefBoardActions(claimed.targetLocalDate, activationNow);
+      }
+    }
     recordBriefReceipt("success", "Morning brief completed.", { writer });
     console.info("Morning brief generated.", { briefId: claimed.id, writer });
     // Publish the immutable artifact to the relay so the other machine imports

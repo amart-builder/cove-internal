@@ -11,6 +11,7 @@ import {
   requestEmailCompletion,
 } from "../src/lib/email/state-machine.ts";
 import { openLocalDatabase } from "../src/lib/local/database.ts";
+import { listRecentReceipts } from "../src/lib/reliability/receipts.ts";
 
 function fixture(t) {
   const dir = mkdtempSync(path.join(os.tmpdir(), "cove-email-state-"));
@@ -47,6 +48,31 @@ function fakeJob(operationId) {
   };
 }
 
+function earlyClassificationHandler({ dbPath, messageId, threadId, labels, reads }) {
+  return createEmailClassificationHandler({
+    dbPath,
+    accountEmail: "alex@example.com",
+    gateway: {
+      getMessage: async ({ format }) => {
+        reads.push(format);
+        return {
+          id: messageId,
+          threadId,
+          labelIds: ["INBOX"],
+          internalDate: "1000",
+          headers: [],
+          snippet: "Review this.",
+          text: "Review this.",
+        };
+      },
+      modifyThreadLabels: async (change) => labels.push(change),
+    },
+    classifier: async () => {
+      throw new Error("The early superseded branch should not classify again.");
+    },
+  });
+}
+
 test("one inbound message creates one canonical thread and one classification job", (t) => {
   const dbPath = fixture(t);
   const first = observeInboundMessage({
@@ -76,6 +102,220 @@ test("one inbound message creates one canonical thread and one classification jo
   assert.equal(
     row(dbPath, "SELECT COUNT(*) AS count FROM cove_jobs WHERE type = 'email-classify'").count,
     1,
+  );
+});
+
+test("a late classifier cannot revive a thread already being completed", (t) => {
+  const dbPath = fixture(t);
+  const observed = observeInboundMessage({
+    messageId: "m-late-classifier",
+    threadId: "t-late-classifier",
+    internalDate: "1000",
+    accountEmail: "alex@example.com",
+    dbPath,
+  });
+  const completion = requestEmailCompletion({
+    emailItemId: observed.emailItemId,
+    reason: "manual_archive",
+    dbPath,
+  });
+
+  const classified = applyEmailClassification({
+    messageId: "m-late-classifier",
+    emailItemId: observed.emailItemId,
+    threadVersion: observed.threadVersion,
+    bucket: "reply",
+    summary: "This result arrived too late.",
+    draftBody: "Do not create this draft.",
+    modelVersion: "test",
+    dbPath,
+  });
+
+  assert.deepEqual(classified, { applied: false, cause: "item_not_open" });
+  assert.deepEqual(
+    row(
+      dbPath,
+      "SELECT workflow_state, status FROM email_items WHERE id = ?",
+      observed.emailItemId,
+    ),
+    { workflow_state: "finalizing", status: "pending" },
+  );
+  assert.equal(
+    row(
+      dbPath,
+      `SELECT COUNT(*) AS count FROM cove_gmail_operations
+       WHERE thread_id = ? AND status IN ('pending','uncertain')`,
+      "t-late-classifier",
+    ).count,
+    1,
+  );
+  assert.ok(completion.operationId);
+});
+
+test("noise classification leaves a durable receipt before archive", (t) => {
+  const dbPath = fixture(t);
+  const observed = observeInboundMessage({
+    messageId: "m-noise-receipt",
+    threadId: "t-noise-receipt",
+    internalDate: "1000",
+    accountEmail: "alex@example.com",
+    dbPath,
+  });
+
+  const classified = applyEmailClassification({
+    messageId: "m-noise-receipt",
+    emailItemId: observed.emailItemId,
+    threadVersion: observed.threadVersion,
+    bucket: "noise",
+    summary: "Promotional message.",
+    modelVersion: "test",
+    dbPath,
+  });
+
+  assert.equal(classified.applied, true);
+  assert.ok(classified.operationId);
+  const receipt = listRecentReceipts({ dbPath, source: "email-surfaced" })[0];
+  assert.equal(receipt.outcome, "success");
+  assert.equal(receipt.actions.bucket, "noise");
+  assert.equal(receipt.actions.emailItemId, observed.emailItemId);
+});
+
+test("a new Gmail operation supersedes another active operation on the thread", (t) => {
+  const dbPath = fixture(t);
+  const observed = observeInboundMessage({
+    messageId: "m-active-replacement",
+    threadId: "t-active-replacement",
+    internalDate: "1000",
+    accountEmail: "alex@example.com",
+    dbPath,
+  });
+  const db = openLocalDatabase(dbPath);
+  try {
+    db.prepare(
+      `INSERT INTO cove_gmail_operations
+         (id, email_item_id, thread_id, expected_message_id,
+          expected_thread_version, kind, operation_key, payload_json, status,
+          created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'archive_messages', ?, '{}', 'pending', ?, ?)`,
+    ).run(
+      "old-active-operation",
+      observed.emailItemId,
+      "t-active-replacement",
+      "m-active-replacement",
+      observed.threadVersion,
+      "old-active-operation-key",
+      "2026-07-31T12:00:00.000Z",
+      "2026-07-31T12:00:00.000Z",
+    );
+  } finally {
+    db.close();
+  }
+
+  const classified = applyEmailClassification({
+    messageId: "m-active-replacement",
+    emailItemId: observed.emailItemId,
+    threadVersion: observed.threadVersion,
+    bucket: "reply",
+    summary: "Reply needed.",
+    draftBody: "Thanks. I will review this today.",
+    modelVersion: "test",
+    dbPath,
+    now: new Date("2026-07-31T12:01:00.000Z"),
+  });
+
+  assert.ok(classified.operationId);
+  assert.equal(
+    row(
+      dbPath,
+      "SELECT status FROM cove_gmail_operations WHERE id = ?",
+      "old-active-operation",
+    ).status,
+    "superseded",
+  );
+  assert.equal(
+    row(
+      dbPath,
+      "SELECT status FROM cove_gmail_operations WHERE id = ?",
+      classified.operationId,
+    ).status,
+    "pending",
+  );
+});
+
+test("a superseded Gmail operation can resurrect beside another active operation", (t) => {
+  const dbPath = fixture(t);
+  const observed = observeInboundMessage({
+    messageId: "m-resurrect-active",
+    threadId: "t-resurrect-active",
+    internalDate: "1000",
+    accountEmail: "alex@example.com",
+    dbPath,
+  });
+  const db = openLocalDatabase(dbPath);
+  try {
+    const insert = db.prepare(
+      `INSERT INTO cove_gmail_operations
+         (id, email_item_id, thread_id, expected_message_id,
+          expected_thread_version, kind, operation_key, payload_json, status,
+          created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?)`,
+    );
+    insert.run(
+      "resurrected-operation",
+      observed.emailItemId,
+      "t-resurrect-active",
+      "m-resurrect-active",
+      observed.threadVersion,
+      "upsert_draft",
+      "upsert_draft:t-resurrect-active:v1:m-resurrect-active",
+      "superseded",
+      "2026-07-31T12:00:00.000Z",
+      "2026-07-31T12:00:00.000Z",
+    );
+    insert.run(
+      "other-active-operation",
+      observed.emailItemId,
+      "t-resurrect-active",
+      "m-resurrect-active",
+      observed.threadVersion,
+      "archive_messages",
+      "other-active-operation-key",
+      "pending",
+      "2026-07-31T12:00:30.000Z",
+      "2026-07-31T12:00:30.000Z",
+    );
+  } finally {
+    db.close();
+  }
+
+  const classified = applyEmailClassification({
+    messageId: "m-resurrect-active",
+    emailItemId: observed.emailItemId,
+    threadVersion: observed.threadVersion,
+    bucket: "reply",
+    summary: "Reply needed.",
+    draftBody: "Thanks. I will review this today.",
+    modelVersion: "test",
+    dbPath,
+    now: new Date("2026-07-31T12:01:00.000Z"),
+  });
+
+  assert.equal(classified.operationId, "resurrected-operation");
+  assert.equal(
+    row(
+      dbPath,
+      "SELECT status FROM cove_gmail_operations WHERE id = ?",
+      "other-active-operation",
+    ).status,
+    "superseded",
+  );
+  assert.equal(
+    row(
+      dbPath,
+      "SELECT status FROM cove_gmail_operations WHERE id = ?",
+      "resurrected-operation",
+    ).status,
+    "pending",
   );
 });
 
@@ -169,6 +409,257 @@ test("ungrounded model commitment quotes never enter the durable artifact job", 
   assert.deepEqual(JSON.parse(artifactPayload).commitments, []);
 });
 
+test("a permanent classification skip receives the Triaged marker", async (t) => {
+  const dbPath = fixture(t);
+  const observed = observeInboundMessage({
+    messageId: "m-permanent-skip",
+    threadId: "t-permanent-skip",
+    internalDate: "1000",
+    accountEmail: "alex@example.com",
+    dbPath,
+  });
+  requestEmailCompletion({
+    emailItemId: observed.emailItemId,
+    reason: "manual_archive",
+    dbPath,
+  });
+  const labels = [];
+  const handler = createEmailClassificationHandler({
+    dbPath,
+    accountEmail: "alex@example.com",
+    gateway: {
+      getMessage: async () => ({
+        id: "m-permanent-skip",
+        threadId: "t-permanent-skip",
+        labelIds: ["INBOX"],
+        internalDate: "1000",
+        headers: [],
+        snippet: "Review this.",
+        text: "Review this.",
+      }),
+      modifyThreadLabels: async (change) => labels.push(change),
+    },
+    classifier: async () => ({
+      bucket: "action",
+      summary: "Review this.",
+      recommendedAction: "review",
+      modelVersion: "test",
+    }),
+  });
+  const result = await handler({
+    ...fakeJob("permanent-classification"),
+    type: "email-classify",
+    payload: {
+      messageId: "m-permanent-skip",
+      emailItemId: observed.emailItemId,
+      threadVersion: observed.threadVersion,
+    },
+  });
+  assert.equal(result.actions.cause, "item_not_open");
+  assert.deepEqual(labels, [{
+    threadId: "t-permanent-skip",
+    addNames: ["Cove/Triaged"],
+  }]);
+});
+
+test("a transient classification version mismatch remains untriaged", async (t) => {
+  const dbPath = fixture(t);
+  const observed = observeInboundMessage({
+    messageId: "m-transient-skip",
+    threadId: "t-transient-skip",
+    internalDate: "1000",
+    accountEmail: "alex@example.com",
+    dbPath,
+  });
+  const db = openLocalDatabase(dbPath);
+  try {
+    db.prepare(
+      "UPDATE email_items SET thread_version = thread_version + 1 WHERE id = ?",
+    ).run(observed.emailItemId);
+  } finally {
+    db.close();
+  }
+  const labels = [];
+  const handler = createEmailClassificationHandler({
+    dbPath,
+    accountEmail: "alex@example.com",
+    gateway: {
+      getMessage: async () => ({
+        id: "m-transient-skip",
+        threadId: "t-transient-skip",
+        labelIds: ["INBOX"],
+        internalDate: "1000",
+        headers: [],
+        snippet: "Review this.",
+        text: "Review this.",
+      }),
+      modifyThreadLabels: async (change) => labels.push(change),
+    },
+    classifier: async () => ({
+      bucket: "action",
+      summary: "Review this.",
+      recommendedAction: "review",
+      modelVersion: "test",
+    }),
+  });
+  const result = await handler({
+    ...fakeJob("transient-classification"),
+    type: "email-classify",
+    payload: {
+      messageId: "m-transient-skip",
+      emailItemId: observed.emailItemId,
+      threadVersion: observed.threadVersion,
+    },
+  });
+  assert.equal(result.actions.cause, "version_mismatch");
+  assert.deepEqual(labels, []);
+});
+
+test("a retried permanent superseded classification repairs the Triaged marker", async (t) => {
+  const dbPath = fixture(t);
+  const observed = observeInboundMessage({
+    messageId: "m-retried-permanent",
+    threadId: "t-retried-permanent",
+    internalDate: "1000",
+    accountEmail: "alex@example.com",
+    dbPath,
+  });
+  requestEmailCompletion({
+    emailItemId: observed.emailItemId,
+    reason: "manual_archive",
+    dbPath,
+  });
+  const rejected = applyEmailClassification({
+    messageId: "m-retried-permanent",
+    emailItemId: observed.emailItemId,
+    threadVersion: observed.threadVersion,
+    bucket: "action",
+    summary: "Review this.",
+    modelVersion: "test",
+    dbPath,
+  });
+  assert.deepEqual(rejected, { applied: false, cause: "item_not_open" });
+  const labels = [];
+  const reads = [];
+  const result = await earlyClassificationHandler({
+    dbPath,
+    messageId: "m-retried-permanent",
+    threadId: "t-retried-permanent",
+    labels,
+    reads,
+  })({
+    ...fakeJob("retried-permanent"),
+    type: "email-classify",
+    payload: {
+      messageId: "m-retried-permanent",
+      emailItemId: observed.emailItemId,
+      threadVersion: observed.threadVersion,
+    },
+  });
+  assert.equal(result.actions.cause, "item_not_open");
+  assert.equal(result.actions.markerRepaired, true);
+  assert.deepEqual(reads, ["metadata"]);
+  assert.deepEqual(labels, [{
+    threadId: "t-retried-permanent",
+    addNames: ["Cove/Triaged"],
+  }]);
+});
+
+test("a retried transient superseded classification remains untriaged", async (t) => {
+  const dbPath = fixture(t);
+  const observed = observeInboundMessage({
+    messageId: "m-retried-transient",
+    threadId: "t-retried-transient",
+    internalDate: "1000",
+    accountEmail: "alex@example.com",
+    dbPath,
+  });
+  const db = openLocalDatabase(dbPath);
+  try {
+    db.prepare(
+      "UPDATE email_items SET thread_version = thread_version + 1 WHERE id = ?",
+    ).run(observed.emailItemId);
+  } finally {
+    db.close();
+  }
+  const rejected = applyEmailClassification({
+    messageId: "m-retried-transient",
+    emailItemId: observed.emailItemId,
+    threadVersion: observed.threadVersion,
+    bucket: "action",
+    summary: "Review this.",
+    modelVersion: "test",
+    dbPath,
+  });
+  assert.deepEqual(rejected, { applied: false, cause: "version_mismatch" });
+  const labels = [];
+  const reads = [];
+  const result = await earlyClassificationHandler({
+    dbPath,
+    messageId: "m-retried-transient",
+    threadId: "t-retried-transient",
+    labels,
+    reads,
+  })({
+    ...fakeJob("retried-transient"),
+    type: "email-classify",
+    payload: {
+      messageId: "m-retried-transient",
+      emailItemId: observed.emailItemId,
+      threadVersion: observed.threadVersion,
+    },
+  });
+  assert.equal(result.actions.cause, "version_mismatch");
+  assert.equal(result.actions.markerRepaired, false);
+  assert.deepEqual(reads, []);
+  assert.deepEqual(labels, []);
+});
+
+test("a retried superseded classification with a missing item repairs the marker", async (t) => {
+  const dbPath = fixture(t);
+  const observed = observeInboundMessage({
+    messageId: "m-retried-missing",
+    threadId: "t-retried-missing",
+    internalDate: "1000",
+    accountEmail: "alex@example.com",
+    dbPath,
+  });
+  const rejected = applyEmailClassification({
+    messageId: "m-retried-missing",
+    emailItemId: "missing-email-item",
+    threadVersion: observed.threadVersion,
+    bucket: "action",
+    summary: "Review this.",
+    modelVersion: "test",
+    dbPath,
+  });
+  assert.deepEqual(rejected, { applied: false, cause: "missing_item" });
+  const labels = [];
+  const reads = [];
+  const result = await earlyClassificationHandler({
+    dbPath,
+    messageId: "m-retried-missing",
+    threadId: "t-retried-missing",
+    labels,
+    reads,
+  })({
+    ...fakeJob("retried-missing"),
+    type: "email-classify",
+    payload: {
+      messageId: "m-retried-missing",
+      emailItemId: "missing-email-item",
+      threadVersion: observed.threadVersion,
+    },
+  });
+  assert.equal(result.actions.cause, "missing_item");
+  assert.equal(result.actions.markerRepaired, true);
+  assert.deepEqual(reads, ["metadata"]);
+  assert.deepEqual(labels, [{
+    threadId: "t-retried-missing",
+    addNames: ["Cove/Triaged"],
+  }]);
+});
+
 test("FYI is durably surfaced before archive and becomes terminal only after Gmail success", async (t) => {
   const dbPath = fixture(t);
   const observed = observeInboundMessage({
@@ -247,6 +738,25 @@ test("FYI is durably surfaced before archive and becomes terminal only after Gma
     observed.emailItemId,
   );
   assert.deepEqual(after, { workflow_state: "terminal", status: "actioned" });
+  const late = applyEmailClassification({
+    messageId: "m-fyi",
+    emailItemId: observed.emailItemId,
+    threadVersion: observed.threadVersion,
+    bucket: "reply",
+    summary: "This result arrived after the archive completed.",
+    draftBody: "Do not revive the item.",
+    modelVersion: "test",
+    dbPath,
+  });
+  assert.deepEqual(late, { applied: false, cause: "item_not_open" });
+  assert.deepEqual(
+    row(
+      dbPath,
+      "SELECT workflow_state, status FROM email_items WHERE id = ?",
+      observed.emailItemId,
+    ),
+    { workflow_state: "terminal", status: "actioned" },
+  );
 });
 
 test("new inbound reopens the same thread and supersedes an older archive operation", (t) => {

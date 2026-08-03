@@ -97,13 +97,47 @@ export function createEmailClassificationHandler(input: {
         };
       }
       if (state.state === "superseded") {
+        const item = db.prepare(
+          "SELECT workflow_state, status FROM email_items WHERE id = ?",
+        ).get(claim.emailItemId) as {
+          workflow_state: string;
+          status: string;
+        } | undefined;
+        const cause = !item
+          ? "missing_item"
+          : item.status !== "pending" || item.workflow_state !== "observed"
+            ? "item_not_open"
+            : "version_mismatch";
+        if (cause === "version_mismatch") {
+          return {
+            summary: "A newer message superseded this email classification.",
+            actions: {
+              messageId: claim.messageId,
+              emailItemId: claim.emailItemId,
+              applied: false,
+              state: state.state,
+              cause,
+              markerRepaired: false,
+            },
+          };
+        }
+        const message = await input.gateway.getMessage({
+          messageId: claim.messageId,
+          format: "metadata",
+        });
+        await input.gateway.modifyThreadLabels({
+          threadId: message.threadId,
+          addNames: ["Cove/Triaged"],
+        });
         return {
-          summary: "Email classification was already complete.",
+          summary: "Email classification was permanently superseded and its ingestion marker was repaired.",
           actions: {
             messageId: claim.messageId,
             emailItemId: claim.emailItemId,
             applied: false,
             state: state.state,
+            cause,
+            markerRepaired: true,
           },
         };
       }
@@ -158,7 +192,8 @@ export function createEmailClassificationHandler(input: {
       dbPath: input.dbPath,
       now: input.now?.(),
     });
-    if (applied.applied) {
+    const permanentlySkipped = !applied.applied && applied.cause !== "version_mismatch";
+    if (applied.applied || permanentlySkipped) {
       await input.gateway.modifyThreadLabels({
         threadId: message.threadId,
         addNames: ["Cove/Triaged"],
@@ -167,11 +202,14 @@ export function createEmailClassificationHandler(input: {
     return {
       summary: applied.applied
         ? "Classified one email through the tool-free model boundary."
-        : "A newer message superseded this email classification.",
+        : permanentlySkipped
+          ? "Email classification could no longer apply and its ingestion marker was recorded."
+          : "A newer message superseded this email classification.",
       actions: {
         messageId: claim.messageId,
         emailItemId: claim.emailItemId,
         applied: applied.applied,
+        cause: applied.cause,
         bucket: result.bucket,
         operationId: applied.operationId,
       },

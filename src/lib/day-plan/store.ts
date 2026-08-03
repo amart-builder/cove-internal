@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { resolveProjectDirectory } from "../atlas-projects";
@@ -7,6 +7,9 @@ import { hasPlanExecutionResultSubstance } from "../claude-execution/commands";
 import { coveEnv } from "../env";
 import { openSqliteDatabase } from "../local/database";
 import { getRuntimeMode } from "../runtime/mode";
+import { operatorTimezone } from "../operator";
+import { recordReceiptInDatabase } from "../reliability/receipts";
+import { taskColumnKeyForName } from "../tasks/columns";
 import {
   applyLocalMigration,
   type LocalMigration,
@@ -29,6 +32,7 @@ import type {
   DayPlanItem,
   DayPlanMutationInput,
   DayPlanMutationResult,
+  EnsureDayPlanResult,
   DayPlanOwner,
   DayPlanReconciliation,
   DayPlanReconciliationResult,
@@ -56,14 +60,14 @@ import {
 import { applyAssistantProposal, validateAssistantProposal } from "./assistant-patch";
 import { arrivalAdditionOutcomeKey } from "./arrival-addition";
 import {
+  isWeekendLocalDate,
   morningBriefFromArtifact,
   morningBriefWriterFromJson,
   overlayBriefOnCandidates,
   MORNING_BRIEF_PROMPT_VERSION,
   MORNING_BRIEF_SCHEMA_VERSION,
   type MorningBriefArtifact,
-  type MorningBriefSalesActionRecord,
-  type MorningBriefSalesActionState,
+  type MorningBriefBoardAction,
   type MorningBriefSourceManifest,
   type MorningBriefStatus,
 } from "./brief";
@@ -204,6 +208,44 @@ type MorningBriefRow = {
   updated_at: string;
   started_at: string | null;
   finished_at: string | null;
+};
+
+type MorningBriefActionRow = {
+  artifact_id: string;
+  action_index: number;
+  op_json: string;
+  action_hash: string;
+  expected_task_updated_at: string;
+  state:
+    | "staged"
+    | "applied"
+    | "skipped_conflict"
+    | "skipped_offlimits"
+    | "skipped_late";
+  why: string;
+  before_json: string | null;
+  after_json: string | null;
+  terminal_at: string | null;
+};
+
+type ManagedTaskRow = {
+  id: string;
+  column_id: string | null;
+  title: string;
+  description: string | null;
+  priority: string | null;
+  due_at: string | null;
+  due_date: string | null;
+  tags: string | null;
+  project: string | null;
+  position: number | null;
+  status: string | null;
+  archived_at: string | null;
+  archived_from_status: string | null;
+  recurring_template_id: string | null;
+  occurrence_local_date: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 type DayDumpRow = {
@@ -738,6 +780,90 @@ const DAY_PLAN_MIGRATIONS: readonly LocalMigration[] = [
             ON day_plan_task_mutations(state, created_at, id);
         `);
       }
+    },
+  },
+  {
+    version: 105,
+    name: "day-plan-weekend-auto-settle-receipts",
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS cove_receipts (
+        id TEXT PRIMARY KEY,
+        source TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        actions_json TEXT NOT NULL DEFAULT '{}',
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        outcome TEXT NOT NULL
+          CHECK (outcome IN ('success','partial','failed','skipped')),
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS cove_receipts_recent_idx
+        ON cove_receipts(finished_at DESC);
+      CREATE INDEX IF NOT EXISTS cove_receipts_source_idx
+        ON cove_receipts(source, finished_at DESC);
+    `),
+  },
+  {
+    version: 106,
+    name: "day-plan-brief-board-actions",
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS day_plan_brief_actions (
+        artifact_id TEXT NOT NULL,
+        action_index INTEGER NOT NULL CHECK (action_index >= 0),
+        op_json TEXT NOT NULL,
+        action_hash TEXT NOT NULL,
+        expected_task_updated_at TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'staged'
+          CHECK (state IN ('staged','applied','skipped_conflict','skipped_offlimits')),
+        why TEXT NOT NULL,
+        before_json TEXT,
+        after_json TEXT,
+        terminal_at TEXT,
+        UNIQUE (artifact_id, action_index),
+        FOREIGN KEY (artifact_id) REFERENCES day_plan_briefs(id)
+      );
+      CREATE INDEX IF NOT EXISTS day_plan_brief_actions_staged
+        ON day_plan_brief_actions(state, artifact_id, action_index);
+    `),
+  },
+  {
+    version: 107,
+    name: "day-plan-brief-board-actions-skipped-late",
+    foreignKeysOff: true,
+    up: (db) => {
+      const table = db.prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'day_plan_brief_actions'",
+      ).get() as { sql: string } | undefined;
+      if (!table || table.sql.includes("'skipped_late'")) return;
+      db.exec(`
+        ALTER TABLE day_plan_brief_actions
+          RENAME TO day_plan_brief_actions_migration_legacy;
+        CREATE TABLE day_plan_brief_actions (
+          artifact_id TEXT NOT NULL,
+          action_index INTEGER NOT NULL CHECK (action_index >= 0),
+          op_json TEXT NOT NULL,
+          action_hash TEXT NOT NULL,
+          expected_task_updated_at TEXT NOT NULL,
+          state TEXT NOT NULL DEFAULT 'staged'
+            CHECK (state IN ('staged','applied','skipped_conflict','skipped_offlimits','skipped_late')),
+          why TEXT NOT NULL,
+          before_json TEXT,
+          after_json TEXT,
+          terminal_at TEXT,
+          UNIQUE (artifact_id, action_index),
+          FOREIGN KEY (artifact_id) REFERENCES day_plan_briefs(id)
+        );
+        INSERT INTO day_plan_brief_actions
+          (artifact_id, action_index, op_json, action_hash,
+           expected_task_updated_at, state, why, before_json, after_json, terminal_at)
+        SELECT artifact_id, action_index, op_json, action_hash,
+               expected_task_updated_at, state, why, before_json, after_json, terminal_at
+        FROM day_plan_brief_actions_migration_legacy;
+        DROP TABLE day_plan_brief_actions_migration_legacy;
+        CREATE INDEX day_plan_brief_actions_staged
+          ON day_plan_brief_actions(state, artifact_id, action_index);
+      `);
     },
   },
 ];
@@ -2235,7 +2361,14 @@ export function createDayPlanStore(options: {
     const row = db
       .prepare("SELECT * FROM day_plan_briefs WHERE id = ?")
       .get(id) as MorningBriefRow | undefined;
-    return row ? morningBriefFromRow(row) : undefined;
+    return row ? withBriefActionState(morningBriefFromRow(row)) : undefined;
+  }
+
+  function withBriefActionState(artifact: MorningBriefArtifact): MorningBriefArtifact {
+    const pending = db.prepare(
+      "SELECT 1 FROM day_plan_brief_actions WHERE artifact_id = ? AND state = 'staged' LIMIT 1",
+    ).get(artifact.id);
+    return pending ? { ...artifact, boardActionsPending: true } : artifact;
   }
 
   function listMorningBriefs(targetLocalDate: string): MorningBriefArtifact[] {
@@ -2243,7 +2376,9 @@ export function createDayPlanStore(options: {
       .prepare(
         "SELECT * FROM day_plan_briefs WHERE target_local_date = ? ORDER BY created_at, id",
       )
-      .all(targetLocalDate) as MorningBriefRow[]).map(morningBriefFromRow);
+      .all(targetLocalDate) as MorningBriefRow[]).map((row) =>
+        withBriefActionState(morningBriefFromRow(row))
+      );
   }
 
   // Newest by REQUEST time, which is the only correct ordering for deciding
@@ -2263,6 +2398,10 @@ export function createDayPlanStore(options: {
         `SELECT * FROM day_plan_briefs
          WHERE target_local_date = ? AND status = 'succeeded'
            AND prompt_version = ? AND schema_version = ? AND brief_json IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM day_plan_brief_actions actions
+             WHERE actions.artifact_id = day_plan_briefs.id AND actions.state = 'staged'
+           )
          ORDER BY created_at DESC, id DESC
          LIMIT 1`,
       )
@@ -2439,6 +2578,400 @@ export function createDayPlanStore(options: {
     });
   }
 
+  function stageMorningBriefBoardActions(artifactId: string): number {
+    return immediate(() => {
+      const artifact = getMorningBrief(artifactId);
+      const brief = morningBriefFromArtifact(artifact);
+      if (!artifact || !brief) return 0;
+      const stagedAt = now().toISOString();
+      const newest = db.prepare(
+        `SELECT id FROM day_plan_briefs
+         WHERE target_local_date = ? AND status = 'succeeded'
+         ORDER BY created_at DESC, id DESC LIMIT 1`,
+      ).get(artifact.targetLocalDate) as { id: string } | undefined;
+      const stagedState: MorningBriefActionRow["state"] =
+        newest?.id === artifactId ? "staged" : "skipped_late";
+      db.prepare(
+        `UPDATE day_plan_brief_actions
+         SET state = 'skipped_late', terminal_at = ?
+         WHERE state = 'staged'
+           AND artifact_id IN (
+             SELECT id FROM day_plan_briefs
+             WHERE target_local_date = ? AND status = 'succeeded'
+               AND (
+                 created_at < ? OR (created_at = ? AND id < ?)
+               )
+           )`,
+      ).run(
+        stagedAt,
+        artifact.targetLocalDate,
+        artifact.createdAt,
+        artifact.createdAt,
+        artifact.id,
+      );
+      const insert = db.prepare(
+        `INSERT OR IGNORE INTO day_plan_brief_actions
+          (artifact_id, action_index, op_json, action_hash,
+           expected_task_updated_at, state, why, terminal_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      let inserted = 0;
+      brief.boardActions.forEach((action, actionIndex) => {
+        const opJson = JSON.stringify(action);
+        const actionHash = createHash("sha256").update(opJson, "utf8").digest("hex");
+        inserted += insert.run(
+          artifactId,
+          actionIndex,
+          opJson,
+          actionHash,
+          action.expectedTaskUpdatedAt,
+          stagedState,
+          action.why,
+          stagedState === "skipped_late" ? stagedAt : null,
+        ).changes;
+      });
+      return inserted;
+    });
+  }
+
+  function managedTask(id: string): ManagedTaskRow | undefined {
+    return db.prepare(
+      `SELECT id, column_id, title, description, priority, due_at, due_date,
+              tags, project, position, status, archived_at, archived_from_status,
+              recurring_template_id, occurrence_local_date, created_at, updated_at
+       FROM tasks WHERE id = ?`,
+    ).get(id) as ManagedTaskRow | undefined;
+  }
+
+  function managedTaskOfflimits(task: ManagedTaskRow | undefined): boolean {
+    if (!task || task.status !== "open" || task.recurring_template_id) return true;
+    let tags: string[] = [];
+    try {
+      const parsed = JSON.parse(task.tags ?? "[]");
+      tags = Array.isArray(parsed)
+        ? parsed.filter((tag): tag is string => typeof tag === "string")
+        : [];
+    } catch {
+      tags = (task.tags ?? "").split(",");
+    }
+    const normalized = tags.map((tag) => tag.trim().toLowerCase());
+    return normalized.includes("jarvis-held") ||
+      normalized.includes("email-current") ||
+      normalized.includes("recurring");
+  }
+
+  const SNAPSHOT_TITLE_LIMIT = 240;
+  const SNAPSHOT_DESCRIPTION_LIMIT = 2_000;
+  const SNAPSHOT_TAGS_LIMIT = 500;
+  const SNAPSHOT_PROJECT_LIMIT = 240;
+  const SNAPSHOT_TRUNCATION_MARKER = "… [truncated]";
+
+  function boundedSnapshotText(value: string, limit: number): string {
+    return value.length <= limit
+      ? value
+      : value.slice(0, limit - SNAPSHOT_TRUNCATION_MARKER.length) +
+        SNAPSHOT_TRUNCATION_MARKER;
+  }
+
+  function managedTaskSnapshot(task: ManagedTaskRow | undefined): ManagedTaskRow | undefined {
+    if (!task) return undefined;
+    return {
+      ...task,
+      title: boundedSnapshotText(task.title, SNAPSHOT_TITLE_LIMIT),
+      description: task.description === null
+        ? null
+        : boundedSnapshotText(task.description, SNAPSHOT_DESCRIPTION_LIMIT),
+      tags: task.tags === null
+        ? null
+        : boundedSnapshotText(task.tags, SNAPSHOT_TAGS_LIMIT),
+      project: task.project === null
+        ? null
+        : boundedSnapshotText(task.project, SNAPSHOT_PROJECT_LIMIT),
+    };
+  }
+
+  function managedText(
+    value: string,
+    maxLength: number,
+    options: { preserveFormatting?: boolean } = {},
+  ): string {
+    let cleaned = "";
+    for (const character of value) {
+      const code = character.codePointAt(0) ?? 0;
+      if (
+        (code < 32 || code === 127) &&
+        !(options.preserveFormatting && (character === "\n" || character === "\t"))
+      ) continue;
+      if (cleaned.length + character.length > maxLength) break;
+      cleaned += character;
+    }
+    return cleaned;
+  }
+
+  function managedDueLocalDate(value: string | null): boolean {
+    return value === null || (
+      /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+      value >= "2024-01-01" &&
+      value <= "2036-12-31"
+    );
+  }
+
+  function activateBriefBoardActions(targetLocalDate: string, activationNow: Date = now()) {
+    const hasStagedActions = db.prepare(
+      `SELECT 1 FROM day_plan_brief_actions actions
+       JOIN day_plan_briefs briefs ON briefs.id = actions.artifact_id
+       WHERE actions.state = 'staged' AND briefs.target_local_date = ?
+         AND briefs.status = 'succeeded'
+         AND briefs.prompt_version = ? AND briefs.schema_version = ?
+       LIMIT 1`,
+    ).get(
+      targetLocalDate,
+      MORNING_BRIEF_PROMPT_VERSION,
+      MORNING_BRIEF_SCHEMA_VERSION,
+    );
+    if (!hasStagedActions) {
+      return { activated: false, applied: 0, skippedConflict: 0, skippedOfflimits: 0 };
+    }
+    return immediate(() => {
+      const targetPlanRow = selectDatePlan.get(targetLocalDate) as DayPlanRow | undefined;
+      const openPlanRow = selectOpenPlan.get() as DayPlanRow | undefined;
+      const timezone = targetPlanRow?.timezone ?? openPlanRow?.timezone ?? operatorTimezone();
+      if (localDateInTimezone(activationNow.toISOString(), timezone) !== targetLocalDate) {
+        return { activated: false, applied: 0, skippedConflict: 0, skippedOfflimits: 0 };
+      }
+      const artifact = db.prepare(
+        `SELECT briefs.* FROM day_plan_briefs briefs
+         WHERE briefs.target_local_date = ? AND briefs.status = 'succeeded'
+           AND briefs.prompt_version = ? AND briefs.schema_version = ?
+         ORDER BY briefs.created_at DESC, briefs.id DESC LIMIT 1`,
+      ).get(
+        targetLocalDate,
+        MORNING_BRIEF_PROMPT_VERSION,
+        MORNING_BRIEF_SCHEMA_VERSION,
+      ) as MorningBriefRow | undefined;
+      if (!artifact) {
+        return { activated: false, applied: 0, skippedConflict: 0, skippedOfflimits: 0 };
+      }
+      const rows = db.prepare(
+        `SELECT * FROM day_plan_brief_actions
+         WHERE artifact_id = ? AND state = 'staged'
+         ORDER BY action_index`,
+      ).all(artifact.id) as MorningBriefActionRow[];
+      if (rows.length === 0) {
+        return { activated: false, applied: 0, skippedConflict: 0, skippedOfflimits: 0 };
+      }
+      const terminalAt = activationNow.toISOString();
+      if (
+        targetPlanRow &&
+        (targetPlanRow.plan_state !== "proposed" || targetPlanRow.arrival_interacted_at)
+      ) {
+        db.prepare(
+          `UPDATE day_plan_brief_actions
+           SET state = 'skipped_late', terminal_at = ?
+           WHERE artifact_id = ? AND state = 'staged'`,
+        ).run(terminalAt, artifact.id);
+        return { activated: false, applied: 0, skippedConflict: 0, skippedOfflimits: 0 };
+      }
+      const columnIds = new Map<string, string>();
+      for (const row of db.prepare("SELECT id, name FROM task_columns").all() as Array<{ id: string; name: string }>) {
+        const key = taskColumnKeyForName(row.name);
+        if (key) columnIds.set(key, row.id);
+      }
+      const originalTasks = new Map<string, ManagedTaskRow | undefined>();
+      for (const row of rows) {
+        const action = JSON.parse(row.op_json) as MorningBriefBoardAction;
+        if (!originalTasks.has(action.taskId)) originalTasks.set(action.taskId, managedTask(action.taskId));
+      }
+      let applied = 0;
+      let skippedConflict = 0;
+      let skippedOfflimits = 0;
+      const outcomes: Array<Record<string, unknown>> = [];
+      const finish = db.prepare(
+        `UPDATE day_plan_brief_actions
+         SET state = ?, before_json = ?, after_json = ?, terminal_at = ?
+         WHERE artifact_id = ? AND action_index = ? AND state = 'staged'`,
+      );
+      for (const row of rows) {
+        const action = JSON.parse(row.op_json) as MorningBriefBoardAction;
+        const original = originalTasks.get(action.taskId);
+        const before = managedTask(action.taskId);
+        const beforeSnapshot = managedTaskSnapshot(before);
+        const beforeJson = beforeSnapshot ? JSON.stringify(beforeSnapshot) : null;
+        let state: MorningBriefActionRow["state"];
+        if (
+          !original ||
+          !row.expected_task_updated_at ||
+          !original.updated_at ||
+          original.updated_at !== row.expected_task_updated_at
+        ) {
+          state = "skipped_conflict";
+          skippedConflict += 1;
+        } else if (
+          managedTaskOfflimits(original) ||
+          (action.op === "archive_duplicate" && managedTaskOfflimits(managedTask(action.duplicateOfTaskId)))
+        ) {
+          state = "skipped_offlimits";
+          skippedOfflimits += 1;
+        } else {
+          const live = before;
+          if (managedTaskOfflimits(live)) {
+            state = "skipped_offlimits";
+            skippedOfflimits += 1;
+          } else {
+            if (action.op === "move_column") {
+              const key = action.column === "in_flight"
+                ? "in-progress"
+                : action.column === "not_started" ? "not-started" : "today";
+              const columnId = columnIds.get(key);
+              if (!columnId) {
+                state = "skipped_offlimits";
+                skippedOfflimits += 1;
+              } else {
+                const position = (db.prepare(
+                  "SELECT COALESCE(MAX(position), -1) + 1 AS position FROM tasks WHERE column_id = ? AND status = 'open'",
+                ).get(columnId) as { position: number }).position;
+                db.prepare("UPDATE tasks SET column_id = ?, position = ?, updated_at = ? WHERE id = ?")
+                  .run(columnId, position, terminalAt, action.taskId);
+                state = "applied";
+                applied += 1;
+              }
+            } else if (action.op === "set_priority") {
+              db.prepare("UPDATE tasks SET priority = ?, updated_at = ? WHERE id = ?")
+                .run(action.priority, terminalAt, action.taskId);
+              state = "applied";
+              applied += 1;
+            } else if (action.op === "set_due") {
+              if (!managedDueLocalDate(action.dueLocalDate)) {
+                state = "skipped_offlimits";
+                skippedOfflimits += 1;
+              } else {
+                db.prepare("UPDATE tasks SET due_at = ?, due_date = ?, updated_at = ? WHERE id = ?")
+                  .run(action.dueLocalDate, action.dueLocalDate, terminalAt, action.taskId);
+                state = "applied";
+                applied += 1;
+              }
+            } else if (action.op === "retitle") {
+              const title = managedText(action.title, 240);
+              if (!title) {
+                state = "skipped_offlimits";
+                skippedOfflimits += 1;
+              } else {
+                db.prepare("UPDATE tasks SET title = ?, updated_at = ? WHERE id = ?")
+                  .run(title, terminalAt, action.taskId);
+                state = "applied";
+                applied += 1;
+              }
+            } else if (action.op === "edit_description") {
+              db.prepare("UPDATE tasks SET description = ?, updated_at = ? WHERE id = ?")
+                .run(
+                  managedText(action.description, 4_000, { preserveFormatting: true }),
+                  terminalAt,
+                  action.taskId,
+                );
+              state = "applied";
+              applied += 1;
+            } else {
+              db.prepare(
+                `UPDATE tasks SET status = 'archived', archived_at = ?,
+                   archived_from_status = COALESCE(archived_from_status, status), updated_at = ?
+                 WHERE id = ?`,
+              ).run(terminalAt, terminalAt, action.taskId);
+              state = "applied";
+              applied += 1;
+            }
+          }
+        }
+        const after = managedTask(action.taskId);
+        const afterSnapshot = managedTaskSnapshot(after);
+        const afterJson = afterSnapshot ? JSON.stringify(afterSnapshot) : null;
+        finish.run(state, beforeJson, afterJson, terminalAt, artifact.id, row.action_index);
+        outcomes.push({
+          actionIndex: row.action_index,
+          actionHash: row.action_hash,
+          op: action.op,
+          taskId: action.taskId.slice(0, 200),
+          ...(action.op === "archive_duplicate"
+            ? { duplicateOfTaskId: action.duplicateOfTaskId.slice(0, 200) }
+            : {}),
+          why: row.why.slice(0, 500),
+          state,
+          before: beforeSnapshot ?? null,
+          after: afterSnapshot ?? null,
+        });
+      }
+      const receiptBase = {
+        artifactId: artifact.id,
+        applied,
+        skippedConflict,
+        skippedOfflimits,
+      };
+      let receiptActions: Record<string, unknown> = { ...receiptBase, outcomes };
+      try {
+        if (JSON.stringify(receiptActions).length > 80_000) {
+          receiptActions = {
+            ...receiptBase,
+            snapshotsOmitted: true,
+            outcomes: outcomes.map((outcome) => {
+              const compact = { ...outcome };
+              delete compact.before;
+              delete compact.after;
+              return compact;
+            }),
+          };
+        }
+        recordReceiptInDatabase(db, {
+          source: "morning-brief-management",
+          startedAt: terminalAt,
+          finishedAt: terminalAt,
+          summary: `Morning brief board pass applied ${applied} changes.`,
+          actions: receiptActions,
+          outcome: skippedConflict + skippedOfflimits > 0 ? "partial" : "success",
+          surfaceFailure: false,
+        });
+      } catch (error) {
+        console.error("Morning brief management receipt skipped.", error);
+      }
+      return {
+        activated: true,
+        artifactId: artifact.id,
+        applied,
+        skippedConflict,
+        skippedOfflimits,
+      };
+    });
+  }
+
+  function morningBriefManagementSummary(artifactId: string): string | undefined {
+    const counts = db.prepare(
+      `SELECT
+         SUM(CASE WHEN state = 'applied' THEN 1 ELSE 0 END) AS applied,
+         SUM(CASE WHEN state = 'skipped_conflict' THEN 1 ELSE 0 END) AS conflicts,
+         SUM(CASE WHEN state = 'skipped_offlimits' THEN 1 ELSE 0 END) AS offlimits,
+         SUM(CASE WHEN state = 'staged' THEN 1 ELSE 0 END) AS staged,
+         COUNT(*) AS total
+       FROM day_plan_brief_actions WHERE artifact_id = ?`,
+    ).get(artifactId) as {
+      applied: number | null;
+      conflicts: number | null;
+      offlimits: number | null;
+      staged: number | null;
+      total: number;
+    };
+    const applied = counts.applied ?? 0;
+    // Conflict-only runs stay silent in Arrival; their details remain in the receipt.
+    if (!counts.total || counts.staged || applied === 0) return undefined;
+    const parts = [`${applied} board ${applied === 1 ? "change" : "changes"} applied`];
+    if (counts.conflicts) {
+      parts.push(
+        `${counts.conflicts} ${counts.conflicts === 1 ? "change" : "changes"} left alone because you edited ${counts.conflicts === 1 ? "the card" : "those cards"}`,
+      );
+    }
+    if (counts.offlimits) {
+      parts.push(`${counts.offlimits} protected ${(counts.offlimits ?? 0) === 1 ? "card" : "cards"} left alone`);
+    }
+    return `Cove reorganized the board this morning: ${parts.join(", ")}.`;
+  }
+
   function failMorningBrief(id: string, errorCode: string): void {
     immediate(() => {
       const finishedAt = now().toISOString();
@@ -2462,7 +2995,7 @@ export function createDayPlanStore(options: {
   // envelope. Returns whether a row was written.
   function importMorningBrief(
     artifact: MorningBriefArtifact,
-  ): { imported: boolean; adopted: boolean } {
+  ): { imported: boolean; adopted: boolean; briefId?: string } {
     if (artifact.status !== "succeeded" || !artifact.briefJson || !artifact.inputHash) {
       return { imported: false, adopted: false };
     }
@@ -2564,7 +3097,7 @@ export function createDayPlanStore(options: {
             updatedAt,
             adoptable.id,
           ).changes;
-        if (changed > 0) return { imported: true, adopted: true };
+        if (changed > 0) return { imported: true, adopted: true, briefId: adoptable.id };
         // Raced with a local transition; fall through to a plain insert.
       }
       const inserted = db
@@ -2591,7 +3124,11 @@ export function createDayPlanStore(options: {
           artifact.startedAt ?? null,
           importedFinishedAt,
         ).changes;
-      return { imported: inserted > 0, adopted: false };
+      return {
+        imported: inserted > 0,
+        adopted: false,
+        ...(inserted > 0 ? { briefId: artifact.id } : {}),
+      };
     });
   }
 
@@ -2605,67 +3142,6 @@ export function createDayPlanStore(options: {
       .run(now().toISOString(), now().toISOString(), staleBefore).changes;
   }
 
-  function setMorningBriefSalesActionState(
-    briefId: string,
-    actionIndex: number,
-    state: MorningBriefSalesActionState,
-    editedText?: string,
-  ): MorningBriefSalesActionRecord {
-    return immediate(() => {
-      const artifact = getMorningBrief(briefId);
-      const brief = morningBriefFromArtifact(artifact);
-      if (!artifact || !brief) {
-        throw new DayPlanInvalidTransition("Morning brief not found.");
-      }
-      if (
-        !Number.isInteger(actionIndex) ||
-        actionIndex < 0 ||
-        actionIndex >= brief.salesActions.length
-      ) {
-        throw new DayPlanInvalidTransition("Unknown sales action.");
-      }
-      const updatedAt = now().toISOString();
-      db.prepare(
-        `INSERT INTO day_plan_brief_action_states
-          (brief_id, action_index, state, edited_text, updated_at)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(brief_id, action_index) DO UPDATE SET
-           state = excluded.state, edited_text = excluded.edited_text,
-           updated_at = excluded.updated_at`,
-      ).run(briefId, actionIndex, state, editedText ?? null, updatedAt);
-      return {
-        briefId,
-        actionIndex,
-        state,
-        editedText: editedText ?? undefined,
-        updatedAt,
-      };
-    });
-  }
-
-  function listMorningBriefSalesActionStates(
-    briefId: string,
-  ): MorningBriefSalesActionRecord[] {
-    return (db
-      .prepare(
-        `SELECT brief_id, action_index, state, edited_text, updated_at
-         FROM day_plan_brief_action_states WHERE brief_id = ? ORDER BY action_index`,
-      )
-      .all(briefId) as Array<{
-        brief_id: string;
-        action_index: number;
-        state: MorningBriefSalesActionState;
-        edited_text: string | null;
-        updated_at: string;
-      }>).map((row) => ({
-        briefId: row.brief_id,
-        actionIndex: row.action_index,
-        state: row.state,
-        editedText: row.edited_text ?? undefined,
-        updatedAt: row.updated_at,
-      }));
-  }
-
   function listRecentSnapshots(limit = 3): DaySnapshot[] {
     return (db
       .prepare(
@@ -2674,7 +3150,87 @@ export function createDayPlanStore(options: {
       .all(Math.max(1, Math.min(20, limit))) as SnapshotRow[]).map(snapshotFromRow);
   }
 
-  function ensureDayPlan(input: EnsureDayPlanInput): DayPlanMutationResult {
+  function hasManualCreationMarker(planId: string): boolean {
+    const rows = db.prepare(
+      "SELECT after_json FROM day_plan_events WHERE day_plan_id = ? AND event_type = 'ensure'",
+    ).all(planId) as Array<{ after_json: string | null }>;
+    return rows.some((row) => {
+      if (!row.after_json) return false;
+      const after = parseJson<unknown>(row.after_json, "event after");
+      return Boolean(
+        after &&
+          typeof after === "object" &&
+          !Array.isArray(after) &&
+          (after as { creation?: unknown }).creation === "manual",
+      );
+    });
+  }
+
+  // Compatibility repair for pre-gate automatic weekend plans only. It
+  // intentionally performs store-level settlement without the route-level
+  // recurring expiry, brief enqueue, relay, or checkpoint side effects. The
+  // Monday ensure trigger covers the brief. Stable mutation ids make every step
+  // replay-safe, and an interrupted settlement resumes on initialization.
+  function cleanupWeekendPlan(): void {
+    const row = selectOpenPlan.get() as DayPlanRow | undefined;
+    if (!row) return;
+    let plan = planFromRow(row);
+    const today = localDateInTimezone(now().toISOString(), plan.timezone);
+    if (!today || plan.localDate >= today || !isWeekendLocalDate(plan.localDate)) return;
+    if (
+      plan.arrivalInteractedAt ||
+      hasManualCreationMarker(plan.id) ||
+      plan.items.some((item) => item.decision === "accepted" || item.decision === "completed")
+    ) {
+      return;
+    }
+
+    if (plan.state === "proposed" && plan.arrivalState === "failed") {
+      plan = mutateDayPlan({
+        planId: plan.id,
+        mutationId: `weekend-auto-settle:reopen:${plan.id}`,
+        expectedVersion: plan.version,
+        action: "arrival_reopen",
+      }).plan;
+    }
+    if (
+      plan.state === "proposed" &&
+      !["skipped", "bypassed"].includes(plan.arrivalState)
+    ) {
+      plan = mutateDayPlan({
+        planId: plan.id,
+        mutationId: `weekend-auto-settle:bypass:${plan.id}`,
+        expectedVersion: plan.version,
+        action: "arrival_bypass",
+      }).plan;
+    }
+    if (!(plan.state === "settling" && plan.settlementState === "in_progress")) {
+      plan = mutateDayPlan({
+        planId: plan.id,
+        mutationId: `weekend-auto-settle:start:${plan.id}`,
+        expectedVersion: plan.version,
+        action: "settlement_start",
+        completedHumanTaskIds: [],
+      }).plan;
+    }
+    mutateDayPlan({
+      planId: plan.id,
+      mutationId: `weekend-auto-settle:commit:${plan.id}`,
+      expectedVersion: plan.version,
+      action: "settlement_commit",
+      completedHumanTaskIds: [],
+    });
+  }
+
+  function initialize(): void {
+    cleanupWeekendPlan();
+    const open = selectOpenPlan.get() as DayPlanRow | undefined;
+    const timezone = open?.timezone ?? operatorTimezone();
+    const today = localDateInTimezone(now().toISOString(), timezone);
+    if (today) activateBriefBoardActions(today, now());
+  }
+
+  function ensureDayPlan(input: EnsureDayPlanInput): EnsureDayPlanResult {
     return immediate(() => {
       const existingEvent = selectEvent.get(input.mutationId) as EventRow | undefined;
       if (existingEvent) {
@@ -2724,6 +3280,22 @@ export function createDayPlanStore(options: {
       // Attach-only must never create a plan (the poll only runs against an
       // existing arrival; a vanished plan means the ritual moved on).
       if (input.attachOnly) throw new DayPlanNotFound();
+
+      const creation = input.creation ?? "automatic";
+      if (creation === "automatic" && isWeekendLocalDate(input.localDate)) {
+        return {
+          weekendGate: {
+            localDate: input.localDate,
+            weekday: new Intl.DateTimeFormat("en-US", {
+              weekday: "long",
+              timeZone: "UTC",
+            }).format(new Date(`${input.localDate}T12:00:00.000Z`)) as
+              | "Saturday"
+              | "Sunday",
+          },
+          replayed: false,
+        };
+      }
 
       assertArrivalCandidates(input.candidates);
 
@@ -2801,7 +3373,7 @@ export function createDayPlanStore(options: {
         planId: plan.id,
         eventType: "ensure",
         resultVersion: plan.version,
-        after: plan,
+        after: { ...plan, creation },
         createdAt,
       });
       return { plan, replayed: false };
@@ -2858,10 +3430,10 @@ export function createDayPlanStore(options: {
       if (existing.items.length > 0 && !existing.items.every((item) => item.decision === "preselected")) {
         return undefined;
       }
-      // A caller that did not supply fresh candidates (an empty ensure for an
-      // existing plan) must never overlay onto stale/empty evidence.
-      if (input.candidates.length === 0) return undefined;
-      assertArrivalCandidates(input.candidates);
+      // Brief attachment is independent from item evidence. Empty candidates
+      // can attach the narrative, but only fresh candidates may heal or rebuild
+      // the plan's items.
+      if (input.candidates.length > 0) assertArrivalCandidates(input.candidates);
 
       let briefArtifact: MorningBriefArtifact | undefined;
       let briefContent: ReturnType<typeof morningBriefFromArtifact>;
@@ -2901,21 +3473,25 @@ export function createDayPlanStore(options: {
         briefContent = undefined;
       }
       const attachesBrief = Boolean(
-        briefArtifact && briefContent && briefArtifact.id !== existing.briefId,
+        briefArtifact &&
+        briefContent &&
+        briefArtifact.id !== existing.briefId,
       );
-      const healsItems = existing.items.length === 0;
+      const healsItems = existing.items.length === 0 && input.candidates.length > 0;
       if (!healsItems && !attachesBrief) return undefined;
 
-      const selection = overlayBriefOnCandidates(input.candidates, briefContent);
-      const items: DayPlanItem[] = selection.map(({ candidate, brief }, position) => ({
-        ...structuredClone(candidate),
-        id: candidate.candidateId,
-        position,
-        decision: "preselected",
-        ...(brief
-          ? { brief, owner: brief.suggestedOwner ?? candidate.owner }
-          : {}),
-      }));
+      const items: DayPlanItem[] = input.candidates.length > 0
+        ? overlayBriefOnCandidates(input.candidates, briefContent)
+            .map(({ candidate, brief }, position) => ({
+              ...structuredClone(candidate),
+              id: candidate.candidateId,
+              position,
+              decision: "preselected" as const,
+              ...(brief
+                ? { brief, owner: brief.suggestedOwner ?? candidate.owner }
+                : {}),
+            }))
+        : existing.items;
 
       const changedAt = now().toISOString();
       const attached: DayPlan = {
@@ -2956,7 +3532,7 @@ export function createDayPlanStore(options: {
   }
 
   // The one deliberate override of the no-hot-swap rule, and only because the
-  // user asked for it out loud by tapping "Write my brief now". A brief that
+  // user asked for it out loud by tapping "Generate your brief". A brief that
   // finishes after he has already touched the arrival can never attach on its
   // own, which used to leave that button a permanent no-op: the brief existed,
   // it was paid for, and there was no way to see it.
@@ -3674,6 +4250,17 @@ export function createDayPlanStore(options: {
           plan.state = "settled";
           plan.settlementState = "settled";
           plan.settledAt = changedAt;
+          if (input.mutationId === `weekend-auto-settle:commit:${plan.id}`) {
+            // Audit only by design: silent weekend auto-settlement stays out of Recent activity.
+            recordReceiptInDatabase(db, {
+              source: "weekend-auto-settle",
+              startedAt: changedAt,
+              finishedAt: changedAt,
+              summary: `Automatically closed untouched weekend plan ${plan.localDate}.`,
+              actions: { planId: plan.id, localDate: plan.localDate },
+              outcome: "success",
+            });
+          }
           break;
         }
         default:
@@ -3815,7 +4402,14 @@ export function createDayPlanStore(options: {
     return rows.map(eventFromRow);
   }
 
+  // Construction keeps the historical compatibility repair, but board
+  // activation is reserved for the guarded GET initialization call (or the
+  // worker's explicit same-day activation) so a task-table problem cannot make
+  // store construction fail before the route's fail-open boundary.
+  cleanupWeekendPlan();
+
   return {
+    initialize,
     ensureDayPlan,
     markArrivalInteraction,
     forceAttachMorningBrief,
@@ -3873,11 +4467,12 @@ export function createDayPlanStore(options: {
     claimNextMorningBrief,
     recordMorningBriefInputs,
     completeMorningBrief,
+    stageMorningBriefBoardActions,
+    activateBriefBoardActions,
+    morningBriefManagementSummary,
     failMorningBrief,
     importMorningBrief,
     interruptStaleMorningBriefs,
-    setMorningBriefSalesActionState,
-    listMorningBriefSalesActionStates,
     close: () => {
       if (db.open) db.close();
     },

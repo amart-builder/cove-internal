@@ -20,8 +20,14 @@ export default function TaskWorkspace() {
   // initial state is what keeps the server and client markup identical.
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get('view');
-    if (requested === 'all-work') setView('all-work');
-    else if (requested === 'today' && quietCurrentAvailable) setView('today');
+    const requestedView = requested === 'all-work'
+      ? 'all-work'
+      : requested === 'today' && quietCurrentAvailable
+        ? 'today'
+        : undefined;
+    if (!requestedView) return;
+    const update = window.setTimeout(() => setView(requestedView), 0);
+    return () => window.clearTimeout(update);
   }, [quietCurrentAvailable]);
 
   return (

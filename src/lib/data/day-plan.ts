@@ -1,7 +1,5 @@
 import type {
   MorningBriefGeneration,
-  MorningBriefSalesActionRecord,
-  MorningBriefSalesActionState,
   PublicMorningBrief,
 } from "../day-plan/brief";
 import type {
@@ -13,6 +11,7 @@ import type {
   DayPlanExecutionWorkspaceMetadata,
   DayPlanMutationInput,
   DayPlanMutationResult,
+  EnsureDayPlanResult,
   DayPlanReadModel,
   DayPlanReconciliationResult,
   DayPlanTaskMutationResult,
@@ -125,8 +124,8 @@ async function postProtected<T>(endpoint: string, body: Record<string, unknown>)
   return payload as T;
 }
 
-export function ensureDayPlan(input: EnsureDayPlanInput): Promise<DayPlanMutationResult> {
-  return postDayPlan({ action: "ensure", ...input });
+export function ensureDayPlan(input: EnsureDayPlanInput): Promise<EnsureDayPlanResult> {
+  return postDayPlan<EnsureDayPlanResult>({ action: "ensure", ...input });
 }
 
 export function mutateDayPlan(
@@ -163,20 +162,6 @@ export function acknowledgeDayPlanTaskMutation(
   return postDayPlan<DayPlanTaskMutationResult>({
     action: "task_mutation_applied",
     mutationId,
-  });
-}
-
-// Marks a Morning Brief sales action approved, edited, or skipped. State only:
-// nothing is ever sent on the user's behalf.
-export function markMorningBriefSalesAction(input: {
-  briefId: string;
-  actionIndex: number;
-  state: MorningBriefSalesActionState;
-  editedText?: string;
-}): Promise<{ states: MorningBriefSalesActionRecord[] }> {
-  return postDayPlan<{ states: MorningBriefSalesActionRecord[] }>({
-    action: "brief_action",
-    ...input,
   });
 }
 

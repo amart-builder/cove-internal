@@ -1,6 +1,7 @@
 'use client';
 
 import type { MorningBriefGeneration, PublicMorningBrief } from '@/lib/day-plan/brief';
+import { morningBriefArrivalPresentation } from '@/lib/day-plan/presentation';
 import BriefProgress from './BriefProgress';
 
 export default function ArrivalStepBrief({
@@ -10,6 +11,7 @@ export default function ArrivalStepBrief({
   watchItems,
   briefWriting,
   briefGeneration,
+  briefAttached,
   hasBriefContent,
   onForceBrief,
   forcingBrief,
@@ -20,19 +22,20 @@ export default function ArrivalStepBrief({
   watchItems: PublicMorningBrief['watchItems'];
   briefWriting: boolean;
   briefGeneration?: MorningBriefGeneration;
+  briefAttached: boolean;
   hasBriefContent: boolean;
   onForceBrief?: () => void;
   forcingBrief?: boolean;
 }) {
-  // Nothing written and nothing on its way: a failed run, or a morning the cron
-  // never fired. Either way he is staring at a brief-shaped hole, so give him a
-  // way out rather than silence.
-  const stalled = !hasBriefContent && !briefWriting;
-  // Old briefs and the deterministic fallback have no headline, so the first
-  // paragraph is promoted into that slot. Without this they would render as a
-  // body with nothing above it and lose the whole point of the hierarchy.
-  const leadHeadline = headline ?? paragraphs[0];
-  const body = headline ? paragraphs : paragraphs.slice(1);
+  const { stalled, failed, leadHeadline, body } =
+    morningBriefArrivalPresentation({
+      headline,
+      paragraphs,
+      hasBriefContent,
+      briefWriting,
+      briefAttached,
+      generationState: briefGeneration?.state,
+    });
 
   return (
     <section className="mx-auto w-full max-w-[85rem] space-y-9 px-6 py-8 sm:px-10" aria-label="The brief">
@@ -67,20 +70,27 @@ export default function ArrivalStepBrief({
           <BriefProgress
             startedAt={briefGeneration?.startedAt}
             estimateSeconds={briefGeneration?.estimateSeconds}
+            generationState={briefGeneration?.state}
           />
+        )}
+
+        {failed && (
+          <p role="alert" className="text-sm leading-relaxed text-muted-foreground">
+            Your plan is still here. Try the brief again, or continue to Today.
+          </p>
         )}
 
         {stalled && onForceBrief && (
           <button
             type="button"
-            className="text-sm text-muted-foreground underline-offset-4 hover:underline disabled:cursor-default disabled:no-underline disabled:opacity-60"
+            className="press-scale min-h-11 w-full rounded-xl bg-foreground px-5 text-sm font-semibold text-background hover:opacity-90 disabled:cursor-default disabled:opacity-60 sm:w-auto"
             onClick={onForceBrief}
             // The round trip can take a beat, and the optimistic progress state
             // only lands after it. Without this, an impatient second tap fires a
             // second request before the first has said anything.
             disabled={forcingBrief}
           >
-            {forcingBrief ? 'Starting…' : 'Write my brief now'}
+            {forcingBrief ? 'Starting…' : 'Generate your brief'}
           </button>
         )}
 

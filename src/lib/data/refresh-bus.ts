@@ -14,7 +14,9 @@ export function emitDataChanged(tables: string[]): void {
 export function useDataChanged(tables: string[], callback: () => void): void {
   const callbackRef = useRef(callback);
   const tableKey = tables.join('\u0000');
-  callbackRef.current = callback;
+  useEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
   useEffect(() => {
     const subscribed = new Set(tableKey.split('\u0000').filter(Boolean));
     const onChanged = (rawEvent: Event) => {

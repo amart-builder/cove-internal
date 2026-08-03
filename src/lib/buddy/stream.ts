@@ -117,6 +117,15 @@ export function isBuddyContextOverflow(
     .test(done.resultText);
 }
 
+export function isBuddyResumeExecutionFailure(
+  done: BuddyStreamEvent & { kind: "done" },
+  streamedText: string,
+): boolean {
+  if (!done.isError || done.resultText.trim() || streamedText.trim()) return false;
+  const subtype = done.errorSubtype?.toLowerCase().replace(/[^a-z0-9]+/g, "_") ?? "";
+  return subtype === "error_during_execution";
+}
+
 function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>

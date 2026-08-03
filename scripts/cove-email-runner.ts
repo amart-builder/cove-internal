@@ -41,6 +41,20 @@ type RunnerOptions = {
   now?: () => Date;
 };
 
+const INTAKE_PAGE_SIZE = 100;
+const MAX_INTAKE_PAGES = 10;
+
+type EmailTriageResult = {
+  observed: number;
+  classified: number;
+  reconciled: number;
+  jobsDone: number;
+  jobsFailed: number;
+  jobsDead: number;
+  pagesScanned: number;
+  intakeTruncated: boolean;
+};
+
 function header(message: MailMessage, name: string): string {
   return message.headers.find((item) => item.name.toLowerCase() === name.toLowerCase())
     ?.value ?? "";
@@ -75,14 +89,9 @@ function emailRows(dbPath: string): Array<{
   }
 }
 
-async function runEmailTriageUnchecked(options: RunnerOptions = {}): Promise<{
-  observed: number;
-  classified: number;
-  reconciled: number;
-  jobsDone: number;
-  jobsFailed: number;
-  jobsDead: number;
-}> {
+async function runEmailTriageUnchecked(
+  options: RunnerOptions = {},
+): Promise<EmailTriageResult> {
   const repoDir = options.repoDir ??
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const dataDir = options.dataDir ?? path.join(repoDir, "data");
@@ -97,37 +106,52 @@ async function runEmailTriageUnchecked(options: RunnerOptions = {}): Promise<{
 
   let observed = 0;
   let classified = 0;
-  const page = await gateway.listMessages({
-    query: "in:inbox -label:Cove/Triaged -label:Forge/Triaged",
-    maxResults: 100,
-  });
-  for (const listed of page.messages) {
-    const message = await gateway.getMessage({ messageId: listed.id, format: "full" });
-    if (isFromAccount(message, config.accountEmail)) continue;
-    const observation = observeInboundMessage({
-      messageId: message.id,
-      threadId: message.threadId,
-      gmailHistoryId: message.historyId,
-      internalDate: message.internalDate ?? "0",
-      accountEmail: config.accountEmail,
-      senderName: header(message, "From").slice(0, 500),
-      senderEmail: address(header(message, "From")),
-      subject: header(message, "Subject").slice(0, 2_000),
-      bodyExcerpt: message.text.slice(0, 20_000),
-      receivedAt: message.internalDate
-        ? new Date(Number(message.internalDate)).toISOString()
-        : startedAt,
-      dbPath,
-      now: now(),
+  let pageToken: string | undefined;
+  let pagesScanned = 0;
+  const seenMessageIds = new Set<string>();
+  do {
+    const page = await gateway.listMessages({
+      query: "in:inbox -label:Cove/Triaged -label:Forge/Triaged",
+      maxResults: INTAKE_PAGE_SIZE,
+      pageToken,
     });
-    if (observation.inserted) observed += 1;
-  }
+    pagesScanned += 1;
+    for (const listed of page.messages) {
+      if (seenMessageIds.has(listed.id)) continue;
+      seenMessageIds.add(listed.id);
+      const message = await gateway.getMessage({ messageId: listed.id, format: "full" });
+      if (isFromAccount(message, config.accountEmail)) continue;
+      const observation = observeInboundMessage({
+        messageId: message.id,
+        threadId: message.threadId,
+        gmailHistoryId: message.historyId,
+        internalDate: message.internalDate ?? "0",
+        accountEmail: config.accountEmail,
+        senderName: header(message, "From").slice(0, 500),
+        senderEmail: address(header(message, "From")),
+        subject: header(message, "Subject").slice(0, 2_000),
+        bodyExcerpt: message.text.slice(0, 20_000),
+        receivedAt: message.internalDate
+          ? new Date(Number(message.internalDate)).toISOString()
+          : startedAt,
+        dbPath,
+        now: now(),
+      });
+      if (observation.inserted) observed += 1;
+    }
+    pageToken = page.nextPageToken;
+  } while (pageToken && pagesScanned < MAX_INTAKE_PAGES);
+  const intakeTruncated = Boolean(pageToken);
 
   const reconciliation: GmailThreadObservation[] = [];
   for (const row of emailRows(dbPath)) {
     const thread = await gateway.getThread({ threadId: row.thread_id, format: "metadata" });
     const inbound = thread.messages.filter((message) => !isFromAccount(message, config.accountEmail));
-    const sent = thread.messages.filter((message) => isFromAccount(message, config.accountEmail));
+    const sent = thread.messages.filter(
+      (message) =>
+        isFromAccount(message, config.accountEmail) &&
+        message.labelIds?.includes("SENT") === true,
+    );
     const latestInbound = inbound.sort(
       (a, b) => Number(b.internalDate ?? 0) - Number(a.internalDate ?? 0),
     )[0];
@@ -206,7 +230,9 @@ async function runEmailTriageUnchecked(options: RunnerOptions = {}): Promise<{
     source: "email-triage",
     startedAt,
     finishedAt: now().toISOString(),
-    summary: `Email triage observed ${observed}, classified ${classified}, and reconciled ${reconciled.autoChecked}.`,
+    summary: intakeTruncated
+      ? `Email triage safely stopped after ${pagesScanned} pages. Cove marks observed messages with Cove/Triaged so later runs can reach more of the inbox.`
+      : `Email triage observed ${observed}, classified ${classified}, and reconciled ${reconciled.autoChecked}.`,
     actions: {
       observed,
       classified,
@@ -214,15 +240,19 @@ async function runEmailTriageUnchecked(options: RunnerOptions = {}): Promise<{
       jobsDone,
       jobsFailed,
       jobsDead,
+      pagesScanned,
+      intakeTruncated,
     },
     outcome:
-      reconciled.archiveFailures.length > 0 || jobsFailed > 0 || jobsDead > 0
+      intakeTruncated || reconciled.archiveFailures.length > 0 || jobsFailed > 0 || jobsDead > 0
         ? "partial"
         : "success",
     failureKey: "email-triage-run",
     failureMessage:
-      reconciled.archiveFailures.length > 0 || jobsFailed > 0 || jobsDead > 0
-      ? `${reconciled.archiveFailures.length} archive, ${jobsFailed} retryable job, and ${jobsDead} stopped job failure(s) need attention.`
+      intakeTruncated || reconciled.archiveFailures.length > 0 || jobsFailed > 0 || jobsDead > 0
+      ? intakeTruncated
+        ? `Inbox intake reached its ${MAX_INTAKE_PAGES}-page safety limit. Cove marks observed messages with Cove/Triaged so later runs can move past them and reach more of the inbox.`
+        : `${reconciled.archiveFailures.length} archive, ${jobsFailed} retryable job, and ${jobsDead} stopped job failure(s) need attention.`
       : undefined,
   });
   return {
@@ -232,17 +262,12 @@ async function runEmailTriageUnchecked(options: RunnerOptions = {}): Promise<{
     jobsDone,
     jobsFailed,
     jobsDead,
+    pagesScanned,
+    intakeTruncated,
   };
 }
 
-export async function runEmailTriage(options: RunnerOptions = {}): Promise<{
-  observed: number;
-  classified: number;
-  reconciled: number;
-  jobsDone: number;
-  jobsFailed: number;
-  jobsDead: number;
-}> {
+export async function runEmailTriage(options: RunnerOptions = {}): Promise<EmailTriageResult> {
   try {
     return await runEmailTriageUnchecked(options);
   } catch (error) {

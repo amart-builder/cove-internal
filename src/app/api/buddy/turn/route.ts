@@ -16,6 +16,7 @@ import {
 } from "@/lib/buddy/store";
 import {
   isBuddyContextOverflow,
+  isBuddyResumeExecutionFailure,
   registerActiveBuddyTurn,
   runBuddyCommand,
   type BuddyStreamEvent,
@@ -65,6 +66,9 @@ export function attachBuddyRun(input: {
     buildSummaryCommand: () => ClaudeCommand;
     buildSeedCommand: (summary: string) => ClaudeCommand;
     buildRetryCommand: (headSessionId: string) => ClaudeCommand;
+  };
+  resumeRecovery?: {
+    buildFreshCommand: () => ClaudeCommand;
   };
   send: (event: BuddyStreamEvent | Record<string, unknown>) => void;
   close: () => void;
@@ -123,7 +127,31 @@ export function attachBuddyRun(input: {
       errorSubtype: "context_overflow_retry_failed",
     });
     const running = execute(command, forward).then(async (initial) => {
-      if (!input.compaction || !isBuddyContextOverflow(initial)) return initial;
+      if (!input.compaction || !isBuddyContextOverflow(initial)) {
+        // A fast, work-free error_during_execution on a healthy resumed session also
+        // takes this one-shot fallback and loses continuity for this thread. That is
+        // deliberate and bounded to this turn; the normal Retry remains available.
+        const resumeRecovery = input.resumeRecovery;
+        if (!resumeRecovery || !isBuddyResumeExecutionFailure(initial, streamedText) ||
+          authoritativeChanges.length > 0 || authoritativeSessions.length > 0) {
+          return initial;
+        }
+        streamedText = "";
+        authoritativeChanges.length = 0;
+        authoritativeSessions.length = 0;
+        try {
+          const retry = await execute(resumeRecovery.buildFreshCommand(), forward);
+          const totalCostUsd = initial.costUsd + retry.costUsd;
+          if (!retry.isError) {
+            return { ...retry, costUsd: totalCostUsd, resumeRecovered: true as const };
+          }
+          streamedText = "";
+          return { ...initial, costUsd: totalCostUsd, preserveHead: true as const };
+        } catch (error) {
+          streamedText = "";
+          throw error;
+        }
+      }
       input.send({ kind: "compacting" });
       streamedText = "";
       authoritativeChanges.length = 0;
@@ -160,10 +188,23 @@ export function attachBuddyRun(input: {
             authoritativeChanges,
             authoritativeSessions,
           );
-          input.store.completeTurn(input.turn.id, {
+          // Stored only as a DB-audit breadcrumb; no Buddy UI consumer reads it.
+          const storedReceipts = "resumeRecovered" in done && done.resumeRecovered
+            ? {
+                ...(receipts ?? { changes: [], pendingDeletes: [] }),
+                resumeRecovery: {
+                  reason: "error_during_execution",
+                  outcome: "fresh_session_succeeded",
+                },
+              }
+            : receipts;
+          const finish = "preserveHead" in done && done.preserveHead
+            ? input.store.finishTurn
+            : input.store.completeTurn;
+          finish(input.turn.id, {
             state: done.isError ? "failed" : "succeeded",
             assistant_text: parsed.text,
-            receipts_json: receipts ? JSON.stringify(receipts) : null,
+            receipts_json: storedReceipts ? JSON.stringify(storedReceipts) : null,
             session_id: done.sessionId,
             cost_usd: done.costUsd,
             error_code: done.isError ? done.errorSubtype ?? "claude_error" : null,
@@ -466,6 +507,16 @@ export async function POST(request: NextRequest) {
         pageContext: body.pageContext,
       }),
       ...(headSessionId ? {
+        resumeRecovery: {
+          buildFreshCommand: () => buildBuddyTurnCommand({
+            headSessionId: null,
+            newSessionId: randomUUID(),
+            model: route.model,
+            effort: route.effort,
+            userText: text,
+            pageContext: body.pageContext,
+          }),
+        },
         compaction: {
           buildSummaryCommand: () => buildBuddyCompactionSummaryCommand(headSessionId),
           buildSeedCommand: (summary: string) => buildBuddyHandoffSeedCommand({

@@ -5,7 +5,9 @@ import {
   briefProgress,
   briefRemainingLabel,
   DEFAULT_BRIEF_ESTIMATE_SECONDS,
+  morningBriefPendingLabel,
 } from '@/lib/day-plan/presentation';
+import type { MorningBriefGenerationState } from '@/lib/day-plan/brief';
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 // Its own ticker, deliberately independent of the 15s brief poll: the bar has to
@@ -29,9 +31,11 @@ function reducedMotionSnapshot() {
 export default function BriefProgress({
   startedAt,
   estimateSeconds,
+  generationState,
 }: {
   startedAt?: string;
   estimateSeconds?: number;
+  generationState?: MorningBriefGenerationState;
 }) {
   const reducedMotion = useSyncExternalStore(
     subscribeToReducedMotion,
@@ -46,6 +50,23 @@ export default function BriefProgress({
     return () => window.clearInterval(timer);
   }, [startedAt]);
 
+  if (generationState === 'succeeded') {
+    return (
+      <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
+        <span className="inline-flex items-center gap-1" aria-hidden="true">
+          {[0, 1, 2].map((dot) => (
+            <span
+              key={dot}
+              className="size-1.5 rounded-full bg-current opacity-35 motion-safe:animate-pulse"
+              style={{ animationDelay: `${dot * 180}ms` }}
+            />
+          ))}
+        </span>
+        {morningBriefPendingLabel(generationState)}
+      </p>
+    );
+  }
+
   const startedMs = startedAt ? Date.parse(startedAt) : NaN;
   if (!Number.isFinite(startedMs)) {
     return (
@@ -59,7 +80,7 @@ export default function BriefProgress({
             />
           ))}
         </span>
-        Your brief is queued…
+        {morningBriefPendingLabel(generationState)}
       </p>
     );
   }

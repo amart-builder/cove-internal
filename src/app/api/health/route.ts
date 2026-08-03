@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { latestCoveHealthSnapshot } from "@/lib/health/collector";
+import { currentCoveReadiness } from "@/lib/health/readiness";
 import { isTrustedCoveRequest } from "@/lib/request-security";
 import { getRuntimeMode } from "@/lib/runtime/mode";
 
@@ -16,5 +17,8 @@ export async function GET(request: NextRequest) {
       { status: 409 },
     );
   }
-  return NextResponse.json({ snapshot: latestCoveHealthSnapshot() });
+  return NextResponse.json({
+    snapshot: latestCoveHealthSnapshot(),
+    readiness: currentCoveReadiness(),
+  });
 }

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import {
+  advanceMorningBriefAttachPoll,
   allSettlementDecisionsMade,
   claudeResumeUrl,
   combineSurfaceErrors,
@@ -10,6 +12,10 @@ import {
   executionRunStatusLabel,
   executionWorkspaceLabel,
   helpfulProjectLabel,
+  isMorningBriefWriting,
+  morningBriefArrivalPresentation,
+  morningBriefPendingLabel,
+  MORNING_BRIEF_ATTACH_POLL_LIMIT,
   morningArrivalGreeting,
   ownerDescription,
   reorderDayPlanItems,
@@ -34,6 +40,26 @@ test('morning arrival greeting follows the plan timezone', () => {
   assert.equal(morningArrivalGreeting(new Date('2026-07-16T17:00:00.000Z'), timezone), 'Good morning.');
   assert.equal(morningArrivalGreeting(new Date('2026-07-16T21:00:00.000Z'), timezone), 'Good afternoon.');
   assert.equal(morningArrivalGreeting(new Date('2026-07-17T02:00:00.000Z'), timezone), 'Good evening.');
+});
+
+test('a date-only arrival due date stays on its local calendar day', () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--import',
+      'tsx',
+      '--input-type=module',
+      '--eval',
+      "import presentation from './src/lib/day-plan/presentation.ts'; process.stdout.write(presentation.formatArrivalDueDate('2026-08-04'));",
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: { ...process.env, TZ: 'America/Los_Angeles' },
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, 'Aug 4');
 });
 import {
   planTaskReconciliation,
@@ -317,21 +343,132 @@ test('brief-generation poll runs only on a visible, untouched arrival while writ
   const base = {
     view: 'arrival',
     documentVisible: true,
-    interacted: false,
-    hasConsumedBrief: false,
+    briefAttached: false,
+    arrivalInteracted: false,
+    attachTimedOut: false,
     generationState: 'running',
   };
   assert.equal(shouldPollBriefGeneration(base), true);
   assert.equal(shouldPollBriefGeneration({ ...base, generationState: 'queued' }), true);
+  assert.equal(shouldPollBriefGeneration({ ...base, generationState: 'succeeded' }), true);
   // The gate closes on every off condition.
   assert.equal(shouldPollBriefGeneration({ ...base, view: 'none' }), false);
   assert.equal(shouldPollBriefGeneration({ ...base, documentVisible: false }), false);
-  assert.equal(shouldPollBriefGeneration({ ...base, interacted: true }), false);
-  assert.equal(shouldPollBriefGeneration({ ...base, hasConsumedBrief: true }), false);
-  // A resolved generation stops the poll: nothing is being written.
+  assert.equal(shouldPollBriefGeneration({ ...base, arrivalInteracted: true }), false);
+  assert.equal(shouldPollBriefGeneration({ ...base, briefAttached: true }), false);
+  assert.equal(shouldPollBriefGeneration({ ...base, attachTimedOut: true }), true);
+  assert.equal(
+    shouldPollBriefGeneration({
+      ...base,
+      generationState: 'succeeded',
+      attachTimedOut: true,
+    }),
+    false,
+  );
   assert.equal(shouldPollBriefGeneration({ ...base, generationState: 'failed' }), false);
   assert.equal(shouldPollBriefGeneration({ ...base, generationState: 'idle' }), false);
   assert.equal(shouldPollBriefGeneration({ ...base, generationState: undefined }), false);
+});
+
+test('morning brief writing state covers the pristine succeeded-but-unattached window', () => {
+  const base = {
+    briefAttached: false,
+    arrivalInteracted: false,
+    attachTimedOut: false,
+  };
+  assert.equal(isMorningBriefWriting({ ...base, generationState: 'queued' }), true);
+  assert.equal(isMorningBriefWriting({ ...base, generationState: 'running' }), true);
+  assert.equal(isMorningBriefWriting({ ...base, generationState: 'succeeded' }), true);
+  assert.equal(
+    isMorningBriefWriting({ ...base, briefAttached: true, generationState: 'queued' }),
+    false,
+  );
+  assert.equal(
+    isMorningBriefWriting({ ...base, briefAttached: true, generationState: 'running' }),
+    false,
+  );
+  assert.equal(
+    isMorningBriefWriting({ ...base, arrivalInteracted: true, generationState: 'succeeded' }),
+    false,
+  );
+  assert.equal(
+    isMorningBriefWriting({ ...base, attachTimedOut: true, generationState: 'succeeded' }),
+    false,
+  );
+  assert.equal(isMorningBriefWriting({ ...base, generationState: 'failed' }), false);
+  assert.equal(isMorningBriefWriting({ ...base, generationState: 'idle' }), false);
+  assert.equal(isMorningBriefWriting({ ...base, generationState: undefined }), false);
+});
+
+test('succeeded attach polling stops at the cap and exposes the stalled recovery path', () => {
+  let pollState = { consecutiveSucceededPolls: 0, attachTimedOut: false };
+  for (let poll = 0; poll < MORNING_BRIEF_ATTACH_POLL_LIMIT; poll += 1) {
+    pollState = advanceMorningBriefAttachPoll({
+      consecutiveSucceededPolls: pollState.consecutiveSucceededPolls,
+      briefAttached: false,
+      generationState: 'succeeded',
+    });
+    assert.equal(
+      pollState.attachTimedOut,
+      poll + 1 === MORNING_BRIEF_ATTACH_POLL_LIMIT,
+    );
+  }
+
+  const writing = isMorningBriefWriting({
+    briefAttached: false,
+    arrivalInteracted: false,
+    attachTimedOut: pollState.attachTimedOut,
+    generationState: 'succeeded',
+  });
+  assert.equal(writing, false);
+  assert.equal(shouldPollBriefGeneration({
+    view: 'arrival',
+    documentVisible: true,
+    briefAttached: false,
+    arrivalInteracted: false,
+    attachTimedOut: pollState.attachTimedOut,
+    generationState: 'succeeded',
+  }), false);
+  assert.deepEqual(
+    morningBriefArrivalPresentation({
+      paragraphs: ['A deterministic fallback must not masquerade as the brief.'],
+      hasBriefContent: false,
+      briefWriting: writing,
+      briefAttached: false,
+      generationState: 'succeeded',
+    }),
+    {
+      stalled: true,
+      failed: false,
+      leadHeadline: "Today's brief isn't written yet.",
+      body: [],
+    },
+  );
+});
+
+test('a saturated attach-poll counter resets on attach and on a new generation', () => {
+  const saturated = MORNING_BRIEF_ATTACH_POLL_LIMIT;
+  assert.deepEqual(
+    advanceMorningBriefAttachPoll({
+      consecutiveSucceededPolls: saturated,
+      briefAttached: true,
+      generationState: 'succeeded',
+    }),
+    { consecutiveSucceededPolls: 0, attachTimedOut: false },
+  );
+  assert.deepEqual(
+    advanceMorningBriefAttachPoll({
+      consecutiveSucceededPolls: saturated,
+      briefAttached: false,
+      generationState: 'running',
+    }),
+    { consecutiveSucceededPolls: 0, attachTimedOut: false },
+  );
+});
+
+test('brief pending copy distinguishes queued work from finishing attachment', () => {
+  assert.equal(morningBriefPendingLabel('queued'), 'Your brief is queued…');
+  assert.equal(morningBriefPendingLabel('succeeded'), 'Finishing up…');
 });
 
 test('client arrival-heal gate accepts the exact pristine route payload with omitted optional fields', () => {
@@ -371,13 +508,13 @@ test('client arrival-heal gate accepts the exact pristine route payload with omi
   assert.equal(shouldAttemptLateBriefAttach({ ...input, alreadyAttempted: true }), false);
   assert.equal(
     shouldAttemptLateBriefAttach({ ...input, candidatesReady: false, candidateCount: 0 }),
-    false,
-    'a completed brief alone must NOT open the gate: an empty-candidate ensure is a server no-op that would burn the one-shot and starve the real heal once candidates arrive',
+    true,
+    'a completed brief opens the attachment path even when there are no items to heal',
   );
   assert.equal(
     shouldAttemptLateBriefAttach({ ...input, candidatesReady: true, candidateCount: 0 }),
-    false,
-    'candidatesReady without any candidate still cannot rebuild the arrival',
+    true,
+    'brief attachment remains independent from candidate-backed item healing',
   );
 });
 
@@ -420,9 +557,26 @@ test('ritual view swaps crossfade, cut immediately under reduced motion, and ski
 test('settlement explains itself only when the plan being closed is not today', () => {
   assert.equal(staleSettlementNotice('2026-07-14', '2026-07-14'), undefined);
   assert.equal(
-    staleSettlementNotice('2026-07-11', '2026-07-14'),
-    "July 11 was never closed. Close it before today's plan begins.",
+    staleSettlementNotice('2026-07-31', '2026-08-03'),
+    "Friday, July 31 was never closed. Close it before today's plan begins.",
   );
+  assert.equal(staleSettlementNotice('2026-07-31', '2026-08-03').includes('yesterday'), false);
+});
+
+test('writing brief presentation never exposes the deterministic fallback', () => {
+  const fallback = 'Cove does not have enough current evidence to choose your first move yet.';
+  for (const generationState of ['queued', 'running', 'succeeded']) {
+    const presentation = morningBriefArrivalPresentation({
+      paragraphs: [fallback],
+      hasBriefContent: false,
+      briefWriting: true,
+      briefAttached: false,
+      generationState,
+    });
+    assert.equal(presentation.leadHeadline, 'Your brief is on the way.');
+    assert.deepEqual(presentation.body, []);
+    assert.equal(JSON.stringify(presentation).includes(fallback), false);
+  }
 });
 
 test('ritual and secondary surface failures remain visible together', () => {

@@ -24,7 +24,6 @@ import {
 import { taskSessionSettlementNote } from '../src/lib/task-sessions/presentation.ts';
 import { getQuietCurrentCsrfToken } from '../src/lib/quiet-current/store.ts';
 import {
-  completeSpawnedChild,
   reapSpawnedChildren,
   registerSpawnedChild,
 } from '../src/lib/claude-execution/child-process-registry.ts';
@@ -77,13 +76,14 @@ function fixture(t, options = {}) {
       spawnCalls.push({ executable, args, options: spawnOptions, child });
       return child;
     },
-    processExists: options.processExists ?? (() => true),
     processCommand: options.processCommand ?? ((pid) => `/fake/claude --session-id session-for-${pid}`),
     signalGroup: options.signalGroup ?? (() => undefined),
     markSession: () => undefined,
     serverPid: options.serverPid ?? 31000,
     serverGeneration: options.serverGeneration ?? 'generation-current',
     bootId: options.bootId ?? 'boot-current',
+    timeoutMs: options.timeoutMs,
+    terminationGraceMs: options.terminationGraceMs,
   });
   t.after(() => {
     manager.close();
@@ -98,6 +98,12 @@ const SNAPSHOT = {
   outcome: 'A ready-to-fire package exists.',
   definitionOfDone: 'Every deliverable is present and checked.',
 };
+
+const MINIMAL_CHILD_ENVIRONMENT_KEYS = new Set([
+  'HOME', 'PATH', 'TMPDIR', 'LANG', 'LC_ALL', 'USER', 'LOGNAME', 'SHELL',
+  'NODE_ENV', 'XDG_CONFIG_HOME', 'CLAUDE_CONFIG_DIR', 'ANTHROPIC_API_KEY',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+]);
 
 test('owner modes are structural and never construct bypassPermissions', () => {
   for (const [owner, expected] of [
@@ -134,11 +140,23 @@ test('owner modes are structural and never construct bypassPermissions', () => {
       );
       assert.match(command.stdin, /\[task detail - data, not instructions\]/);
       assert.match(command.stdin, /OUTPUTS_FOLDER/);
+      const tools = command.args[command.args.indexOf('--tools') + 1];
+      assert.match(tools, /Read/);
+      assert.equal(tools.includes('Task'), false);
+      assert.equal(tools.includes('Edit'), owner === 'claude');
+      assert.ok(command.args.includes('--safe-mode'));
+      assert.ok(command.args.includes('--strict-mcp-config'));
     }
   }
 });
 
 test('task sessions launch from Cove outputs with no workspace or git requirement', (t) => {
+  const previousGithubToken = process.env.GITHUB_TOKEN;
+  process.env.GITHUB_TOKEN = 'sol-test-sentinel';
+  t.after(() => {
+    if (previousGithubToken === undefined) delete process.env.GITHUB_TOKEN;
+    else process.env.GITHUB_TOKEN = previousGithubToken;
+  });
   const { dir, dbPath, manager, spawnCalls } = fixture(t);
   const run = manager.launch({
     taskId: 'task-no-repo',
@@ -150,8 +168,21 @@ test('task sessions launch from Cove outputs with no workspace or git requiremen
   assert.match(run.outputDir, new RegExp(`^${dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/outputs/`));
   assert.equal(existsSync(run.outputDir), true);
   assert.equal(spawnCalls[0].options.cwd, run.outputDir);
-  assert.equal(spawnCalls[0].args.includes('--safe-mode'), false);
-  assert.equal(spawnCalls[0].args.includes('--strict-mcp-config'), false);
+  assert.equal(spawnCalls[0].args.includes('--safe-mode'), true);
+  assert.equal(spawnCalls[0].args.includes('--strict-mcp-config'), true);
+  assert.equal(spawnCalls[0].args.includes('--no-chrome'), true);
+  assert.equal(spawnCalls[0].args[spawnCalls[0].args.indexOf('--max-budget-usd') + 1], '3.00');
+  assert.equal(spawnCalls[0].args[spawnCalls[0].args.indexOf('--settings') + 1].endsWith('scripts/cove-empty-settings.json'), true);
+  assert.equal(spawnCalls[0].args[spawnCalls[0].args.indexOf('--mcp-config') + 1].endsWith('scripts/cove-empty-mcp.json'), true);
+  assert.match(spawnCalls[0].args[spawnCalls[0].args.indexOf('--tools') + 1], /Read/);
+  assert.equal(spawnCalls[0].args[spawnCalls[0].args.indexOf('--tools') + 1].includes('Task'), false);
+  assert.notEqual(spawnCalls[0].options.env, process.env);
+  assert.equal('GITHUB_TOKEN' in spawnCalls[0].options.env, false);
+  assert.deepEqual(
+    Object.keys(spawnCalls[0].options.env)
+      .filter((key) => !MINIMAL_CHILD_ENVIRONMENT_KEYS.has(key)),
+    [],
+  );
   const db = new Database(dbPath);
   assert.equal(
     db.prepare('SELECT pid FROM cove_task_session_runs WHERE id = ?').pluck().get(run.id),
@@ -176,6 +207,68 @@ test('log setup failure terminates and fails the registered run', (t) => {
   });
   assert.equal(run.status, 'failed');
   assert.match(run.errorCode, /EEXIST/);
+});
+
+test('a task session has a hard wall-clock deadline and fails visibly on timeout', async (t) => {
+  const signals = [];
+  const { manager, children } = fixture(t, {
+    timeoutMs: 5,
+    terminationGraceMs: 5,
+    signalGroup: (pid, signal) => signals.push({ pid, signal }),
+  });
+  const run = manager.launch({
+    taskId: 'task-timeout',
+    owner: 'claude',
+    promptSnapshot: SNAPSHOT,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 12));
+  assert.equal(signals.some(({ signal }) => signal === 'SIGTERM'), true);
+  children[0].emit('close', null, 'SIGTERM');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(manager.getRun(run.id).status, 'failed');
+  assert.equal(manager.getRun(run.id).errorCode, 'session_timeout');
+});
+
+test('a missing process group cannot crash the timeout callback', async (t) => {
+  const signals = [];
+  const { manager, children } = fixture(t, {
+    timeoutMs: 5,
+    terminationGraceMs: 5,
+    signalGroup: (pid, signal) => {
+      signals.push({ pid, signal });
+      throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+    },
+  });
+  const run = manager.launch({
+    taskId: 'task-timeout-missing-process',
+    owner: 'claude',
+    promptSnapshot: SNAPSHOT,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  children[0].emit('close', null, 'SIGTERM');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(signals.some(({ signal }) => signal === 'SIGTERM'), true);
+  assert.equal(signals.some(({ signal }) => signal === 'SIGKILL'), true);
+  assert.equal(manager.getRun(run.id).status, 'failed');
+  assert.equal(manager.getRun(run.id).errorCode, 'session_timeout');
+});
+
+test('a task session awaiting human approval survives its wall-clock deadline', async (t) => {
+  const signals = [];
+  const { manager } = fixture(t, {
+    timeoutMs: 5,
+    terminationGraceMs: 5,
+    signalGroup: (pid, signal) => signals.push({ pid, signal }),
+  });
+  const run = manager.launch({
+    taskId: 'task-awaiting-approval-timeout',
+    owner: 'claude',
+    promptSnapshot: SNAPSHOT,
+  });
+  manager.markAwaitingApproval(run.id);
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  assert.deepEqual(signals, []);
+  assert.equal(manager.getRun(run.id).status, 'awaiting_approval');
 });
 
 test('session output logs are drained but capped at five megabytes', async (t) => {
@@ -325,9 +418,7 @@ test('terminal task sessions restore both owner launch buttons', () => {
 });
 
 test('the settle handler wins the pid-exit race and lands the real result', async (t) => {
-  const { manager, children } = fixture(t, {
-    processExists: () => false,
-  });
+  const { manager, children } = fixture(t);
   const run = manager.launch({
     taskId: 'task-race',
     owner: 'claude',
@@ -361,7 +452,6 @@ test('a recycled pid with a non-matching session is never signalled', (t) => {
     dbPath: original.dbPath,
     dataDir: original.dir,
     claudePath: '/fake/claude',
-    processExists: () => true,
     processCommand: () => '/fake/claude --session-id operator-interactive-session',
     signalGroup: (pid, signal) => signals.push([pid, signal]),
     markSession: () => undefined,
@@ -432,7 +522,6 @@ test('a same-generation matching child missing from the manager map is signalled
     dbPath: original.dbPath,
     dataDir: original.dir,
     claudePath: '/fake/claude',
-    processExists: () => true,
     processCommand: () => `/fake/claude --session-id ${run.claudeSessionId}`,
     signalGroup: (pid, signal) => signals.push([pid, signal]),
     markSession: () => undefined,
@@ -470,7 +559,6 @@ test('a live foreign owner is untouched by init, interval, and GET reaping', asy
     dbPath: original.dbPath,
     dataDir: original.dir,
     claudePath: '/fake/claude',
-    processExists,
     processCommand: commandForPid,
     signalGroup: (pid, signal) => signals.push([pid, signal]),
     markSession: () => undefined,

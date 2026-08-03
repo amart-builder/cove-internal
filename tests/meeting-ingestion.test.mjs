@@ -3,7 +3,6 @@ import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import Database from "better-sqlite3";
 import { LocalCRMBackend } from "../src/lib/crm/index.ts";
 import {
   claimMessageIngestion,
@@ -14,6 +13,7 @@ import {
   processMeetingNotesEmail,
   writeWaitingCommitment,
 } from "../src/lib/intake/meeting-pipeline.ts";
+import { runMeetingWatch } from "../scripts/cove-meeting-watch.mjs";
 import { listFailures } from "../src/lib/reliability/failures.ts";
 import { listRecentReceipts } from "../src/lib/reliability/receipts.ts";
 
@@ -64,6 +64,42 @@ function pipelineOptions(files, overrides = {}) {
     ...overrides,
   };
 }
+
+test("a missing meeting config disables the watcher without a failure", async (t) => {
+  const files = fixture(t);
+  const heartbeatPath = path.join(files.dir, "intake", "heartbeats.json");
+  let gmailReads = 0;
+  const result = await runMeetingWatch({
+    configPath: path.join(files.dir, "missing-cove-meetings.json"),
+    statePath: path.join(files.dir, "meeting-state.json"),
+    heartbeatPath,
+    dataDir: files.dir,
+    dbPath: files.dbPath,
+    gateway: {
+      listMessages: async () => {
+        gmailReads += 1;
+        return { messages: [] };
+      },
+    },
+    machineIdentity: {
+      id: "99999999-9999-4999-8999-999999999999",
+      hostname: "test-mac",
+    },
+    now: () => START,
+  });
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.summary.errors, 0);
+  assert.equal(result.summary.examined, 0);
+  assert.equal(gmailReads, 0);
+  const heartbeat = JSON.parse(readFileSync(heartbeatPath, "utf8"));
+  assert.equal(
+    heartbeat.machines["99999999-9999-4999-8999-999999999999"]
+      .meeting_watch.disabled,
+    true,
+  );
+  assert.equal(listFailures({ dbPath: files.dbPath }).length, 0);
+});
 
 test("the same Gmail message through watcher and triage processes once", async (t) => {
   const files = fixture(t);
@@ -151,8 +187,7 @@ test("an expired claim recovers after a crash between claim and completion", (t)
   assert.equal(listRecentReceipts({ dbPath: files.dbPath }).length, 1);
 });
 
-test("waiting-on writes receive and persist the resolved contact id", async (t) => {
-  const files = fixture(t);
+test("waiting-on writes receive and persist the resolved contact id", async () => {
   let posted;
   const responses = [
     new Response("[]", { status: 200 }),
@@ -329,7 +364,8 @@ test("normal single-Mac install registers watcher and progress lanes outside --m
     /Skipping progress reconciler: \$PROGRESS_OWNER owns this lane\./,
   );
   assert.match(installer, /LANE_DATA_DIR="\$\{COVE_DATA_DIR:-\$REPO_DIR\/data\}"/);
-  assert.match(installer, /replaceAll\(templateData, dataDir\)/);
+  assert.match(installer, /LANE_PLIST_RENDERER="\$REPO_DIR\/scripts\/lib\/render-lane-plist\.mjs"/);
+  assert.match(normalProfile, /"\$NODE_REAL" "\$LANE_PLIST_RENDERER"/);
   assert.match(
     normalProfile,
     /if \[ "\$INSTALL_MEETING_LANE" = "1" \]; then\s+echo "Meeting watcher: every 5 minutes[\s\S]*else\s+echo "Meeting watcher: skipped because \$MEETING_OWNER owns this lane"/,

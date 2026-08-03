@@ -3,6 +3,7 @@ import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import Database from 'better-sqlite3';
 import { buildDayPlanCandidates } from '../src/lib/day-plan/candidates.ts';
 import { createDayPlanStore } from '../src/lib/day-plan/store.ts';
 import {
@@ -62,7 +63,7 @@ const WIRE_BRIEF = {
   ],
   suggested_additions: [],
   watch_items: [],
-  sales_actions: [],
+  board_actions: [],
 };
 
 function briefJson() {
@@ -86,7 +87,7 @@ function candidatePool() {
     localDate: DATE,
     timezone: TZ,
     tasks: [
-      { id: 'task-a', title: 'Deliver the MHA weekly block', description: 'The weekly MHA advisory work is delivered.', priority: 'high', position: 0, column: 'today', status: 'open', updatedAt: '2026-07-14T12:00:00.000Z', refreshedAt: CLOCK },
+      { id: 'task-a', title: 'Deliver the Meridian weekly block', description: 'The weekly Meridian advisory work is delivered.', priority: 'high', position: 0, column: 'today', status: 'open', updatedAt: '2026-07-14T12:00:00.000Z', refreshedAt: CLOCK },
       { id: 'task-b', title: 'Send referral blast batch two', description: 'Eight more referral asks go out.', priority: 'medium', position: 1, column: 'today', status: 'open', updatedAt: '2026-07-14T12:00:00.000Z', refreshedAt: CLOCK },
       { id: 'task-c', title: 'Follow up with Gio on the setup', description: 'Gio gets a concrete setup proposal.', priority: 'low', position: 2, column: 'in_flight', status: 'open', updatedAt: '2026-07-14T12:00:00.000Z', refreshedAt: CLOCK },
     ],
@@ -202,7 +203,7 @@ test('parseRelayFile rejects corrupt, foreign-version, checksum-mismatched, and 
   assert.equal(parseRelayFile(JSON.stringify(foreignSchema)), undefined);
 
   const tampered = JSON.parse(raw);
-  tampered.brief_json = JSON.stringify({ lensNarrative: 'evil', existingTaskCandidates: [], suggestedAdditions: [], watchItems: [], salesActions: [] });
+  tampered.brief_json = JSON.stringify({ lensNarrative: 'evil', existingTaskCandidates: [], suggestedAdditions: [], watchItems: [] });
   assert.equal(parseRelayFile(JSON.stringify(tampered)), undefined, 'checksum no longer matches the mutated content');
 
   const oversize = JSON.stringify({ ...JSON.parse(raw), pad: 'x'.repeat(1_100_000) });
@@ -217,7 +218,7 @@ test('importMorningBrief is idempotent and keeps the earliest finished_at on a s
   const { store } = fixture(t);
   const json = briefJson();
   const first = store.importMorningBrief(makeArtifact({ id: 'a', inputHash: 'H', finishedAt: '2026-07-14T15:00:00.000Z', json }));
-  assert.deepEqual(first, { imported: true, adopted: false });
+  assert.deepEqual(first, { imported: true, adopted: false, briefId: 'a' });
   // Same envelope again → no-op.
   assert.deepEqual(store.importMorningBrief(makeArtifact({ id: 'a', inputHash: 'H', finishedAt: '2026-07-14T15:00:00.000Z', json })), { imported: false, adopted: false });
   // A same-key artifact with an earlier finished_at wins deterministically.
@@ -233,7 +234,7 @@ test('import adopts a local running row and a late local finisher then no-ops', 
   const running = store.enqueueMorningBrief(DATE, PROVENANCE).brief;
   store.claimNextMorningBrief();
   const result = store.importMorningBrief(makeArtifact({ id: 'remote', inputHash: 'remote-h', json }));
-  assert.deepEqual(result, { imported: true, adopted: true });
+  assert.deepEqual(result, { imported: true, adopted: true, briefId: running.id });
   const adopted = store.getMorningBrief(running.id);
   assert.equal(adopted.status, 'succeeded');
   assert.equal(adopted.inputHash, 'remote-h');
@@ -280,6 +281,68 @@ test('scan imports only valid files, skips corrupt/foreign/sync-conflict, and ne
   assert.equal(readdirSync(relayDir).length, 4);
   // Re-scan is cheap and idempotent (filenames already seen, DB dedupes).
   assert.equal(scanAndImportBriefRelay({ store, targetLocalDate: DATE, dataDir: dir, imported }), 0);
+});
+
+test('relay import stages and activates board actions end to end', (t) => {
+  const { dir, store } = fixture(t);
+  const db = new Database(path.join(dir, 'cove.db'));
+  db.exec(`
+    CREATE TABLE task_columns (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE tasks (
+      id TEXT PRIMARY KEY, column_id TEXT, title TEXT NOT NULL, description TEXT,
+      priority TEXT, due_at TEXT, due_date TEXT, tags TEXT, project TEXT,
+      position REAL, status TEXT, archived_at TEXT, archived_from_status TEXT,
+      recurring_template_id TEXT, occurrence_local_date TEXT,
+      created_at TEXT, updated_at TEXT
+    );
+    INSERT INTO task_columns VALUES ('col-ns', 'Not Started', 0);
+    INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, position, status, updated_at)
+    VALUES
+      ('task-x', 'col-ns', 'Relay task', '', 'medium', '[]', 0, 'open',
+       '2026-07-14T12:00:00.000Z');
+  `);
+  const brief = validateMorningBrief({
+    ...WIRE_BRIEF,
+    board_actions: [{
+      op: 'set_priority', task_id: 'task-x', priority: 'high', why: 'Goal fit.',
+    }],
+  }, {
+    knownTaskIds: new Set(['task-x']),
+    taskUpdatedAtById: new Map([['task-x', '2026-07-14T12:00:00.000Z']]),
+  }).brief;
+  const artifact = makeArtifact({
+    id: UUID_C,
+    inputHash: 'board-action-relay',
+    json: JSON.stringify(brief),
+  });
+  exportBriefArtifact(artifact, { dataDir: dir, host: 'mini' });
+  const seen = new Set();
+  assert.equal(scanAndImportBriefRelay({
+    store, targetLocalDate: DATE, dataDir: dir, imported: seen,
+  }), 1);
+  assert.equal(store.getMorningBrief(artifact.id).boardActionsPending, true);
+  assert.equal(store.latestEligibleMorningBrief(DATE), undefined);
+  assert.equal(scanAndImportBriefRelay({
+    store, targetLocalDate: DATE, dataDir: dir, imported: seen,
+  }), 0);
+  assert.equal(store.stageMorningBriefBoardActions(artifact.id), 0);
+  assert.deepEqual(store.activateBriefBoardActions(DATE, new Date(CLOCK)), {
+    activated: true,
+    artifactId: artifact.id,
+    applied: 1,
+    skippedConflict: 0,
+    skippedOfflimits: 0,
+  });
+  assert.equal(db.prepare("SELECT priority FROM tasks WHERE id = 'task-x'").pluck().get(), 'high');
+  assert.equal(store.latestEligibleMorningBrief(DATE).id, artifact.id);
+  assert.equal(
+    db.prepare("SELECT COUNT(*) FROM cove_receipts WHERE source = 'morning-brief-management'").pluck().get(),
+    1,
+  );
+  db.close();
 });
 
 // ---------------------------------------------------------------------------
@@ -579,10 +642,38 @@ test('late-attach refuses when the arrival is no longer proposed/due (bypassed)'
   assert.equal(result.plan.briefId, undefined);
 });
 
-test('late-attach refuses on empty candidates and never overlays onto stale evidence', (t) => {
-  const { store } = planThenBrief(t);
+test('late-attach with empty candidates attaches the brief without healing items', (t) => {
+  const { store, artifact } = planThenBrief(t);
+  const original = store.getReadModel().currentPlan;
   const result = store.ensureDayPlan({ localDate: DATE, timezone: TZ, mutationId: 'ensure:2', candidates: [] });
+  assert.equal(result.plan.briefId, artifact.id);
+  assert.equal(result.plan.version, original.version + 1);
+  assert.deepEqual(result.plan.items, original.items);
+  assert.equal(store.listEvents(result.plan.id).at(-1).eventType, 'brief_attach');
+});
+
+test('late-attach with empty candidates ignores a version-ineligible brief', (t) => {
+  const { store } = fixture(t);
+  const plan = store.ensureDayPlan({
+    localDate: DATE,
+    timezone: TZ,
+    mutationId: 'ensure:1',
+    candidates: [],
+  }).plan;
+  store.importMorningBrief({
+    ...makeArtifact({ id: UUID_C }),
+    schemaVersion: MORNING_BRIEF_SCHEMA_VERSION + 1,
+  });
+  const result = store.ensureDayPlan({
+    localDate: DATE,
+    timezone: TZ,
+    mutationId: 'ensure:2',
+    candidates: [],
+    attachOnly: true,
+  });
   assert.equal(result.plan.briefId, undefined);
+  assert.equal(result.plan.version, plan.version);
+  assert.equal(store.listEvents(plan.id).length, 1);
 });
 
 test('late-attach enforces candidate-evidence rules (invalid candidates skip cleanly)', (t) => {
@@ -1265,6 +1356,12 @@ test('the attach gate matrix: visibility, candidates, plan state, and arrival st
   assert.equal(shouldAttemptLateBriefAttach({ ...base, documentVisible: false }), false);
   assert.equal(shouldAttemptLateBriefAttach({ ...base, candidateCount: 0 }), false);
   assert.equal(shouldAttemptLateBriefAttach({ ...base, candidatesReady: false }), false);
+  assert.equal(shouldAttemptLateBriefAttach({
+    ...base,
+    candidateCount: 0,
+    candidatesReady: false,
+    generationState: 'succeeded',
+  }), true);
   assert.equal(shouldAttemptLateBriefAttach({ ...base, planState: 'settling' }), false);
   assert.equal(shouldAttemptLateBriefAttach({ ...base, arrivalState: 'confirmed' }), false);
   assert.equal(shouldAttemptLateBriefAttach({ ...base, alreadyAttempted: true }), false);

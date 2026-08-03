@@ -6,9 +6,7 @@
   <string>com.cove.progress</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/env</string>
-    <string>node</string>
-    <string>--env-file=.env.local</string>
+    <string>__COVE_NODE_REAL__</string>
     <string>/Users/operator/Atlas/Projects/astack/cove/scripts/cove-progress-reconcile.mjs</string>
     <string>--once</string>
   </array>

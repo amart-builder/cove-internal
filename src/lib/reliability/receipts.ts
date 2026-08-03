@@ -178,8 +178,10 @@ export const ACTIVITY_SOURCES = [
   "meeting-watch",
   "backup",
   "morning-brief",
+  "morning-brief-management",
   "buddy-feedback",
   "email-gmail-to-card",
+  "email-gmail-to-card-item",
   "email-card-to-gmail",
   "email-surfaced",
   "email-archive",
@@ -279,6 +281,22 @@ export function receiptActivity(receipt: Receipt): ReceiptActivity {
       needsAttention: receipt.outcome !== "success",
     };
   }
+  if (receipt.source === "morning-brief-management") {
+    const applied = count(actions.applied);
+    const conflicts = count(actions.skippedConflict);
+    const protectedCount = count(actions.skippedOfflimits);
+    return {
+      id: receipt.id,
+      title: "Board organized",
+      detail: [
+        `${plural(applied, "change")} made`,
+        conflicts > 0 ? `${plural(conflicts, "card")} kept after your edit` : "",
+        protectedCount > 0 ? `${plural(protectedCount, "protected card")} left alone` : "",
+      ].filter(Boolean).join(", ") + ".",
+      occurredAt: receipt.finishedAt,
+      needsAttention: false,
+    };
+  }
   if (receipt.source === "buddy-feedback") {
     return {
       id: receipt.id,
@@ -304,6 +322,15 @@ export function receiptActivity(receipt: Receipt): ReceiptActivity {
       needsAttention: receipt.outcome === "partial" || receipt.outcome === "failed",
     };
   }
+  if (receipt.source === "email-gmail-to-card-item") {
+    return {
+      id: receipt.id,
+      title: "Email checked off",
+      detail: "Checked off an email thread handled in Gmail.",
+      occurredAt: receipt.finishedAt,
+      needsAttention: receipt.outcome !== "success",
+    };
+  }
   if (receipt.source === "email-card-to-gmail") {
     return {
       id: receipt.id,
@@ -319,7 +346,11 @@ export function receiptActivity(receipt: Receipt): ReceiptActivity {
     const bucket = text(actions.bucket);
     return {
       id: receipt.id,
-      title: bucket === "fyi" ? "Email update recorded" : "Email needs you",
+      title: bucket === "noise"
+        ? "Email auto-archived"
+        : bucket === "fyi"
+          ? "Email update recorded"
+          : "Email needs you",
       detail: receipt.summary,
       occurredAt: receipt.finishedAt,
       needsAttention: receipt.outcome !== "success",

@@ -30,6 +30,7 @@ import {
 } from "./brief";
 import { buildSettlementSummary, readDumpRelay, readSettlementRelay } from "./brief-relay";
 import { contentQuotaGap, followUpsDue, staleOpenItems } from "./gap-detectors";
+import { localDateFor } from "./candidates";
 import { coveEnv } from "../env";
 import {
   normalizeMachineIdentity,
@@ -170,6 +171,8 @@ export type CollectedBriefSources = {
   // Open task ids seen in the snapshot; generation-time validation drops brief
   // candidates that reference anything else.
   knownTaskIds: Set<string>;
+  taskUpdatedAtById?: Map<string, string>;
+  recurringTaskIds?: Set<string>;
 };
 
 export type MorningBriefSourceOptions = {
@@ -247,6 +250,7 @@ type TaskRow = {
   updated_at?: string;
   position?: number;
   tags?: unknown;
+  recurring_template_id?: string | null;
 };
 
 function taskTags(value: unknown): string[] {
@@ -1770,20 +1774,6 @@ function briefCandidateReceipt(input: {
   return `'${title.replace(/'/g, "\\'")}' ${decision} then ${settled}`;
 }
 
-function salesReceipt(
-  states: ReturnType<DayPlanStore["listMorningBriefSalesActionStates"]>,
-): string {
-  const counts = { approved: 0, edited: 0, skipped: 0 };
-  for (const record of states) {
-    if (record.state === "approved" || record.state === "edited" || record.state === "skipped") {
-      counts[record.state] += 1;
-    }
-  }
-  const parts = (["approved", "edited", "skipped"] as const)
-    .flatMap((state) => counts[state] > 0 ? [`${counts[state]} ${state}`] : []);
-  return parts.length > 0 ? parts.join(", ") : "none";
-}
-
 export function recentBriefsSource(input: {
   store: DayPlanStore;
   targetLocalDate: string;
@@ -1843,16 +1833,13 @@ export function recentBriefsSource(input: {
         continue;
       }
       const snapshot = input.store.getSnapshot?.(plan.id);
-      const states = input.store.listMorningBriefSalesActionStates?.(plan.briefId) ?? [];
       const seenTaskIds = new Set<string>();
       const receipts = brief.existingTaskCandidates.flatMap((candidate) => {
         if (seenTaskIds.has(candidate.taskId)) return [];
         seenTaskIds.add(candidate.taskId);
         return [briefCandidateReceipt({ taskId: candidate.taskId, plan, snapshot })];
       });
-      lines.push(
-        `  candidates: ${receipts.join("; ")} | sales: ${salesReceipt(states)}`,
-      );
+      lines.push(`  candidates: ${receipts.join("; ")}`);
     }
     if (lines.length === 0) {
       return { ...base, note: "recent_briefs_unavailable" };
@@ -2582,6 +2569,8 @@ export async function collectMorningBriefSources(
   ];
 
   const knownTaskIds = new Set<string>();
+  const taskUpdatedAtById = new Map<string, string>();
+  const recurringTaskIds = new Set<string>();
   let emailBrief: BriefSourceInput = {
     id: "email_brief",
     label: "EMAIL_BRIEF",
@@ -2637,22 +2626,38 @@ export async function collectMorningBriefSources(
     });
     const lines: string[] = [];
     let newestUpdate = "";
-    for (const row of taskRows as TaskRow[]) {
+    const priorityRank = new Map([["high", 0], ["medium", 1], ["low", 2]]);
+    const orderedOpenRows = (taskRows as TaskRow[])
+      .filter((row) => row.id && row.status === "open" && columnBucket(columns.get(row.column_id ?? undefined)))
+      .sort((left, right) => {
+        const leftDate = left.due_at ? localDateFor(left.due_at, targetTimezone) : undefined;
+        const rightDate = right.due_at ? localDateFor(right.due_at, targetTimezone) : undefined;
+        const leftDueNow = leftDate && leftDate <= targetLocalDate ? 0 : 1;
+        const rightDueNow = rightDate && rightDate <= targetLocalDate ? 0 : 1;
+        return leftDueNow - rightDueNow ||
+          (leftDueNow === 0 && rightDueNow === 0
+            ? (leftDate ?? "").localeCompare(rightDate ?? "")
+            : 0) ||
+          (priorityRank.get(left.priority ?? "medium") ?? 1) -
+            (priorityRank.get(right.priority ?? "medium") ?? 1) ||
+          (right.updated_at ?? "").localeCompare(left.updated_at ?? "");
+      });
+    for (const row of orderedOpenRows) {
       if (!row.id || row.status !== "open") continue;
       const bucket = columnBucket(columns.get(row.column_id ?? undefined));
       if (!bucket) continue;
       const title = compactLine(row.title, 160);
       const tags = taskTags(row.tags).map((tag) => tag.trim().toLowerCase());
-      // Candidate eligibility mirrors the arrival pool exactly (Today and
-      // In-Flight commitments, excluding Jarvis-held work and the running email
-      // digest card). Everything else is context the model can see but must not
-      // rank, so a valid brief candidate always rehydrates at ensure time.
+      const recurringInstance = tags.includes("recurring") || Boolean(row.recurring_template_id);
+      if (recurringInstance) recurringTaskIds.add(row.id);
       const candidateEligible =
-        (bucket === "today" || bucket === "in_flight") &&
         !tags.includes("jarvis-held") &&
-        (!localMode || !tags.includes("recurring")) &&
+        (!localMode || !recurringInstance) &&
         !tags.includes("email-current");
-      if (candidateEligible) knownTaskIds.add(row.id);
+      if (candidateEligible) {
+        knownTaskIds.add(row.id);
+        taskUpdatedAtById.set(row.id, row.updated_at ?? "");
+      }
       if (row.updated_at && row.updated_at > newestUpdate) newestUpdate = row.updated_at;
       lines.push(
         `- [${bucket}] id=${row.id} "${title}"` +
@@ -2758,5 +2763,5 @@ export async function collectMorningBriefSources(
   sources.push(await crmPromise);
   sources.push(await memoryPromise);
 
-  return { sources, knownTaskIds };
+  return { sources, knownTaskIds, taskUpdatedAtById, recurringTaskIds };
 }

@@ -2,7 +2,7 @@
 
 Your shared working surface with Jarvis: a calm view of what matters now, what may matter next, and what your AI is carrying. Cove runs on your own Mac. Email stays where it already lives: in Gmail.
 
-Cove is local-first. Your data lives in a single file on your laptop. There is no account to create, no login screen, and your board never leaves your machine. You open it like any website, by bookmarking a page, but it runs on your own computer and is always on.
+Cove is local-first. Your data lives in a single file on your laptop. There is no account to create and no login screen. Your board stays in that file on your laptop; only the text a model needs to write your brief or triage an email is sent to the model provider. You open it like any website, by bookmarking a page, but it runs on your own computer and is always on.
 
 ---
 
@@ -65,11 +65,11 @@ launchctl bootout gui/$(id -u)/com.cove.reminders      # stop reminder notificat
 launchctl bootout gui/$(id -u)/com.cove.email-triage   # stop scheduled email triage
 ```
 
-To start fresh: stop Cove, **move** `data/cove.db` aside (rename it, don't delete it), and start it again. It recreates the default board, and your old board is still sitting there if you want it back. Same idea in reverse to restore: stop Cove, copy a file out of `data/backups/` over `data/cove.db`, start it again.
+To start fresh: stop Cove, **move** `data/cove.db` aside (rename it, don't delete it), and start it again. It recreates the default board, and your old board is still sitting there if you want it back. To restore, stop Cove and run `bash scripts/cove-restore-backup.sh --yes <backup-file>`. The guarded script validates the backup and preserves the database it replaces.
 
 ## Tech stack
 
 - Next.js 16 (React 19), TypeScript, Tailwind CSS.
 - Local data: SQLite via `better-sqlite3` (the default). No login.
 - Email, Calendar, and Google Docs: direct restricted Google API gateway using the user's own OAuth connection. Email is draft-only by application design.
-- Optional cloud data for multi-device use: Supabase or Convex (off by default). See [SETUP.md](SETUP.md).
+- Supported runtime: one Mac, local SQLite, no login. See [ARCHITECTURE.md](ARCHITECTURE.md), [DATA.md](DATA.md), [SECURITY_AND_INTEGRATIONS.md](SECURITY_AND_INTEGRATIONS.md), [OPERATIONS.md](OPERATIONS.md), and [CONFIGURATION.md](CONFIGURATION.md).

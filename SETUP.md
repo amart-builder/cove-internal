@@ -2,9 +2,7 @@
 
 The user sent you this repository and asked you to set up Cove. Follow these steps in order. Walk the user through the parts that need their input. Do the rest yourself and report as you go. The same product behavior and safety rules apply whether you are Claude or Codex.
 
-> Cove is fully local by default. Do not configure Tailscale, Supabase, Convex, or a login. The default is one local SQLite database with no account and no authentication. Only switch to a cloud database if the user asks for more than one device. See "Running on more than one device" at the end.
-
-If the user chooses Supabase or Convex later, name one Cove install as the main server and point every browser and agent at its URL. Cloud tasks sync across servers. The provisional Quiet Current stays on the main Cove machine in the first release.
+> Cove is a local, single-Mac product. Do not configure Tailscale, Supabase, Convex, or a login. Use one local SQLite database with no account and no authentication. If the user needs multi-device access, record that as a product requirement rather than assembling an unsupported storage mode.
 
 **Machine paths.** Never assume this Mac has the same folders as another Mac. Find each needed path or ask the user. Record it only in the local config files named below. Do not hard-code a person's folders in the repo.
 
@@ -18,7 +16,7 @@ Check the Mac before cloning. Run every command you can for the user. The user s
    - Otherwise, find the current LTS package with `curl -s https://nodejs.org/dist/index.json`, download the correct macOS package to a temporary folder, and run `sudo installer -pkg <file> -target /`. Apple Silicon needs arm64. Warn the user before the password prompt. Do not install Homebrew just for Node.
    - Check Node again in a fresh shell.
 3. Run `git --version`. Fix the command line tools if it fails.
-4. Run `claude --version` in a plain shell. The Claude app is not enough. If needed, run `npm install -g @anthropic-ai/claude-code`, then check again. Sign-in is tested in Step 5.
+4. Run `claude --version` in a plain shell. The Claude app is not enough. If needed, run `npm install -g @anthropic-ai/claude-code`, then check again. If it is already installed globally, run the same command to update it because task sessions use current CLI flags. Sign-in is tested in Step 5.
 
 Do not continue until every check passes.
 
@@ -27,7 +25,7 @@ Do not continue until every check passes.
 ```bash
 git clone https://github.com/amart-builder/cove.git ~/cove
 cd ~/cove
-npm ci || npm install
+npm ci
 node -e "require('better-sqlite3'); console.log('sqlite ok')"
 ```
 
@@ -107,7 +105,7 @@ Local installs use the built-in People list. Write the private `data/cove-crm.js
 }
 ```
 
-If the user has a current people app, check whether an adapter for that app is installed. Use `"backend": "external"` only after that adapter is installed and tested. It is a marker, not a bundled adapter. Supabase and Convex modes keep their existing paths and do not use this selector.
+If the user has a current people app, check whether an adapter for that app is installed. Use `"backend": "external"` only after that adapter is installed and tested. It is a marker, not a bundled adapter.
 
 If the user has a CSV or contacts export, wait to import it until Step 4. Confirm the first few column matches before any bulk import. Dedupe by email.
 
@@ -180,6 +178,8 @@ bash scripts/install-cove-local.sh
 
 The installer adds the task and contact skills, starts Cove at `http://localhost:3200`, starts it at login, restarts it after a crash, checks reminders each minute, and makes a daily database backup. Cove binds to `localhost` only.
 
+The installer replaces any existing `~/.claude/skills/cove-*` and Codex `cove-*` skill folders with this repo's versions.
+
 The tested restore path is `bash scripts/cove-restore-backup.sh --yes <backup-file>`.
 
 Do not show the first test brief as the user's brief.
@@ -243,7 +243,7 @@ For tasks, email, People, meeting notes, and the brief, answer out loud: "Can Co
 
 1. Bookmark `http://localhost:3200/tasks`.
 2. Open `/guide` and show the three daily moments, Cove's words, the laptop-lid truth, and Buddy examples.
-3. Leave `docs/gary-handoff-one-pager.md` with them.
+3. Leave the operator's one-page guide with them if one was provided.
 
 Tell them:
 
@@ -252,22 +252,6 @@ Tell them:
 - "Solid work is committed. Pale work is a suggestion. Looking at pale work never accepts it."
 - "Inbox checks only prepare drafts and file mail. Cove never sends, deletes, or forwards."
 
-## Running on more than one device
+## Supported storage
 
-Cove keeps local data in `data/cove.db`. That is the private, simple default.
-
-If the user asks for more than one device, offer Supabase or Convex. The user creates the cloud account once. Name one Cove install as the main server and point every browser and agent at it. Do not set up cloud storage by default.
-
-## Storage modes
-
-Cove uses `NEXT_PUBLIC_COVE_RUNTIME`. A pre-rename `NEXT_PUBLIC_FORGE_RUNTIME` value remains supported as a migration fallback. Other settings use `COVE_*`.
-
-| Value | Storage | Account | Best for |
-| --- | --- | --- | --- |
-| unset or `local` | Local SQLite | None | One Mac. Recommended. |
-| `supabase` | Cloud Postgres | Free Supabase account | More than one device. |
-| `convex` | Convex cloud | Free Convex account | Legacy installs only. |
-
-Cove never asks the user to log in. The cloud account belongs to the storage provider.
-
-Only add `NEXT_PUBLIC_COVE_RUNTIME` to `.env.local` when leaving local mode. Do not choose Convex for a new install.
+Cove keeps all product data in the local `data/cove.db`. Leave `NEXT_PUBLIC_COVE_RUNTIME` unset. Pre-rename and cloud-runtime code exists only so an old installation can be migrated deliberately; it is not a supported setup choice.

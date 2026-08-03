@@ -26,6 +26,7 @@ import {
   registerSpawnedChild,
 } from "../claude-execution/child-process-registry";
 import { parseExecutionResultSummary } from "../claude-execution/commands";
+import { minimalChildEnvironment } from "../claude-execution/worker";
 import { markCoveOrchestratorSession } from "../claude-execution/orchestrator-session";
 import type {
   LaunchTaskSessionInput,
@@ -76,6 +77,26 @@ const SESSION_SYSTEM_PROMPT = [
   "Produce drafts, files, analysis, and ready-to-fire work product only. If a consequential action is needed, leave it for the operator to approve and perform.",
   "Never attempt to bypass Claude Code permissions.",
 ].join("\n");
+
+const AUTONOMOUS_SESSION_TOOLS = [
+  "Bash",
+  "Edit",
+  "Glob",
+  "Grep",
+  "Read",
+  "Skill",
+  "WebFetch",
+  "WebSearch",
+  "Write",
+].join(",");
+const PLANNING_SESSION_TOOLS = [
+  "Glob",
+  "Grep",
+  "Read",
+  "Skill",
+  "WebFetch",
+  "WebSearch",
+].join(",");
 
 function permissionMode(owner: TaskSessionRun["owner"]): TaskSessionPermissionMode {
   return owner === "claude" ? "acceptEdits" : "plan";
@@ -146,6 +167,18 @@ export function buildTaskSessionCommand(input: {
       SESSION_SYSTEM_PROMPT,
       "--permission-mode",
       mode,
+      "--safe-mode",
+      "--tools",
+      input.owner === "claude" ? AUTONOMOUS_SESSION_TOOLS : PLANNING_SESSION_TOOLS,
+      // --safe-mode provides isolation; the empty settings file is supplementary.
+      "--settings",
+      path.join(process.cwd(), "scripts", "cove-empty-settings.json"),
+      "--strict-mcp-config",
+      "--mcp-config",
+      path.join(process.cwd(), "scripts", "cove-empty-mcp.json"),
+      "--no-chrome",
+      "--max-budget-usd",
+      input.owner === "claude" ? "3.00" : "1.50",
       "--effort",
       "high",
       "--output-format",
@@ -215,15 +248,6 @@ function processCommand(pid: number): string | undefined {
   }
 }
 
-function processExists(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function stopProcessGroup(pid: number, signal: NodeJS.Signals): void {
   process.kill(-pid, signal);
 }
@@ -282,11 +306,12 @@ export type TaskSessionManagerDependencies = {
   serverPid?: number;
   serverGeneration?: string;
   bootId?: string;
-  processExists?: (pid: number) => boolean;
   processCommand?: (pid: number) => string | undefined;
   signalGroup?: (pid: number, signal: NodeJS.Signals) => void;
   markSession?: (sessionId: string) => void;
   randomId?: () => string;
+  timeoutMs?: number;
+  terminationGraceMs?: number;
 };
 
 export function createTaskSessionManager(
@@ -298,11 +323,12 @@ export function createTaskSessionManager(
   const serverGeneration = dependencies.serverGeneration ?? randomUUID();
   const bootId = dependencies.bootId ?? currentBootId();
   const spawnImpl = dependencies.spawnImpl ?? spawn;
-  const exists = dependencies.processExists ?? processExists;
   const commandForPid = dependencies.processCommand ?? processCommand;
   const signalGroup = dependencies.signalGroup ?? stopProcessGroup;
   const markSession = dependencies.markSession ?? markCoveOrchestratorSession;
   const randomId = dependencies.randomId ?? randomUUID;
+  const timeoutMs = dependencies.timeoutMs ?? 45 * 60 * 1000;
+  const terminationGraceMs = dependencies.terminationGraceMs ?? 2_000;
   const dataDir = coveDataDir(dependencies.dataDir ?? path.dirname(dependencies.dbPath));
   const claudePath = dependencies.claudePath ??
     coveEnv("CLAUDE_BIN") ??
@@ -607,7 +633,7 @@ export function createTaskSessionManager(
         shell: false,
         detached: true,
         stdio: ["pipe", "pipe", "pipe"],
-        env: process.env,
+        env: minimalChildEnvironment(),
       }) as ChildProcessWithoutNullStreams;
     } catch (error) {
       return finish(runId, {
@@ -662,6 +688,29 @@ export function createTaskSessionManager(
     let stderrLog: Writable | undefined;
     let stdoutTail = "";
     let settled = false;
+    let timedOut = false;
+    let killTimer: NodeJS.Timeout | undefined;
+    const timeout = setTimeout(() => {
+      const active = getRun(runId);
+      if (!active || active.status !== "running") {
+        return;
+      }
+      timedOut = true;
+      try {
+        signalGroup(pid, "SIGTERM");
+      } catch {
+        // The process may already be gone.
+      }
+      killTimer = setTimeout(() => {
+        try {
+          signalGroup(pid, "SIGKILL");
+        } catch {
+          // The process may already be gone.
+        }
+      }, terminationGraceMs);
+      killTimer.unref();
+    }, timeoutMs);
+    timeout.unref();
     const settle = (result: {
       exitCode?: number;
       errorCode?: string;
@@ -669,6 +718,8 @@ export function createTaskSessionManager(
     }) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timeout);
+      if (killTimer) clearTimeout(killTimer);
       children.delete(runId);
       if (stdoutLog) child.stdout.unpipe(stdoutLog);
       if (stderrLog) child.stderr.unpipe(stderrLog);
@@ -692,7 +743,11 @@ export function createTaskSessionManager(
         // The process may already be gone.
       }
       settle({
-        errorCode: error instanceof Error ? error.message : "session_log_failed",
+        errorCode: timedOut
+          ? "session_timeout"
+          : error instanceof Error
+            ? error.message
+            : "session_log_failed",
       });
     };
     child.stdout.on("data", (chunk: Buffer | string) => {
@@ -713,7 +768,7 @@ export function createTaskSessionManager(
       }
       settle({
         exitCode: code ?? undefined,
-        errorCode: signal ? `signal_${signal}` : undefined,
+        errorCode: timedOut ? "session_timeout" : signal ? `signal_${signal}` : undefined,
         resultSummary,
       });
     });

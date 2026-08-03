@@ -6,6 +6,10 @@ import test from 'node:test';
 import Database from 'better-sqlite3';
 import { buildDayPlanCandidates } from '../src/lib/day-plan/candidates.ts';
 import {
+  MORNING_BRIEF_PROMPT_VERSION,
+  MORNING_BRIEF_SCHEMA_VERSION,
+} from '../src/lib/day-plan/brief.ts';
+import {
   arrivalAdditionOutcomeKey,
   matchesArrivalAddition,
 } from '../src/lib/day-plan/arrival-addition.ts';
@@ -74,6 +78,45 @@ function mutate(store, plan, action, patch = {}) {
   });
 }
 
+function removeManualCreationMarker(file, planId) {
+  const db = new Database(file);
+  const row = db.prepare(
+    "SELECT id, after_json FROM day_plan_events WHERE day_plan_id = ? AND event_type = 'ensure'",
+  ).get(planId);
+  const after = JSON.parse(row.after_json);
+  delete after.creation;
+  db.prepare('UPDATE day_plan_events SET after_json = ? WHERE id = ?')
+    .run(JSON.stringify(after), row.id);
+  db.close();
+}
+
+function createManagedBoardTables(db) {
+  db.exec(`
+    CREATE TABLE task_columns (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE tasks (
+      id TEXT PRIMARY KEY, column_id TEXT, title TEXT NOT NULL, description TEXT,
+      priority TEXT, due_at TEXT, due_date TEXT, tags TEXT, project TEXT,
+      position REAL, status TEXT, archived_at TEXT, archived_from_status TEXT,
+      recurring_template_id TEXT, occurrence_local_date TEXT,
+      created_at TEXT, updated_at TEXT
+    );
+    INSERT INTO task_columns (id, name, position) VALUES
+      ('col-ns', 'Not Started', 0),
+      ('col-today', 'Must happen today', 10),
+      ('col-flight', 'In Flight / Waiting', 20);
+  `);
+}
+
+function containsAsciiControl(value, { preserveFormatting = false } = {}) {
+  return Array.from(value).some((character) => {
+    const code = character.codePointAt(0);
+    if (preserveFormatting && (character === '\n' || character === '\t')) return false;
+    return code < 32 || code === 127;
+  });
+}
+
 test('schema migration preserves existing SQLite data', (t) => {
   const file = path.join(os.tmpdir(), `cove-day-plan-legacy-${process.pid}-${Date.now()}.db`);
   const legacy = new Database(file);
@@ -114,6 +157,158 @@ test('ensure is idempotent and one open plan survives competing dates', (t) => {
   assert.equal(otherDate.plan.id, created.plan.id);
   assert.equal(store.getReadModel().currentPlan.id, created.plan.id);
   assert.equal(store.listEvents(created.plan.id).length, 2);
+});
+
+test('automatic weekend creation gates, manual creation is marked, and existing retrieval is unaffected', (t) => {
+  const { store } = isolatedStore(t, '2026-08-01T16:00:00.000Z');
+  const gated = store.ensureDayPlan({
+    localDate: '2026-08-01',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:weekend:auto',
+    candidates: [],
+  });
+  assert.deepEqual(gated, {
+    weekendGate: { localDate: '2026-08-01', weekday: 'Saturday' },
+    replayed: false,
+  });
+  assert.equal(store.getReadModel().currentPlan, undefined);
+
+  const manual = store.ensureDayPlan({
+    localDate: '2026-08-01',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:weekend:manual',
+    candidates: [],
+    creation: 'manual',
+  });
+  assert.equal(manual.plan.localDate, '2026-08-01');
+  assert.equal(store.listEvents(manual.plan.id)[0].after.creation, 'manual');
+
+  const existing = store.ensureDayPlan({
+    localDate: '2026-08-02',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:weekend:existing',
+    candidates: [],
+  });
+  assert.equal(existing.plan.id, manual.plan.id);
+});
+
+test('automatic weekday creation still creates a plan', (t) => {
+  const { store } = isolatedStore(t, '2026-08-03T16:00:00.000Z');
+  const result = store.ensureDayPlan({
+    localDate: '2026-08-03',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:monday',
+    candidates: [],
+  });
+  assert.equal(result.plan.localDate, '2026-08-03');
+});
+
+test('initialize auto-settles an untouched legacy weekend through settlement and writes one receipt', (t) => {
+  const { file, store, setClock } = isolatedStore(t, '2026-08-01T16:00:00.000Z');
+  const plan = store.ensureDayPlan({
+    localDate: '2026-08-01',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:legacy-weekend',
+    candidates: [],
+    creation: 'manual',
+  }).plan;
+  removeManualCreationMarker(file, plan.id);
+  setClock('2026-08-03T16:00:00.000Z');
+
+  store.initialize();
+  const settled = store.getPlan(plan.id);
+  assert.equal(settled.state, 'settled');
+  assert.equal(settled.settlementState, 'settled');
+  assert.ok(store.getSnapshot(plan.id));
+  const eventTypes = store.listEvents(plan.id).map((event) => event.eventType);
+  assert.ok(eventTypes.includes('settlement_start'));
+  assert.ok(eventTypes.includes('settlement_commit'));
+  assert.equal(store.listMorningBriefs('2026-08-03').length, 0);
+
+  store.initialize();
+  const db = new Database(file, { readonly: true });
+  assert.equal(
+    db.prepare("SELECT COUNT(*) FROM cove_receipts WHERE source = 'weekend-auto-settle'").pluck().get(),
+    1,
+  );
+  db.close();
+});
+
+test('initialize leaves touched and manually-created weekend plans for normal closeout', (t) => {
+  const touchedFixture = isolatedStore(t, '2026-08-01T16:00:00.000Z');
+  const touched = touchedFixture.store.ensureDayPlan({
+    localDate: '2026-08-01',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:touched-weekend',
+    candidates: [],
+    creation: 'manual',
+  }).plan;
+  removeManualCreationMarker(touchedFixture.file, touched.id);
+  touchedFixture.store.markArrivalInteraction(touched.id, 'interact:touched-weekend');
+  touchedFixture.setClock('2026-08-03T16:00:00.000Z');
+  touchedFixture.store.initialize();
+  assert.notEqual(touchedFixture.store.getPlan(touched.id).state, 'settled');
+
+  const manualFixture = isolatedStore(t, '2026-08-02T16:00:00.000Z');
+  const manual = manualFixture.store.ensureDayPlan({
+    localDate: '2026-08-02',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:manual-weekend',
+    candidates: [],
+    creation: 'manual',
+  }).plan;
+  manualFixture.setClock('2026-08-03T16:00:00.000Z');
+  manualFixture.store.initialize();
+  assert.notEqual(manualFixture.store.getPlan(manual.id).state, 'settled');
+});
+
+test('initialize does not auto-settle a legacy weekend with accepted work', (t) => {
+  const { file, store, setClock } = isolatedStore(t, '2026-08-01T16:00:00.000Z');
+  let plan = store.ensureDayPlan({
+    localDate: '2026-08-01',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:accepted-weekend',
+    candidates: candidates(['accepted-weekend-task']),
+    creation: 'manual',
+  }).plan;
+  removeManualCreationMarker(file, plan.id);
+  plan = mutate(store, plan, 'arrival_open').plan;
+  plan = mutate(store, plan, 'item_accept', { itemId: plan.items[0].id }).plan;
+  setClock('2026-08-03T16:00:00.000Z');
+
+  store.initialize();
+  assert.equal(store.getPlan(plan.id).items[0].decision, 'accepted');
+  assert.notEqual(store.getPlan(plan.id).state, 'settled');
+});
+
+test('initialize resumes an interrupted weekend settlement idempotently', (t) => {
+  const { file, store, setClock } = isolatedStore(t, '2026-08-01T16:00:00.000Z');
+  let plan = store.ensureDayPlan({
+    localDate: '2026-08-01',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:interrupted-weekend',
+    candidates: [],
+    creation: 'manual',
+  }).plan;
+  removeManualCreationMarker(file, plan.id);
+  plan = mutate(store, plan, 'arrival_bypass').plan;
+  plan = mutate(store, plan, 'settlement_start', { completedHumanTaskIds: [] }).plan;
+  assert.equal(plan.settlementState, 'in_progress');
+  setClock('2026-08-03T16:00:00.000Z');
+
+  store.initialize();
+  store.initialize();
+  assert.equal(store.getPlan(plan.id).state, 'settled');
+  assert.equal(
+    store.listEvents(plan.id).filter((event) => event.eventType === 'settlement_commit').length,
+    1,
+  );
+  const db = new Database(file, { readonly: true });
+  assert.equal(
+    db.prepare("SELECT COUNT(*) FROM cove_receipts WHERE source = 'weekend-auto-settle'").pluck().get(),
+    1,
+  );
+  db.close();
 });
 
 test('expected versions prevent stale overwrites and duplicate action IDs replay', (t) => {
@@ -659,4 +854,473 @@ test('failed settlement commit rolls back without a partial snapshot', (t) => {
   );
   assert.equal(store.getPlan(plan.id).version, version);
   assert.equal(store.getSnapshot(plan.id), undefined);
+});
+
+test('a brief still attaches when some picks vanished and only resolving picks carry rationale', (t) => {
+  const { store } = isolatedStore(t);
+  ensure(store, 'ensure:partial-brief-picks:baseline');
+  const artifact = store.enqueueMorningBrief('2026-07-10', {
+    modelAlias: 'opus', effort: 'high', budgetUsd: 1.5,
+  }).brief;
+  store.claimNextMorningBrief();
+  store.completeMorningBrief(artifact.id, JSON.stringify({
+    headline: 'Focus.', narrativeParagraphs: ['Do the work.'], lensNarrative: 'Focus.\n\nDo the work.',
+    existingTaskCandidates: [
+      {
+        taskId: 'task-vanished', whyToday: 'This card vanished.', suggestedOwner: 'me',
+        whatClaudeCanStart: '', evidenceRefs: [],
+      },
+      {
+        taskId: 'task-a', whyToday: 'This is the live priority.', suggestedOwner: 'claude',
+        whatClaudeCanStart: 'Draft the first pass.', evidenceRefs: [],
+      },
+    ],
+    suggestedAdditions: [], watchItems: [], boardActions: [],
+  }));
+
+  const plan = store.ensureDayPlan({
+    localDate: '2026-07-10',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:partial-brief-picks:attach',
+    candidates: candidates(),
+    attachOnly: true,
+  }).plan;
+  assert.equal(plan.briefId, artifact.id);
+  assert.deepEqual(plan.items.map((item) => item.taskId), ['task-a', 'task-b']);
+  assert.equal(plan.items.find((item) => item.taskId === 'task-a').brief.whyToday,
+    'This is the live priority.');
+  assert.equal(plan.items.find((item) => item.taskId === 'task-b').brief, undefined);
+});
+
+test('brief board actions stage once, activate atomically, preserve human edits, and receipt outcomes', (t) => {
+  const { file, store, setClock } = isolatedStore(t, '2026-07-10T05:00:00.000Z');
+  const db = new Database(file);
+  db.exec(`
+    CREATE TABLE task_columns (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE tasks (
+      id TEXT PRIMARY KEY, column_id TEXT, title TEXT NOT NULL, description TEXT,
+      priority TEXT, due_at TEXT, due_date TEXT, tags TEXT, project TEXT,
+      position REAL, status TEXT, archived_at TEXT, archived_from_status TEXT,
+      recurring_template_id TEXT, occurrence_local_date TEXT,
+      created_at TEXT, updated_at TEXT
+    );
+    INSERT INTO task_columns (id, name, position) VALUES
+      ('col-ns', 'Not Started', 0),
+      ('col-today', 'Must happen today', 10),
+      ('col-flight', 'In Flight / Waiting', 20);
+  `);
+  const insertTask = db.prepare(`
+    INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, project, position,
+       status, recurring_template_id, created_at, updated_at)
+    VALUES (?, 'col-ns', ?, ?, 'medium', ?, 'Atlas', ?, 'open', ?, ?, ?)
+  `);
+  const snapshotAt = '2026-07-10T04:00:00.000Z';
+  insertTask.run('task-a', 'Old title', 'Full old description', '[]', 0, null, snapshotAt, snapshotAt);
+  insertTask.run('task-b', 'Human edits me', 'Keep it', '[]', 1, null, snapshotAt, snapshotAt);
+  insertTask.run('task-r', 'Recurring', 'Protected', JSON.stringify(['recurring']), 2, 'template-1', snapshotAt, snapshotAt);
+  insertTask.run('task-dupe', 'Duplicate', 'Duplicate description', '[]', 3, null, snapshotAt, snapshotAt);
+  insertTask.run('task-survivor', 'Survivor', 'Canonical description', '[]', 4, null, snapshotAt, snapshotAt);
+
+  const queued = store.enqueueMorningBrief('2026-07-10', {
+    modelAlias: 'opus', effort: 'high', budgetUsd: 1.5,
+  }).brief;
+  store.claimNextMorningBrief();
+  const boardActions = [
+    {
+      op: 'retitle', taskId: 'task-a', title: 'Clear title', why: 'Clarify.',
+      evidenceRefs: [], expectedTaskUpdatedAt: snapshotAt,
+    },
+    {
+      op: 'set_priority', taskId: 'task-b', priority: 'high', why: 'Goal fit.',
+      evidenceRefs: [], expectedTaskUpdatedAt: snapshotAt,
+    },
+    {
+      op: 'archive', taskId: 'task-r', why: 'Stale.', evidenceRefs: [],
+      expectedTaskUpdatedAt: snapshotAt,
+    },
+    {
+      op: 'archive_duplicate', taskId: 'task-dupe', duplicateOfTaskId: 'task-survivor',
+      why: 'Duplicate.', evidenceRefs: [], expectedTaskUpdatedAt: snapshotAt,
+    },
+  ];
+  const completed = store.completeMorningBrief(queued.id, JSON.stringify({
+    headline: 'Focus.', narrativeParagraphs: ['Do the work.'], lensNarrative: 'Focus.\n\nDo the work.',
+    existingTaskCandidates: [], suggestedAdditions: [], watchItems: [],
+    boardActions,
+  }));
+  assert.ok(completed);
+  assert.equal(store.stageMorningBriefBoardActions(completed.id), 4);
+  assert.equal(store.stageMorningBriefBoardActions(completed.id), 0);
+  assert.equal(store.latestEligibleMorningBrief('2026-07-10'), undefined);
+  assert.deepEqual(
+    store.activateBriefBoardActions('2026-07-10', new Date('2026-07-10T05:00:00.000Z')),
+    { activated: false, applied: 0, skippedConflict: 0, skippedOfflimits: 0 },
+  );
+
+  db.prepare("UPDATE tasks SET title = 'Human title', updated_at = ? WHERE id = 'task-b'")
+    .run('2026-07-10T15:00:00.000Z');
+  setClock('2026-07-10T16:00:00.000Z');
+  const result = store.activateBriefBoardActions(
+    '2026-07-10',
+    new Date('2026-07-10T16:00:00.000Z'),
+  );
+  assert.deepEqual(result, {
+    activated: true,
+    artifactId: completed.id,
+    applied: 2,
+    skippedConflict: 1,
+    skippedOfflimits: 1,
+  });
+  assert.equal(db.prepare("SELECT title FROM tasks WHERE id = 'task-a'").get().title, 'Clear title');
+  assert.equal(db.prepare("SELECT priority FROM tasks WHERE id = 'task-b'").get().priority, 'medium');
+  assert.equal(db.prepare("SELECT status FROM tasks WHERE id = 'task-r'").get().status, 'open');
+  assert.equal(db.prepare("SELECT status FROM tasks WHERE id = 'task-dupe'").get().status, 'archived');
+  const actionRows = db.prepare(
+    'SELECT state, before_json, after_json FROM day_plan_brief_actions ORDER BY action_index',
+  ).all();
+  assert.deepEqual(actionRows.map((row) => row.state), [
+    'applied', 'skipped_conflict', 'skipped_offlimits', 'applied',
+  ]);
+  assert.ok(actionRows.every((row) => row.before_json && row.after_json));
+  assert.ok(store.latestEligibleMorningBrief('2026-07-10'));
+  assert.equal(store.morningBriefManagementSummary(completed.id),
+    'Cove reorganized the board this morning: 2 board changes applied, 1 change left alone because you edited the card, 1 protected card left alone.');
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM cove_receipts WHERE source = 'morning-brief-management'").get().count, 1);
+  assert.equal(store.activateBriefBoardActions('2026-07-10').activated, false);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM cove_receipts WHERE source = 'morning-brief-management'").get().count, 1);
+  db.close();
+  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 16);
+  assert.equal(MORNING_BRIEF_SCHEMA_VERSION, 5);
+});
+
+test('refused brief board activation terminal-marks actions without changing tasks', (t) => {
+  const { file, store } = isolatedStore(t, '2026-07-10T16:00:00.000Z');
+  const plan = ensure(store, 'ensure:activation-pristine').plan;
+  store.markArrivalInteraction(plan.id, 'interact:activation-pristine');
+  const db = new Database(file);
+  db.exec(`
+    CREATE TABLE task_columns (id TEXT PRIMARY KEY, name TEXT NOT NULL, position INTEGER);
+    CREATE TABLE tasks (
+      id TEXT PRIMARY KEY, column_id TEXT, title TEXT NOT NULL, description TEXT,
+      priority TEXT, due_at TEXT, due_date TEXT, tags TEXT, project TEXT,
+      position REAL, status TEXT, archived_at TEXT, archived_from_status TEXT,
+      recurring_template_id TEXT, occurrence_local_date TEXT,
+      created_at TEXT, updated_at TEXT
+    );
+    INSERT INTO task_columns VALUES ('col-ns', 'Not Started', 0);
+    INSERT INTO tasks
+      (id, column_id, title, tags, status, updated_at)
+    VALUES ('task-a', 'col-ns', 'Human board', '[]', 'open', '2026-07-10T15:00:00.000Z');
+  `);
+  const queued = store.enqueueMorningBrief('2026-07-10', {
+    modelAlias: 'opus', effort: 'high', budgetUsd: 1.5,
+  }).brief;
+  store.claimNextMorningBrief();
+  store.completeMorningBrief(queued.id, JSON.stringify({
+    headline: 'Focus.', narrativeParagraphs: ['Work.'], lensNarrative: 'Focus.\n\nWork.',
+    existingTaskCandidates: [], suggestedAdditions: [], watchItems: [],
+    boardActions: [{
+      op: 'retitle', taskId: 'task-a', title: 'Agent title', why: 'Clarify.',
+      evidenceRefs: [], expectedTaskUpdatedAt: '2026-07-10T15:00:00.000Z',
+    }],
+  }));
+  store.stageMorningBriefBoardActions(queued.id);
+  assert.equal(store.activateBriefBoardActions('2026-07-10').activated, false);
+  assert.equal(db.prepare("SELECT title FROM tasks WHERE id = 'task-a'").get().title, 'Human board');
+  assert.deepEqual(
+    db.prepare("SELECT state, terminal_at FROM day_plan_brief_actions").get(),
+    { state: 'skipped_late', terminal_at: '2026-07-10T16:00:00.000Z' },
+  );
+  assert.equal(store.latestEligibleMorningBrief('2026-07-10').id, queued.id);
+  assert.equal(store.morningBriefManagementSummary(queued.id), undefined);
+  assert.equal(store.forceAttachMorningBrief('2026-07-10', queued.id), true);
+  assert.equal(store.getPlan(plan.id).briefId, queued.id);
+  db.close();
+});
+
+test('activation fails closed when either side of the task timestamp guard is missing', (t) => {
+  const { file, store } = isolatedStore(t);
+  const db = new Database(file);
+  createManagedBoardTables(db);
+  db.prepare(
+    `INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, position, status, updated_at)
+     VALUES (?, 'col-ns', ?, '', 'medium', '[]', ?, 'open', ?)`,
+  ).run('task-empty-expected', 'Keep empty expected', 0, '2026-07-10T15:00:00.000Z');
+  db.prepare(
+    `INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, position, status, updated_at)
+     VALUES (?, 'col-ns', ?, '', 'medium', '[]', ?, 'open', NULL)`,
+  ).run('task-null-live', 'Keep null live', 1);
+
+  const artifact = store.enqueueMorningBrief('2026-07-10', {
+    modelAlias: 'opus', effort: 'high', budgetUsd: 1.5,
+  }).brief;
+  store.claimNextMorningBrief();
+  store.completeMorningBrief(artifact.id, JSON.stringify({
+    headline: 'Focus.', narrativeParagraphs: ['Work.'], lensNarrative: 'Focus.\n\nWork.',
+    existingTaskCandidates: [], suggestedAdditions: [], watchItems: [],
+    boardActions: [
+      {
+        op: 'retitle', taskId: 'task-empty-expected', title: 'Do not apply', why: 'Clarify.',
+        evidenceRefs: [], expectedTaskUpdatedAt: '',
+      },
+      {
+        op: 'retitle', taskId: 'task-null-live', title: 'Also do not apply', why: 'Clarify.',
+        evidenceRefs: [], expectedTaskUpdatedAt: '2026-07-10T15:00:00.000Z',
+      },
+    ],
+  }));
+  store.stageMorningBriefBoardActions(artifact.id);
+
+  const result = store.activateBriefBoardActions('2026-07-10');
+  assert.deepEqual(result, {
+    activated: true,
+    artifactId: artifact.id,
+    applied: 0,
+    skippedConflict: 2,
+    skippedOfflimits: 0,
+  });
+  assert.deepEqual(
+    db.prepare('SELECT title FROM tasks ORDER BY position').pluck().all(),
+    ['Keep empty expected', 'Keep null live'],
+  );
+  assert.deepEqual(
+    db.prepare('SELECT state FROM day_plan_brief_actions ORDER BY action_index').pluck().all(),
+    ['skipped_conflict', 'skipped_conflict'],
+  );
+  assert.equal(store.morningBriefManagementSummary(artifact.id), undefined);
+  db.close();
+});
+
+test('activation rejects unsafe stored due dates and an empty sanitized title', (t) => {
+  const { file, store } = isolatedStore(t);
+  const db = new Database(file);
+  createManagedBoardTables(db);
+  const snapshotAt = '2026-07-10T15:00:00.000Z';
+  const insert = db.prepare(
+    `INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, position, status, updated_at)
+     VALUES (?, 'col-ns', ?, '', 'medium', '[]', ?, 'open', ?)`,
+  );
+  insert.run('task-bad-date', 'Keep malformed due', 0, snapshotAt);
+  insert.run('task-far-date', 'Keep out-of-range due', 1, snapshotAt);
+  insert.run('task-empty-title', 'Keep real title', 2, snapshotAt);
+
+  const artifact = store.enqueueMorningBrief('2026-07-10', {
+    modelAlias: 'opus', effort: 'high', budgetUsd: 1.5,
+  }).brief;
+  store.claimNextMorningBrief();
+  store.completeMorningBrief(artifact.id, JSON.stringify({
+    headline: 'Focus.', narrativeParagraphs: ['Work.'], lensNarrative: 'Focus.\n\nWork.',
+    existingTaskCandidates: [], suggestedAdditions: [], watchItems: [],
+    boardActions: [
+      {
+        op: 'set_due', taskId: 'task-bad-date', dueLocalDate: 'not-a-date', why: 'Deadline.',
+        evidenceRefs: ['calendar'], expectedTaskUpdatedAt: snapshotAt,
+      },
+      {
+        op: 'set_due', taskId: 'task-far-date', dueLocalDate: '2037-01-01', why: 'Deadline.',
+        evidenceRefs: ['calendar'], expectedTaskUpdatedAt: snapshotAt,
+      },
+      {
+        op: 'retitle', taskId: 'task-empty-title', title: '\u0000\u0007\n\t\u007f',
+        why: 'Clarify.', evidenceRefs: [], expectedTaskUpdatedAt: snapshotAt,
+      },
+    ],
+  }));
+  store.stageMorningBriefBoardActions(artifact.id);
+
+  assert.deepEqual(store.activateBriefBoardActions('2026-07-10'), {
+    activated: true,
+    artifactId: artifact.id,
+    applied: 0,
+    skippedConflict: 0,
+    skippedOfflimits: 3,
+  });
+  assert.deepEqual(
+    db.prepare('SELECT title, due_at, due_date FROM tasks ORDER BY position').all(),
+    [
+      { title: 'Keep malformed due', due_at: null, due_date: null },
+      { title: 'Keep out-of-range due', due_at: null, due_date: null },
+      { title: 'Keep real title', due_at: null, due_date: null },
+    ],
+  );
+  assert.deepEqual(
+    db.prepare('SELECT state FROM day_plan_brief_actions ORDER BY action_index').pluck().all(),
+    ['skipped_offlimits', 'skipped_offlimits', 'skipped_offlimits'],
+  );
+  db.close();
+});
+
+test('activation clamps relay text and bounds full before and after receipt snapshots', (t) => {
+  const { file, store } = isolatedStore(t);
+  const db = new Database(file);
+  createManagedBoardTables(db);
+  const snapshotAt = '2026-07-10T15:00:00.000Z';
+  db.prepare(
+    `INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, project, position, status, updated_at)
+     VALUES ('task-large', 'col-ns', 'Original', ?, 'medium', ?, ?, 0, 'open', ?)`,
+  ).run('b'.repeat(10_000), 'tag'.repeat(4_000), 'project'.repeat(2_000), snapshotAt);
+  const unsafeTitle = `Clear\u0000\u0007title\n${'t'.repeat(300)}`;
+  const unsafeDescription = `Useful\u0000\u001fdescription\n\t${'d'.repeat(5_000)}`;
+  const boardActions = [
+    {
+      op: 'retitle', taskId: 'task-large', title: unsafeTitle, why: 'w'.repeat(7_000),
+      evidenceRefs: [], expectedTaskUpdatedAt: snapshotAt,
+    },
+    ...Array.from({ length: 14 }, () => ({
+      op: 'edit_description', taskId: 'task-large', description: unsafeDescription,
+      why: 'w'.repeat(7_000), evidenceRefs: [], expectedTaskUpdatedAt: snapshotAt,
+    })),
+  ];
+  const artifact = store.enqueueMorningBrief('2026-07-10', {
+    modelAlias: 'opus', effort: 'high', budgetUsd: 1.5,
+  }).brief;
+  store.claimNextMorningBrief();
+  store.completeMorningBrief(artifact.id, JSON.stringify({
+    headline: 'Focus.', narrativeParagraphs: ['Work.'], lensNarrative: 'Focus.\n\nWork.',
+    existingTaskCandidates: [], suggestedAdditions: [], watchItems: [],
+    boardActions,
+  }));
+  store.stageMorningBriefBoardActions(artifact.id);
+
+  assert.equal(store.activateBriefBoardActions('2026-07-10').applied, 15);
+  const task = db.prepare("SELECT title, description FROM tasks WHERE id = 'task-large'").get();
+  assert.equal(task.title.length, 240);
+  assert.equal(task.description.length, 4_000);
+  assert.equal(containsAsciiControl(task.title), false);
+  assert.equal(containsAsciiControl(task.description, { preserveFormatting: true }), false);
+  assert.ok(task.description.includes('description\n\t'));
+  const actionRows = db.prepare(
+    'SELECT before_json, after_json FROM day_plan_brief_actions ORDER BY action_index',
+  ).all();
+  for (const row of actionRows) {
+    for (const snapshot of [JSON.parse(row.before_json), JSON.parse(row.after_json)]) {
+      assert.ok((snapshot.description ?? '').length <= 2_000);
+      if ((snapshot.description ?? '').length === 2_000) {
+        assert.ok(snapshot.description.endsWith('… [truncated]'));
+      }
+    }
+  }
+  const receiptJson = db.prepare(
+    "SELECT actions_json FROM cove_receipts WHERE source = 'morning-brief-management'",
+  ).pluck().get();
+  assert.ok(receiptJson.length < 100_000);
+  const receipt = JSON.parse(receiptJson);
+  assert.equal(receipt.snapshotsOmitted, true);
+  assert.equal(receipt.outcomes.length, 15);
+  assert.ok(receipt.outcomes.every((outcome) =>
+    outcome.before === undefined && outcome.after === undefined && outcome.why.length === 500
+  ));
+  db.close();
+});
+
+test('staging a replacement brief terminal-marks staged actions from older artifacts', (t) => {
+  const { file, store, setClock } = isolatedStore(t, '2026-07-10T05:00:00.000Z');
+  const makeBrief = (taskId) => JSON.stringify({
+    headline: 'Focus.', narrativeParagraphs: ['Work.'], lensNarrative: 'Focus.\n\nWork.',
+    existingTaskCandidates: [], suggestedAdditions: [], watchItems: [],
+    boardActions: [{
+      op: 'set_priority', taskId, priority: 'high', why: 'Goal fit.', evidenceRefs: [],
+      expectedTaskUpdatedAt: '2026-07-10T04:00:00.000Z',
+    }],
+  });
+  const first = store.enqueueMorningBrief('2026-07-10', {
+    modelAlias: 'opus', effort: 'high', budgetUsd: 1.5,
+  }).brief;
+  store.claimNextMorningBrief();
+  store.completeMorningBrief(first.id, makeBrief('task-first'));
+  store.stageMorningBriefBoardActions(first.id);
+
+  setClock('2026-07-10T06:00:00.000Z');
+  const second = store.enqueueMorningBrief('2026-07-10', {
+    modelAlias: 'opus', effort: 'high', budgetUsd: 1.5,
+  }).brief;
+  store.claimNextMorningBrief();
+  store.completeMorningBrief(second.id, makeBrief('task-second'));
+  store.stageMorningBriefBoardActions(second.id);
+
+  const db = new Database(file);
+  const rows = db.prepare(
+    'SELECT artifact_id, state, terminal_at FROM day_plan_brief_actions',
+  ).all();
+  assert.deepEqual(rows.find((row) => row.artifact_id === first.id), {
+    artifact_id: first.id,
+    state: 'skipped_late',
+    terminal_at: '2026-07-10T06:00:00.000Z',
+  });
+  assert.deepEqual(rows.find((row) => row.artifact_id === second.id), {
+    artifact_id: second.id,
+    state: 'staged',
+    terminal_at: null,
+  });
+  assert.equal(store.getMorningBrief(first.id).boardActionsPending, undefined);
+  assert.equal(store.getMorningBrief(second.id).boardActionsPending, true);
+  db.close();
+});
+
+test('staging an older artifact preserves the newer actions and leaves the GET pre-check idle', (t) => {
+  const { file, store, setClock } = isolatedStore(t, '2026-07-10T05:00:00.000Z');
+  const makeBrief = (taskId) => JSON.stringify({
+    headline: 'Focus.', narrativeParagraphs: ['Work.'], lensNarrative: 'Focus.\n\nWork.',
+    existingTaskCandidates: [], suggestedAdditions: [], watchItems: [],
+    boardActions: [{
+      op: 'set_priority', taskId, priority: 'high', why: 'Goal fit.', evidenceRefs: [],
+      expectedTaskUpdatedAt: '2026-07-10T04:00:00.000Z',
+    }],
+  });
+  const older = store.enqueueMorningBrief('2026-07-10', {
+    modelAlias: 'opus', effort: 'high', budgetUsd: 1.5,
+  }).brief;
+  store.claimNextMorningBrief();
+  store.completeMorningBrief(older.id, makeBrief('task-older'));
+
+  setClock('2026-07-10T06:00:00.000Z');
+  const newer = store.enqueueMorningBrief('2026-07-10', {
+    modelAlias: 'opus', effort: 'high', budgetUsd: 1.5,
+  }).brief;
+  store.claimNextMorningBrief();
+  store.completeMorningBrief(newer.id, makeBrief('task-newer'));
+  store.stageMorningBriefBoardActions(newer.id);
+  store.stageMorningBriefBoardActions(older.id);
+
+  const db = new Database(file);
+  createManagedBoardTables(db);
+  db.prepare(
+    `INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, position, status, updated_at)
+     VALUES ('task-newer', 'col-ns', 'Winning task', '', 'medium', '[]', 0, 'open', ?)`,
+  ).run('2026-07-10T04:00:00.000Z');
+  const staged = db.prepare(
+    'SELECT artifact_id, state, terminal_at FROM day_plan_brief_actions',
+  ).all();
+  assert.deepEqual(staged.find((row) => row.artifact_id === older.id), {
+    artifact_id: older.id,
+    state: 'skipped_late',
+    terminal_at: '2026-07-10T06:00:00.000Z',
+  });
+  assert.deepEqual(staged.find((row) => row.artifact_id === newer.id), {
+    artifact_id: newer.id,
+    state: 'staged',
+    terminal_at: null,
+  });
+
+  setClock('2026-07-10T16:00:00.000Z');
+  assert.equal(store.activateBriefBoardActions('2026-07-10').artifactId, newer.id);
+  assert.equal(db.prepare("SELECT priority FROM tasks WHERE id = 'task-newer'").pluck().get(), 'high');
+  assert.deepEqual(
+    db.prepare('SELECT state FROM day_plan_brief_actions ORDER BY artifact_id').pluck().all().sort(),
+    ['applied', 'skipped_late'],
+  );
+
+  // This mirrors an idle GET initialize: the read-only pre-check must not request a write lock.
+  db.exec('BEGIN IMMEDIATE');
+  assert.doesNotThrow(() => store.initialize());
+  db.exec('ROLLBACK');
+  db.close();
 });

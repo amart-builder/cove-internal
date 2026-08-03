@@ -3,9 +3,9 @@
 <!-- BEGIN repo-identity -->
 ## Repo Identity
 - **group_id:** cove
-- **canonical_repo:** projects/astack/cove
-- **macbook_path:** ~/Atlas/projects/astack/cove
-- **mac_mini_path:** ~/Desktop/Atlas/projects/astack/cove
+- **canonical_repo:** Projects/Cove
+- **macbook_path:** ~/Atlas/Projects/Cove
+- **mac_mini_path:** retired
 - **github:** PRIVATE development repo `amart-builder/cove-internal`; sanitized client mirror `amart-builder/cove`
 - **default_branch:** main
 - **owned_by:** shared
@@ -16,15 +16,99 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** none
-- **device:** —
-- **since:** —
-- **task:** —
+- **system:** cowork
+- **device:** Alexanders-MacBook-Pro-2
+- **since:** 2026-08-03T11:37:20-0700
+- **task:** Go-public prep: fixes, review, mirror refresh
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-07-29 (email architecture redesign integrated with committed Morning Brief Phase 1a, 1b, and 2 work; Alex's install remains local mode on the MacBook, single machine, Mini fully retired)
+**Last updated:** 2026-08-03 (go-public release: 7/31 review debt cleared, sales cadence removed, mirror refreshed and flipped public for the first Jarvis Pro install)
+
+## 2026-08-03 Go-public release for the first Jarvis Pro client install
+
+Alex authorized the full sequence: clear the 7/31 review debt (his Option A), make the pre-release fixes, commit, refresh the client mirror, flip it public, notify him. Executed this session under the session lock.
+
+- **7/31 review debt CLEARED.** Opus 5 fresh-context review of the entire uncommitted diff (native background agent, no timeout this time) returned CHANGES_REQUIRED, nothing BLOCKED. It confirmed the 7/31 hardening claims hold (CSRF enforcement, evidence redaction, installer plist rendering, disabled-by-default meeting ingestion, email races, deterministic export) with three material exceptions, all fixed by Sol and re-verified: arrival cards rendered bare-date due dates one day early in any UTC-negative timezone (TodayView now uses the same local-midnight guard as TaskCard, pinned by test); readiness conflated never-configured and never-run with broken (readiness.ts now has "Not set up" and "Waiting for the first run" states, sourced from Workspace config presence); SECURITY_AND_INTEGRATIONS.md overclaimed that the OAuth token cannot send (gmail.modify does permit send at the token level; docs now state the no-send boundary is enforced by Cove's gateway code, not the credential).
+- Also fixed from the review: installer waits 30s for the worker heartbeat and reports worker status in its final summary (still non-fatal); email intake truncation message now describes the real catch-up mechanism (Cove/Triaged labels, not a resumed query); weekend-auto-settle receipts documented as deliberately audit-only; export now writes REDACTED fixture bytes (raw ghp_/private-key-shaped test strings no longer ship, so client-side push protection cannot trip), asserted by test; OPERATIONS.md /api/health wording matches the real trusted-hosts check; SETUP.md tells the setup agent to update a stale global claude CLI (task sessions use newer flags).
+- Accepted, not fixed (deliberate, install morning): Skill tool listed in safe-mode task-session tool lists (dead capability, harmless); git quotePath edge in the export file enumeration (no affected filenames exist); no test for zero-candidate weekend "Plan today anyway" plans; no independent re-audit of the twice-reviewed board-action activation surface (reviewer skimmed it and found the transaction shape correct).
+- **Pre-release fixes (earlier Sol round, all verified held-out):** LICENSE added (source-available, "Copyright (c) 2026 Cove", no resale/redistribution; Alex may want his legal entity named instead, one-line change); package.json and the generated export package.json carry license + engines node>=20; SETUP.md requires npm ci only (no npm install fallback) and documents skill-folder replacement; COVE_SUPERNOVA_DIR relabeled owner-only in CONFIGURATION.md; fixture renames MHA->Meridian and Gary->Harbor everywhere exportable; export exclusion tests now pin STATUS.md, BUDDY-DEPLOY.md, docs/, and data/cove-meetings.json as never-shipped.
+- **Sales cadence removed** at Alex's direction (entry below). Prompt v16 / schema v5.
+- Final verification before commit: tsc clean, 765/765 tests, production build clean, clean-tree export planned from this commit (manifest must show dirty:false). Known test-env quirk: one pre-existing test resolves the machine timezone and expects America/Los_Angeles, so the suite only passes on Pacific-time machines; harmless locally, noted for CI someday.
+- Mirror refresh + public flip of github.com/amart-builder/cove executed immediately after this commit (fresh export commit on top of the mirror's two existing commits; the mirror's hand-edited SETUP.md from 7/28 is superseded by this export's gate-checked version). Verify anytime with: gh repo view amart-builder/cove --json visibility,pushedAt.
+- Process note: a stray .git/shallow (left by an earlier audit's shallow fetch of the mirror) was removed from the dev repo.
+
+## 2026-08-03 Sales cadence removal ready for release
+
+- Removed the sales cadence section from Morning Arrival, the public brief model, the API mutation path, the stored action state reads and writes, the recent brief feedback source, and the writer schema and prompt.
+- Prompt version 16 and schema version 5 prevent new briefs from generating the retired section. Older artifacts remain readable because the legacy field is ignored. Existing database tables remain dormant and unchanged.
+- Verification: TypeScript clean and 765 tests passed. The required scoped search returned no matches. Nothing was committed, pushed, deployed, or written under data.
+
+## 2026-08-03 Chief-of-staff board management (deployed)
+
+Alex's directive: the Morning Brief must rank his true priorities from the WHOLE board against his goals, and the agent manages all task cards (full powers: move, reprioritize, due dates, retitle, edit descriptions, archive, archive duplicates), morning-brief time only, quiet receipts only, applied autonomously. Interview answers recorded 2026-08-03.
+
+- Brief schema v4 / prompt v15. candidate_ok now spans every ordinary open task (not jarvis-held/email-current); OPEN_TASKS ordered due/priority/recency so the 14k trim cuts the tail. Arrival transport keeps the 10-candidate route cap via preferredTaskIds (brief picks first, then commitments, then due backlog).
+- board_actions (max 15 typed ops) are validated at generation (unknown/recurring targets dropped, ungrounded set_due dropped, rank+archive contradiction fails the artifact), STAGED at completion/import (never applied at night), and ACTIVATED on the target morning only while the plan is pristine: one SQLite transaction, per-action updated_at conflict check (human edits always win), live off-limits re-check, bounded before/after snapshots, one cove_receipts row (source morning-brief-management), refused activation terminal-marks rows as skipped_late so a brief can never wedge invisible. Attach is gated until actions are terminal. Deterministic summary sentence in the arrival only when changes actually applied. Migrations 106+107 (applied to the live DB at deploy).
+- Review history: Opus 5 fresh-context review found 2 blocking bugs (permanent wedge with paid regeneration loop; all-or-nothing pick gate discarding whole briefs), then a second pass found 2 more (receipt overflow rollback path, supersession direction discarding the newer artifact's actions). All fixed across two Sol rounds; final verdict PASS with minor accepted residuals (rare crash-window edges on the relay path, documented in the review; none destructive).
+- Verification at deploy: 756/756 tests, tsc clean, production build clean, live health 200, migrations 106/107 confirmed in cove.db.
+- Still nothing committed: tree carries 7/31 hardening (NOT REVIEWED) + all of today's reviewed work.
+- DEPLOY RULE (learned in live rehearsal 2026-08-03): deploying code changes requires `npx next build` + restarting BOTH services: `launchctl kickstart -k gui/501/com.cove.local` AND `launchctl kickstart -k gui/501/com.cove.claude-worker`. The worker is a long-lived tsx process that keeps old code in memory; a stale worker silently generates briefs with outdated logic while stamping current version numbers (versions are stamped at enqueue, not by the worker).
+
+## 2026-08-03 Live rehearsal PASSED + Buddy fixed (deployed)
+
+- Full morning rehearsal on the live app: reset Monday, re-queued the brief through the real path. Take 1 exposed the stale-worker deploy gap (rule above). Take 2 on fresh code: brief in 66s, 3 whole-board picks with grounded reasons, 10 proposed board actions (1 correctly rejected as unknown-task, 9 staged and applied atomically with receipt "Morning brief board pass applied 9 changes"), artifact attach-eligible. Backup at data/backups/cove-pre-rehearsal-2026-08-03.db.
+- Buddy root cause: broken since the 2026-07-29 Forge→Cove rename. buddy_state.head_session_id pointed at a Claude CLI session stored under the old repo path (CLI keys sessions off cwd); every --resume failed in ~1s with error_during_execution. Unstuck via the app's own POST /api/buddy/session reset (Alex confirmed working). Durable fix shipped: one-shot same-turn fresh-session fallback on work-free resume failures, gated so a resume that already wrote tasks never respawns (no duplicate writes), failed fallbacks keep their real writes in receipts, rejected fallback spawns surface as timeout. Opus review PASS after one fix round. 763/763 tests, build clean, both services restarted.
+
+## 2026-08-03 Morning Arrival fixes and week-centric day ritual
+
+Four defects from Alex's live Monday morning, all fixed, tested, and deployed to the running app (build + `launchctl kickstart -k gui/501/com.cove.local`; the service runs `next start`, so code changes always need that rebuild/restart step).
+
+- Writing state: the arrival never shows the "not enough current evidence" fallback while a brief is generating. New honest headline "Your brief is on the way." (presentation.ts).
+- Zero-candidate attach: a succeeded, version-eligible brief now attaches even when the plan has no candidates; item healing still requires fresh candidates. This was the cause of the 8:00 AM dead-end stall (store.ts maybeLateAttachBrief, useDayRitual poller).
+- Week-centric ritual: automatic plan creation is gated on weekdays (typed weekendGate result; "Plan today anyway" button creates a manual weekend plan that then closes out normally). Untouched legacy automatic weekend plans auto-settle idempotently on the next open (store-level only by design; route side effects like brief enqueue are intentionally skipped, pinned by test, and the ensure trigger covers the Monday brief). Closeout copy names the day ("Friday, July 31 was never closed."). nextBriefTargetLocalDate skips weekends. Weekday helpers live in the pure module src/lib/day-plan/weekday.ts; client code must import them from there, never value-import brief.ts (it chains to node:fs and broke the production build until split).
+- Priorities pool: open tasks due today or earlier now qualify as arrival candidates from any column (jarvis-held/email/recurring exclusions kept, cap 10, commitments ranked first, evidence ranking preserved within tiers, honest due_backlog labels, timezone-consistent due dates including bare-date due_at). The brief's suggestedAdditions render in the priorities step as one-tap "Add to today" cards via the existing addItem flow; the "No credible priorities" fallback only shows when both are empty.
+- Process: Sol built from specs (three patches), Fable verified against held-out acceptance criteria, Opus 5 fresh-context review found 3 real bugs in the candidate widening (mislabeled acceptance, UTC/local due-date skew, discarded ranking) plus one follow-up (bare-date due_at day shift); all fixed and re-verified. Suite: 744/744, tsc clean, production build clean, live health 200.
+- Nothing committed. The tree still carries the 2026-07-31 hardening work (NOT REVIEWED by Opus) plus today's reviewed changes; commit only after the 7/31 review debt is cleared or Alex says otherwise.
+- Open design question for Alex: brief suggestions now appear in both the priorities step (one-tap add) and the extras step (owner choice); consider consolidating to one affordance.
+
+## 2026-07-31 Morning Arrival late-brief attachment fix
+
+- Morning Arrival now keeps polling after generation succeeds until the existing guarded ensure path attaches the brief, unless a brief is already attached or the arrival has been interacted with.
+- The brief step stays in its writing state during that window. A genuinely stalled brief now shows an honest headline and a primary `Generate your brief` button without presenting the first-move fallback as a brief.
+- Verification: 114 focused tests passed, TypeScript and scoped ESLint passed, and the full suite passed 707 of 707 tests.
+
+## 2026-07-31 Whole-system hardening implementation
+
+- Implemented the merged audit's trust-critical fixes across installer rendering, skill CSRF contracts, disabled-by-default meeting ingestion, ten-task settlement, stale Morning Brief recovery, task-session isolation, evidence redaction, email pagination and races, local progress task reads, honest readiness UI, provenance, date-only display, documentation, verification, and deterministic client export.
+- `npm run verify` passes: TypeScript clean, ESLint clean with zero warnings, 696 tests passed, and the production build completed. The build retains one non-fatal Turbopack dynamic filesystem trace warning.
+- A local client export produced 357 allowlisted files with a source SHA, per-file hashes, secret/setup checks, and no live data. Nothing was published or pushed.
+- Fable 5 advised before implementation. The required Opus 5 fresh-context review was attempted twice, first with a 420-second bound and then with a focused 600-second bound. Both timed out without a verdict. This result is therefore **NOT REVIEWED by Opus**, not a PASS.
+- `data/cove-meetings.json` remains on this Mac but is ignored and staged for removal from Git tracking. No LaunchAgents were installed, no credentials were changed, and no live Gmail mutation ran.
+- Next action: rerun the saved Opus review prompt when the Claude review lane is healthy, disposition any material findings, then commit only the intended files and publish the client export only with Alex's explicit approval.
+
+## 2026-07-30 Canonical project location
+
+- The real repository and machine-private Cove data now live at `~/Atlas/Projects/Cove`.
+- `~/Atlas/Projects/astack/cove` remains a compatibility link so older Jarvis Pro paths and saved shortcuts continue to work.
+- MacBook LaunchAgents were regenerated from the new canonical checkout. The Mini install remains retired.
+- Verified after the move: SQLite integrity `ok` with 113 tasks and 161 email items, 72 installer-adjacent tests passed, `/tasks` and `/api/cove-rest/tasks` returned 200, and the retired `/api/forge-rest/tasks` path returned 404.
+
+## 2026-07-30 Morning Brief console overflow fixed
+
+- Two July 30 Sol-high brief attempts failed with `brief_output_too_large`. The 1 MB boundary was incorrectly applied to Codex's console progress stream even though Cove reads and validates the finished brief from a separate output file.
+- The brief worker now keeps a bounded diagnostic prefix, discards excess console chatter, and validates the separate final artifact as before. Other worker commands retain their fail-on-overflow behavior.
+- Morning Arrival now states that Cove could not finish the brief and offers a truthful retry instead of presenting the deterministic empty-plan fallback as though no generation failed.
+- Verification: the new 2 MB console-chatter regression passed; TypeScript passed; all 679 tests passed; production build passed; fresh-context review returned PASS. A live Sol-high brief completed in 51 seconds, stored a 4,211-byte validated artifact, attached to July 30, and rendered correctly in a fresh browser check.
+- These changes remain uncommitted alongside the previously authorized Sol-high writer changes. No push was performed.
+
+## 2026-07-29 Morning Brief writer locked to GPT-5.6 Sol high
+
+- Every default Morning Brief now uses `gpt-5.6-sol` with reasoning effort `high`.
+- The writer fails closed if Sol is unavailable, times out, exits unsuccessfully, or returns invalid structured output. It no longer silently substitutes Claude or Opus.
+- The global Codex runtime was upgraded to 0.146.0 and passed a live Sol-high smoke test. The brief worker was restarted with the new fail-closed logic.
+- Verified with the 65-test Morning Brief suite and TypeScript. No blockers. Next action: commit and push the two scoped implementation files plus this status note when Alex authorizes the external Git write.
 
 ## 2026-07-29 Google Workspace connected and Keychain persistence fixed
 
@@ -37,7 +121,7 @@
 ## 2026-07-29 Forge to Cove identity cutover
 
 - The private development repository is now `amart-builder/cove-internal`. The sanitized client mirror remains the separate `amart-builder/cove` repository.
-- The canonical local checkout is `~/Atlas/Projects/astack/cove`. LaunchAgents, Claude hooks, Codex and Claude skills, the wake canary, Jarvis Pro consumers, and Atlas Syncthing exclusions now point to Cove.
+- The canonical local checkout was `~/Atlas/Projects/astack/cove` at the time of this cutover. It moved to `~/Atlas/Projects/Cove` on 2026-07-30.
 - The live database is `data/cove.db`. Migration 13 renamed the old migration ledger and six operational `forge_*` tables in place; the verified live result preserved 108 tasks and 161 email records with SQLite integrity `ok`.
 - Runtime names are canonical Cove: `/api/cove-rest`, `COVE_*`, `NEXT_PUBLIC_COVE_*`, `cove_*` tables, Cove config filenames, and `~/.cove`. Hidden read-only migration fallbacks keep an old install upgradeable.
 - Production build passed, the full suite passed 678 of 678, `/tasks` and `/api/cove-rest` return 200, `/api/forge-rest` returns 404, and the one rolling Email card is open in the live app.

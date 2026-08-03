@@ -12,15 +12,6 @@ type CRMContactResponse = {
   activities: ContactActivity[];
 };
 
-type CRMResolutionResponse = {
-  resolution:
-    | { status: "matched" | "created"; contact: Contact }
-    | {
-        status: "ambiguous";
-        candidates: Array<{ id: string; name: string; email: string | null }>;
-      };
-};
-
 type CRMCreationResponse = {
   creation: {
     contact: Contact;

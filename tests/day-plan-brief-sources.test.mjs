@@ -112,7 +112,6 @@ function recentBriefArtifact({
     existing_task_candidates: [],
     suggested_additions: [],
     watch_items: [],
-    sales_actions: [],
   }).brief;
   brief.headline = headline;
   if (lensNarrative !== undefined) brief.lensNarrative = lensNarrative;
@@ -1412,7 +1411,7 @@ test('email decision queue reports empty state and fails open on fetch errors', 
   assert.equal(failed.note, 'error:email items unavailable');
 });
 
-test('recent brief receipts distinguish decisions, settlements, and sales states', () => {
+test('recent brief receipts distinguish decisions and settlements', () => {
   const artifacts = {
     '2026-07-28': [
       recentBriefArtifact({
@@ -1482,7 +1481,7 @@ test('recent brief receipts distinguish decisions, settlements, and sales states
       id: 'plan-tue',
       briefId: 'brief-tue',
       items: [
-        { taskId: 'task-gary', title: 'Gary install prep', decision: 'accepted' },
+        { taskId: 'task-gary', title: 'Harbor install prep', decision: 'accepted' },
         { taskId: 'task-zac', title: 'Zac call plan', decision: 'dismissed' },
         { taskId: 'task-done', title: 'Send final scope', decision: 'completed' },
         { taskId: 'task-preselected', title: 'Unopened arrival item', decision: 'preselected' },
@@ -1520,15 +1519,6 @@ test('recent brief receipts distinguish decisions, settlements, and sales states
             },
           }
         : undefined,
-      listMorningBriefSalesActionStates: (briefId) => briefId === 'brief-tue'
-        ? [
-            { state: 'skipped' },
-            { state: 'skipped' },
-            { state: 'skipped' },
-            { state: 'skipped' },
-            { state: 'future_state' },
-          ]
-        : [{ state: 'approved' }, { state: 'edited' }],
     },
     targetLocalDate: '2026-07-29',
     now: new Date('2026-07-29T14:00:00.000Z'),
@@ -1541,14 +1531,11 @@ test('recent brief receipts distinguish decisions, settlements, and sales states
   assert.equal(source.content.includes('This newer brief was never attached.'), false);
   assert.match(
     source.content,
-    /candidates: 'Gary install prep' accepted then carry; 'Zac call plan' dismissed then not_settled; 'Send final scope' accepted then done; 'Unopened arrival item' not_decided then not_settled; 'Review next week' set_aside then not_settled; taskId=task-missing dropped_before_arrival \| sales: 4 skipped/,
+    /candidates: 'Harbor install prep' accepted then carry; 'Zac call plan' dismissed then not_settled; 'Send final scope' accepted then done; 'Unopened arrival item' not_decided then not_settled; 'Review next week' set_aside then not_settled; taskId=task-missing dropped_before_arrival/,
   );
   assert.equal(source.content.includes("'task-missing'"), false);
-  assert.equal(source.content.match(/Gary install prep/g)?.length, 1);
-  assert.match(
-    source.content,
-    /candidates: 'Client delivery plan' accepted then not_settled \| sales: 1 approved, 1 edited/,
-  );
+  assert.equal(source.content.match(/Harbor install prep/g)?.length, 1);
+  assert.match(source.content, /candidates: 'Client delivery plan' accepted then not_settled/);
   const lines = source.content.split('\n');
   const fridayIndex = lines.findIndex((line) => line.includes('2026-07-24:'));
   assert.ok(fridayIndex >= 0);

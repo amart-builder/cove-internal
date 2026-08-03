@@ -115,6 +115,20 @@ function emailRow(db: Database.Database, id: string): EmailItemRow | undefined {
   ).get(id) as EmailItemRow | undefined;
 }
 
+function recordGmailReconcileItemReceipt(
+  db: Database.Database,
+  input: { id: string; reason: string; startedAt: string; finishedAt: string },
+) {
+  return recordReceiptInDatabase(db, {
+    source: "email-gmail-to-card-item",
+    startedAt: input.startedAt,
+    finishedAt: input.finishedAt,
+    summary: `Gmail closed email item ${input.id}.`,
+    actions: { emailItemId: input.id, reason: input.reason },
+    outcome: "success",
+  });
+}
+
 export async function reconcileGmailToCard(input: {
   observations: GmailThreadObservation[];
   dbPath?: string;
@@ -213,6 +227,12 @@ export async function reconcileGmailToCard(input: {
             JSON.stringify(reconciledMetadata),
             id,
           ).changes === 1) {
+            recordGmailReconcileItemReceipt(db, {
+              id,
+              reason,
+              startedAt,
+              finishedAt,
+            });
             changedIds.push(id);
             changedReasons[id] = reason;
           }
@@ -264,17 +284,29 @@ export async function reconcileGmailToCard(input: {
             gmail_archived_at: finishedAt,
           };
           delete metadata.archive_claimed_at;
-          if (finalize.prepare(
-            `UPDATE email_items
-             SET status = 'actioned', workflow_state = 'terminal',
-                 actioned_at = ?, updated_at = ?, source_payload = ?
-             WHERE id = ? AND status = 'archiving'`,
-          ).run(
-            finishedAt,
-            finishedAt,
-            JSON.stringify(metadata),
-            row.id,
-          ).changes === 1) {
+          const changed = finalize.transaction(() => {
+            const updated = finalize.prepare(
+              `UPDATE email_items
+               SET status = 'actioned', workflow_state = 'terminal',
+                   actioned_at = ?, updated_at = ?, source_payload = ?
+               WHERE id = ? AND status = 'archiving'`,
+            ).run(
+              finishedAt,
+              finishedAt,
+              JSON.stringify(metadata),
+              row.id,
+            ).changes === 1;
+            if (updated) {
+              recordGmailReconcileItemReceipt(finalize, {
+                id: row.id,
+                reason: "user_replied",
+                startedAt,
+                finishedAt,
+              });
+            }
+            return updated;
+          }).immediate();
+          if (changed) {
             changedIds.push(row.id);
             changedReasons[row.id] = "user_replied";
           }

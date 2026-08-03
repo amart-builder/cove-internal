@@ -12,16 +12,20 @@ import path from "node:path";
 import test from "node:test";
 import Database from "better-sqlite3";
 import { createDayPlanStore } from "../src/lib/day-plan/store.ts";
+import { openLocalDatabase } from "../src/lib/local/database.ts";
 import {
   discoverTranscriptFiles,
+  evidenceFor,
   evidenceText,
   extractTranscriptWrapup,
   fetchOpenProjectTasks,
   groupRecentPings,
+  hasOpenProjectTaskDueToday,
   hasNewProjectEvidence,
   mergeProgressHeartbeat,
   parseProgressOutput,
   prepareProgressAnalysisInput,
+  progressPrompt,
   projectFromCwd,
   readPingFiles,
   redactTranscriptText,
@@ -319,6 +323,23 @@ test("tail extraction caps long assistant text by keeping its ending", (t) => {
   assert.equal(wrapup.text.endsWith("wrapup-ending"), true);
 });
 
+test("tail extraction redacts before slicing an oversized assistant message", (t) => {
+  const dir = fixture(t);
+  const file = path.join(dir, "boundary-secret.jsonl");
+  const text = `FOO_TOKEN=longsecretvalue${"x".repeat(1_490)}`;
+  writeFileSync(
+    file,
+    `${JSON.stringify({
+      type: "assistant",
+      timestamp: NOW.toISOString(),
+      message: { content: text },
+    })}\n`,
+  );
+  const wrapup = extractTranscriptWrapup(file);
+  assert.equal(wrapup.text, redactTranscriptText(text).slice(-1_500));
+  assert.equal(wrapup.text.includes("longsecretvalue"), false);
+});
+
 test("transcript redaction covers every secret pattern and leaves clean text unchanged", () => {
   // The AWS fixture is assembled at runtime so the repo's secret scanner does not
   // flag this synthetic sample as a real leaked key.
@@ -336,13 +357,18 @@ test("transcript redaction covers every secret pattern and leaves clean text unc
     ],
     ["password=abcdefgh", "password=[redacted]"],
     ["api_key: abcdefgh", "api_key: [redacted]"],
+    ["TELEGRAM_BOT_TOKEN=123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ", "TELEGRAM_BOT_TOKEN=[redacted]"],
+    ["TELEGRAM_BOT_TOKEN: 123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ", "TELEGRAM_BOT_TOKEN: [redacted]"],
+    ["\"TELEGRAM_BOT_TOKEN\": \"123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ\"", "\"TELEGRAM_BOT_TOKEN\": [redacted]"],
+    ["COVE_API_KEY = \"abcdefghijklmno\"", "COVE_API_KEY = [redacted]"],
+    ["service_secret='abcdefghijklmno'", "service_secret=[redacted]"],
     ["A".repeat(48), "[redacted]"],
   ];
   for (const [input, expected] of cases) {
     assert.equal(redactTranscriptText(input), expected);
   }
   const fileEvidence =
-    "Read /Users/alexanderjmartin/Atlas/Projects/astack/cove/src/lib/day-plan/brief-sources.ts and patched it.";
+    "Read /Users/operator/Atlas/Projects/astack/cove/src/lib/day-plan/brief-sources.ts and patched it.";
   assert.equal(redactTranscriptText(fileEvidence), fileEvidence);
   // Slash-bearing secrets still redact even though "/" is excluded from the opaque-run class.
   const webhook =
@@ -353,6 +379,20 @@ test("transcript redaction covers every secret pattern and leaves clean text unc
   assert.equal(redactTranscriptText("Z".repeat(48)), "[redacted]");
   const clean = "Implemented the project digest and verified twelve tests.";
   assert.equal(redactTranscriptText(clean), clean);
+});
+
+test("progress prompts redact task titles and descriptions", () => {
+  const prompt = progressPrompt({
+    project: "Cove",
+    evidenceText: "The implementation is ready.",
+    tasks: [{
+      id: "task-1",
+      title: "Rotate FOO_TOKEN=longsecretvalue",
+      description: "The current value is FOO_TOKEN=longsecretvalue.",
+    }],
+  });
+  assert.equal(prompt.includes("longsecretvalue"), false);
+  assert.match(prompt, /FOO_TOKEN=\[redacted\]/);
 });
 
 test("rendered evidence contains transcript wrap-up text verbatim", () => {
@@ -376,6 +416,27 @@ test("rendered evidence contains transcript wrap-up text verbatim", () => {
   );
   assert.equal(rendered.includes(wrapup), true);
   assert.equal(rendered.includes("Verified the held-out failure case."), true);
+});
+
+test("Git, STATUS, and wrap-up evidence are redacted before model analysis", () => {
+  const evidence = evidenceFor(
+    {
+      pings: [],
+      firstAt: "2026-07-29T10:00:00.000Z",
+      lastAt: "2026-07-29T11:00:00.000Z",
+    },
+    {
+      lines: ["abc Configure TELEGRAM_BOT_TOKEN=123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ"],
+      head: "abc",
+    },
+    "Current State: COVE_API_KEY=abcdefghijklmno",
+    "fingerprint",
+    [{ session_file: "session.jsonl", text: "service_secret=abcdefghijklmno" }],
+  );
+  assert.equal(evidence.git_log[0].includes("123456789"), false);
+  assert.equal(evidence.current_state.includes("abcdefghijklmno"), false);
+  assert.equal(evidence.session_wrapups[0].text.includes("abcdefghijklmno"), false);
+  assert.match(evidenceText(evidence), /\[redacted\]/);
 });
 
 test("prompt budget drops transcript wrap-ups oldest first", () => {
@@ -516,8 +577,8 @@ test("Supabase task fetch maps and bounds only the fields the model needs", asyn
       requested = String(url);
       return new Response(JSON.stringify([{
         id: "task-1",
-        title: "T".repeat(350),
-        description: "D".repeat(2500),
+        title: "Task ".repeat(70),
+        description: "Details ".repeat(313),
         project: "cove",
         status: "open",
         due_at: NOW.toISOString(),
@@ -532,6 +593,98 @@ test("Supabase task fetch maps and bounds only the fields the model needs", asyn
   assert.equal(tasks[0].title.length, 300);
   assert.equal(tasks[0].description.length, 2000);
   assert.deepEqual(tasks[0].tags, ["one", "two"]);
+});
+
+test("task fetches redact secrets before title and description slicing", async (t) => {
+  const boundaryTitle = `${"safe ".repeat(57)}FOO_TOKEN=longsecretvalue`;
+  const boundaryDescription = `${"safe ".repeat(397)}FOO_TOKEN=longsecretvalue`;
+  const supabaseTasks = await fetchOpenProjectTasks("cove", {
+    supabase: {
+      url: "https://example.supabase.co",
+      key: "secret",
+      table: "cove_tasks",
+    },
+    fetchImpl: async () => new Response(JSON.stringify([{
+      id: "supabase-boundary-task",
+      title: boundaryTitle,
+      description: boundaryDescription,
+      project: "cove",
+      status: "open",
+      priority: "medium",
+      tags: [],
+    }])),
+  });
+
+  const dir = fixture(t);
+  const dbPath = path.join(dir, "cove.db");
+  const db = openLocalDatabase(dbPath);
+  try {
+    db.prepare(
+      `INSERT INTO tasks
+         (id, title, description, project, status, priority, tags,
+          position, created_at, updated_at)
+       VALUES (?, ?, ?, 'cove', 'open', 'medium', '[]', 0, ?, ?)`,
+    ).run(
+      "local-boundary-task",
+      boundaryTitle,
+      boundaryDescription,
+      NOW.toISOString(),
+      NOW.toISOString(),
+    );
+  } finally {
+    db.close();
+  }
+  const localTasks = await fetchOpenProjectTasks("cove", {
+    dbPath,
+    dataDir: dir,
+    env: {},
+  });
+
+  for (const task of [supabaseTasks[0], localTasks[0]]) {
+    assert.equal(task.title.includes("FOO_TOKEN=longs"), false);
+    assert.equal(task.description.includes("FOO_TOKEN=longs"), false);
+    assert.match(task.title, /FOO_TOKEN=\[red/);
+    assert.match(task.description, /FOO_TOKEN=\[red/);
+  }
+});
+
+test("local progress reconciliation reads open project tasks from Cove SQLite", async (t) => {
+  const dir = fixture(t);
+  const dbPath = path.join(dir, "cove.db");
+  const db = openLocalDatabase(dbPath);
+  try {
+    db.prepare(
+      `INSERT INTO tasks
+         (id, title, description, project, status, priority, due_at, tags,
+          position, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'open', 'high', ?, ?, 0, ?, ?)`,
+    ).run(
+      "local-progress-task",
+      "Ship Cove hardening",
+      "Verify the local task source.",
+      "Cove",
+      "2026-07-31",
+      JSON.stringify(["release"]),
+      NOW.toISOString(),
+      NOW.toISOString(),
+    );
+  } finally {
+    db.close();
+  }
+
+  const tasks = await fetchOpenProjectTasks("cove", { dbPath, dataDir: dir, env: {} });
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0].id, "local-progress-task");
+  assert.deepEqual(tasks[0].tags, ["release"]);
+  assert.equal(
+    await hasOpenProjectTaskDueToday(
+      "Cove",
+      "2026-07-31",
+      "America/Los_Angeles",
+      { dbPath, dataDir: dir, env: {} },
+    ),
+    true,
+  );
 });
 
 test("new evidence requires a new ping timestamp or changed git head", () => {

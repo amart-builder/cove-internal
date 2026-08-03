@@ -43,7 +43,6 @@ next-env.d.ts
 # local data, including Quiet Current history and its per-install CSRF token
 /data/buddy-home/
 /data/*
-!/data/cove-meetings.json
 !/data/cove-meetings.example.json
 !/data/cove-support.example.json
 !/data/cove-workspace.example.json

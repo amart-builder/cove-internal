@@ -59,7 +59,13 @@ curl -s 'http://localhost:3200/api/crm?operation=list&search=sarah'
    ```
 2. **Resolve the company.** Company CRUD still uses the local
    `/api/cove-rest/companies` endpoint. Look it up first and create only when
-   it is new.
+   it is new. Reuse the `csrfToken` returned by the CRM GET for the mutation:
+   ```bash
+   curl -s -X POST 'http://localhost:3200/api/cove-rest/companies' \
+     -H 'Content-Type: application/json' \
+     -H 'X-Cove-CSRF: <token from a CRM GET>' \
+     -d '{"name":"Chen Plumbing"}'
+   ```
 3. **Save only stated facts.** Do not invent emails, roles, or spellings.
    `howWeMet` is gold; capture it whenever the user says where or how they met
    ("chamber event", "Brian's roofer").

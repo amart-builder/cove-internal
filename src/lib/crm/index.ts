@@ -30,18 +30,22 @@ class ExternalCRMBackend implements CRMBackend {
   }
 
   resolveOrCreateContact(_input: ResolveContactInput): ContactResolution {
+    void _input;
     return this.unavailable();
   }
 
   createContact(_input: ExplicitCreateContactInput): ExplicitContactCreation {
+    void _input;
     return this.unavailable();
   }
 
   findByNormalizedEmail(_email: string): Contact[] {
+    void _email;
     return this.unavailable();
   }
 
   appendActivity(_input: AppendContactActivityInput): ContactActivity {
+    void _input;
     return this.unavailable();
   }
 
@@ -49,10 +53,13 @@ class ExternalCRMBackend implements CRMBackend {
     _contactId: string,
     _limit?: number,
   ): ContactWithActivities | null {
+    void _contactId;
+    void _limit;
     return this.unavailable();
   }
 
   listContacts(_options?: { search?: string; limit?: number }): Contact[] {
+    void _options;
     return this.unavailable();
   }
 
@@ -60,16 +67,20 @@ class ExternalCRMBackend implements CRMBackend {
     _contactId: string,
     _patch: Partial<Contact>,
   ): Contact | null {
+    void _contactId;
+    void _patch;
     return this.unavailable();
   }
 
   deleteContact(_contactId: string): boolean {
+    void _contactId;
     return this.unavailable();
   }
 
   resolveAndAppendMeetingActivity(
     _input: MeetingContactActivityInput,
   ): MeetingContactActivityResult {
+    void _input;
     return this.unavailable();
   }
 }

@@ -41,8 +41,11 @@ import {
   checkLaneOwnership,
   laneOwnerLabel,
 } from "./lib/cove-lane-ownership.mjs";
+import { loadLocalEnv } from "./lib/load-local-env.mjs";
 import { normalizeMachineIdentity } from "../src/lib/machine-identity.mjs";
 
+const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+loadLocalEnv(repoDir);
 const require = createRequire(import.meta.url);
 require("tsx/cjs");
 const {
@@ -63,7 +66,6 @@ const {
   createGoogleWorkspaceGateway,
 } = require("../src/lib/workspace/google/gateway.ts");
 
-const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaultDataDir = coveEnv("DATA_DIR")?.trim() ||
   path.join(repoDir, "data");
 const DEFAULT_CONFIG_PATH = coveConfigPath(defaultDataDir, "meetings.json");
@@ -426,8 +428,6 @@ export async function runMeetingWatch(options = {}) {
   let machineIdentity = options.machineIdentity
     ? normalizeMachineIdentity(options.machineIdentity)
     : undefined;
-  const mail = options.gateway ??
-    createGoogleWorkspaceGateway({ dataDir: runtimeDataDir }).mail;
   const summary = {
     dry_run: dryRun,
     examined: 0,
@@ -489,14 +489,21 @@ export async function runMeetingWatch(options = {}) {
       }
       return { exitCode: 0, summary };
     }
-    const config = loadMeetingConfig(configPath);
     const state = readMeetingState(statePath);
     summary.dead_letters = state.dead_letters.length;
+    if (!existsSync(configPath)) {
+      disabled = true;
+      if (!dryRun) writeMeetingHeartbeat(heartbeatPath, heartbeat(), machineIdentity);
+      return { exitCode: 0, summary };
+    }
+    const config = loadMeetingConfig(configPath);
     if (!config.enabled) {
       disabled = true;
       if (!dryRun) writeMeetingHeartbeat(heartbeatPath, heartbeat(), machineIdentity);
       return { exitCode: 0, summary };
     }
+    const mail = options.gateway ??
+      createGoogleWorkspaceGateway({ dataDir: runtimeDataDir }).mail;
     const emailConfig = loadEmailConfig(emailConfigPath);
     const processed = new Set(state.processed_ids);
     const failures = { ...state.failures };

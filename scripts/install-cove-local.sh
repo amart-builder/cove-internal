@@ -53,6 +53,18 @@ LOG_DIR="$HOME/Library/Logs"
 LA_DIR="$HOME/Library/LaunchAgents"
 UID_NUM="$(id -u)"
 
+resolve_atlas_root() {
+  if [ -n "${COVE_ATLAS_ROOT:-}" ]; then
+    printf '%s\n' "$COVE_ATLAS_ROOT"
+  elif [[ "$REPO_DIR" == */Atlas/Projects/* ]]; then
+    printf '%s\n' "${REPO_DIR%%/Projects/*}"
+  elif [[ "$REPO_DIR" == */Atlas/projects/* ]]; then
+    printf '%s\n' "${REPO_DIR%%/projects/*}"
+  else
+    printf '%s\n' "$HOME/Atlas"
+  fi
+}
+
 # The product was formerly called Forge, so an older install can still have
 # com.forge.* LaunchAgents. Two agents for the same role would run side by side
 # against one database, so every com.cove.* agent this script installs first
@@ -94,8 +106,13 @@ if [ -z "$CLAUDE_BIN" ] || [ ! -x "$CLAUDE_BIN" ]; then
 fi
 
 mkdir -p "$LOG_DIR" "$LA_DIR"
+if [ ! -e "$REPO_DIR/.env.local" ]; then
+  install -m 600 /dev/null "$REPO_DIR/.env.local"
+  echo "Created a private empty .env.local. Add optional Cove settings there when needed."
+fi
 LANE_DATA_DIR="${COVE_DATA_DIR:-$REPO_DIR/data}"
 LANE_OWNERSHIP_SCRIPT="$REPO_DIR/scripts/lib/cove-lane-ownership.mjs"
+LANE_PLIST_RENDERER="$REPO_DIR/scripts/lib/render-lane-plist.mjs"
 claim_lane() {
   "$NODE_REAL" "$LANE_OWNERSHIP_SCRIPT" claim \
     "$LANE_DATA_DIR" "$1" "$2" "$HOME"
@@ -152,16 +169,8 @@ STIGNORE_BLOCK
       exit 1
     fi
   fi
-  # Atlas installs keep the repo three levels below the workspace. A standalone
-  # ~/cove install may not have Atlas yet, so use the reconciler's normal
-  # ~/Atlas default instead of accidentally resolving three levels up to /.
-  if [ -n "${COVE_ATLAS_ROOT:-}" ]; then
-    ATLAS_ROOT="$COVE_ATLAS_ROOT"
-  elif [[ "$REPO_DIR" == */Atlas/Projects/* || "$REPO_DIR" == */Atlas/projects/* ]]; then
-    ATLAS_ROOT="$(cd "$REPO_DIR/../../.." && pwd)"
-  else
-    ATLAS_ROOT="$HOME/Atlas"
-  fi
+  # Support both direct Atlas/Projects/Cove installs and older nested layouts.
+  ATLAS_ROOT="$(resolve_atlas_root)"
   MINI_BRIEF_PLIST="$LA_DIR/com.cove.morning-brief.plist"
   MINI_MEETING_PLIST="$LA_DIR/com.cove.meeting-watch.plist"
   MINI_PROGRESS_PLIST="$LA_DIR/com.cove.progress.plist"
@@ -227,56 +236,22 @@ $SUPERNOVA_PLIST_ENTRY
 </dict>
 </plist>
 EOF
-  "$NODE_REAL" - \
+  "$NODE_REAL" "$LANE_PLIST_RENDERER" \
     "$REPO_DIR/scripts/launchd/com.cove.meeting-watch.plist" \
     "$MINI_MEETING_PLIST" \
     "$REPO_DIR" \
     "$HOME" \
     "$ATLAS_ROOT" \
-    "$LANE_DATA_DIR" <<'NODE'
-const fs = require("node:fs");
-const path = require("node:path");
-const [source, destination, repoDir, homeDir, atlasRoot, dataDir] = process.argv.slice(2);
-const template = fs.readFileSync(source, "utf8");
-const templateRepo = template.match(
-  /<string>([^<]*\/Atlas\/Projects\/astack\/cove)(?:\/[^<]*)?<\/string>/,
-)?.[1];
-if (!templateRepo) throw new Error(`Could not locate the repo path in ${source}`);
-const templateAtlas = path.resolve(templateRepo, "../../..");
-const templateHome = path.dirname(templateAtlas);
-const templateData = path.join(templateRepo, "data");
-const rendered = template
-  .replaceAll(templateData, dataDir)
-  .replaceAll(templateRepo, repoDir)
-  .replaceAll(templateAtlas, atlasRoot)
-  .replaceAll(templateHome, homeDir);
-fs.writeFileSync(destination, rendered, { mode: 0o600 });
-NODE
-  "$NODE_REAL" - \
+    "$LANE_DATA_DIR" \
+    "$NODE_REAL"
+  "$NODE_REAL" "$LANE_PLIST_RENDERER" \
     "$REPO_DIR/scripts/launchd/com.cove.progress.plist" \
     "$MINI_PROGRESS_PLIST" \
     "$REPO_DIR" \
     "$HOME" \
     "$ATLAS_ROOT" \
-    "$LANE_DATA_DIR" <<'NODE'
-const fs = require("node:fs");
-const path = require("node:path");
-const [source, destination, repoDir, homeDir, atlasRoot, dataDir] = process.argv.slice(2);
-const template = fs.readFileSync(source, "utf8");
-const templateRepo = template.match(
-  /<string>([^<]*\/Atlas\/Projects\/astack\/cove)(?:\/[^<]*)?<\/string>/,
-)?.[1];
-if (!templateRepo) throw new Error(`Could not locate the repo path in ${source}`);
-const templateAtlas = path.resolve(templateRepo, "../../..");
-const templateHome = path.dirname(templateAtlas);
-const templateData = path.join(templateRepo, "data");
-const rendered = template
-  .replaceAll(templateData, dataDir)
-  .replaceAll(templateRepo, repoDir)
-  .replaceAll(templateAtlas, atlasRoot)
-  .replaceAll(templateHome, homeDir);
-fs.writeFileSync(destination, rendered, { mode: 0o600 });
-NODE
+    "$LANE_DATA_DIR" \
+    "$NODE_REAL"
   retire_legacy_agent morning-brief
   retire_legacy_agent meeting-watch
   retire_legacy_agent progress
@@ -371,13 +346,7 @@ fi
 # --- Single-Mac background lanes: meeting watch + progress reconciliation ---
 # StartInterval jobs catch up when the Mac wakes. The same templates also serve
 # the optional Mini profile above; neither feature depends on owning a Mini.
-if [ -n "${COVE_ATLAS_ROOT:-}" ]; then
-  ATLAS_ROOT="$COVE_ATLAS_ROOT"
-elif [[ "$REPO_DIR" == */Atlas/Projects/* || "$REPO_DIR" == */Atlas/projects/* ]]; then
-  ATLAS_ROOT="$(cd "$REPO_DIR/../../.." && pwd)"
-else
-  ATLAS_ROOT="$HOME/Atlas"
-fi
+ATLAS_ROOT="$(resolve_atlas_root)"
 MEETING_PLIST="$LA_DIR/com.cove.meeting-watch.plist"
 PROGRESS_PLIST="$LA_DIR/com.cove.progress.plist"
 INSTALL_MEETING_LANE=0
@@ -401,25 +370,8 @@ case "$PROGRESS_CLAIM" in
     ;;
 esac
 render_lane_plist() {
-  "$NODE_REAL" - "$1" "$2" "$REPO_DIR" "$HOME" "$ATLAS_ROOT" "$LANE_DATA_DIR" <<'NODE'
-const fs = require("node:fs");
-const path = require("node:path");
-const [source, destination, repoDir, homeDir, atlasRoot, dataDir] = process.argv.slice(2);
-const template = fs.readFileSync(source, "utf8");
-const templateRepo = template.match(
-  /<string>([^<]*\/Atlas\/Projects\/astack\/cove)(?:\/[^<]*)?<\/string>/,
-)?.[1];
-if (!templateRepo) throw new Error(`Could not locate the repo path in ${source}`);
-const templateAtlas = path.resolve(templateRepo, "../../..");
-const templateHome = path.dirname(templateAtlas);
-const templateData = path.join(templateRepo, "data");
-const rendered = template
-  .replaceAll(templateData, dataDir)
-  .replaceAll(templateRepo, repoDir)
-  .replaceAll(templateAtlas, atlasRoot)
-  .replaceAll(templateHome, homeDir);
-fs.writeFileSync(destination, rendered, { mode: 0o600 });
-NODE
+  "$NODE_REAL" "$LANE_PLIST_RENDERER" \
+    "$1" "$2" "$REPO_DIR" "$HOME" "$ATLAS_ROOT" "$LANE_DATA_DIR" "$NODE_REAL"
 }
 if [ "$INSTALL_MEETING_LANE" = "1" ]; then
   render_lane_plist \
@@ -790,6 +742,7 @@ launchctl bootstrap "gui/$UID_NUM" "$SERVER_PLIST"
 launchctl bootstrap "gui/$UID_NUM" "$BACKUP_PLIST"
 launchctl bootstrap "gui/$UID_NUM" "$JOBS_PLIST"
 launchctl bootstrap "gui/$UID_NUM" "$REMINDERS_PLIST"
+WORKER_START_EPOCH="$(date +%s)"
 launchctl bootstrap "gui/$UID_NUM" "$WORKER_PLIST"
 if [ "$INSTALL_MEETING_LANE" = "1" ]; then
   launchctl bootstrap "gui/$UID_NUM" "$MEETING_PLIST"
@@ -824,17 +777,19 @@ done
 
 if [ -n "$UP" ]; then
   WORKER_UP=""
-  for _ in $(seq 1 10); do
-    if [ -f "$REPO_DIR/data/claude-worker.heartbeat" ]; then
+  for _ in $(seq 1 30); do
+    WORKER_HEARTBEAT="$REPO_DIR/data/claude-worker.heartbeat"
+    WORKER_HEARTBEAT_EPOCH="$(stat -f '%m' "$WORKER_HEARTBEAT" 2>/dev/null || printf '0')"
+    if [ "$WORKER_HEARTBEAT_EPOCH" -ge "$WORKER_START_EPOCH" ]; then
       WORKER_UP="yes"
       break
     fi
     sleep 1
   done
   if [ -z "$WORKER_UP" ]; then
-    echo "Cove web started, but the Claude worker did not become healthy." >&2
+    echo "Warning: Cove web started, but the Claude worker has not written a fresh heartbeat yet." >&2
     echo "See: $LOG_DIR/cove-claude-worker.error.log" >&2
-    exit 1
+    echo "Retry the worker: launchctl kickstart -k gui/$UID_NUM/com.cove.claude-worker" >&2
   fi
   echo "Creating the first Cove database backup..."
   "$TSX_BIN" "$REPO_DIR/scripts/cove-jobs.ts" enqueue-backup --run
@@ -843,6 +798,11 @@ if [ -n "$UP" ]; then
   echo "Daily database backups: $REPO_DIR/data/backups"
   echo "Reliability jobs: bounded scheduler supervised by com.cove.jobs"
   echo "Claude worker: supervised by com.cove.claude-worker"
+  if [ -n "$WORKER_UP" ]; then
+    echo "Claude worker status: ok"
+  else
+    echo "Claude worker status: not started"
+  fi
   if [ "$INSTALL_MEETING_LANE" = "1" ]; then
     echo "Meeting watcher: every 5 minutes while this Mac is awake, with catch-up on wake"
   else

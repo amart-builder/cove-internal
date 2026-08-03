@@ -1,3 +1,4 @@
+import type { MorningBriefGenerationState } from './brief';
 import type {
   DayPlanExecutionConfig,
   DayPlanExecutionReadiness,
@@ -70,6 +71,13 @@ export function arrivalDateLabel(localDate: string): string {
     day: 'numeric',
     timeZone: 'UTC',
   }).format(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))));
+}
+
+export function formatArrivalDueDate(dueAt: string): string {
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(dueAt)
+    ? new Date(`${dueAt}T00:00:00`)
+    : new Date(dueAt);
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 export function shortArrivalSummary(value: string | undefined, title?: string): string | undefined {
@@ -419,6 +427,7 @@ export function staleSettlementNotice(
 ): string | undefined {
   if (planLocalDate === todayLocalDate) return undefined;
   const label = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
     month: 'long',
     day: 'numeric',
     timeZone: 'UTC',
@@ -493,24 +502,104 @@ export function briefRemainingLabel(
   return `About ${minutes} minutes left.`;
 }
 
+export const MORNING_BRIEF_ATTACH_POLL_LIMIT = 8;
+
+export function advanceMorningBriefAttachPoll(input: {
+  consecutiveSucceededPolls: number;
+  briefAttached: boolean;
+  generationState?: MorningBriefGenerationState;
+}): { consecutiveSucceededPolls: number; attachTimedOut: boolean } {
+  if (input.briefAttached || input.generationState !== 'succeeded') {
+    return { consecutiveSucceededPolls: 0, attachTimedOut: false };
+  }
+  const current = Number.isInteger(input.consecutiveSucceededPolls)
+    ? Math.max(0, input.consecutiveSucceededPolls)
+    : 0;
+  const consecutiveSucceededPolls = Math.min(
+    current + 1,
+    MORNING_BRIEF_ATTACH_POLL_LIMIT,
+  );
+  return {
+    consecutiveSucceededPolls,
+    attachTimedOut:
+      consecutiveSucceededPolls >= MORNING_BRIEF_ATTACH_POLL_LIMIT,
+  };
+}
+
+export function isMorningBriefWriting(input: {
+  briefAttached: boolean;
+  arrivalInteracted: boolean;
+  attachTimedOut: boolean;
+  generationState?: MorningBriefGenerationState;
+}): boolean {
+  if (input.briefAttached) return false;
+  if (input.generationState === 'queued' || input.generationState === 'running') return true;
+  return (
+    input.generationState === 'succeeded' &&
+    !input.arrivalInteracted &&
+    !input.attachTimedOut
+  );
+}
+
+export function morningBriefArrivalPresentation(input: {
+  headline?: string;
+  paragraphs: readonly string[];
+  hasBriefContent: boolean;
+  briefWriting: boolean;
+  briefAttached: boolean;
+  generationState?: MorningBriefGenerationState;
+}): {
+  stalled: boolean;
+  failed: boolean;
+  leadHeadline?: string;
+  body: string[];
+} {
+  const stalled =
+    !input.hasBriefContent && !input.briefWriting && !input.briefAttached;
+  const failed =
+    !input.hasBriefContent && !input.briefAttached && input.generationState === 'failed';
+  const writing = input.briefWriting && !input.hasBriefContent;
+  const leadHeadline = failed
+    ? "Cove couldn't finish your brief."
+    : writing
+      ? 'Your brief is on the way.'
+    : stalled
+      ? "Today's brief isn't written yet."
+      : input.headline ?? input.paragraphs[0];
+  const body = stalled || writing
+    ? []
+    : input.headline
+      ? [...input.paragraphs]
+      : input.paragraphs.slice(1);
+  return { stalled, failed, leadHeadline, body };
+}
+
+export function morningBriefPendingLabel(
+  generationState?: MorningBriefGenerationState,
+): string {
+  return generationState === 'succeeded'
+    ? 'Finishing up…'
+    : 'Your brief is queued…';
+}
 
 // Pure gate for polling the day-plan read model to pick up a brief that finishes
 // generating after the arrival opened. Poll only while the arrival view is open,
 // the document is visible, the user has not interacted (the no-hot-swap rule: a
-// touched arrival never accepts a late brief), no brief is consumed yet, and a
-// generation is actually queued or running. Any of those failing stops polling.
+// touched arrival never accepts a late brief), and no brief is attached yet. A
+// succeeded generation keeps polling during that window so the guarded ensure
+// path can attach it once fresh candidates are ready.
 export function shouldPollBriefGeneration(input: {
   view: string;
   documentVisible: boolean;
-  interacted: boolean;
-  hasConsumedBrief: boolean;
-  generationState?: 'idle' | 'queued' | 'running' | 'succeeded' | 'failed';
+  briefAttached: boolean;
+  arrivalInteracted: boolean;
+  attachTimedOut: boolean;
+  generationState?: MorningBriefGenerationState;
 }): boolean {
   if (input.view !== 'arrival') return false;
   if (!input.documentVisible) return false;
-  if (input.interacted) return false;
-  if (input.hasConsumedBrief) return false;
-  return input.generationState === 'queued' || input.generationState === 'running';
+  if (input.arrivalInteracted) return false;
+  return isMorningBriefWriting(input);
 }
 
 // Pure gate for the ONE-SHOT attach/heal ensure fired at initialization and on
@@ -540,14 +629,9 @@ export function shouldAttemptLateBriefAttach(input: {
   if (input.hasConsumedBrief && input.itemCount !== 0) return false;
   if (input.arrivalInteractedAt) return false;
   if (input.interacted) return false;
-  // The heal always needs fresh board candidates. The server rebuilds the
-  // arrival's items from them and overlays any eligible brief in the same
-  // mutation, so an empty candidate list can neither populate items nor attach a
-  // brief (attach-only + no candidates is a silent server no-op). A completed
-  // brief on its own must NOT open this gate: firing without candidates would
-  // burn the one-shot on a guaranteed no-op and starve the real heal that lands
-  // once candidates arrive. The brief still gets attached — the effect re-runs
-  // when candidates become ready and this gate opens then.
+  // A succeeded brief can attach without board candidates. Item healing still
+  // waits for fresh candidates, preserving the evidence boundary for tasks.
+  if (!input.hasConsumedBrief && input.generationState === 'succeeded') return true;
   return input.candidatesReady && input.candidateCount > 0;
 }
 

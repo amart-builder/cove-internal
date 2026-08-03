@@ -240,6 +240,9 @@ export type EnsureDayPlanInput = {
   timezone: string;
   mutationId: string;
   candidates: RecommendationCandidate[];
+  // Automatic creation observes the weekday gate. Manual creation is the
+  // explicit "Plan today anyway" override and is durably marked by the store.
+  creation?: "automatic" | "manual";
   // Late-brief poll mode: only attempt the guarded late-attach on an EXISTING
   // plan. When nothing attaches, the call is a silent no-op — no ledger event,
   // no mutation-id consumption — so a repeating poll never grows the ledger.
@@ -281,6 +284,18 @@ export type DayPlanMutationResult = {
   };
   replayed: boolean;
 };
+
+export type DayPlanWeekendGate = {
+  localDate: string;
+  weekday: "Saturday" | "Sunday";
+};
+
+export type DayPlanWeekendGateResult = {
+  weekendGate: DayPlanWeekendGate;
+  replayed: false;
+};
+
+export type EnsureDayPlanResult = DayPlanMutationResult | DayPlanWeekendGateResult;
 
 export type DayPlanReconciliationResult = {
   reconciliation: DayPlanReconciliation;

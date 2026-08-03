@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { createBuddyEventParser, isBuddyContextOverflow } from '../src/lib/buddy/stream.ts';
+import {
+  createBuddyEventParser,
+  isBuddyContextOverflow,
+  isBuddyResumeExecutionFailure,
+} from '../src/lib/buddy/stream.ts';
 
 test('captured Claude stream maps chat events and ignores unknown events', () => {
   const parser = createBuddyEventParser();
@@ -56,6 +60,18 @@ test('context overflow detection is narrow to errored context-limit results', ()
   assert.equal(isBuddyContextOverflow({ ...base, resultText: 'Prompt is too long for the context window' }), true);
   assert.equal(isBuddyContextOverflow({ ...base, resultText: 'Budget exceeded', errorSubtype: 'budget_exceeded' }), false);
   assert.equal(isBuddyContextOverflow({ ...base, resultText: 'context window exceeded', isError: false }), false);
+});
+
+test('resume execution failure detection requires its exact subtype and no assistant text', () => {
+  const base = {
+    kind: 'done', resultText: '', sessionId: 's1', costUsd: 0,
+    isError: true, errorSubtype: 'error_during_execution',
+  };
+  assert.equal(isBuddyResumeExecutionFailure(base, ''), true);
+  assert.equal(isBuddyResumeExecutionFailure({ ...base, resultText: 'A result' }, ''), false);
+  assert.equal(isBuddyResumeExecutionFailure(base, 'A streamed result'), false);
+  assert.equal(isBuddyResumeExecutionFailure({ ...base, errorSubtype: 'budget_exceeded' }, ''), false);
+  assert.equal(isBuddyResumeExecutionFailure({ ...base, isError: false }, ''), false);
 });
 
 test('schema-checked result events preserve their structured output', () => {

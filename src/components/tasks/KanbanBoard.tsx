@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useMutation, useQuery } from 'convex/react';
 import {
   DndContext,
   DragOverlay,
@@ -20,8 +19,6 @@ import type {
   UniqueIdentifier,
 } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { api } from '../../../convex/_generated/api';
-import type { Id } from '../../../convex/_generated/dataModel';
 import { getRuntimeMode } from '@/lib/runtime/mode';
 import {
   createTask as createSupabaseTask,
@@ -77,10 +74,6 @@ interface TaskData {
   updatedAt: number;
 }
 
-type TaskWithoutBlocked = Omit<TaskData, 'blocked'> & {
-  tags?: string[];
-};
-
 type CreateTaskInput = {
   columnId?: string | null;
   title: string;
@@ -131,91 +124,10 @@ const pointerFirstCollisionDetection: CollisionDetection = (args) => {
 export default function KanbanBoard() {
   // Local and Supabase both use the REST-backed board; only Convex differs.
   if (getRuntimeMode() !== 'convex') return <SupabaseKanbanBoard />;
-  return <ConvexKanbanBoard />;
-}
-
-function ConvexKanbanBoard() {
-  const columnsQuery = useQuery(api.columns.list);
-  const tasksQuery = useQuery(api.tasks.list);
-
-  const seedMutation = useMutation(api.init.seed);
-  const createTaskMutation = useMutation(api.tasks.create);
-  const updateTaskMutation = useMutation(api.tasks.update);
-  const removeTaskMutation = useMutation(api.tasks.remove);
-  const currentTasks = ((tasksQuery ?? []) as TaskWithoutBlocked[]).map((task) => ({
-    ...task,
-    tags: task.tags ?? [],
-    blocked: isTaskBlocked(task.tags ?? []),
-  }));
-  const handleSeed = useCallback(async () => {
-    await seedMutation();
-  }, [seedMutation]);
-
   return (
-    <KanbanBoardContent
-      columnsData={(columnsQuery ?? []) as ColumnData[]}
-      tasksData={currentTasks}
-      loading={columnsQuery === undefined || tasksQuery === undefined}
-      onSeed={handleSeed}
-      onCreateTask={async (input) => {
-        if (!input.columnId) throw new Error('Task column is required.');
-        await createTaskMutation({
-          title: input.title,
-          columnId: input.columnId as Id<'columns'>,
-          priority: input.priority,
-          description: input.description || undefined,
-          dueDate: input.dueDate || undefined,
-          tags: input.tags && input.tags.length > 0 ? input.tags : undefined,
-        });
-      }}
-      onUpdateTask={async (id, patch, nextTasks) => {
-        const changedTasks = nextTasks
-          ? nextTasks.filter((nextTask) => {
-              const currentTask = currentTasks.find((task) => task._id === nextTask._id);
-              return (
-                currentTask &&
-                (currentTask.columnId !== nextTask.columnId || currentTask.position !== nextTask.position)
-              );
-            })
-          : [];
-
-        if (changedTasks.length > 0) {
-          await Promise.all(
-            changedTasks.map((task) =>
-              updateTaskMutation({
-                id: task._id as Id<'tasks'>,
-                columnId: task.columnId as Id<'columns'>,
-                position: task.position,
-                ...(task._id === id
-                  ? {
-                      title: patch.title,
-                      description: patch.description,
-                      priority: patch.priority,
-                      dueDate: patch.dueDate,
-                      tags: patch.tags,
-                    }
-                  : {}),
-              })
-            )
-          );
-          return;
-        }
-
-        await updateTaskMutation({
-          id: id as Id<'tasks'>,
-          columnId: patch.columnId ? (patch.columnId as Id<'columns'>) : undefined,
-          position: patch.position,
-          title: patch.title,
-          description: patch.description,
-          priority: patch.priority,
-          dueDate: patch.dueDate,
-          tags: patch.tags,
-        });
-      }}
-      onDeleteTask={async (id) => {
-        await removeTaskMutation({ id: id as Id<'tasks'> });
-      }}
-    />
+    <div className="rounded-md border bg-card p-4 text-sm text-muted-foreground" role="status">
+      Task changes are not supported in this runtime. Start Cove in local mode to use the board.
+    </div>
   );
 }
 

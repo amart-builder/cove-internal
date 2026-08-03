@@ -14,7 +14,6 @@ import {
   getDayPlanState,
   kickoffDayPlanItem,
   markDayPlanArrivalInteraction,
-  markMorningBriefSalesAction,
   mutateDayPlan,
   newDayPlanMutationId,
   onceOnlyDayPlanMutationId,
@@ -23,10 +22,10 @@ import {
 import { launchTaskSessionRun } from '@/lib/data/task-sessions';
 import type {
   MorningBriefGeneration,
-  MorningBriefSalesActionState,
   MorningBriefSuggestedAddition,
   PublicMorningBrief,
 } from '@/lib/day-plan/brief';
+import { isWeekendLocalDate } from '@/lib/day-plan/weekday';
 import { morningBriefSyncDecision } from '@/lib/day-plan/brief-view';
 import { useDataChanged } from '@/lib/data/refresh-bus';
 import { matchesArrivalAddition } from '@/lib/day-plan/arrival-addition';
@@ -40,11 +39,13 @@ import type {
   DayPlanOwner,
   DayPlanReconciliation,
   DayPlanTaskMutation,
+  DayPlanWeekendGate,
   DaySnapshot,
   RecommendationCandidate,
   SettlementDisposition,
 } from '@/lib/day-plan/types';
 import {
+  advanceMorningBriefAttachPoll,
   executionReadinessMessage,
   shouldAttemptLateBriefAttach,
   shouldPollBriefGeneration,
@@ -87,6 +88,10 @@ type UseDayRitualInput = {
   enabled: boolean;
   candidates: RecommendationCandidate[];
   candidatesReady: boolean;
+  onBriefPicksChange?: (
+    picks: ReadonlyArray<{ taskId: string; whyToday: string }>,
+    briefReady: boolean,
+  ) => void | Promise<void>;
 };
 
 function localDateInTimezone(date: Date, timezone: string): string {
@@ -153,10 +158,15 @@ export default function useDayRitual({
   enabled,
   candidates,
   candidatesReady,
+  onBriefPicksChange,
 }: UseDayRitualInput) {
   const [plan, setPlan] = useState<DayPlan>();
   const [morningBrief, setMorningBrief] = useState<PublicMorningBrief>();
   const [briefGeneration, setBriefGeneration] = useState<MorningBriefGeneration>();
+  const [briefAttachTimedOut, setBriefAttachTimedOut] = useState(false);
+  const [briefTransportReady, setBriefTransportReady] = useState(false);
+  const [weekendGate, setWeekendGate] = useState<DayPlanWeekendGate>();
+  const [planningWeekend, setPlanningWeekend] = useState(false);
   // In flight for the "write it anyway" tap, so the button can refuse a second
   // press before the first round trip answers.
   const [forcingBrief, setForcingBrief] = useState(false);
@@ -169,6 +179,7 @@ export default function useDayRitual({
   // attach-only ensure that picks up a brief which landed while the app was
   // closed. Reset when a new plan arrives.
   const lateAttachAttemptedRef = useRef(false);
+  const briefAttachPollCountRef = useRef(0);
   const [latestSnapshot, setLatestSnapshot] = useState<DaySnapshot>();
   const [pendingReconciliations, setPendingReconciliations] = useState<DayPlanReconciliation[]>([]);
   const [pendingTaskMutations, setPendingTaskMutations] = useState<DayPlanTaskMutation[]>([]);
@@ -191,8 +202,28 @@ export default function useDayRitual({
   const reconciliationBlockedRef = useRef(false);
   const mutationQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const receiptTimerRef = useRef<number | undefined>(undefined);
+  const reportedBriefPicksRef = useRef<string | undefined>(undefined);
 
   candidatesRef.current = candidates;
+
+  useEffect(() => {
+    if (briefGeneration?.state !== 'succeeded') {
+      setBriefTransportReady(false);
+      if (reportedBriefPicksRef.current !== undefined) {
+        reportedBriefPicksRef.current = undefined;
+        void onBriefPicksChange?.([], false);
+      }
+      return;
+    }
+    const picks = briefGeneration.pickedTasks ?? [];
+    const signature = JSON.stringify(picks);
+    if (signature === reportedBriefPicksRef.current) return;
+    reportedBriefPicksRef.current = signature;
+    setBriefTransportReady(false);
+    void Promise.resolve(onBriefPicksChange?.(picks, true)).finally(() => {
+      if (reportedBriefPicksRef.current === signature) setBriefTransportReady(true);
+    });
+  }, [briefGeneration, onBriefPicksChange]);
 
   const applyMorningBrief = useCallback((next: PublicMorningBrief | undefined) => {
     morningBriefRef.current = next;
@@ -225,6 +256,8 @@ export default function useDayRitual({
       setArrivalInteracted(false);
       // A new plan gets its own one-shot late-attach attempt.
       lateAttachAttemptedRef.current = false;
+      briefAttachPollCountRef.current = 0;
+      setBriefAttachTimedOut(false);
     }
     planRef.current = nextPlan;
     setPlan(nextPlan);
@@ -271,11 +304,17 @@ export default function useDayRitual({
 
   useDataChanged(['day_plan'], () => void refreshPlan().catch(() => undefined));
 
-  // Keep the ref current for paths that update brief state functionally
-  // (optimistic sales-action marks); acceptPlan reads it synchronously.
+  // Keep the ref current because acceptPlan reads it synchronously.
   useEffect(() => {
     morningBriefRef.current = morningBrief;
   }, [morningBrief]);
+
+  useEffect(() => {
+    if (plan?.briefId || briefGeneration?.state !== 'succeeded') {
+      briefAttachPollCountRef.current = 0;
+      if (briefAttachTimedOut) setBriefAttachTimedOut(false);
+    }
+  }, [briefAttachTimedOut, briefGeneration?.state, plan?.briefId]);
 
   const acceptExecutionState = useCallback((next: DayPlanExecutionState) => {
     executionStateRef.current = next;
@@ -352,7 +391,7 @@ export default function useDayRitual({
             setView('none');
             return;
           }
-          if (!candidatesReady) {
+          if (!candidatesReady && !isWeekendLocalDate(localDate)) {
             setView('none');
             setError('Cove needs a fresh task refresh before it can propose today’s plan.');
             return;
@@ -361,8 +400,14 @@ export default function useDayRitual({
             localDate,
             timezone,
             mutationId: onceOnlyDayPlanMutationId('ensure', localDate),
-            candidates: candidatesRef.current,
+            candidates: candidatesReady ? candidatesRef.current : [],
+            creation: 'automatic',
           });
+          if ('weekendGate' in ensured) {
+            setWeekendGate(ensured.weekendGate);
+            setView('none');
+            return;
+          }
           nextPlan = ensured.plan;
           if (ensured.snapshot) setLatestSnapshot(ensured.snapshot);
           if (nextPlan.briefId) {
@@ -377,6 +422,7 @@ export default function useDayRitual({
         }
 
         if (cancelled) return;
+        setWeekendGate(undefined);
 
         if (nextPlan.localDate !== localDate) {
           let stalePlan = nextPlan;
@@ -513,26 +559,32 @@ export default function useDayRitual({
   // One poll/heal step. When the arrival has no brief or no items, it re-ensures
   // with fresh candidates: the store can attach a synced brief and/or rebuild
   // the empty proposal. A plain GET could only re-deliver the same artifact.
-  // Falls back to a GET refresh when candidates are not fresh enough.
+  // A succeeded brief can attach with an empty candidate list; item healing
+  // still requires fresh candidates. Falls back to a GET when neither applies.
   const pollForLateBrief = useCallback(async () => {
     const current = planRef.current;
     const candidates = candidatesRef.current;
     const hasFreshCandidates = candidatesReady && candidates.length > 0;
+    const shouldAttachSucceededBrief =
+      Boolean(current && !current.briefId) &&
+      briefGeneration?.state === 'succeeded' &&
+      briefTransportReady;
+    const shouldHealItems = Boolean(current?.items.length === 0 && hasFreshCandidates);
     if (
       current &&
-      (!current.briefId || current.items.length === 0) &&
-      hasFreshCandidates
+      (shouldAttachSucceededBrief || shouldHealItems)
     ) {
       try {
         const ensured = await ensureDayPlan({
           localDate: current.localDate,
           timezone: current.timezone,
           mutationId: `ensure:late-brief:${current.id}:${newDayPlanMutationId()}`,
-          candidates,
+          candidates: hasFreshCandidates ? candidates : [],
           // Attach-or-silent-no-op: the server records nothing unless a brief
           // actually attaches, so this 15s poll never grows the event ledger.
           attachOnly: true,
         });
+        if ('weekendGate' in ensured) return;
         acceptPlan(ensured.plan, ensured.snapshot);
         const refreshed = await getDayPlanState().catch(() => undefined);
         if (refreshed) {
@@ -545,7 +597,7 @@ export default function useDayRitual({
       }
     }
     await refreshPlan().catch(() => undefined);
-  }, [acceptPlan, applyMorningBrief, candidatesReady, refreshPlan]);
+  }, [acceptPlan, applyMorningBrief, briefGeneration, briefTransportReady, candidatesReady, refreshPlan]);
 
   // When the arrival is open with no consumed brief and one is still being
   // written, re-poll so a late brief can swap in gently (via the existing
@@ -559,8 +611,10 @@ export default function useDayRitual({
         view,
         documentVisible:
           typeof document === 'undefined' || document.visibilityState === 'visible',
-        interacted: arrivalInteractedRef.current,
-        hasConsumedBrief: Boolean(planRef.current?.briefId),
+        briefAttached: Boolean(planRef.current?.briefId),
+        arrivalInteracted:
+          arrivalInteractedRef.current || Boolean(planRef.current?.arrivalInteractedAt),
+        attachTimedOut: briefAttachTimedOut,
         generationState: briefGeneration?.state,
       });
     if (!gateOpen()) return;
@@ -570,6 +624,7 @@ export default function useDayRitual({
 
     const tick = async () => {
       if (cancelled) return;
+      let polled = false;
       // Skip the fetch while hidden or interacted, but keep the timer so polling
       // resumes on its own when the document becomes visible again.
       if (
@@ -579,6 +634,17 @@ export default function useDayRitual({
         // Re-ensure so the server imports + late-attaches a synced brief;
         // acceptPlan applies the sync decision, so it swaps in here.
         await pollForLateBrief();
+        polled = true;
+      }
+      if (polled && !cancelled) {
+        const next = advanceMorningBriefAttachPoll({
+          consecutiveSucceededPolls: briefAttachPollCountRef.current,
+          briefAttached: Boolean(planRef.current?.briefId),
+          generationState: briefGeneration?.state,
+        });
+        briefAttachPollCountRef.current = next.consecutiveSucceededPolls;
+        setBriefAttachTimedOut(next.attachTimedOut);
+        if (next.attachTimedOut) return;
       }
       if (!cancelled) timeout = window.setTimeout(() => void tick(), BRIEF_GENERATION_POLL_MS);
     };
@@ -588,7 +654,16 @@ export default function useDayRitual({
       cancelled = true;
       if (timeout !== undefined) window.clearTimeout(timeout);
     };
-  }, [enabled, view, arrivalInteracted, briefGeneration?.state, plan?.briefId, pollForLateBrief]);
+  }, [
+    enabled,
+    view,
+    arrivalInteracted,
+    briefAttachTimedOut,
+    briefGeneration?.state,
+    plan?.briefId,
+    plan?.arrivalInteractedAt,
+    pollForLateBrief,
+  ]);
 
   // One-shot arrival heal. On initialization (and again when the document
   // regains visibility), a pristine arrival sends one attach-only ensure when
@@ -1112,7 +1187,7 @@ export default function useDayRitual({
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     const localDate = localDateInTimezone(new Date(), timezone);
     if (settledLocalDate === localDate) return;
-    if (!candidatesReady) {
+    if (!candidatesReady && !isWeekendLocalDate(localDate)) {
       throw new Error('Cove needs a fresh task refresh before it can prepare today.');
     }
     const readModel = await getDayPlanState();
@@ -1122,14 +1197,24 @@ export default function useDayRitual({
     setBriefGeneration(readModel.briefGeneration);
     let nextPlan = readModel.currentPlan;
     if (!nextPlan) {
-      nextPlan = (await ensureDayPlan({
+      const ensured = await ensureDayPlan({
         localDate,
         timezone,
         mutationId: onceOnlyDayPlanMutationId('ensure', localDate),
-        candidates: candidatesRef.current.filter(
-          (candidate) => !excludedTaskIds.has(candidate.taskId),
-        ),
-      })).plan;
+        candidates: candidatesReady
+          ? candidatesRef.current.filter(
+              (candidate) => !excludedTaskIds.has(candidate.taskId),
+            )
+          : [],
+        creation: 'automatic',
+      });
+      if ('weekendGate' in ensured) {
+        setWeekendGate(ensured.weekendGate);
+        reconciliationBlockedRef.current = false;
+        setAnnouncement('The previous day is closed.');
+        return;
+      }
+      nextPlan = ensured.plan;
     }
     if (
       nextPlan.localDate === localDate &&
@@ -1148,53 +1233,47 @@ export default function useDayRitual({
     setAnnouncement('The previous day is closed. Morning Arrival is ready.');
   }, [acceptPlan, applyMorningBrief, candidatesReady]);
 
-  // Marks one brief sales action approved, edited, or skipped. State only;
-  // Cove never sends anything. Optimistic, reconciled from the server reply.
-  const markBriefSalesAction = useCallback(async (
-    actionIndex: number,
-    state: MorningBriefSalesActionState,
-    editedText?: string,
-  ) => {
-    const current = morningBrief;
-    if (!current) return;
-    setMorningBrief({
-      ...current,
-      salesActions: current.salesActions.map((action, index) =>
-        index === actionIndex ? { ...action, state, editedText } : action,
-      ),
-    });
+  const planWeekendAnyway = useCallback(async () => {
+    const gate = weekendGate;
+    if (!gate || planningWeekend) return;
+    setPlanningWeekend(true);
+    setError(undefined);
     try {
-      const result = await markMorningBriefSalesAction({
-        briefId: current.id,
-        actionIndex,
-        state,
-        editedText,
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const ensured = await ensureDayPlan({
+        localDate: gate.localDate,
+        timezone,
+        mutationId: onceOnlyDayPlanMutationId('ensure', gate.localDate),
+        candidates: candidatesReady ? candidatesRef.current : [],
+        creation: 'manual',
       });
-      setMorningBrief((latest) => {
-        if (!latest || latest.id !== current.id) return latest;
-        const byIndex = new Map(result.states.map((record) => [record.actionIndex, record]));
-        return {
-          ...latest,
-          salesActions: latest.salesActions.map((action, index) => {
-            const record = byIndex.get(index);
-            return { ...action, state: record?.state, editedText: record?.editedText };
-          }),
-        };
-      });
+      if ('weekendGate' in ensured) {
+        throw new Error("Cove couldn't open the weekend plan.");
+      }
+      let nextPlan = ensured.plan;
+      if (
+        nextPlan.state === 'proposed' &&
+        ['due', 'not_due', 'failed'].includes(nextPlan.arrivalState)
+      ) {
+        nextPlan = (await mutateDayPlan({
+          planId: nextPlan.id,
+          mutationId: stableMutationId('arrival-open', nextPlan),
+          expectedVersion: nextPlan.version,
+          action: 'arrival_open',
+        })).plan;
+      }
+      setWeekendGate(undefined);
+      acceptPlan(nextPlan, ensured.snapshot);
     } catch (nextError) {
-      // Roll back the optimistic mark, but only when the held brief is still
-      // the one we marked: a plan transition mid-flight may have cleared or
-      // replaced it, and restoring the old brief would break the briefId key.
-      setMorningBrief((latest) =>
-        latest && latest.id === current.id ? current : latest,
-      );
       setError(
         nextError instanceof Error
           ? nextError.message
-          : "Cove couldn't save that sales action.",
+          : "Cove couldn't open the weekend plan.",
       );
+    } finally {
+      setPlanningWeekend(false);
     }
-  }, [morningBrief]);
+  }, [acceptPlan, candidatesReady, planningWeekend, weekendGate]);
 
   // "Write it anyway." Queues a brief the gate is withholding, or re-runs one
   // after a failure. The optimistic 'queued' means the progress UI appears on the
@@ -1243,6 +1322,11 @@ export default function useDayRitual({
     plan,
     morningBrief,
     briefGeneration,
+    briefAttachTimedOut,
+    weekendGate,
+    planningWeekend,
+    planWeekendAnyway,
+    arrivalInteracted: arrivalInteracted || Boolean(plan?.arrivalInteractedAt),
     forceBrief,
     forcingBrief,
     latestSnapshot,
@@ -1284,6 +1368,5 @@ export default function useDayRitual({
     openCurrentDayAfterSettlement,
     acknowledgeReconciliation,
     acknowledgeTaskMutation,
-    markBriefSalesAction,
   };
 }

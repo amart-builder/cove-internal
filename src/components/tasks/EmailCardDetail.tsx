@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { archiveEmailItemFromCard, listEmailItems } from '@/lib/data/email';
 import type { EmailItem } from '@/lib/data/types';
 import { useDataChanged } from '@/lib/data/refresh-bus';
+import type { ReadinessState } from '@/lib/health/readiness';
+import useCoveReadiness from './useCoveReadiness';
 
 type OpenBucket = 'reply' | 'action';
 
@@ -31,11 +33,38 @@ function senderLabel(item: EmailItem): string {
   return item.sender_name || item.sender_email || 'Unknown sender';
 }
 
+export function emailEmptyStateMessage(input: {
+  readinessState?: ReadinessState;
+  checking: boolean;
+  notApplicable: boolean;
+}): string {
+  if (input.notApplicable || input.readinessState === 'ready') {
+    return 'Inbox is clear. Nothing needs you right now.';
+  }
+  if (input.checking) {
+    return 'No open email is recorded in Cove. Checking the inbox connection.';
+  }
+  if (input.readinessState === 'not_configured') {
+    return 'Email is not set up in Cove.';
+  }
+  if (input.readinessState === 'waiting') {
+    return 'No open email is recorded in Cove. Waiting for the first run.';
+  }
+  return 'No open email is recorded in Cove, but the inbox check is stale or unavailable.';
+}
+
 export default function EmailCardDetail({ onClose }: { onClose: () => void }) {
   const [items, setItems] = useState<EmailItem[] | null>(null);
   const [error, setError] = useState<string>();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [failureNote, setFailureNote] = useState<string>();
+  const {
+    readiness,
+    error: readinessError,
+    checking: readinessChecking,
+    notApplicable: readinessNotApplicable,
+    retry: retryReadiness,
+  } = useCoveReadiness();
 
   const load = useCallback(async () => {
     try {
@@ -143,8 +172,18 @@ export default function EmailCardDetail({ onClose }: { onClose: () => void }) {
 
       {items.length === 0 ? (
         <p className="rounded-md border bg-card px-3 py-6 text-center text-sm text-muted-foreground">
-          Inbox is clear. Nothing needs you right now.
+          {emailEmptyStateMessage({
+            readinessState: readiness?.email.state,
+            checking: readinessChecking,
+            notApplicable: readinessNotApplicable,
+          })}
         </p>
+      ) : null}
+
+      {readinessError && !readinessNotApplicable ? (
+        <button type="button" onClick={() => void retryReadiness()} className="text-xs text-muted-foreground underline-offset-4 hover:underline">
+          Email connection status unavailable. Retry
+        </button>
       ) : null}
 
       {reply.length > 0 ? (

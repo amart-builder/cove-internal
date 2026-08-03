@@ -127,6 +127,191 @@ test('a successful resolved run persists success and advances the session head',
   assert.equal(store.getBuddyState().headSessionId, 'success-session');
 });
 
+test('an empty resumed execution failure retries once in a fresh session and advances the head', async (t) => {
+  const { store } = setup(t);
+  store.setHeadSession('stale-head');
+  const turn = claim(store);
+  const commands = [];
+  await attachBuddyRun({
+    store,
+    turn,
+    buildCommand: () => ({ executable: 'claude', args: ['--resume', 'stale-head'], stdin: 'hello' }),
+    resumeRecovery: {
+      buildFreshCommand: () => ({
+        executable: 'claude', args: ['--session-id', 'fresh-session'], stdin: 'hello',
+      }),
+    },
+    runCommand: async (command) => {
+      commands.push(command);
+      return commands.length === 1
+        ? {
+            kind: 'done', resultText: '', sessionId: 'stale-head', costUsd: 0.01,
+            isError: true, errorSubtype: 'error_during_execution',
+          }
+        : {
+            kind: 'done', resultText: 'Recovered answer', sessionId: 'fresh-session', costUsd: 0.02,
+            isError: false,
+          };
+    },
+    send: () => {},
+    close: () => {},
+  });
+  assert.deepEqual(commands.map((command) => command.args), [
+    ['--resume', 'stale-head'],
+    ['--session-id', 'fresh-session'],
+  ]);
+  const finished = store.getTurn(turn.id);
+  assert.equal(finished.state, 'succeeded');
+  assert.equal(finished.assistant_text, 'Recovered answer');
+  assert.equal(finished.error_code, null);
+  assert.equal(finished.cost_usd, 0.03);
+  assert.ok(JSON.parse(finished.receipts_json).resumeRecovery);
+  assert.equal(store.getBuddyState().headSessionId, 'fresh-session');
+});
+
+test('a resumed execution failure that already recorded writes never respawns', async (t) => {
+  const { store } = setup(t);
+  store.setHeadSession('healthy-head');
+  const turn = claim(store);
+  let runs = 0;
+  await attachBuddyRun({
+    store,
+    turn,
+    buildCommand: () => ({ executable: 'claude', args: ['--resume', 'healthy-head'], stdin: 'hello' }),
+    resumeRecovery: {
+      buildFreshCommand: () => ({
+        executable: 'claude', args: ['--session-id', 'must-not-run'], stdin: 'hello',
+      }),
+    },
+    runCommand: async (_command, onEvent) => {
+      runs += 1;
+      onEvent({
+        kind: 'data-result',
+        changes: [{ table: 'tasks', action: 'update', id: 'task-1', summary: 'Updated task once' }],
+        sessions: [],
+        errors: [],
+      });
+      return {
+        kind: 'done', resultText: '', sessionId: 'healthy-head', costUsd: 0.01,
+        isError: true, errorSubtype: 'error_during_execution',
+      };
+    },
+    send: () => {},
+    close: () => {},
+  });
+  assert.equal(runs, 1);
+  const finished = store.getTurn(turn.id);
+  assert.equal(finished.state, 'failed');
+  assert.equal(finished.error_code, 'error_during_execution');
+  assert.deepEqual(JSON.parse(finished.receipts_json).changes.map((change) => change.id), ['task-1']);
+  assert.equal(store.getBuddyState().headSessionId, 'healthy-head');
+});
+
+test('a non-resumed empty execution failure does not respawn', async (t) => {
+  const { store } = setup(t);
+  const turn = claim(store);
+  let runs = 0;
+  await attachBuddyRun({
+    store,
+    turn,
+    buildCommand: () => ({ executable: 'claude', args: ['--session-id', 'first'], stdin: 'hello' }),
+    runCommand: async () => {
+      runs += 1;
+      return {
+        kind: 'done', resultText: '', sessionId: 'first', costUsd: 0.01,
+        isError: true, errorSubtype: 'error_during_execution',
+      };
+    },
+    send: () => {},
+    close: () => {},
+  });
+  assert.equal(runs, 1);
+  assert.equal(store.getTurn(turn.id).state, 'failed');
+  assert.equal(store.getTurn(turn.id).error_code, 'error_during_execution');
+});
+
+test('a failed fresh-session fallback surfaces the resume error and preserves the old head', async (t) => {
+  const { store } = setup(t);
+  store.setHeadSession('stale-head');
+  const turn = claim(store);
+  let runs = 0;
+  await attachBuddyRun({
+    store,
+    turn,
+    buildCommand: () => ({ executable: 'claude', args: ['--resume', 'stale-head'], stdin: 'hello' }),
+    resumeRecovery: {
+      buildFreshCommand: () => ({
+        executable: 'claude', args: ['--session-id', 'failed-fresh'], stdin: 'hello',
+      }),
+    },
+    runCommand: async (_command, onEvent) => {
+      runs += 1;
+      if (runs === 2) {
+        onEvent({ kind: 'delta', text: 'Discarded fallback text' });
+        onEvent({
+          kind: 'data-result',
+          changes: [{ table: 'tasks', action: 'update', id: 'task-2', summary: 'Fresh write' }],
+          sessions: [],
+          errors: [],
+        });
+      }
+      return runs === 1
+        ? {
+            kind: 'done', resultText: '', sessionId: 'stale-head', costUsd: 0.01,
+            isError: true, errorSubtype: 'error_during_execution',
+          }
+        : {
+            kind: 'done', resultText: 'Fresh failure', sessionId: 'failed-fresh', costUsd: 0.02,
+            isError: true, errorSubtype: 'budget_exceeded',
+          };
+    },
+    send: () => {},
+    close: () => {},
+  });
+  assert.equal(runs, 2);
+  const finished = store.getTurn(turn.id);
+  assert.equal(finished.state, 'failed');
+  assert.equal(finished.assistant_text, '');
+  assert.equal(finished.error_code, 'error_during_execution');
+  assert.equal(finished.session_id, 'stale-head');
+  assert.equal(finished.cost_usd, 0.03);
+  assert.deepEqual(JSON.parse(finished.receipts_json).changes.map((change) => change.id), ['task-2']);
+  assert.equal(store.getBuddyState().headSessionId, 'stale-head');
+});
+
+test('a rejected fresh-session fallback uses the existing timeout failure path', async (t) => {
+  const { store } = setup(t);
+  store.setHeadSession('stale-head');
+  const turn = claim(store);
+  let runs = 0;
+  await attachBuddyRun({
+    store,
+    turn,
+    buildCommand: () => ({ executable: 'claude', args: ['--resume', 'stale-head'], stdin: 'hello' }),
+    resumeRecovery: {
+      buildFreshCommand: () => ({
+        executable: 'claude', args: ['--session-id', 'timed-out-fresh'], stdin: 'hello',
+      }),
+    },
+    runCommand: async () => {
+      runs += 1;
+      if (runs === 2) throw new Error('timeout');
+      return {
+        kind: 'done', resultText: '', sessionId: 'stale-head', costUsd: 0.01,
+        isError: true, errorSubtype: 'error_during_execution',
+      };
+    },
+    send: () => {},
+    close: () => {},
+  });
+  assert.equal(runs, 2);
+  const finished = store.getTurn(turn.id);
+  assert.equal(finished.state, 'failed');
+  assert.equal(finished.error_code, 'timeout');
+  assert.equal(finished.session_id, null);
+  assert.equal(store.getBuddyState().headSessionId, 'stale-head');
+});
+
 test('a resumed context overflow compacts into a fresh session and retries once', async (t) => {
   const { store } = setup(t);
   store.setHeadSession('old-head');
@@ -138,6 +323,9 @@ test('a resumed context overflow compacts into a fresh session and retries once'
     store,
     turn,
     buildCommand: () => ({ executable: 'claude', args: ['initial'], stdin: 'original' }),
+    resumeRecovery: {
+      buildFreshCommand: () => ({ executable: 'claude', args: ['unexpected-fresh'], stdin: 'original' }),
+    },
     compaction: {
       buildSummaryCommand: () => ({ executable: 'claude', args: ['summary'], stdin: 'summarize' }),
       buildSeedCommand: (summary) => ({ executable: 'claude', args: ['seed'], stdin: summary }),

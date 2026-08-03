@@ -2,13 +2,18 @@
   "name": "cove-build",
   "version": "0.1.0",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "test": "tsc --noEmit && tsx --test tests/*.test.mjs",
+    "verify": "node scripts/cove-verify.mjs",
     "email:triage": "tsx scripts/cove-email-runner.ts"
   },
   "dependencies": {

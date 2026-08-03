@@ -13,6 +13,7 @@ import {
 } from "../src/lib/data/email.ts";
 import { openLocalDatabase } from "../src/lib/local/database.ts";
 import { listFailures } from "../src/lib/reliability/failures.ts";
+import { listRecentReceipts } from "../src/lib/reliability/receipts.ts";
 
 const NOW = new Date("2026-07-29T18:00:00.000Z");
 
@@ -143,6 +144,15 @@ test("a newer sent reply archives the exact inbound message before closing Cove"
   assert.deepEqual(calls, [{ messageIds: ["message-reply"] }]);
   assert.deepEqual(result.changedIds, ["email-reply"]);
   assert.equal(email(files.dbPath, "email-reply").status, "actioned");
+  const itemReceipt = listRecentReceipts({
+    dbPath: files.dbPath,
+    source: "email-gmail-to-card-item",
+  });
+  assert.equal(itemReceipt.length, 1);
+  assert.deepEqual(itemReceipt[0].actions, {
+    emailItemId: "email-reply",
+    reason: "user_replied",
+  });
 });
 
 test("provider failure leaves a sent reply open and surfaces an Issue", async (t) => {
