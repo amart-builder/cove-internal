@@ -18,8 +18,8 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-08-03T11:37:20-0700
-- **task:** Go-public prep: fixes, review, mirror refresh
+- **since:** 2026-08-03T14:46:20-0700
+- **task:** STATUS note: Gary install postponed
 <!-- END active-session -->
 
 ---
@@ -27,6 +27,8 @@
 **Last updated:** 2026-08-03 (go-public release: 7/31 review debt cleared, sales cadence removed, mirror refreshed and flipped public for the first Jarvis Pro install)
 
 ## 2026-08-03 Go-public release for the first Jarvis Pro client install
+
+**Install update (2026-08-03 afternoon): Gary's install did NOT happen today; it moved a few days out (target roughly 2026-08-05 to 08-07).** The release below stands and the mirror is live and public. Any code changes landed before the install must be re-exported and pushed to the mirror again (same flow: commit clean, export without allow-dirty, push mirror). Open items worth the extra days, in priority order: real dress rehearsal on a clean machine or fresh macOS user account (still never done; today's simulation ran on this Mac); npm audit pass (fresh export showed 6 vulnerabilities, 5 high 1 critical, not yet triaged); decide the LICENSE copyright holder (currently "Cove", Alex may want his legal entity); rehearse the Google OAuth connect flow end to end with a test account (never exercised; note Google test-mode refresh tokens expire after 7 days, so connect Gary with a production-ready OAuth app or expect reauth); the small deferred review items (safe-mode Skill tool listing, quotePath edge, zero-candidate weekend plan test).
 
 Alex authorized the full sequence: clear the 7/31 review debt (his Option A), make the pre-release fixes, commit, refresh the client mirror, flip it public, notify him. Executed this session under the session lock.
 
