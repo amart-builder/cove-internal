@@ -18,8 +18,8 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-08-03T14:46:20-0700
-- **task:** STATUS note: Gary install postponed
+- **since:** 2026-08-03T15:02:08-0700
+- **task:** npm audit triage and fix
 <!-- END active-session -->
 
 ---
@@ -28,7 +28,9 @@
 
 ## 2026-08-03 Go-public release for the first Jarvis Pro client install
 
-**Install update (2026-08-03 afternoon): Gary's install did NOT happen today; it moved a few days out (target roughly 2026-08-05 to 08-07).** The release below stands and the mirror is live and public. Any code changes landed before the install must be re-exported and pushed to the mirror again (same flow: commit clean, export without allow-dirty, push mirror). Open items worth the extra days, in priority order: real dress rehearsal on a clean machine or fresh macOS user account (still never done; today's simulation ran on this Mac); npm audit pass (fresh export showed 6 vulnerabilities, 5 high 1 critical, not yet triaged); decide the LICENSE copyright holder (currently "Cove", Alex may want his legal entity); rehearse the Google OAuth connect flow end to end with a test account (never exercised; note Google test-mode refresh tokens expire after 7 days, so connect Gary with a production-ready OAuth app or expect reauth); the small deferred review items (safe-mode Skill tool listing, quotePath edge, zero-candidate weekend plan test).
+**Install update (2026-08-03 afternoon): Gary's install did NOT happen today; it moved a few days out (target roughly 2026-08-05 to 08-07).** The release below stands and the mirror is live and public. Any code changes landed before the install must be re-exported and pushed to the mirror again (same flow: commit clean, export without allow-dirty, push mirror). Open items worth the extra days, in priority order: real dress rehearsal on a clean machine or fresh macOS user account (still never done; today's simulation ran on this Mac); rehearse the Google OAuth connect flow end to end with a test account (never exercised; note Google test-mode refresh tokens expire after 7 days, so connect Gary with a production-ready OAuth app or expect reauth); the small deferred review items (safe-mode Skill tool listing, quotePath edge, zero-candidate weekend plan test).
+
+Resolved later on 2026-08-03: npm audit is CLEAN (was 6 vulnerabilities, 5 high 1 critical). Triage: the critical was @auth/core with @convex-dev/auth, both belonging to the dormant retired cloud-login stack (imported only by ConvexClientProvider/SignIn, unreachable in supported local mode); bumped to 0.41.3/0.0.94. next 16.2.10 -> 16.3.0 (minor) cleared the four Next advisories plus transitive postcss and sharp; none were exploitable in Cove's loopback-only, no-middleware, no-Server-Actions setup (per-advisory reasoning in the session log). brace-expansion fixed by plain npm audit fix. Verified after bumps: tsc clean, 765/765, production build clean, npm audit 0 vulnerabilities. Sol's sandbox has no npm registry access, so the bumps were applied by the driver directly; triage reasoning was Sol's. Also resolved: LICENSE copyright holder is now Edge Frontier Technologies LLC (Alex's call).
 
 Alex authorized the full sequence: clear the 7/31 review debt (his Option A), make the pre-release fixes, commit, refresh the client mirror, flip it public, notify him. Executed this session under the session lock.
 
