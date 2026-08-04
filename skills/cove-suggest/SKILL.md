@@ -11,6 +11,8 @@ description: >-
 
 Inferred work belongs in pencil. Never create a committed task merely because it seems useful.
 
+Task-creation conventions (consolidation, one card per source occurrence) live in the Cove repo's `prompts/triage.md`; read them before proposing multiple related cards.
+
 ## 1. Check the current first
 
 ```bash

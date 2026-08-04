@@ -1,4 +1,4 @@
 interface:
   display_name: "Cove Morning Brief"
   short_description: "Turn the morning context bundle into a goals-aware daily brief"
-  default_prompt: "Produce the Morning Brief JSON: lens narrative, ranked task candidates, suggested additions, watch items, and the day's sales cadence."
+  default_prompt: "Produce the Morning Brief JSON: narrative, up to 8 ranked task candidates with the first 3 as focus, suggested additions, and watch items."

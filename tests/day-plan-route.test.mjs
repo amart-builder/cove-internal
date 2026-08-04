@@ -408,6 +408,23 @@ test('parses a complete item_add mutation and requires its bounded payload', () 
     }),
     /required/,
   );
+  const taskBacked = parseDayPlanPostBody({
+    action: 'item_add',
+    planId: 'plan-a',
+    mutationId: 'add:task',
+    expectedVersion: 2,
+    taskId: 'task-a',
+  });
+  assert.equal(taskBacked.input.taskId, 'task-a');
+  assert.equal(taskBacked.input.title, undefined);
+  const completed = parseDayPlanPostBody({
+    action: 'item_complete',
+    planId: 'plan-a',
+    mutationId: 'complete:task',
+    expectedVersion: 2,
+    itemId: 'item-a',
+  });
+  assert.equal(completed.action, 'item_complete');
 });
 
 test('POST rejects untrusted hosts and missing CSRF before touching state', async () => {
@@ -1102,7 +1119,7 @@ test('brief me anyway attaches a refused-management artifact without buying anot
   store.claimNextMorningBrief();
   store.completeMorningBrief(artifact.id, JSON.stringify({
     headline: 'Focus.', narrativeParagraphs: ['Work.'], lensNarrative: 'Focus.\n\nWork.',
-    existingTaskCandidates: [], suggestedAdditions: [], watchItems: [],
+    existingTaskCandidates: [], watchItems: [],
     boardActions: [{
       op: 'retitle', taskId: 'task-managed', title: 'Agent title', why: 'Clarify.',
       evidenceRefs: [], expectedTaskUpdatedAt: '2026-07-10T15:00:00.000Z',

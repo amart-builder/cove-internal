@@ -226,6 +226,7 @@ export type DayPlanMutationAction =
   | "item_later"
   | "item_dismiss"
   | "item_add"
+  | "item_complete"
   | "item_owner"
   | "item_reorder"
   | "start_day"
@@ -244,8 +245,8 @@ export type EnsureDayPlanInput = {
   // explicit "Plan today anyway" override and is durably marked by the store.
   creation?: "automatic" | "manual";
   // Late-brief poll mode: only attempt the guarded late-attach on an EXISTING
-  // plan. When nothing attaches, the call is a silent no-op — no ledger event,
-  // no mutation-id consumption — so a repeating poll never grows the ledger.
+  // plan. When nothing attaches, the call is a silent no-op with no ledger event
+  // or mutation-id consumption, so a repeating poll never grows the ledger.
   // Never creates a plan.
   attachOnly?: boolean;
 };
@@ -256,6 +257,7 @@ export type DayPlanMutationInput = {
   expectedVersion: number;
   action: DayPlanMutationAction;
   itemId?: string;
+  taskId?: string;
   title?: string;
   outcome?: string;
   definitionOfDone?: string;

@@ -318,6 +318,125 @@ test("reordered retry parsing keeps stable item ids and cannot duplicate writes"
   );
 });
 
+test("multiple operator follow-ups consolidate into one task with a stable sourceId", async (t) => {
+  const files = fixture(t);
+  const wordings = [
+    [
+      { owner: "Alex", title: "Send the recap", detail: "Cover pricing." },
+      { owner: "Alex", title: "Book the venue", detail: "" },
+      { owner: "Alex", title: "Ping legal", detail: "NDA redlines." },
+    ],
+    [
+      { owner: "Alex", title: "Send Dan the recap", detail: "Pricing section." },
+      { owner: "Alex", title: "Reserve the venue", detail: "" },
+      { owner: "Alex", title: "Nudge legal", detail: "Redlines." },
+    ],
+  ];
+  let extraction = 0;
+  let failOnce = true;
+  const intakes = [];
+  const options = pipelineOptions(files, {
+    extractFollowUps: async () => wordings[Math.min(extraction++, 1)],
+    isOperatorOwnedImpl: () => true,
+    runIntakeImpl: async (payload) => {
+      intakes.push(payload);
+      if (failOnce) {
+        failOnce = false;
+        throw new Error("intake down");
+      }
+      return { event: { id: `event-${intakes.length}` }, exitCode: 0 };
+    },
+    writeCommitmentImpl: async () => {
+      throw new Error("no waiting-on writes expected");
+    },
+  });
+
+  await assert.rejects(
+    processMeetingNotesEmail(
+      { ...email, messageId: "gmail-bundle", threadId: "thread-bundle" },
+      options,
+    ),
+    /intake down/,
+  );
+  const result = await processMeetingNotesEmail(
+    { ...email, messageId: "gmail-bundle", threadId: "thread-bundle" },
+    options,
+  );
+
+  assert.equal(result.status, "processed");
+  assert.equal(result.summary.tasks, 1);
+  assert.equal(result.summary.waitingOn, 0);
+  assert.equal(intakes.length, 2);
+  assert.ok(intakes.every((payload) => payload.sourceId === "gmail-bundle:followups"));
+  assert.match(intakes[1].text, /^Follow ups: Notes: Client planning\n/);
+  assert.equal(intakes[1].text.match(/- \[ \] /g).length, 3);
+  assert.match(result.quietLine, /1 task \(3 follow-ups\)/);
+});
+
+test("one operator item with other owners keeps the per-item path", async (t) => {
+  const files = fixture(t);
+  const intakes = [];
+  const commitments = [];
+  const result = await processMeetingNotesEmail(
+    { ...email, messageId: "gmail-mixed", threadId: "thread-mixed" },
+    pipelineOptions(files, {
+      extractFollowUps: async () => [
+        { owner: "Alex", title: "Send the recap", detail: "" },
+        { owner: "Sam Rivera", title: "Send the scope", detail: "PDF." },
+        { owner: "Morgan Lee", title: "Confirm the budget", detail: "" },
+      ],
+      isOperatorOwnedImpl: (owner) => owner === "Alex",
+      runIntakeImpl: async (payload) => {
+        intakes.push(payload);
+        return { event: { id: `event-${intakes.length}` }, exitCode: 0 };
+      },
+      writeCommitmentImpl: async (item, context) => {
+        commitments.push({ owner: item.owner, sourceId: context.sourceId });
+        return `commitment-${commitments.length}`;
+      },
+    }),
+  );
+
+  assert.equal(result.status, "processed");
+  assert.equal(result.summary.tasks, 1);
+  assert.equal(result.summary.waitingOn, 2);
+  assert.equal(intakes.length, 1);
+  assert.match(intakes[0].sourceId, /^gmail-mixed:[a-f0-9]{24}$/);
+  assert.deepEqual(
+    commitments.map((entry) => entry.owner),
+    ["Sam Rivera", "Morgan Lee"],
+  );
+  assert.ok(
+    commitments.every((entry) => /^gmail-mixed:[a-f0-9]{24}$/.test(entry.sourceId)),
+  );
+  assert.doesNotMatch(result.quietLine, /follow-ups?\)/);
+});
+
+test("a missing subject still produces a real bundle title and footer", async (t) => {
+  const files = fixture(t);
+  const intakes = [];
+  const result = await processMeetingNotesEmail(
+    { ...email, messageId: "gmail-untitled", threadId: "thread-untitled", subject: "" },
+    pipelineOptions(files, {
+      extractFollowUps: async () => [
+        { owner: "Alex", title: "Send the recap", detail: "" },
+        { owner: "Alex", title: "Book the venue", detail: "" },
+      ],
+      isOperatorOwnedImpl: () => true,
+      runIntakeImpl: async (payload) => {
+        intakes.push(payload);
+        return { event: { id: `event-${intakes.length}` }, exitCode: 0 };
+      },
+    }),
+  );
+
+  assert.equal(result.status, "processed");
+  assert.equal(result.summary.tasks, 1);
+  assert.equal(intakes.length, 1);
+  assert.match(intakes[0].text, /^Follow ups: gemini meeting notes\n/);
+  assert.match(intakes[0].text, /\nMeeting: gemini meeting notes$/);
+});
+
 test("email skill delegates Gmail work to the deterministic runner and preserves the meeting marker", () => {
   const skill = readFileSync(
     new URL("../skills/cove-email/SKILL.md", import.meta.url),

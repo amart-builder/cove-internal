@@ -274,3 +274,39 @@ export function meetingFollowUpText(item, meetingTitle) {
     `Named owner: ${item.owner}`,
   ].filter(Boolean).join("\n");
 }
+
+export const CONSOLIDATE_MIN_ITEMS = 2;
+
+/**
+ * Split a meeting's follow-ups into the operator's own items and everyone
+ * else's, and roll the operator's items into a single task bundle when there
+ * are CONSOLIDATE_MIN_ITEMS or more. One meeting should land as one card, not
+ * a card per checklist line.
+ *
+ * Returns { bundle, operatorItems, otherItems }. When bundle is null the
+ * operatorItems still need the existing per-item path; when bundle is set the
+ * operatorItems are already inside it. otherItems always pass through for the
+ * waiting-on path untouched.
+ *
+ * @param {Array<{ owner: string, title: string, detail: string }>} items
+ * @param {{ meetingTitle?: string, isOwned?: (owner: string) => boolean }} [options]
+ */
+export function consolidateFollowUps(items, { meetingTitle, isOwned = isOperatorOwned } = {}) {
+  const operatorItems = [];
+  const otherItems = [];
+  for (const item of items) {
+    (isOwned(item.owner) ? operatorItems : otherItems).push(item);
+  }
+  if (operatorItems.length < CONSOLIDATE_MIN_ITEMS) {
+    return { bundle: null, operatorItems, otherItems };
+  }
+  // Callers pass their real meeting label; the guard here only keeps a blank
+  // one from producing a dangling title or a missing footer.
+  const label = (meetingTitle ?? "").trim() || "Meeting notes";
+  const title = `Follow ups: ${label}`;
+  const lines = operatorItems.map((item) =>
+    item.detail ? `- [ ] ${item.title}: ${item.detail}` : `- [ ] ${item.title}`
+  );
+  const parts = [title, "", ...lines, `Meeting: ${label}`];
+  return { bundle: { title, text: parts.join("\n") }, operatorItems, otherItems };
+}

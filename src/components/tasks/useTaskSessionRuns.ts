@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  abandonTaskSessionRun,
   launchTaskSessionRun,
   listTaskSessionRuns,
   subscribeTaskSessionChanges,
@@ -56,6 +57,16 @@ export default function useTaskSessionRuns(taskIds: readonly string[]) {
     () => new Map(runs.map((run) => [run.taskId, run])),
     [runs],
   );
+  const activeRuns = useMemo(
+    () => runs.filter(
+      (run) => run.status === 'running' || run.status === 'awaiting_approval',
+    ),
+    [runs],
+  );
+  const outputReadyRuns = useMemo(
+    () => runs.filter((run) => run.status === 'output_ready'),
+    [runs],
+  );
 
   const launch = useCallback(async (input: LaunchTaskSessionInput) => {
     setLaunchingTaskIds((current) => new Set(current).add(input.taskId));
@@ -83,12 +94,47 @@ export default function useTaskSessionRuns(taskIds: readonly string[]) {
     }
   }, []);
 
+  const abandon = useCallback(async (runId: string) => {
+    const previous = runs.find((run) => run.id === runId);
+    if (!previous) throw new Error('Task session run not found.');
+    const optimisticTime = new Date().toISOString();
+    setRuns((current) => current.map((run) => run.id === runId
+      ? {
+          ...run,
+          status: 'abandoned',
+          hint: 'Stopping the Claude session.',
+          errorCode: 'user_closed',
+          updatedAt: optimisticTime,
+          finishedAt: optimisticTime,
+        }
+      : run));
+    setError(undefined);
+    try {
+      const run = await abandonTaskSessionRun(runId);
+      setRuns((current) => current.map((candidate) => candidate.id === runId ? run : candidate));
+      await refresh();
+      return run;
+    } catch (nextError) {
+      setRuns((current) => current.map((run) => run.id === runId ? previous : run));
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "Cove couldn't stop the Claude session.",
+      );
+      await refresh();
+      throw nextError;
+    }
+  }, [refresh, runs]);
+
   return {
     runs,
+    activeRuns,
+    outputReadyRuns,
     latestByTaskId,
     launchingTaskIds,
     error,
     refresh,
     launch,
+    abandon,
   };
 }

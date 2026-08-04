@@ -1,36 +1,19 @@
 'use client';
 
-import {
-  useEffect,
-  useRef,
-  useState,
-  type RefObject,
-} from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useBuddy, useBuddyStream } from '@/components/buddy/BuddyProvider';
-import { matchesArrivalAddition } from '@/lib/day-plan/arrival-addition';
-import type {
-  MorningBriefGeneration,
-  MorningBriefSuggestedAddition,
-  PublicMorningBrief,
-} from '@/lib/day-plan/brief';
-import type {
-  DayPlan,
-  DayPlanItem,
-  DayPlanMutationResult,
-  DayPlanOwner as DayOwner,
-} from '@/lib/day-plan/types';
+import type { MorningBriefGeneration, PublicMorningBrief } from '@/lib/day-plan/brief';
+import type { DayPlan, DayPlanItem, DayPlanOwner as DayOwner } from '@/lib/day-plan/types';
 import {
   arrivalDateLabel,
+  focusBandItems,
   isMorningBriefWriting,
   morningArrivalGreeting,
-  resolveArrivalEscape,
-  selectEssentialItems,
 } from '@/lib/day-plan/presentation';
 import ArrivalStepBrief from './arrival/ArrivalStepBrief';
-import ArrivalStepExtras from './arrival/ArrivalStepExtras';
-import ArrivalStepPriorities from './arrival/ArrivalStepPriorities';
+import ArrivalPlanGrid from './arrival/ArrivalPlanGrid';
 import type { OwnerChipEscapeHandler } from './arrival/OwnerChip';
-import StepDots, { type ArrivalStep } from './arrival/StepDots';
+import StepDots, { morningArrivalSteps, type ArrivalStep } from './arrival/StepDots';
 
 export type MorningArrivalItem = {
   item: DayPlanItem;
@@ -43,9 +26,18 @@ export type MorningArrivalItem = {
   deadline?: string;
 };
 
+export type MorningArrivalBoardTask = {
+  id: string;
+  title: string;
+  description?: string;
+  project?: string;
+  due?: string;
+};
+
 interface MorningArrivalProps {
   plan: DayPlan;
   items: MorningArrivalItem[];
+  notTodayTasks: MorningArrivalBoardTask[];
   recommendation: string;
   brief?: PublicMorningBrief;
   briefGeneration?: MorningBriefGeneration;
@@ -53,55 +45,44 @@ interface MorningArrivalProps {
   arrivalInteracted: boolean;
   recap?: string;
   freshnessLabel?: string;
-  expandedItemId?: string | null;
   busy?: boolean;
   error?: string;
   titleId: string;
   descriptionId: string;
   escapeRef?: RefObject<(() => void) | null>;
   onInteract?: () => void;
-  onExpand: (itemId: string) => void;
   onOwnerChange: (itemId: string, owner: DayOwner) => void | Promise<void>;
   onDragReorder: (activeId: string, overId: string) => void | Promise<void>;
-  onDismiss: (itemId: string, title: string) => void | Promise<void>;
-  onAddSuggestion?: (
-    addition: MorningBriefSuggestedAddition,
-    owner: DayOwner,
-  ) => Promise<DayPlanMutationResult>;
+  onRemove: (itemId: string, title: string, taskBacked: boolean) => void | Promise<void>;
+  onComplete: (itemId: string, title: string) => void | Promise<void>;
+  onAddTask: (taskId: string, title: string) => void | Promise<void>;
   onSnooze: () => void | Promise<void>;
   onSkip: () => void | Promise<void>;
   onBypass: () => void | Promise<void>;
   onStartDay: () => void | Promise<void>;
-  onAddWhatChanged?: () => void;
+  onOpenAllWork?: () => void;
   onForceBrief?: () => void;
   forcingBrief?: boolean;
-  onOpenAllWork?: () => void;
 }
 
 const STEP_TITLES: Record<Exclude<ArrivalStep, 'brief'>, string> = {
-  priorities: 'Choose where your attention goes.',
-  extras: 'Anything else?',
+  plan: 'Plan your day',
 };
 
-// The brief step has no description sentence: it gets the date instead. A line
-// explaining what a brief is reads as chrome written by a machine, and the brief
-// itself is under standing orders never to state the date, so this is the one
-// place it appears.
 const STEP_DESCRIPTIONS: Record<ArrivalStep, string> = {
   brief: '',
-  priorities: 'Drag three outcomes into priority order, then choose who owns each one. Items you give to Claude start planning when you begin your day.',
-  extras: 'Review the optional details, make any final changes, and begin your day.',
+  plan: 'Build the whole day here. The first three tasks are your focus.',
 };
 
 const STEP_ANNOUNCEMENTS: Record<ArrivalStep, string> = {
   brief: 'the brief',
-  priorities: 'your priorities',
-  extras: 'anything else',
+  plan: 'plan your day',
 };
 
 export default function MorningArrival({
   plan,
   items,
+  notTodayTasks,
   recommendation,
   brief,
   briefGeneration,
@@ -109,67 +90,57 @@ export default function MorningArrival({
   arrivalInteracted,
   recap,
   freshnessLabel,
-  expandedItemId,
   busy = false,
   error,
   titleId,
   descriptionId,
   escapeRef,
   onInteract,
-  onExpand,
   onOwnerChange,
   onDragReorder,
-  onDismiss,
-  onAddSuggestion,
+  onRemove,
+  onComplete,
+  onAddTask,
   onSnooze,
   onSkip,
   onBypass,
   onStartDay,
-  onAddWhatChanged,
+  onOpenAllWork,
   onForceBrief,
   forcingBrief,
-  onOpenAllWork,
 }: MorningArrivalProps) {
   const { setPageContext, busy: buddyBusy } = useBuddy();
   const { streamingTurn } = useBuddyStream();
-  const draggingRef = useRef(false);
-  const disclosureRefs = useRef(new Map<string, HTMLButtonElement>());
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const ownerChipEscapeRef = useRef<OwnerChipEscapeHandler | null>(null);
-  const hasExtras = Boolean(brief?.suggestedAdditions.length);
+  const availableSteps = morningArrivalSteps();
+  const [step, setStep] = useState<ArrivalStep>('brief');
+  const [stepAnnouncement, setStepAnnouncement] = useState('');
+  const previousStepRef = useRef(step);
   const briefWriting = isMorningBriefWriting({
     briefAttached: Boolean(plan.briefId),
     arrivalInteracted,
     attachTimedOut: briefAttachTimedOut,
     generationState: briefGeneration?.state,
   });
-  const hasBrief = Boolean(
-    recap ||
-      brief ||
-      briefWriting ||
-      recommendation ||
-      plan.briefId ||
-      briefAttachTimedOut ||
-      briefGeneration?.state === 'failed',
-  );
-  const availableSteps: ArrivalStep[] = [
-    ...(hasBrief ? ['brief' as const] : []),
-    'priorities',
-    ...(hasExtras ? ['extras' as const] : []),
-  ];
-  const [step, setStep] = useState<ArrivalStep>(() => hasBrief ? 'brief' : 'priorities');
-  const [stepAnnouncement, setStepAnnouncement] = useState('');
-  const previousStepRef = useRef(step);
-  const visibleItems = selectEssentialItems(items.map((view) => view.item), 3)
-    .map((item) => items.find((view) => view.item.id === item.id))
-    .filter((view): view is MorningArrivalItem => Boolean(view));
-  const addedSuggestionIndexes = new Set(
-    brief?.suggestedAdditions.flatMap((addition, index) =>
-      plan.items.some((item) => matchesArrivalAddition(item, addition)) ? [index] : [],
-    ) ?? [],
-  );
+  const visibleItems = [...items]
+    .filter(
+      (view) =>
+        view.item.decision === 'pending' ||
+        view.item.decision === 'preselected' ||
+        view.item.decision === 'accepted',
+    )
+    .sort((left, right) => left.item.position - right.item.position);
+  const focusAgentCount = focusBandItems(visibleItems.map((view) => view.item))
+    .filter((item) => item.owner === 'claude' || item.owner === 'together')
+    .length;
   const buddyActive = buddyBusy || Boolean(streamingTurn);
-  const currentStepIndex = Math.max(0, availableSteps.indexOf(step));
-  const isFinalStep = currentStepIndex === availableSteps.length - 1;
+  const currentStepIndex = availableSteps.indexOf(step);
+  const isFinalStep = step === 'plan';
+
+  useEffect(() => {
+    if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+  }, [step]);
 
   useEffect(() => {
     if (previousStepRef.current === step) return;
@@ -194,17 +165,8 @@ export default function MorningArrival({
 
   useEffect(() => () => setPageContext({ view: 'tasks' }), [setPageContext]);
 
-  function setDisclosureRef(itemId: string, node: HTMLButtonElement | null) {
-    if (node) disclosureRefs.current.set(itemId, node);
-    else disclosureRefs.current.delete(itemId);
-  }
-
-  function focusDisclosure(itemId: string | undefined) {
-    if (!itemId) return;
-    window.requestAnimationFrame(() => disclosureRefs.current.get(itemId)?.focus());
-  }
-
   function handleOwnerChipOpen(handler: OwnerChipEscapeHandler) {
+    onInteract?.();
     if (ownerChipEscapeRef.current?.itemId !== handler.itemId) {
       ownerChipEscapeRef.current?.closeAndFocus();
     }
@@ -215,36 +177,13 @@ export default function MorningArrival({
     if (ownerChipEscapeRef.current?.itemId === itemId) ownerChipEscapeRef.current = null;
   }
 
-  function handleEscape() {
-    const openOwnerChip = ownerChipEscapeRef.current;
-    if (openOwnerChip) {
-      openOwnerChip.closeAndFocus();
-      return;
-    }
-    const decision = resolveArrivalEscape({
-      dragging: draggingRef.current,
-      expandedItemId,
-    });
-    if (decision.type === 'collapse') {
-      onExpand(decision.itemId);
-      focusDisclosure(decision.itemId);
-    }
-  }
-
   useEffect(() => {
     if (!escapeRef) return;
-    escapeRef.current = handleEscape;
+    escapeRef.current = () => ownerChipEscapeRef.current?.closeAndFocus();
     return () => {
       escapeRef.current = null;
     };
-  });
-
-  async function handleDismiss(itemId: string, title: string) {
-    const nextItemId = visibleItems.find((view) => view.item.id !== itemId)?.item.id;
-    if (expandedItemId === itemId) onExpand(itemId);
-    await onDismiss(itemId, title);
-    focusDisclosure(nextItemId);
-  }
+  }, [escapeRef]);
 
   function changeStep(nextStep: ArrivalStep) {
     ownerChipEscapeRef.current?.closeAndFocus();
@@ -254,12 +193,12 @@ export default function MorningArrival({
 
   return (
     <div
-      className="mx-auto my-auto w-full max-w-[64rem] overflow-hidden rounded-3xl border bg-background shadow-2xl min-[1500px]:max-w-[80rem]"
+      className="mx-auto my-auto w-full max-w-[80rem] overflow-hidden rounded-3xl border bg-background shadow-2xl"
       data-day-plan-id={plan.id}
     >
-      <div className="max-h-[calc(100dvh-7rem)] overflow-y-auto">
+      <div ref={scrollContainerRef} className="max-h-[calc(100dvh-7rem)] overflow-y-auto">
         <header className="sticky top-0 z-20 border-b bg-background/95 py-5 backdrop-blur">
-          <div className="mx-auto w-full max-w-[60rem] px-6 sm:px-10 min-[1500px]:max-w-[76rem]">
+          <div className="mx-auto w-full max-w-[76rem] px-6 sm:px-10">
             <div className="flex items-center justify-between gap-4">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 Morning arrival
@@ -278,11 +217,9 @@ export default function MorningArrival({
               </h1>
               <p
                 id={descriptionId}
-                className={
-                  step === 'brief'
-                    ? 'arrival-brief-kicker mt-2.5'
-                    : 'mt-2 text-sm leading-relaxed text-muted-foreground'
-                }
+                className={step === 'brief'
+                  ? 'arrival-brief-kicker mt-2.5'
+                  : 'mt-2 text-sm leading-relaxed text-muted-foreground'}
               >
                 {step === 'brief' ? arrivalDateLabel(plan.localDate) : STEP_DESCRIPTIONS[step]}
               </p>
@@ -293,26 +230,18 @@ export default function MorningArrival({
         </header>
 
         {error && (
-          <div className="mx-auto w-full max-w-[60rem] space-y-2 px-6 pt-5 sm:px-10 min-[1500px]:max-w-[76rem]">
-            {error && (
-              <p role="alert" className="rounded-xl border border-accent-red/30 bg-accent-red/5 p-3 text-sm text-accent-red">
-                {error}
-              </p>
-            )}
+          <div className="mx-auto w-full max-w-[76rem] px-6 pt-5 sm:px-10">
+            <p role="alert" className="rounded-xl border border-accent-red/30 bg-accent-red/5 p-3 text-sm text-accent-red">
+              {error}
+            </p>
           </div>
         )}
 
-        <div
-          key={step}
-          className="day-ritual-swap-in pb-24 sm:pb-0 min-[1500px]:[&>section]:max-w-[76rem]"
-        >
+        <div key={step} className="day-ritual-swap-in pb-24 sm:pb-0">
           {step === 'brief' ? (
             <ArrivalStepBrief
               recap={recap}
               headline={brief?.headline}
-              // No brief yet means the deterministic recommendation stands in,
-              // and it is one sentence, so it becomes the headline rather than
-              // an orphan paragraph under an empty heading.
               paragraphs={brief
                 ? [
                     ...brief.narrativeParagraphs,
@@ -327,95 +256,70 @@ export default function MorningArrival({
               onForceBrief={onForceBrief}
               forcingBrief={forcingBrief}
             />
-          ) : step === 'priorities' ? (
-            <ArrivalStepPriorities
-              visibleItems={visibleItems}
-              expandedItemId={expandedItemId}
+          ) : (
+            <ArrivalPlanGrid
+              todayItems={visibleItems}
+              notTodayTasks={notTodayTasks}
               busy={busy}
-              draggingRef={draggingRef}
-              onExpand={onExpand}
+              onInteract={onInteract}
               onOwnerChange={onOwnerChange}
               onDragReorder={onDragReorder}
-              onDismiss={handleDismiss}
-              setDisclosureRef={setDisclosureRef}
+              onRemove={onRemove}
+              onComplete={onComplete}
+              onAddTask={onAddTask}
+              onOpenAllWork={onOpenAllWork}
               onOwnerChipOpen={handleOwnerChipOpen}
               onOwnerChipClose={handleOwnerChipClose}
-              suggestedAdditions={brief?.suggestedAdditions ?? []}
-              addedSuggestionIndexes={addedSuggestionIndexes}
-              onAddSuggestion={onAddSuggestion}
-              onAddWhatChanged={onAddWhatChanged}
-              onOpenAllWork={onOpenAllWork}
-            />
-          ) : (
-            <ArrivalStepExtras
-              brief={brief}
-              onAddSuggestion={onAddSuggestion}
-              busy={busy}
-              addedSuggestionIndexes={addedSuggestionIndexes}
-              onOwnerChoiceOpen={handleOwnerChipOpen}
-              onOwnerChoiceClose={handleOwnerChipClose}
             />
           )}
         </div>
 
         <footer className="sticky bottom-0 z-20 border-t !bg-background">
-          <div className="mx-auto flex w-full max-w-[60rem] flex-col items-stretch gap-2 py-3 pl-4 pr-20 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 sm:py-4 sm:pl-10 sm:pr-24 min-[1120px]:pr-10 min-[1500px]:max-w-[76rem]">
+          <div className="mx-auto flex w-full max-w-[76rem] flex-col items-stretch gap-2 py-3 pl-4 pr-20 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 sm:py-4 sm:pl-10 sm:pr-24 min-[1120px]:pr-10">
             <div className="flex w-full flex-wrap items-center justify-center gap-x-3 sm:w-auto sm:justify-start sm:gap-x-4 sm:gap-y-1">
               {currentStepIndex > 0 && (
                 <button
                   type="button"
-                  className="press-scale min-h-8 whitespace-nowrap text-[11px] text-muted-foreground hover:underline hover:underline-offset-2 sm:min-h-9 sm:text-xs"
+                  className="press-scale min-h-8 text-xs text-muted-foreground hover:underline hover:underline-offset-2"
                   onClick={() => changeStep(availableSteps[currentStepIndex - 1])}
                 >
                   Back
                 </button>
               )}
-              <button
-                type="button"
-                disabled={busy}
-                className="press-scale min-h-8 whitespace-nowrap text-[11px] text-muted-foreground hover:underline hover:underline-offset-2 disabled:opacity-50 sm:min-h-9 sm:text-xs"
-                onClick={() => void onSnooze()}
-              >
+              <button type="button" disabled={busy} className="press-scale min-h-8 text-xs text-muted-foreground hover:underline disabled:opacity-50" onClick={() => void onSnooze()}>
                 Snooze 15 minutes
               </button>
-              <button
-                type="button"
-                disabled={busy}
-                className="press-scale min-h-8 whitespace-nowrap text-[11px] text-muted-foreground hover:underline hover:underline-offset-2 disabled:opacity-50 sm:min-h-9 sm:text-xs"
-                onClick={() => void onSkip()}
-              >
+              <button type="button" disabled={busy} className="press-scale min-h-8 text-xs text-muted-foreground hover:underline disabled:opacity-50" onClick={() => void onSkip()}>
                 Skip today
               </button>
-              <button
-                type="button"
-                disabled={busy}
-                className="press-scale min-h-8 whitespace-nowrap text-[11px] text-muted-foreground hover:underline hover:underline-offset-2 disabled:opacity-50 sm:min-h-9 sm:text-xs"
-                onClick={() => void onBypass()}
-              >
+              <button type="button" disabled={busy} className="press-scale min-h-8 text-xs text-muted-foreground hover:underline disabled:opacity-50" onClick={() => void onBypass()}>
                 Continue to Today
               </button>
             </div>
 
-            <button
-              type="button"
-              data-ritual-primary={isFinalStep ? '' : undefined}
-              disabled={isFinalStep && (
-                busy ||
-                buddyActive ||
-                visibleItems.length === 0
+            <div className="sm:ml-auto">
+              {isFinalStep && focusAgentCount > 0 && (
+                <p className="mb-1 text-center text-xs text-muted-foreground sm:text-right">
+                  Claude will start {focusAgentCount} focus {focusAgentCount === 1 ? 'task' : 'tasks'}.
+                </p>
               )}
-              className={`press-scale min-h-11 w-full rounded-xl px-5 text-sm font-semibold disabled:opacity-40 sm:ml-auto sm:w-auto ${
-                isFinalStep
-                  ? 'bg-foreground text-background hover:opacity-90'
-                  : 'border text-foreground hover:bg-muted'
-              }`}
-              onClick={() => {
-                if (isFinalStep) void onStartDay();
-                else changeStep(availableSteps[currentStepIndex + 1]);
-              }}
-            >
-              {isFinalStep ? (busy ? 'Setting your day…' : 'Start my day') : 'Continue'}
-            </button>
+              <button
+                type="button"
+                data-ritual-primary={isFinalStep ? '' : undefined}
+                disabled={isFinalStep && (busy || buddyActive || visibleItems.length === 0)}
+                className={`press-scale min-h-11 w-full rounded-xl px-5 text-sm font-semibold disabled:opacity-40 sm:w-auto ${
+                  isFinalStep
+                    ? 'bg-foreground text-background hover:opacity-90'
+                    : 'border text-foreground hover:bg-muted'
+                }`}
+                onClick={() => {
+                  if (isFinalStep) void onStartDay();
+                  else changeStep(availableSteps[currentStepIndex + 1]);
+                }}
+              >
+                {isFinalStep ? (busy ? 'Setting your day…' : 'Start my day') : 'Continue'}
+              </button>
+            </div>
           </div>
         </footer>
       </div>

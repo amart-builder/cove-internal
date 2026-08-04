@@ -110,7 +110,6 @@ function recentBriefArtifact({
     headline: typeof headline === 'string' && headline ? headline : 'Temporary headline.',
     narrative_paragraphs: ['The first paragraph.', 'The second paragraph.'],
     existing_task_candidates: [],
-    suggested_additions: [],
     watch_items: [],
   }).brief;
   brief.headline = headline;

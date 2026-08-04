@@ -6,6 +6,7 @@ import {
 import { normalizeContactName } from "../crm/identity";
 import { recordFailure, resolveFailure } from "../reliability/failures";
 import {
+  consolidateFollowUps,
   extractMeetingFollowUps,
   inboundAckState,
   isOperatorOwned,
@@ -220,6 +221,34 @@ export async function writeWaitingCommitment(
   return id;
 }
 
+async function runMeetingTaskIntake(
+  text: string,
+  sourceId: string,
+  baseUrl: string,
+  options: MeetingPipelineOptions,
+): Promise<"db" | "spooled"> {
+  const result = await (options.runIntakeImpl ?? runCoveIntake)(
+    {
+      text,
+      source: "meeting",
+      sourceId,
+    },
+    {
+      repoDir: options.repoDir,
+      dataDir: options.dataDir,
+      fetchImpl: options.fetchImpl,
+      webBaseUrl: baseUrl,
+    },
+  ) as EventReceipt;
+  const state = inboundAckState(result);
+  if (result.exitCode !== 0 || state === "failed") {
+    throw new Error(
+      result.error ?? "Meeting intake did not acknowledge the event.",
+    );
+  }
+  return state;
+}
+
 async function acknowledgeMeetingItem(
   item: MeetingFollowUp,
   context: {
@@ -233,26 +262,13 @@ async function acknowledgeMeetingItem(
   const text = meetingFollowUpText(item, context.meetingTitle);
   const owns = options.isOperatorOwnedImpl ?? isOperatorOwned;
   if (owns(item.owner)) {
-    const result = await (options.runIntakeImpl ?? runCoveIntake)(
-      {
-        text,
-        source: "meeting",
-        sourceId: context.sourceId,
-      },
-      {
-        repoDir: options.repoDir,
-        dataDir: options.dataDir,
-        fetchImpl: options.fetchImpl,
-        webBaseUrl: context.baseUrl,
-      },
-    ) as EventReceipt;
-    const state = inboundAckState(result);
-    if (result.exitCode !== 0 || state === "failed") {
-      throw new Error(
-        result.error ?? "Meeting intake did not acknowledge the event.",
-      );
-    }
-    return { kind: "task", ack: state };
+    const ack = await runMeetingTaskIntake(
+      text,
+      context.sourceId,
+      context.baseUrl,
+      options,
+    );
+    return { kind: "task", ack };
   }
 
   const receipt = await (options.recordEventImpl ?? recordEvent)(
@@ -434,7 +450,25 @@ export async function processMeetingNotesEmail(
       }
     }
 
-    for (const item of items) {
+    // Two or more operator-owned follow-ups become one bundled task. Its
+    // sourceId is content-free on purpose: a nondeterministic re-extraction
+    // that rewords the items still maps to the same bundle, so a retry
+    // cannot mint a duplicate.
+    const { bundle, operatorItems, otherItems } = consolidateFollowUps(items, {
+      meetingTitle: email.subject || `${email.detectedTool} meeting notes`,
+      isOwned: options.isOperatorOwnedImpl ?? isOperatorOwned,
+    });
+    if (bundle) {
+      await runMeetingTaskIntake(
+        bundle.text,
+        `${email.messageId}:followups`,
+        options.baseUrl,
+        options,
+      );
+      summary.tasks += 1;
+    }
+    const perItem = bundle ? otherItems : items;
+    for (const item of perItem) {
       const result = await acknowledgeMeetingItem(
         item,
         {
@@ -455,9 +489,12 @@ export async function processMeetingNotesEmail(
         ? "partial"
         : "success";
     const source = email.sender?.trim() || email.subject || email.detectedTool;
+    const taskPart = bundle
+      ? `${plural(summary.tasks, "task")} (${plural(operatorItems.length, "follow-up")})`
+      : plural(summary.tasks, "task");
     const receiptSummary =
       `Found ${email.detectedTool} meeting notes from ${source}: ` +
-      `${plural(summary.tasks, "task")}, ` +
+      `${taskPart}, ` +
       `${plural(summary.waitingOn, "waiting-on")}, ` +
       `${plural(linkedOrCreated, "contact")} linked/created, ` +
       `${plural(summary.contactsAmbiguous, "ambiguous contact")}.`;

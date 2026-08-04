@@ -32,12 +32,14 @@ import { realTimeLabel } from '@/lib/quiet-current/presentation';
 import { taskColumnKeyForName, type TaskColumnKey } from '@/lib/tasks/columns';
 import {
   buildDayPlanCandidates,
+  eligibleNotTodayTasks,
   orderArrivalCandidatesByTier,
   selectArrivalCandidateTasks,
 } from '@/lib/day-plan/candidates';
 import {
   combineSurfaceErrors,
   firstContinuingItem,
+  focusBandItems,
   formatArrivalDueDate,
   helpfulProjectLabel,
   reorderDayPlanItems,
@@ -52,7 +54,10 @@ import {
   reconciliationStateMatches,
   type ReconciliationTaskState,
 } from '@/lib/day-plan/reconciliation';
-import MorningArrival, { type MorningArrivalItem } from './MorningArrival';
+import MorningArrival, {
+  type MorningArrivalBoardTask,
+  type MorningArrivalItem,
+} from './MorningArrival';
 import DaySettlement from './DaySettlement';
 import DayRitualLayer, { DayRitualContentSwap } from './DayRitualLayer';
 import { OpenInClaudeCode, RunStatusChip } from './ClaudeRunIndicators';
@@ -78,6 +83,7 @@ import {
   type TaskSessionRun,
 } from '@/lib/task-sessions/types';
 import CoveReadinessStrip from './CoveReadinessStrip';
+import ClaudeDeskStrip from './ClaudeDeskStrip';
 
 type TaskStatus = ArrivalTaskStatus;
 type ColumnData = ArrivalColumn;
@@ -723,7 +729,6 @@ function TodayExperience({
   const [dismissMenuId, setDismissMenuId] = useState<string | null>(null);
   const [editingSuggestionId, setEditingSuggestionId] = useState<string | null>(null);
   const [suggestionDraft, setSuggestionDraft] = useState({ title: '', description: '' });
-  const [expandedArrivalItemId, setExpandedArrivalItemId] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>(() => {
     try {
       return JSON.parse(readLocalValue(NOTES_KEY) ?? '{}') as Record<string, string>;
@@ -807,8 +812,8 @@ function TodayExperience({
       maximum: 10,
     });
     const briefPickedIds = new Set(briefPickedTasks.map((picked) => picked.taskId));
-    // A pool of up to ten deterministic candidates: the Morning Brief overlay
-    // ranks within this pool server-side, and the plan still keeps three.
+    // A pool of up to ten deterministic candidates. The Morning Brief overlay
+    // ranks within this pool server-side and sizes Today from its ranked picks.
     const candidates = buildDayPlanCandidates({
       localDate,
       timezone,
@@ -1701,11 +1706,13 @@ function TodayExperience({
     hour: 'numeric',
     minute: '2-digit',
   }).format(now);
+  const activePlanItems = [...(dayRitual.plan?.items ?? [])]
+    .filter((item) => item.decision === 'accepted')
+    .sort((left, right) => left.position - right.position);
   const planPositionByTaskId = new Map(
-    (dayRitual.plan?.items ?? [])
-      .filter((item) => item.decision === 'accepted')
-      .map((item) => [item.taskId, item.position]),
+    activePlanItems.map((item, index) => [item.taskId, index]),
   );
+  const focusTaskIds = new Set(focusBandItems(activePlanItems).map((item) => item.taskId));
   const downstream = commitments
     .filter((task) => task._id !== focusedTask?._id)
     .sort((left, right) => {
@@ -1719,6 +1726,9 @@ function TodayExperience({
       return left.position - right.position;
     });
   const visibleDownstream = showAllDownstream ? downstream : downstream.slice(0, 5);
+  const ifYouHaveTimeTaskId = visibleDownstream.find(
+    (task) => planPositionByTaskId.has(task._id) && !focusTaskIds.has(task._id),
+  )?._id;
   const hiddenDownstreamCount = Math.max(0, downstream.length - visibleDownstream.length);
   const focusPoint: CurrentPoint = { x: 500, y: 330 };
   const downstreamStartY = focusPoint.y + (focusExpanded ? 520 : 230);
@@ -1786,9 +1796,29 @@ function TodayExperience({
   );
   const arrivalPlanItems = useMemo(
     () => orderedPlanItems.filter(
-      (item) => item.decision === 'preselected' || item.decision === 'accepted',
+      (item) =>
+        item.decision === 'pending' ||
+        item.decision === 'preselected' ||
+        item.decision === 'accepted',
     ),
     [orderedPlanItems],
+  );
+  const notTodayTasks = useMemo<MorningArrivalBoardTask[]>(
+    () => eligibleNotTodayTasks(tasks, dayRitual.plan?.items ?? [], {
+      doneColumnId: doneColumn?._id,
+      briefRankedTaskIds: briefPickedTasks.map((picked) => picked.taskId),
+    }).map((task) => ({
+      id: task._id,
+      title: task.title,
+      description: task.description,
+      project: helpfulProjectLabel(task.tags[0]),
+      due: task.dueAt
+        ? formatArrivalDueDate(task.dueAt)
+        : task.dueDate
+          ? formatArrivalDueDate(task.dueDate)
+          : undefined,
+    })),
+    [briefPickedTasks, dayRitual.plan?.items, doneColumn?._id, tasks],
   );
   const arrivalItems = useMemo<MorningArrivalItem[]>(
     () => arrivalPlanItems.map((item) => {
@@ -2109,6 +2139,13 @@ function TodayExperience({
               </form>
             )}
             <CoveReadinessStrip />
+            {localMode && (
+              <ClaudeDeskStrip
+                activeRuns={taskSessions.activeRuns}
+                outputReadyRuns={taskSessions.outputReadyRuns}
+                onAbandon={taskSessions.abandon}
+              />
+            )}
             {visibleSurfaceError && (
               <p role="alert" className="current-surface-error">{visibleSurfaceError}</p>
             )}
@@ -2231,6 +2268,7 @@ function TodayExperience({
                     run={focusedBoardSession.run}
                     busy={taskSessions.launchingTaskIds.has(focusedTask._id)}
                     preferredOwner={focusedBoardSession.item.owner === 'together' ? 'together' : 'claude'}
+                    activeRunCount={taskSessions.activeRuns.length}
                     onLaunch={taskSessions.launch}
                   />
                 </div>
@@ -2345,6 +2383,7 @@ function TodayExperience({
                       run={focusedBoardSession.run}
                       busy={taskSessions.launchingTaskIds.has(focusedTask._id)}
                       preferredOwner={focusedBoardSession.item.owner === 'together' ? 'together' : 'claude'}
+                      activeRunCount={taskSessions.activeRuns.length}
                       error={taskSessions.error}
                       onLaunch={taskSessions.launch}
                     />
@@ -2385,11 +2424,19 @@ function TodayExperience({
             const execution = boardExecutionByTaskId.get(task._id);
             const session = boardSessionByTaskId.get(task._id);
             return (
-              <article
-                key={task._id}
-                className={`current-river-node is-${side} ${time ? 'is-anchored' : ''}`}
-                style={{ left: `${x / 10}%`, top: y }}
-              >
+              <div key={task._id}>
+                {task._id === ifYouHaveTimeTaskId && (
+                  <p
+                    className="absolute left-1/2 z-10 -translate-x-1/2 rounded-full border border-border/50 bg-background/75 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground backdrop-blur"
+                    style={{ top: y - 54 }}
+                  >
+                    If you have time
+                  </p>
+                )}
+                <article
+                  className={`current-river-node is-${side} ${time ? 'is-anchored' : ''}`}
+                  style={{ left: `${x / 10}%`, top: y }}
+                >
                 <button
                   type="button"
                   className="current-node-target"
@@ -2411,6 +2458,7 @@ function TodayExperience({
                         run={session.run}
                         busy={taskSessions.launchingTaskIds.has(task._id)}
                         preferredOwner={session.item.owner === 'together' ? 'together' : 'claude'}
+                        activeRunCount={taskSessions.activeRuns.length}
                         onLaunch={taskSessions.launch}
                       />
                     </div>
@@ -2454,7 +2502,8 @@ function TodayExperience({
                     </div>
                   )}
                 </div>
-              </article>
+                </article>
+              </div>
             );
           })}
 
@@ -2723,6 +2772,7 @@ function TodayExperience({
               <MorningArrival
                 plan={dayRitual.plan}
                 items={arrivalItems}
+                notTodayTasks={notTodayTasks}
                 recommendation={recommendation}
                 brief={dayRitual.morningBrief}
                 briefGeneration={dayRitual.briefGeneration}
@@ -2737,17 +2787,12 @@ function TodayExperience({
                       minute: '2-digit',
                     })}`
                   : 'Using the latest verified task evidence'}
-                expandedItemId={expandedArrivalItemId}
                 busy={dayRitual.busy}
                 error={combineSurfaceErrors(dayRitual.error, surfaceError)}
                 titleId={RITUAL_TITLE_IDS.arrival}
                 descriptionId={RITUAL_DESCRIPTION_IDS.arrival}
                 escapeRef={arrivalEscapeRef}
                 onInteract={dayRitual.markArrivalInteraction}
-                onExpand={(itemId) => {
-                  dayRitual.markArrivalInteraction();
-                  setExpandedArrivalItemId((current) => current === itemId ? null : itemId);
-                }}
                 onOwnerChange={(itemId, owner) => dayRitual.setOwner(itemId, owner)}
                 onDragReorder={async (activeId, overId) => {
                   const next = reorderDayPlanItems(arrivalPlanItems, activeId, overId);
@@ -2755,18 +2800,21 @@ function TodayExperience({
                   const title = next[position]?.title ?? 'Task';
                   if (position >= 0) await dayRitual.reorder(activeId, position, title);
                 }}
-                onDismiss={dayRitual.dismissItem}
-                onAddSuggestion={dayRitual.addItem}
+                onRemove={(itemId, title, taskBacked) => taskBacked
+                  ? dayRitual.laterItem(itemId, title)
+                  : dayRitual.dismissItem(itemId, title)}
+                onComplete={async (itemId, title) => {
+                  await dayRitual.completeItem(itemId, title);
+                  await retry();
+                }}
+                onAddTask={async (taskId, title) => {
+                  await dayRitual.addTask(taskId, title);
+                }}
                 onSnooze={() => dayRitual.snooze().catch(() => undefined)}
                 onSkip={() => dayRitual.skip().catch(() => undefined)}
                 onBypass={() => dayRitual.bypass().catch(() => undefined)}
                 onStartDay={startPlannedDay}
-                onAddWhatChanged={() => {
-                  void dayRitual.bypass().then(() => setCaptureOpen(true)).catch(() => undefined);
-                }}
-                onOpenAllWork={onOpenAllWork ? () => {
-                  void dayRitual.bypass().then(onOpenAllWork).catch(() => undefined);
-                } : undefined}
+                onOpenAllWork={onOpenAllWork}
               />
             ) : ritualView === 'settlement' ? (
               <DaySettlement

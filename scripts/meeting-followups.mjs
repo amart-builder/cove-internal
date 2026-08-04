@@ -13,6 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
+  consolidateFollowUps,
   extractMeetingFollowUps,
   inboundAckState,
   isOperatorOwned,
@@ -157,34 +158,89 @@ async function processItem(item, notes, index) {
   return "waiting_on";
 }
 
-const notes = await loadNotes();
-notes.title = notes.title.replace(/\s*-\s*\d{4}\/\d{2}\/\d{2}.*$/, "").trim();
-const items = await extractMeetingFollowUps(notes.text, { repoDir });
-const failures = [];
-let taskCount = 0;
-let waitingCount = 0;
-for (let index = 0; index < items.length; index += 1) {
-  try {
-    const result = await processItem(items[index], notes, index);
-    if (result === "task") taskCount += 1;
-    else waitingCount += 1;
-  } catch (error) {
-    failures.push(error);
-    console.error(`Meeting follow-up capture failed for "${items[index].title}".`);
+/**
+ * Decide what to capture: one bundled task when two or more follow-ups are
+ * operator-owned, plus the remaining items on the legacy per-item path. The
+ * bundle sourceId is content-free so a reworded re-extraction cannot mint
+ * duplicates, and every per-item entry keeps its ORIGINAL extraction index
+ * so its stableSourceId matches what the per-item path always produced.
+ */
+export function planFollowUpCaptures(items, notes, { isOwned = isOperatorOwned } = {}) {
+  const { bundle, operatorItems } = consolidateFollowUps(items, {
+    meetingTitle: notes.title,
+    isOwned,
+  });
+  if (!bundle) {
+    return {
+      bundle: null,
+      bundledCount: 0,
+      perItem: items.map((item, index) => ({ item, index })),
+    };
   }
+  const bundled = new Set(operatorItems);
+  return {
+    bundle: {
+      title: bundle.title,
+      text: bundle.text,
+      sourceId: stableSourceId(`${notes.occurrenceId}\0followups`),
+    },
+    bundledCount: operatorItems.length,
+    perItem: items.flatMap((item, index) =>
+      bundled.has(item) ? [] : [{ item, index }]
+    ),
+  };
 }
-if (failures.length > 0) {
-  throw new Error(
-    `${failures.length} meeting follow-up${failures.length === 1 ? "" : "s"} could not be captured.`,
-  );
+
+export function captureSummaryLine(taskCount, waitingCount, bundledCount) {
+  const waiting =
+    `${waitingCount} waiting-on commitment${waitingCount === 1 ? "" : "s"}`;
+  if (bundledCount > 0) {
+    return `Captured 1 follow-up task (${bundledCount} items) and ${waiting}.`;
+  }
+  return `Captured ${taskCount} operator follow-up${taskCount === 1 ? "" : "s"} and ${waiting}.`;
 }
-if (
-  notes.acquisition &&
-  !notes.acquisition.task_id &&
-  (notes.acquisition.state === "pending" || notes.acquisition.state === "failed")
-) {
-  await resolveEvent(notes.acquisition.id, { state: "dismissed" });
+
+const isMainModule = process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMainModule) {
+  const notes = await loadNotes();
+  notes.title = notes.title.replace(/\s*-\s*\d{4}\/\d{2}\/\d{2}.*$/, "").trim();
+  const items = await extractMeetingFollowUps(notes.text, { repoDir });
+  const plan = planFollowUpCaptures(items, notes);
+  const failures = [];
+  let taskCount = 0;
+  let waitingCount = 0;
+  if (plan.bundle) {
+    try {
+      await runIntake(plan.bundle.text, plan.bundle.sourceId);
+      taskCount += 1;
+    } catch (error) {
+      failures.push(error);
+      console.error(`Meeting follow-up capture failed for "${plan.bundle.title}".`);
+    }
+  }
+  for (const { item, index } of plan.perItem) {
+    try {
+      const result = await processItem(item, notes, index);
+      if (result === "task") taskCount += 1;
+      else waitingCount += 1;
+    } catch (error) {
+      failures.push(error);
+      console.error(`Meeting follow-up capture failed for "${item.title}".`);
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(
+      `${failures.length} meeting follow-up${failures.length === 1 ? "" : "s"} could not be captured.`,
+    );
+  }
+  if (
+    notes.acquisition &&
+    !notes.acquisition.task_id &&
+    (notes.acquisition.state === "pending" || notes.acquisition.state === "failed")
+  ) {
+    await resolveEvent(notes.acquisition.id, { state: "dismissed" });
+  }
+  console.log(captureSummaryLine(taskCount, waitingCount, plan.bundledCount));
 }
-console.log(
-  `Captured ${taskCount} operator follow-up${taskCount === 1 ? "" : "s"} and ${waitingCount} waiting-on commitment${waitingCount === 1 ? "" : "s"}.`,
-);

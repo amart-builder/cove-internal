@@ -1,10 +1,13 @@
-export type ArrivalStep = 'brief' | 'priorities' | 'extras';
+export type ArrivalStep = 'brief' | 'plan';
 
 const STEP_LABELS: Record<ArrivalStep, string> = {
   brief: 'The brief',
-  priorities: 'Your priorities',
-  extras: 'Anything else',
+  plan: 'Plan your day',
 };
+
+export function morningArrivalSteps(): ArrivalStep[] {
+  return ['brief', 'plan'];
+}
 
 export default function StepDots({
   steps,

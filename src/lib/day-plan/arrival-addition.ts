@@ -1,12 +1,12 @@
-import type { MorningBriefSuggestedAddition } from './brief';
 import type { DayPlanItem } from './types';
 
 export const ARRIVAL_ADDITION_OUTCOME_KEY_PREFIX = 'arrival-addition:';
 
-type ArrivalAdditionIdentity = Pick<
-  MorningBriefSuggestedAddition,
-  'title' | 'outcome' | 'why'
->;
+type ArrivalAdditionIdentity = {
+  title: string;
+  outcome: string;
+  why: string;
+};
 
 export function arrivalAdditionOutcomeKey(addition: ArrivalAdditionIdentity): string {
   const parts = [addition.title, addition.outcome, addition.why]

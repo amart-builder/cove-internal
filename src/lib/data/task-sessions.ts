@@ -75,3 +75,28 @@ export async function launchTaskSessionRun(
   announceTaskSessionChange();
   return body.run as TaskSessionRun;
 }
+
+export async function abandonTaskSessionRun(runId: string): Promise<TaskSessionRun> {
+  if (getRuntimeMode() !== "local") {
+    throw new Error("Task sessions are available only in local mode.");
+  }
+  const response = await fetch("/api/task-session-runs", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Cove-CSRF": await getDayPlanCsrfToken(),
+    },
+    body: JSON.stringify({ action: "abandon", runId }),
+    cache: "no-store",
+  });
+  const body = await payload(response);
+  if (!response.ok) {
+    throw new Error(
+      typeof body.error === "string"
+        ? body.error
+        : "Cove couldn't stop the Claude session.",
+    );
+  }
+  announceTaskSessionChange();
+  return body.run as TaskSessionRun;
+}

@@ -21,8 +21,9 @@ import type {
 // board management actions that activate at Morning Arrival.
 // 16 / schema 5: remove the retired outreach section from generation and
 // public brief projections while tolerating it as ignored legacy data.
-export const MORNING_BRIEF_PROMPT_VERSION = 16;
-export const MORNING_BRIEF_SCHEMA_VERSION = 5;
+// 17 / schema 6: rank up to eight existing tasks, with the first three as focus.
+export const MORNING_BRIEF_PROMPT_VERSION = 17;
+export const MORNING_BRIEF_SCHEMA_VERSION = 6;
 
 export type MorningBriefStatus = "queued" | "running" | "succeeded" | "failed";
 
@@ -32,13 +33,6 @@ export type MorningBriefTaskCandidate = {
   suggestedOwner: DayPlanOwner;
   whatClaudeCanStart: string;
   evidenceRefs: string[];
-};
-
-export type MorningBriefSuggestedAddition = {
-  title: string;
-  outcome: string;
-  why: string;
-  suggestedOwner: DayPlanOwner;
 };
 
 export type MorningBriefWatchItem = {
@@ -77,7 +71,6 @@ export type MorningBrief = {
   // and the deterministic fallback all speak in one flat string.
   lensNarrative: string;
   existingTaskCandidates: MorningBriefTaskCandidate[];
-  suggestedAdditions: MorningBriefSuggestedAddition[];
   watchItems: MorningBriefWatchItem[];
   boardActions: MorningBriefBoardAction[];
   // Cove-added record of items dropped during validation (for example a watch
@@ -542,9 +535,8 @@ function evidenceRefsResolve(
 
 // Strict validation of the model's structured output. Structural violations
 // throw; a candidate that references a task that no longer exists is dropped
-// with a warning (rehydration would drop it anyway). suggested_additions are
-// validated as their own list and can never become task candidates: they carry
-// no taskId and are returned on a separate field.
+// with a warning (rehydration would drop it anyway). Legacy
+// suggested_additions fields are ignored so old v16 artifacts remain readable.
 export function validateMorningBrief(
   value: unknown,
   options: {
@@ -589,7 +581,7 @@ export function validateMorningBrief(
   for (const [index, entry] of briefArray(
     raw.existing_task_candidates,
     "existing_task_candidates",
-    3,
+    8,
   ).entries()) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
       throw new MorningBriefInvalid(`candidate_${index}_shape`);
@@ -624,23 +616,6 @@ export function validateMorningBrief(
     }
     existingTaskCandidates.push(parsed);
   }
-
-  const suggestedAdditions: MorningBriefSuggestedAddition[] = briefArray(
-    raw.suggested_additions,
-    "suggested_additions",
-    5,
-  ).map((entry, index) => {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      throw new MorningBriefInvalid(`addition_${index}_shape`);
-    }
-    const addition = entry as Record<string, unknown>;
-    return {
-      title: briefString(addition.title, `addition_${index}_title`, 240),
-      outcome: briefString(addition.outcome, `addition_${index}_outcome`, 1200),
-      why: briefString(addition.why, `addition_${index}_why`, 600),
-      suggestedOwner: briefOwner(addition.suggested_owner, `addition_${index}`),
-    };
-  });
 
   const watchItems: MorningBriefWatchItem[] = [];
   for (const [index, entry] of briefArray(
@@ -790,7 +765,6 @@ export function validateMorningBrief(
       narrativeParagraphs,
       lensNarrative,
       existingTaskCandidates,
-      suggestedAdditions,
       watchItems,
       boardActions,
       ...(validationNotes.length > 0 ? { validationNotes } : {}),
@@ -811,12 +785,13 @@ export type ArrivalCandidateSelection = {
 // The brief is presentation and rationale, never task evidence. Every selected
 // taskId must rehydrate against the fresh candidate pool; selections whose task
 // vanished (or was never real) are dropped, and the remaining slots backfill in
-// deterministic pool order. suggested_additions are intentionally not accepted
-// here: only existing task candidates can rank.
+// deterministic pool order. Only existing task candidates can rank.
 export function overlayBriefOnCandidates(
   pool: readonly RecommendationCandidate[],
   brief: Pick<MorningBrief, "existingTaskCandidates"> | undefined,
-  maximum = 3,
+  maximum = brief
+    ? Math.min(8, Math.max(3, brief.existingTaskCandidates.length))
+    : 3,
 ): ArrivalCandidateSelection[] {
   const byTask = new Map(pool.map((candidate) => [candidate.taskId, candidate]));
   const used = new Set<string>();
@@ -1046,12 +1021,10 @@ export function morningBriefFromArtifact(
       return undefined;
     }
     const candidatesRaw = parsed.existingTaskCandidates;
-    const additionsRaw = parsed.suggestedAdditions;
     const watchRaw = parsed.watchItems;
     const boardRaw = parsed.boardActions;
     if (
       !Array.isArray(candidatesRaw) ||
-      !Array.isArray(additionsRaw) ||
       !Array.isArray(watchRaw) ||
       (artifact.schemaVersion >= 4 && !Array.isArray(boardRaw))
     ) {
@@ -1076,25 +1049,6 @@ export function morningBriefFromArtifact(
         suggestedOwner: candidate.suggestedOwner,
         whatClaudeCanStart: candidate.whatClaudeCanStart,
         evidenceRefs: candidate.evidenceRefs,
-      });
-    }
-    const additions: MorningBriefSuggestedAddition[] = [];
-    for (const entry of additionsRaw) {
-      const addition = storedRecord(entry);
-      if (
-        !addition ||
-        !storedString(addition.title) ||
-        !storedString(addition.outcome) ||
-        !storedString(addition.why) ||
-        !storedOwner(addition.suggestedOwner)
-      ) {
-        return undefined;
-      }
-      additions.push({
-        title: addition.title,
-        outcome: addition.outcome,
-        why: addition.why,
-        suggestedOwner: addition.suggestedOwner,
       });
     }
     const watchItems: MorningBriefWatchItem[] = [];
@@ -1181,7 +1135,6 @@ export function morningBriefFromArtifact(
           : splitNarrativeParagraphs(parsed.lensNarrative),
       lensNarrative: parsed.lensNarrative,
       existingTaskCandidates: candidates,
-      suggestedAdditions: additions,
       watchItems,
       boardActions,
       ...(parsed.validationNotes ? { validationNotes: parsed.validationNotes } : {}),
@@ -1259,7 +1212,6 @@ export type PublicMorningBrief = {
   lensNarrative: string;
   managementSummary?: string;
   watchItems: MorningBriefWatchItem[];
-  suggestedAdditions: MorningBriefSuggestedAddition[];
 };
 
 // brief_json carries contact names and message drafts. Exactly like a run's
@@ -1283,6 +1235,5 @@ export function publicMorningBrief(
     lensNarrative: brief.lensNarrative,
     ...(managementSummary ? { managementSummary } : {}),
     watchItems: brief.watchItems,
-    suggestedAdditions: brief.suggestedAdditions,
   };
 }

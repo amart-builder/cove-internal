@@ -7,6 +7,7 @@ import {
   claudeResumeUrl,
   combineSurfaceErrors,
   firstContinuingItem,
+  focusBandItems,
   executionReadinessMessage,
   executionRestartLabel,
   executionRunStatusLabel,
@@ -19,11 +20,9 @@ import {
   morningArrivalGreeting,
   ownerDescription,
   reorderDayPlanItems,
-  resolveArrivalEscape,
   resolveRitualContentSwap,
   selectBoardExecutionPresentation,
   selectCurrentExecutionRow,
-  selectEssentialItems,
   selectRecommendedHumanFocus,
   shouldShowNeedsSetupToStart,
   shouldAutoPostProgress,
@@ -69,39 +68,6 @@ import {
 function item(id, owner = 'me', position = 0) {
   return { id, taskId: `task-${id}`, owner, position };
 }
-
-test('arrival shows no more than three real plan items without padding', () => {
-  const two = [item('a'), item('b')];
-  assert.deepEqual(selectEssentialItems(two).map((entry) => entry.id), ['a', 'b']);
-  assert.deepEqual(
-    selectEssentialItems([...two, item('c'), item('d')]).map((entry) => entry.id),
-    ['a', 'b', 'c'],
-  );
-});
-
-test('arrival keeps an explicit addition visible beyond the generated three-item cap', () => {
-  const addition = {
-    ...item('added', 'together', 3),
-    sourceRefs: [{ sourceType: 'decision' }],
-    rankReasons: ['accepted_today'],
-  };
-  assert.deepEqual(
-    selectEssentialItems([item('a'), item('b'), item('c'), addition]).map((entry) => entry.id),
-    ['a', 'b', 'c', 'added'],
-  );
-});
-
-test('arrival keeps three generated priorities when an explicit addition is reordered into the cap', () => {
-  const addition = {
-    ...item('added', 'together', 0),
-    sourceRefs: [{ sourceType: 'decision' }],
-    rankReasons: ['accepted_today'],
-  };
-  assert.deepEqual(
-    selectEssentialItems([addition, item('a'), item('b'), item('c')]).map((entry) => entry.id),
-    ['added', 'a', 'b', 'c'],
-  );
-});
 
 test('drag reorder produces the same ordered plan without mutating input', () => {
   const original = [item('a', 'me', 0), item('b', 'me', 1), item('c', 'me', 2)];
@@ -329,6 +295,24 @@ test('start-day receipt keeps setup details out and mentions only work already m
   assert.equal(startDayReceiptCopy(1, 2), 'Claude is starting on 1 item. 2 already in motion.');
   assert.equal(startDayReceiptCopy(0, 0).includes('setup'), false);
   assert.equal(startDayReceiptCopy(0, 0).includes('worker'), false);
+  assert.equal(
+    startDayReceiptCopy(1, 0, ['Second focus']),
+    'Claude is starting on 1 item. Could not start: Second focus.',
+  );
+});
+
+test('focus band matches Start My Day by retaining only preselected and accepted items', () => {
+  const items = [
+    { id: 'completed', position: 0, decision: 'completed' },
+    { id: 'first', position: 1, decision: 'accepted' },
+    { id: 'later', position: 2, decision: 'later' },
+    { id: 'second', position: 3, decision: 'preselected' },
+    { id: 'third', position: 4, decision: 'pending' },
+    { id: 'fourth', position: 5, decision: 'accepted' },
+  ];
+  assert.deepEqual(focusBandItems(items).map((item) => item.id), [
+    'first', 'second', 'fourth',
+  ]);
 });
 
 test('resume command quotes both workspace and session for the copy fallback', () => {
@@ -524,15 +508,6 @@ test('claude resume deep link encodes the session id', () => {
     'claude://resume?session=00000000-0000-4000-8000-000000000000',
   );
   assert.equal(claudeResumeUrl('a b/c'), 'claude://resume?session=a%20b%2Fc');
-});
-
-test('escape collapses an expanded card and otherwise does nothing, never bypassing', () => {
-  assert.deepEqual(
-    resolveArrivalEscape({ dragging: false, expandedItemId: 'item-a' }),
-    { type: 'collapse', itemId: 'item-a' },
-  );
-  assert.deepEqual(resolveArrivalEscape({ dragging: false, expandedItemId: null }), { type: 'none' });
-  assert.deepEqual(resolveArrivalEscape({ dragging: true, expandedItemId: 'item-a' }), { type: 'none' });
 });
 
 test('ritual view swaps crossfade, cut immediately under reduced motion, and skip no-ops', () => {

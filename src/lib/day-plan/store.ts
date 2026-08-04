@@ -76,6 +76,7 @@ import {
   DayPlanNotFound,
   DayPlanVersionConflict,
 } from "./store-errors";
+import { focusBandItems } from "./presentation";
 
 type Clock = () => Date;
 
@@ -89,6 +90,7 @@ const CONTENT_MUTATION_ACTIONS = new Set<string>([
   "item_later",
   "item_dismiss",
   "item_add",
+  "item_complete",
   "item_owner",
   "item_reorder",
 ]);
@@ -2645,6 +2647,12 @@ export function createDayPlanStore(options: {
 
   function managedTaskOfflimits(task: ManagedTaskRow | undefined): boolean {
     if (!task || task.status !== "open" || task.recurring_template_id) return true;
+    if (task.column_id) {
+      const column = db.prepare(
+        "SELECT name FROM task_columns WHERE id = ?",
+      ).get(task.column_id) as { name: string } | undefined;
+      if (column && taskColumnKeyForName(column.name) === "done") return true;
+    }
     let tags: string[] = [];
     try {
       const parsed = JSON.parse(task.tags ?? "[]");
@@ -3019,7 +3027,7 @@ export function createDayPlanStore(options: {
         // Deterministic winner on a same-key conflict is the earliest
         // finished_at, and the winner's COMPLETE canonical payload is adopted
         // (an identical input hash does not guarantee identical model output).
-        // The row id is kept so references stay valid — but a brief a plan has
+        // The row id is kept so references stay valid, but a brief a plan has
         // already consumed is pinned: its content must never change under an
         // arrival that was built from it.
         const existingFinished = sameKey.finished_at ?? sameKey.created_at;
@@ -3260,7 +3268,7 @@ export function createDayPlanStore(options: {
           return { plan: attached, snapshot: getSnapshot(attached.id), replayed: false };
         }
         // Attach-only (the 15s late-brief poll): nothing attached, so this is a
-        // deliberate silent no-op — no ledger event and the mutation id stays
+        // deliberate silent no-op with no ledger event, and the mutation id stays
         // unconsumed, so a repeating poll never grows the ledger. Only a real
         // attach above records anything (as its brief_attach event).
         if (input.attachOnly) {
@@ -3793,7 +3801,97 @@ export function createDayPlanStore(options: {
         }
         case "item_add": {
           requireArrivalEditing(plan);
-          if (plan.items.length >= 10) {
+          const activeCount = plan.items.filter(
+            (item) =>
+              item.decision === "pending" ||
+              item.decision === "preselected" ||
+              item.decision === "accepted",
+          ).length;
+          const taskId = cleanOptional(input.taskId);
+          if (taskId) {
+            const existing = plan.items.find((item) => item.taskId === taskId);
+            if (
+              existing &&
+              (existing.decision === "pending" ||
+                existing.decision === "preselected" ||
+                existing.decision === "accepted")
+            ) {
+              throw new DayPlanInvalidTransition("That task is already in Today.");
+            }
+            if (existing?.decision === "completed") {
+              throw new DayPlanInvalidTransition("That task is already complete.");
+            }
+            const task = managedTask(taskId);
+            if (managedTaskOfflimits(task)) {
+              throw new DayPlanInvalidTransition(
+                "That task is not available for today's plan.",
+              );
+            }
+            if (activeCount >= 10) {
+              throw new DayPlanInvalidTransition("Today's plan is full.");
+            }
+            const taskPriority = task!.priority === "high" || task!.priority === "low"
+              ? task!.priority
+              : "medium";
+            const title = task!.title.trim();
+            if (!title) {
+              throw new DayPlanInvalidTransition("That task needs a title.");
+            }
+            const description = task!.description?.trim();
+            const dueAt = task!.due_at ?? task!.due_date ?? undefined;
+            const itemId = existing?.id ?? randomUUID();
+            const hydrated: DayPlanItem = {
+              ...(existing ?? {} as DayPlanItem),
+              id: itemId,
+              candidateId: existing?.candidateId ?? itemId,
+              taskId,
+              outcomeKey: `task:${taskId}`,
+              title,
+              outcome: description || title,
+              definitionOfDone: existing?.definitionOfDone ?? description ?? title,
+              project: task!.project?.trim() || undefined,
+              owner: existing?.owner ?? "me",
+              commitment: "ink",
+              whyToday: existing?.whyToday ?? "Added from Not today.",
+              priority: taskPriority,
+              dueAt,
+              sourceRefs: [{
+                sourceType: "task",
+                recordId: taskId,
+                sourceUpdatedAt: task!.updated_at ?? changedAt,
+                refreshedAt: changedAt,
+                freshness: "current",
+                supports: ["commitment", "priority"],
+              }],
+              newestSourceRefreshAt: changedAt,
+              conflicts: [],
+              humanDecisionEventIds: [
+                ...new Set([...(existing?.humanDecisionEventIds ?? []), input.mutationId]),
+              ],
+              rankReasons: ["accepted_today", `priority_${taskPriority}`],
+              position: activeCount,
+              decision: "preselected",
+            };
+            const ordered = [...plan.items]
+              .sort((left, right) => left.position - right.position)
+              .filter((item) => item.id !== itemId);
+            const lastActiveIndex = ordered.findLastIndex(
+              (item) =>
+                item.decision === "pending" ||
+                item.decision === "preselected" ||
+                item.decision === "accepted",
+            );
+            const insertIndex = lastActiveIndex >= 0
+              ? lastActiveIndex + 1
+              : ordered.length;
+            ordered.splice(insertIndex, 0, hydrated);
+            ordered.forEach((item, position) => {
+              item.position = position;
+            });
+            plan.items = ordered;
+            break;
+          }
+          if (activeCount >= 10) {
             throw new DayPlanInvalidTransition("Today's plan is full.");
           }
           const title = cleanOptional(input.title);
@@ -3836,6 +3934,42 @@ export function createDayPlanStore(options: {
           });
           break;
         }
+        case "item_complete": {
+          requireArrivalEditing(plan);
+          const item = requireItem(plan, input.itemId);
+          requireState(
+            item.decision,
+            ["pending", "preselected", "accepted"],
+            "Only a Today item can be completed.",
+          );
+          const taskBacked = item.sourceRefs.some(
+            (source) => source.sourceType === "task" && source.recordId === item.taskId,
+          );
+          if (taskBacked) {
+            const task = managedTask(item.taskId);
+            if (!task) throw new DayPlanInvalidTransition("The board task no longer exists.");
+            if (task.status !== "done") {
+              const doneColumn = (db.prepare(
+                "SELECT id, name FROM task_columns ORDER BY position ASC",
+              ).all() as Array<{ id: string; name: string }>).find(
+                (column) => taskColumnKeyForName(column.name) === "done",
+              );
+              if (!doneColumn) {
+                throw new DayPlanInvalidTransition("Cove needs a Done list to complete this task.");
+              }
+              const nextPosition = db.prepare(
+                "SELECT COALESCE(MAX(position), -1) + 1 AS position FROM tasks WHERE column_id = ? AND status = 'done'",
+              ).pluck().get(doneColumn.id) as number;
+              db.prepare(
+                `UPDATE tasks
+                 SET column_id = ?, status = 'done', position = ?, updated_at = ?
+                 WHERE id = ?`,
+              ).run(doneColumn.id, nextPosition, changedAt, task.id);
+            }
+          }
+          item.decision = "completed";
+          break;
+        }
         case "item_owner": {
           requireArrivalEditing(plan);
           const item = requireItem(plan, input.itemId);
@@ -3873,11 +4007,7 @@ export function createDayPlanStore(options: {
               (item) => item.decision === "accepted" || item.decision === "preselected",
             )
             .sort((left, right) => left.position - right.position);
-          const firstHuman = accepted.find(
-            (item) => item.owner === "me" || item.owner === "together",
-          );
-          const first = firstHuman ?? accepted[0];
-          if (!first) {
+          if (accepted.length === 0) {
             throw new DayPlanInvalidTransition(
               "Start My Day requires one accepted focus.",
             );
@@ -3888,6 +4018,11 @@ export function createDayPlanStore(options: {
               ...new Set([...item.humanDecisionEventIds, input.mutationId]),
             ];
           }
+          const focus = focusBandItems(plan.items);
+          const firstHuman = accepted.find(
+            (item) => item.owner === "me" || item.owner === "together",
+          );
+          const first = firstHuman ?? accepted[0];
           plan.state = "active";
           plan.arrivalState = "confirmed";
           plan.recommendedFirstItemId = first.id;
@@ -3896,7 +4031,7 @@ export function createDayPlanStore(options: {
           // Local owner chips launch resumable task sessions through the
           // separate task-session lifecycle. Keep the allowlisted headless lane
           // intact for unattended work and preserve its existing cloud behavior.
-          for (const item of getRuntimeMode() === "local" ? [] : accepted) {
+          for (const item of getRuntimeMode() === "local" ? [] : focus) {
             if (item.owner !== "claude" && item.owner !== "together") continue;
             const liveRun = findLiveItemRun(plan.id, item.id);
             if (liveRun) {
@@ -4274,7 +4409,7 @@ export function createDayPlanStore(options: {
         changedItem.humanDecisionEventIds = [
           ...new Set([...changedItem.humanDecisionEventIds, input.mutationId]),
         ];
-        if (["item_edit", "item_owner", "item_later", "item_dismiss"].includes(input.action)) {
+        if (["item_edit", "item_owner", "item_later", "item_dismiss", "item_complete"].includes(input.action)) {
           invalidateQueuedRunsForItem(plan, changedItem, changedAt);
         }
       }

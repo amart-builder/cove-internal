@@ -77,6 +77,7 @@ const ACTIONS = new Set<DayPlanMutationAction>([
   "item_later",
   "item_dismiss",
   "item_add",
+  "item_complete",
   "item_owner",
   "item_reorder",
   "start_day",
@@ -488,19 +489,23 @@ export function parseDayPlanPostBody(value: unknown): ParsedPost {
   }
   const owner = stringValue(body.owner, "owner", { max: 20 });
   if (owner && !OWNERS.has(owner as DayPlanOwner)) throw new Error("Unknown owner.");
+  const taskId = stringValue(body.taskId, "taskId", { max: 240 });
+  const taskBackedAdd = action === "item_add" && Boolean(taskId);
   const title = stringValue(body.title, "title", {
-    required: action === "item_add",
+    required: action === "item_add" && !taskBackedAdd,
     max: 240,
   });
   const outcome = stringValue(body.outcome, "outcome", {
-    required: action === "item_add",
+    required: action === "item_add" && !taskBackedAdd,
     max: 1200,
   });
   const why = stringValue(body.why, "why", {
-    required: action === "item_add",
+    required: action === "item_add" && !taskBackedAdd,
     max: 1200,
   });
-  if (action === "item_add" && !owner) throw new Error("owner is required.");
+  if (action === "item_add" && !taskBackedAdd && !owner) {
+    throw new Error("owner is required.");
+  }
   const disposition = stringValue(body.disposition, "disposition", { max: 20 });
   if (disposition && !DISPOSITIONS.has(disposition as SettlementDisposition)) {
     throw new Error("Unknown closing choice.");
@@ -525,6 +530,7 @@ export function parseDayPlanPostBody(value: unknown): ParsedPost {
       mutationId: mutationIdValue(body.mutationId),
       expectedVersion: expectedVersion as number,
       itemId: stringValue(body.itemId, "itemId", { max: 240 }),
+      taskId,
       title,
       outcome,
       definitionOfDone: stringValue(body.definitionOfDone, "definitionOfDone", {

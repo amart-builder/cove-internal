@@ -2,9 +2,49 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildDayPlanCandidates,
+  eligibleNotTodayTasks,
   orderArrivalCandidatesByTier,
   selectArrivalCandidateTasks,
 } from '../src/lib/day-plan/candidates.ts';
+
+test('Not today excludes protected and active work, then sorts brief, due, priority, and recency', () => {
+  const task = (id, patch = {}) => ({
+    _id: id,
+    columnId: 'backlog',
+    dueAt: undefined,
+    position: 0,
+    tags: [],
+    priority: 'medium',
+    status: 'open',
+    updatedAt: 100,
+    ...patch,
+  });
+  const tasks = [
+    task('recent', { updatedAt: 300 }),
+    task('high', { priority: 'high', updatedAt: 50 }),
+    task('due-later', { priority: 'low', dueAt: '2026-08-05' }),
+    task('due-first', { priority: 'low', dueAt: '2026-08-04' }),
+    task('brief', { priority: 'low', updatedAt: 1 }),
+    task('active'),
+    task('done', { columnId: 'done' }),
+    task('held', { tags: ['jarvis-held'] }),
+    task('email', { tags: ['email-current'] }),
+    task('recurring', { tags: ['recurring'] }),
+    task('archived', { status: 'archived' }),
+  ];
+  const result = eligibleNotTodayTasks(tasks, [
+    { taskId: 'active', decision: 'accepted' },
+    { taskId: 'brief', decision: 'later' },
+  ], {
+    doneColumnId: 'done',
+    briefRankedTaskIds: ['brief'],
+  });
+
+  assert.deepEqual(
+    result.map((candidate) => candidate._id),
+    ['brief', 'due-first', 'due-later', 'high', 'recent'],
+  );
+});
 
 const base = {
   description: '',

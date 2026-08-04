@@ -184,23 +184,16 @@ export function ownerDescription(owner: DayOwner): string {
   return OWNER_DESCRIPTIONS[owner];
 }
 
-export function selectEssentialItems<T extends DayPlanItem>(
-  items: readonly T[],
-  maximum = 3,
-): T[] {
-  const limit = Math.max(0, maximum);
-  const isExplicitArrivalAddition = (item: T) =>
-    item.sourceRefs?.some((source) => source.sourceType === 'decision') &&
-    item.rankReasons?.includes('accepted_today');
-  const essentialIds = new Set(
-    items
-      .filter((item) => !isExplicitArrivalAddition(item))
-      .slice(0, limit)
-      .map((item) => item.id),
-  );
-  return items.filter(
-    (item) => essentialIds.has(item.id) || isExplicitArrivalAddition(item),
-  );
+/** The active Today items in committed order, limited to the three focus slots. */
+export function focusBandItems<T extends DayPlanItem>(items: readonly T[]): T[] {
+  return [...items]
+    .filter(
+      (item) =>
+        item.decision === 'preselected' ||
+        item.decision === 'accepted',
+    )
+    .sort((left, right) => left.position - right.position)
+    .slice(0, 3);
 }
 
 export function reorderDayPlanItems<T extends DayPlanItem>(
@@ -383,11 +376,18 @@ export function shouldShowNeedsSetupToStart(input: {
     !input.taskDone;
 }
 
-export function startDayReceiptCopy(startingCount: number, alreadyInMotionCount: number): string {
+export function startDayReceiptCopy(
+  startingCount: number,
+  alreadyInMotionCount: number,
+  failedTitles: readonly string[] = [],
+): string {
   const starting = `Claude is starting on ${startingCount} ${startingCount === 1 ? 'item' : 'items'}.`;
-  return alreadyInMotionCount > 0
+  const base = alreadyInMotionCount > 0
     ? `${starting} ${alreadyInMotionCount} already in motion.`
     : starting;
+  return failedTitles.length > 0
+    ? `${base} Could not start: ${failedTitles.join(', ')}.`
+    : base;
 }
 
 export function executionRestartLabel(status: DayPlanExecutionRunStatus): 'Retry' | 'Restart' {
@@ -633,19 +633,4 @@ export function shouldAttemptLateBriefAttach(input: {
   // waits for fresh candidates, preserving the evidence boundary for tasks.
   if (!input.hasConsumedBrief && input.generationState === 'succeeded') return true;
   return input.candidatesReady && input.candidateCount > 0;
-}
-
-export type ArrivalEscapeDecision =
-  | { type: 'collapse'; itemId: string }
-  | { type: 'none' };
-
-// Escape is a pure decision: collapse an expanded card or transient UI if one is open,
-// otherwise do nothing. It never bypasses or closes the ritual.
-export function resolveArrivalEscape(input: {
-  dragging: boolean;
-  expandedItemId?: string | null;
-}): ArrivalEscapeDecision {
-  if (input.dragging) return { type: 'none' };
-  if (input.expandedItemId) return { type: 'collapse', itemId: input.expandedItemId };
-  return { type: 'none' };
 }

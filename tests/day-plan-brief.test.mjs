@@ -15,7 +15,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import test from 'node:test';
 import ArrivalStepBrief from '../src/components/tasks/arrival/ArrivalStepBrief.tsx';
-import ArrivalStepPriorities from '../src/components/tasks/arrival/ArrivalStepPriorities.tsx';
+import { morningArrivalSteps } from '../src/components/tasks/arrival/StepDots.tsx';
 import { buildDayPlanCandidates } from '../src/lib/day-plan/candidates.ts';
 import { createDayPlanStore } from '../src/lib/day-plan/store.ts';
 import {
@@ -76,7 +76,6 @@ import {
 
 const CLOCK = '2026-07-14T13:00:00.000Z';
 const ArrivalStepBriefComponent = ArrivalStepBrief.default ?? ArrivalStepBrief;
-const ArrivalStepPrioritiesComponent = ArrivalStepPriorities.default ?? ArrivalStepPriorities;
 const PREVIOUS_OPERATOR_NAME = process.env.COVE_OPERATOR_NAME;
 test.before(() => { process.env.COVE_OPERATOR_NAME = 'Jordan Rivers'; });
 test.after(() => {
@@ -107,14 +106,6 @@ const WIRE_BRIEF = {
       why_today: 'Client delivery blocks are protected on the calendar first.',
       suggested_owner: 'me',
       what_claude_can_start: '',
-    },
-  ],
-  suggested_additions: [
-    {
-      title: 'Prep the Fonte call kit',
-      outcome: 'A one-page prep kit exists for the call.',
-      why: 'The call tests the Buyer-View Books thesis this week.',
-      suggested_owner: 'claude',
     },
   ],
   watch_items: [
@@ -766,7 +757,6 @@ test('a date claim is stripped from the brief, and a wrong one is reported', () 
       narrativeParagraphs: ['Today is Sunday. The window closes Sunday.', 'Today is the day it ships.'],
       lensNarrative: 'ignored, recomputed',
       existingTaskCandidates: [],
-      suggestedAdditions: [],
       watchItems: [],
       boardActions: [],
     },
@@ -840,6 +830,10 @@ test('validation accepts the contract, normalizes it, and filters unknown tasks 
 });
 
 test('validation rejects missing prose and oversized candidate lists', () => {
+  const schema = JSON.parse(MORNING_BRIEF_JSON_SCHEMA);
+  assert.equal(schema.properties.existing_task_candidates.maxItems, 8);
+  assert.equal('suggested_additions' in schema.properties, false);
+  assert.equal(schema.required.includes('suggested_additions'), false);
   // A brief with no prose at all in any shape is the one narrative failure left:
   // the validator accepts either the schema-3 fields or a legacy flat narrative.
   assert.throws(
@@ -847,7 +841,7 @@ test('validation rejects missing prose and oversized candidate lists', () => {
     /lens_narrative_required/,
   );
   assert.throws(
-    () => validateMorningBrief({ ...WIRE_BRIEF, existing_task_candidates: Array(4).fill(WIRE_BRIEF.existing_task_candidates[0]) }),
+    () => validateMorningBrief({ ...WIRE_BRIEF, existing_task_candidates: Array(9).fill(WIRE_BRIEF.existing_task_candidates[0]) }),
     /existing_task_candidates_bounds/,
   );
 });
@@ -966,18 +960,45 @@ test('overlay ranks brief selections first, drops vanished tasks, and backfills 
   assert.equal(selection[2].brief, undefined);
 });
 
-test('suggested additions can never become candidates', () => {
-  const pool = candidatePool();
-  const { brief } = validateMorningBrief(WIRE_BRIEF);
-  const selection = overlayBriefOnCandidates(pool, brief);
-  // The addition has no taskId in the pool, so nothing in the selection can be it.
-  assert.equal(
-    selection.some((entry) => entry.candidate.title === 'Prep the Fonte call kit'),
-    false,
+test('brief overlay sizes Today from ranked candidates while fallback stays at three', () => {
+  const pool = buildDayPlanCandidates({
+    localDate: '2026-07-14',
+    timezone: 'America/Los_Angeles',
+    tasks: Array.from({ length: 10 }, (_, index) => ({
+      id: `task-${index}`,
+      title: `Task ${index}`,
+      description: `Finish task ${index}`,
+      priority: index < 3 ? 'high' : 'medium',
+      position: index,
+      column: 'today',
+      status: 'open',
+      updatedAt: '2026-07-14T12:00:00.000Z',
+      refreshedAt: CLOCK,
+    })),
+  }, 10);
+  const briefWith = (indexes) => ({
+    existingTaskCandidates: indexes.map((index) => ({
+      taskId: `task-${index}`,
+      whyToday: `Rank ${index}`,
+      suggestedOwner: 'me',
+      whatClaudeCanStart: `Start ${index}`,
+      evidenceRefs: [],
+    })),
+  });
+
+  assert.deepEqual(
+    overlayBriefOnCandidates(pool, briefWith([7])).map((entry) => entry.candidate.taskId),
+    ['task-7', 'task-0', 'task-1'],
   );
-  assert.equal(selection.length, 3);
-  // The addition still exists on its own list, untouched.
-  assert.equal(brief.suggestedAdditions[0].title, 'Prep the Fonte call kit');
+  assert.deepEqual(
+    overlayBriefOnCandidates(pool, briefWith([7, 2, 5, 1, 9, 8, 6, 4]))
+      .map((entry) => entry.candidate.taskId),
+    ['task-7', 'task-2', 'task-5', 'task-1', 'task-9', 'task-8', 'task-6', 'task-4'],
+  );
+  assert.deepEqual(
+    overlayBriefOnCandidates(pool, undefined).map((entry) => entry.candidate.taskId),
+    ['task-0', 'task-1', 'task-2'],
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -991,6 +1012,7 @@ test('eligible selection picks the newest succeeded artifact for the date and ve
     { id: 'failed', targetLocalDate: '2026-07-14', status: 'failed', ...VERSIONS, createdAt: '2026-07-14T07:00:00.000Z', updatedAt: '2026-07-14T07:00:00.000Z', modelAlias: 'opus', effort: 'high', budgetUsd: 1.5 },
     { id: 'other-day', targetLocalDate: '2026-07-13', status: 'succeeded', ...VERSIONS, briefJson: '{}', createdAt: '2026-07-14T08:00:00.000Z', updatedAt: '2026-07-14T08:00:00.000Z', finishedAt: '2026-07-14T08:05:00.000Z', modelAlias: 'opus', effort: 'high', budgetUsd: 1.5 },
     { id: 'old-schema', targetLocalDate: '2026-07-14', status: 'succeeded', promptVersion: VERSIONS.promptVersion, schemaVersion: VERSIONS.schemaVersion + 1, briefJson: '{}', createdAt: '2026-07-14T09:00:00.000Z', updatedAt: '2026-07-14T09:00:00.000Z', finishedAt: '2026-07-14T09:05:00.000Z', modelAlias: 'opus', effort: 'high', budgetUsd: 1.5 },
+    { id: 'legacy-v16', targetLocalDate: '2026-07-14', status: 'succeeded', promptVersion: 16, schemaVersion: 5, briefJson: '{}', createdAt: '2026-07-14T10:00:00.000Z', updatedAt: '2026-07-14T10:00:00.000Z', finishedAt: '2026-07-14T10:05:00.000Z', modelAlias: 'opus', effort: 'high', budgetUsd: 1.5 },
   ];
   assert.equal(selectEligibleMorningBrief(artifacts, '2026-07-14')?.id, 'new');
   assert.equal(selectEligibleMorningBrief(artifacts, '2026-07-12'), undefined);
@@ -1432,7 +1454,6 @@ test('a stored artifact with malformed nested entries fails open to deterministi
     { ...brief, existingTaskCandidates: [null] },
     { ...brief, existingTaskCandidates: [{ taskId: 42 }] },
     { ...brief, watchItems: [{ label: 'x' }] },
-    { ...brief, suggestedAdditions: ['not-an-object'] },
     { ...brief, validationNotes: [7] },
   ];
   for (const [index, defect] of cases.entries()) {
@@ -1445,6 +1466,20 @@ test('a stored artifact with malformed nested entries fails open to deterministi
   // And a valid stored brief round-trips intact.
   const parsed = morningBriefFromArtifact({ ...base, briefJson: JSON.stringify(brief) });
   assert.deepEqual(parsed, brief);
+
+  const legacyV16 = {
+    ...brief,
+    suggestedAdditions: [{ title: 'Old suggestion with a retired UI' }],
+  };
+  assert.deepEqual(
+    morningBriefFromArtifact({
+      ...base,
+      promptVersion: 16,
+      schemaVersion: 5,
+      briefJson: JSON.stringify(legacyV16),
+    }),
+    brief,
+  );
 
   const retiredField = ['sal', 'esActions'].join('');
   const withRetiredSection = { ...brief, [retiredField]: [{ contact: 'Legacy contact' }] };
@@ -1486,7 +1521,7 @@ test('ensure keeps at most three items from a larger deterministic pool', (t) =>
 // ---------------------------------------------------------------------------
 
 test('the brief command is the exact bounded toolless invocation', () => {
-  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 16);
+  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 17);
   const repoCwd = process.cwd();
   const ownerPrompt = readFileSync(path.join(repoCwd, 'prompts', 'chief-of-staff.md'), 'utf8').trimEnd();
   assert.ok(ownerPrompt.includes(
@@ -1552,9 +1587,8 @@ test('the brief command is the exact bounded toolless invocation', () => {
     'Return only the JSON object required by the schema. Cove validates and stores it; you never write storage.',
     'SOURCE_MANIFEST tells you exactly what you can see and how fresh it is.',
     'Every evidence_refs entry must name a source from SOURCE_MANIFEST, as source or source:detail (for example sprint_memo:gio). Cove drops any watch_item whose refs cite anything else.',
-    "existing_task_candidates: choose the day's true top priorities against the operator's goals from the ENTIRE OPEN_TASKS pool marked candidate_ok, not merely Today or In Flight. Return at most 3, ranked. Rows without candidate_ok are context only, never candidates. Never invent tasks there.",
+    "existing_task_candidates: choose the day's true top priorities against the operator's goals from the ENTIRE OPEN_TASKS pool marked candidate_ok, not merely Today or In Flight. Return up to 8, ranked. The first 3 are the day's focus. Rows without candidate_ok are context only, never candidates. Never invent tasks there.",
     'board_actions: act as chief of staff over the whole candidate_ok board. Use at most 15 moves that materially improve today\'s board. You may move columns, change priority or grounded due dates, clarify titles or descriptions, archive stale work, and archive duplicates into a named survivor. Retitles and description edits may clarify existing facts only; never add a fact, commitment, deadline, or scope that the sources do not establish. Every set_due needs resolving evidence_refs. Mention material intended archives or duplicate consolidations once in the narrative, phrased as intent because Cove applies actions later and conflicts may leave them alone.',
-    'suggested_additions is a separate approval inbox for genuinely new work. Nothing in it is created automatically.',
     'watch_items are the never-drop checks: stale leads over 3 days, promised follow-ups, invoices, call prep, the Friday scoreboard. At most five, ranked by what actually costs the operator something if nobody touches it today; a long list reads as noise and they stop reading it. Each evidence value must be one finished human sentence with no source citations. Keep last_seen_state and evidence_refs grounded for storage, but never write citation language into the sentence.',
     'Do not invent facts, deadlines, contacts, or commitments. Do not use em dashes anywhere.',
     `JSON_SCHEMA=${MORNING_BRIEF_JSON_SCHEMA}`,
@@ -1702,63 +1736,9 @@ test('watching-item UI renders only its title and finished sentence', () => {
   assert.doesNotMatch(html, /internal_pending_marker/);
 });
 
-function prioritiesMarkup({ visibleItems = [], suggestedAdditions = [] } = {}) {
-  return renderToStaticMarkup(createElement(ArrivalStepPrioritiesComponent, {
-    visibleItems,
-    busy: false,
-    draggingRef: { current: false },
-    onExpand() {},
-    onOwnerChange() {},
-    onDragReorder() {},
-    onDismiss() {},
-    setDisclosureRef() {},
-    onOwnerChipOpen() {},
-    onOwnerChipClose() {},
-    suggestedAdditions,
-    addedSuggestionIndexes: new Set(),
-    async onAddSuggestion() {},
-  }));
-}
-
-test('priorities render brief additions instead of the empty fallback', () => {
-  const html = prioritiesMarkup({
-    suggestedAdditions: [{
-      title: 'Prep the Fonte call kit',
-      outcome: 'A one-page call kit exists.',
-      why: 'The call tests the thesis this week.',
-      suggestedOwner: 'claude',
-    }],
-  });
-
-  assert.match(html, /Prep the Fonte call kit/);
-  assert.match(html, /The call tests the thesis this week\./);
-  assert.match(html, /Add to today/);
-  assert.doesNotMatch(html, /No credible priorities are ready\./);
-});
-
-test('priorities keep existing items and use brief additions to fill open slots', () => {
-  const html = prioritiesMarkup({
-    visibleItems: [{
-      item: { id: 'existing-item', owner: 'me' },
-      title: 'Ship the client deliverable',
-      whyToday: 'It is already committed for today.',
-    }],
-    suggestedAdditions: [{
-      title: 'Prep the Fonte call kit',
-      outcome: 'A one-page call kit exists.',
-      why: 'The call tests the thesis this week.',
-      suggestedOwner: 'claude',
-    }],
-  });
-
-  assert.match(html, /Ship the client deliverable/);
-  assert.match(html, /Prep the Fonte call kit/);
-  assert.match(html, /Add to today/);
-  assert.doesNotMatch(html, /No credible priorities are ready\./);
-});
-
-test('priorities render the empty fallback only without items or brief additions', () => {
-  assert.match(prioritiesMarkup(), /No credible priorities are ready\./);
+test('morning arrival always computes exactly brief then plan', () => {
+  assert.deepEqual(morningArrivalSteps(), ['brief', 'plan']);
+  assert.equal(morningArrivalSteps().includes('extras'), false);
 });
 
 test('arrival brief presentation suppresses fallback body only for a real stalled hole', () => {
@@ -1970,8 +1950,8 @@ test('the brief worker validates, filters unknown tasks, and stores the artifact
   assert.equal(storedInput.artifact_id, artifact.id);
   assert.equal(storedInput.target_local_date, '2026-07-14');
   assert.equal(storedInput.target_timezone, 'America/Los_Angeles');
-  assert.equal(storedInput.prompt_version, 16);
-  assert.equal(storedInput.schema_version, 5);
+  assert.equal(storedInput.prompt_version, 17);
+  assert.equal(storedInput.schema_version, 6);
   assert.deepEqual(storedInput.sections, assembleMorningBriefContext(collectedSources().sources, {
     now: new Date(CLOCK),
   }).sections);

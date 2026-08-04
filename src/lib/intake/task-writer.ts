@@ -358,6 +358,26 @@ function zoneOffset(localDate: string, timezone: string): string {
   return `${match[1]}${match[2]}:${match[3]}`;
 }
 
+/**
+ * A consolidated meeting bundle must land exactly as captured: the first
+ * line is the task title and the checklist lines plus the Meeting footer are
+ * the description. Model triage can reword everything else, but not this.
+ * The rule in prompts/triage.md is guidance; this override is the guarantee.
+ *
+ * Only events from the meeting pipeline (source "meeting") qualify. A chat
+ * or manual capture that happens to start with "Follow ups:" keeps normal
+ * triage behavior.
+ */
+function meetingBundleOverride(
+  event: InboundEvent,
+): { title: string; description: string } | undefined {
+  if (event.source !== "meeting") return undefined;
+  const lines = event.raw_text.split(/\r?\n/);
+  const title = (lines[0] ?? "").trim();
+  if (!title.startsWith("Follow ups:")) return undefined;
+  return { title, description: lines.slice(1).join("\n").trim() };
+}
+
 export function fallbackInboundDueAt(
   now: Date,
   timezone = operatorTimezone(),
@@ -382,11 +402,13 @@ export async function createFallbackInboundTask(
     proposedCadence ? "today" : "not-started",
     options,
   );
+  const bundle = meetingBundleOverride(event);
   return createTask(event, {
     id: event.id,
     column_id: targetColumn,
-    title: event.raw_text.slice(0, 80) || `Inbound item from ${event.source}`,
-    description: `${event.raw_text}\n\nArrived via ${event.source} and needs triage.`,
+    title: bundle?.title ??
+      (event.raw_text.slice(0, 80) || `Inbound item from ${event.source}`),
+    description: `${bundle?.description ?? event.raw_text}\n\nArrived via ${event.source} and needs triage.`,
     priority: "medium",
     due_at: recurrenceLocalDate ?? fallbackInboundDueAt(clock()),
     tags: [
@@ -468,7 +490,8 @@ export async function createTriagedInboundTask(
     ? "today"
     : "not-started";
   const targetColumn = await columnId(columnKey, options);
-  const description = [
+  const bundle = meetingBundleOverride(event);
+  const description = bundle?.description ?? [
     triage.description,
     `Offer: ${triage.offer}`,
     `Autonomy: ${triage.autonomy}`,
@@ -486,7 +509,7 @@ export async function createTriagedInboundTask(
   return createTask(event, {
     id: event.id,
     column_id: targetColumn,
-    title: triage.title,
+    title: bundle?.title ?? triage.title,
     description,
     project: triage.project,
     priority: triage.priority,

@@ -65,6 +65,77 @@ function hasNormalizedTag(tags: readonly string[], tag: string): boolean {
   return tags.some((candidate) => candidate.trim().toLowerCase() === tag);
 }
 
+export type NotTodayTask = ArrivalCandidateSelectionTask & {
+  priority: "low" | "medium" | "high";
+  status?: "open" | "done" | "archived";
+  updatedAt: number;
+  dueDate?: string;
+  recurringTemplateId?: string;
+};
+
+export type NotTodayPlanItem = {
+  taskId: string;
+  decision: "pending" | "preselected" | "accepted" | "completed" | "later" | "dismissed";
+};
+
+const ACTIVE_TODAY_DECISIONS = new Set(["pending", "preselected", "accepted"]);
+
+/** Returns every open board task that can be added to Today, in planning order. */
+export function eligibleNotTodayTasks<T extends NotTodayTask>(
+  tasks: readonly T[],
+  planItems: readonly NotTodayPlanItem[],
+  input: {
+    doneColumnId?: string;
+    briefRankedTaskIds?: readonly string[];
+  } = {},
+): T[] {
+  const activeTaskIds = new Set(
+    planItems
+      .filter((item) => ACTIVE_TODAY_DECISIONS.has(item.decision))
+      .map((item) => item.taskId),
+  );
+  const briefRank = new Map(
+    (input.briefRankedTaskIds ?? []).map((taskId, index) => [taskId, index]),
+  );
+  const priorityWeight = { high: 0, medium: 1, low: 2 } as const;
+
+  return tasks
+    .filter((task) => {
+      const taskId = arrivalTaskId(task);
+      return Boolean(taskId) &&
+        task.status !== "done" &&
+        task.status !== "archived" &&
+        task.columnId !== input.doneColumnId &&
+        !task.recurringTemplateId &&
+        !hasNormalizedTag(task.tags, "jarvis-held") &&
+        !hasNormalizedTag(task.tags, "email-current") &&
+        !hasNormalizedTag(task.tags, "recurring") &&
+        !activeTaskIds.has(taskId);
+    })
+    .sort((left, right) => {
+      const leftId = arrivalTaskId(left);
+      const rightId = arrivalTaskId(right);
+      const leftBriefRank = briefRank.get(leftId);
+      const rightBriefRank = briefRank.get(rightId);
+      if (leftBriefRank !== undefined || rightBriefRank !== undefined) {
+        if (leftBriefRank === undefined) return 1;
+        if (rightBriefRank === undefined) return -1;
+        if (leftBriefRank !== rightBriefRank) return leftBriefRank - rightBriefRank;
+      }
+      const leftDue = left.dueAt ?? left.dueDate;
+      const rightDue = right.dueAt ?? right.dueDate;
+      if (leftDue || rightDue) {
+        if (!leftDue) return 1;
+        if (!rightDue) return -1;
+        const dueOrder = leftDue.localeCompare(rightDue);
+        if (dueOrder !== 0) return dueOrder;
+      }
+      return priorityWeight[left.priority] - priorityWeight[right.priority] ||
+        right.updatedAt - left.updatedAt ||
+        left.position - right.position;
+    });
+}
+
 /**
  * Selects the task records that may enter Morning Arrival before their evidence
  * is validated by buildDayPlanCandidates. Accepted Today/In Flight work keeps

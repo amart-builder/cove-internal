@@ -15,6 +15,10 @@ Turn a natural-language request into a task on the local Cove board at
 `http://localhost:3200`, with a sensible due date and a reminder. Confirm in one
 short, human sentence when done.
 
+Task-creation conventions (consolidation, one card per source occurrence) live
+in the Cove repo's `prompts/triage.md`; read them before creating multiple
+related cards.
+
 ## 1. Read the request token and board
 
 Read the current day-plan state first. Keep its `csrfToken`; every POST or

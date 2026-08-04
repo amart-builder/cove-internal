@@ -36,6 +36,26 @@ import type {
   TaskSessionRunStatus,
 } from "./types";
 
+export const TASK_SESSION_ACTIVE_LIMIT = 6;
+
+export class TaskSessionCapacityError extends Error {
+  readonly code = "task_session_capacity";
+
+  constructor(public readonly limit = TASK_SESSION_ACTIVE_LIMIT) {
+    super(`Claude can work on up to ${limit} tasks at once. Stop one before starting another.`);
+    this.name = "TaskSessionCapacityError";
+  }
+}
+
+export class TaskSessionRunNotFoundError extends Error {
+  readonly code = "task_session_not_found";
+
+  constructor() {
+    super("Task session run not found.");
+    this.name = "TaskSessionRunNotFoundError";
+  }
+}
+
 type SpawnImpl = typeof spawn;
 
 type TaskSessionRunRow = {
@@ -512,7 +532,7 @@ export function createTaskSessionManager(
     reason: "task_deleted" | "user_closed" | "orphan_reaped",
   ): TaskSessionRun {
     const row = getRow(runId);
-    if (!row) throw new Error("Task session run not found.");
+    if (!row) throw new TaskSessionRunNotFoundError();
     if (row.status !== "running" && row.status !== "awaiting_approval") {
       return fromRow(row);
     }
@@ -582,6 +602,13 @@ export function createTaskSessionManager(
        ORDER BY created_at DESC, id DESC LIMIT 1`,
     ).get(input.taskId) as TaskSessionRunRow | undefined;
     if (existing) return fromRow(existing);
+
+    const activeCount = db.prepare(
+      "SELECT COUNT(*) FROM cove_task_session_runs WHERE status IN ('running','awaiting_approval')",
+    ).pluck().get() as number;
+    if (activeCount >= TASK_SESSION_ACTIVE_LIMIT) {
+      throw new TaskSessionCapacityError();
+    }
 
     const runId = randomId();
     const sessionId = randomId();

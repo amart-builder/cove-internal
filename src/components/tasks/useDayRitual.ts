@@ -22,15 +22,14 @@ import {
 import { launchTaskSessionRun } from '@/lib/data/task-sessions';
 import type {
   MorningBriefGeneration,
-  MorningBriefSuggestedAddition,
   PublicMorningBrief,
 } from '@/lib/day-plan/brief';
 import { isWeekendLocalDate } from '@/lib/day-plan/weekday';
 import { morningBriefSyncDecision } from '@/lib/day-plan/brief-view';
 import { useDataChanged } from '@/lib/data/refresh-bus';
-import { matchesArrivalAddition } from '@/lib/day-plan/arrival-addition';
 import type {
   DayPlan,
+  DayPlanItem,
   DayPlanExecutionMode,
   DayPlanModelAlias,
   DayPlanMutationAction,
@@ -47,6 +46,7 @@ import type {
 import {
   advanceMorningBriefAttachPoll,
   executionReadinessMessage,
+  focusBandItems,
   shouldAttemptLateBriefAttach,
   shouldPollBriefGeneration,
   startDayReceiptCopy,
@@ -76,6 +76,12 @@ export function executionPollingPolicy(localMode: boolean): {
         retryMs: CLOUD_EXECUTION_RETRY_MS,
         statusOnly: false,
       };
+}
+
+export function localTaskSessionKickoffItems<T extends DayPlanItem>(items: readonly T[]): T[] {
+  return focusBandItems(items).filter(
+    (item) => item.owner === 'claude' || item.owner === 'together',
+  );
 }
 
 export type DayRitualView =
@@ -815,31 +821,10 @@ export default function useDayRitual({
     });
   }, [enqueueMutation, markArrivalInteraction]);
 
-  const addItem = useCallback(async (
-    addition: MorningBriefSuggestedAddition,
-    owner: DayPlanOwner,
-  ): Promise<DayPlanMutationResult> => {
-    const existingItemIds = new Set(planRef.current?.items.map((item) => item.id) ?? []);
+  const addTask = useCallback(async (taskId: string, title: string) => {
     markArrivalInteraction();
-    const result = await enqueueMutation('item_add', {
-      title: addition.title,
-      outcome: addition.outcome,
-      why: addition.why,
-      owner,
-    });
-    const added = result.plan.items.some(
-      (item) =>
-        !existingItemIds.has(item.id) &&
-        matchesArrivalAddition(item, addition) &&
-        item.sourceRefs.some((source) => source.sourceType === 'decision') &&
-        item.rankReasons.includes('accepted_today'),
-    );
-    if (!added) {
-      const message = "Cove couldn't confirm that the addition reached today's plan.";
-      setError(message);
-      throw new Error(message);
-    }
-    setAnnouncement(`${addition.title} added to today.`);
+    const result = await enqueueMutation('item_add', { taskId });
+    setAnnouncement(`${title} added to today.`);
     return result;
   }, [enqueueMutation, markArrivalInteraction]);
 
@@ -856,6 +841,22 @@ export default function useDayRitual({
     await enqueueMutation('item_dismiss', { itemId }, {
       itemId,
       announce: `${title} removed from today’s essentials. The task is still in All Work.`,
+    });
+  }, [enqueueMutation, markArrivalInteraction]);
+
+  const laterItem = useCallback(async (itemId: string, title: string) => {
+    markArrivalInteraction();
+    await enqueueMutation('item_later', { itemId }, {
+      itemId,
+      announce: `${title} moved to Not today.`,
+    });
+  }, [enqueueMutation, markArrivalInteraction]);
+
+  const completeItem = useCallback(async (itemId: string, title: string) => {
+    markArrivalInteraction();
+    await enqueueMutation('item_complete', { itemId }, {
+      itemId,
+      announce: `${title} completed.`,
     });
   }, [enqueueMutation, markArrivalInteraction]);
 
@@ -1060,14 +1061,10 @@ export default function useDayRitual({
         announce: 'Your day is set.',
       });
       const executionRuns = result.executionRuns ?? [];
+      const localFocusItems = localTaskSessionKickoffItems(result.plan.items);
       const sessionLaunches = getRuntimeMode() === 'local'
         ? await Promise.allSettled(
-            result.plan.items
-              .filter(
-                (item) =>
-                  item.decision === 'accepted' &&
-                  (item.owner === 'claude' || item.owner === 'together'),
-              )
+            localFocusItems
               .map((item) => launchTaskSessionRun({
                 taskId: item.taskId,
                 dayPlanId: result.plan.id,
@@ -1094,7 +1091,21 @@ export default function useDayRitual({
       const alreadyHandledCount = result.kickoffSkips?.filter(
         (skip) => skip.reason === 'already_live' || skip.reason === 'result_available',
       ).length ?? 0;
-      const receipt = startDayReceiptCopy(handedOffCount, alreadyHandledCount);
+      const failedTitles = getRuntimeMode() === 'local'
+        ? localFocusItems.flatMap((item, index) => {
+            const launch = sessionLaunches[index];
+            return !launch || launch.status === 'rejected' || launch.value.status === 'failed'
+              ? [item.title]
+              : [];
+          })
+        : result.kickoffSkips?.flatMap((skip) =>
+            skip.reason === 'not_ready' ? [skip.title] : []
+          ) ?? [];
+      const receipt = startDayReceiptCopy(
+        handedOffCount,
+        alreadyHandledCount,
+        failedTitles,
+      );
       setAnnouncement(receipt);
       setStartReceipt(receipt);
       if (receiptTimerRef.current !== undefined) window.clearTimeout(receiptTimerRef.current);
@@ -1352,10 +1363,12 @@ export default function useDayRitual({
     snooze,
     skip,
     bypass,
-    addItem,
+    addTask,
     setOwner,
     reorder,
     dismissItem,
+    laterItem,
+    completeItem,
     configureExecution,
     kickoffExecution,
     cancelExecution,

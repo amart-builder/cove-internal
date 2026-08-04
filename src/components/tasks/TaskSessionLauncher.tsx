@@ -33,6 +33,7 @@ export function TaskSessionLauncher({
   busy = false,
   preferredOwner,
   compact = false,
+  activeRunCount = 0,
   onLaunch,
 }: {
   input: Omit<LaunchTaskSessionInput, 'owner'>;
@@ -40,6 +41,7 @@ export function TaskSessionLauncher({
   busy?: boolean;
   preferredOwner?: TaskSessionOwner;
   compact?: boolean;
+  activeRunCount?: number;
   onLaunch: (input: LaunchTaskSessionInput) => void | Promise<unknown>;
 }) {
   const owners = taskSessionOwnerButtons(run, preferredOwner);
@@ -64,37 +66,44 @@ export function TaskSessionLauncher({
 
   return (
     <span
-      className="inline-flex flex-wrap items-center gap-1"
+      className="inline-flex flex-col items-start gap-1"
       onPointerDown={stopPointer}
       onMouseDown={stopPointer}
       onClick={stopPointer}
     >
-      {run && (
-        <a
-          href={run.resumeUrl}
-          className={`${baseClass} press-scale inline-flex items-center border-accent-blue/35 bg-accent-blue/10 text-foreground`}
-          title={run.hint}
-          onPointerDown={stopPointer}
-          onMouseDown={stopPointer}
-          onClick={stopPointer}
-        >
-          {ownerLabel(run.owner)} · {TASK_SESSION_STATUS_LABELS[run.status]}
-        </a>
+      {activeRunCount >= 3 && owners.length > 0 && (
+        <span className="text-[10px] leading-snug text-muted-foreground">
+          More parallel sessions can increase Claude usage.
+        </span>
       )}
-      {owners.map((owner) => (
-        <button
-          key={owner}
-          type="button"
-          disabled={busy}
-          className={`${baseClass} press-scale border-border/70 bg-background/55 text-muted-foreground hover:text-foreground disabled:opacity-50`}
-          onClick={(event) => {
-            event.stopPropagation();
-            void Promise.resolve(onLaunch({ ...input, owner })).catch(() => undefined);
-          }}
-        >
-          {busy ? 'Starting…' : ownerLabel(owner)}
-        </button>
-      ))}
+      <span className="inline-flex flex-wrap items-center gap-1">
+        {run && (
+          <a
+            href={run.resumeUrl}
+            className={`${baseClass} press-scale inline-flex items-center border-accent-blue/35 bg-accent-blue/10 text-foreground`}
+            title={run.hint}
+            onPointerDown={stopPointer}
+            onMouseDown={stopPointer}
+            onClick={stopPointer}
+          >
+            {ownerLabel(run.owner)} · {TASK_SESSION_STATUS_LABELS[run.status]}
+          </a>
+        )}
+        {owners.map((owner) => (
+          <button
+            key={owner}
+            type="button"
+            disabled={busy}
+            className={`${baseClass} press-scale border-border/70 bg-background/55 text-muted-foreground hover:text-foreground disabled:opacity-50`}
+            onClick={(event) => {
+              event.stopPropagation();
+              void Promise.resolve(onLaunch({ ...input, owner })).catch(() => undefined);
+            }}
+          >
+            {busy ? 'Starting…' : ownerLabel(owner)}
+          </button>
+        ))}
+      </span>
     </span>
   );
 }
@@ -104,6 +113,7 @@ export function TaskSessionPanel({
   input,
   busy,
   preferredOwner,
+  activeRunCount = 0,
   error,
   onLaunch,
 }: {
@@ -111,6 +121,7 @@ export function TaskSessionPanel({
   input: Omit<LaunchTaskSessionInput, 'owner'>;
   busy?: boolean;
   preferredOwner?: TaskSessionOwner;
+  activeRunCount?: number;
   error?: string;
   onLaunch: (input: LaunchTaskSessionInput) => void | Promise<unknown>;
 }) {
@@ -134,6 +145,7 @@ export function TaskSessionPanel({
           run={run}
           busy={busy}
           preferredOwner={preferredOwner}
+          activeRunCount={activeRunCount}
           onLaunch={onLaunch}
         />
       </div>

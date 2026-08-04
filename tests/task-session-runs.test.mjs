@@ -20,6 +20,7 @@ import {
 import {
   buildTaskSessionCommand,
   createTaskSessionManager,
+  TaskSessionCapacityError,
 } from '../src/lib/task-sessions/manager.ts';
 import { taskSessionSettlementNote } from '../src/lib/task-sessions/presentation.ts';
 import { getQuietCurrentCsrfToken } from '../src/lib/quiet-current/store.ts';
@@ -34,7 +35,23 @@ import { listRecentReceipts } from '../src/lib/reliability/receipts.ts';
 import {
   EXECUTION_STATUS_POLL_MS,
   executionPollingPolicy,
+  localTaskSessionKickoffItems,
 } from '../src/components/tasks/useDayRitual.ts';
+
+test('local kickoff launches only agent-owned items in the three active focus slots', () => {
+  const items = [
+    { id: 'done', position: 0, decision: 'completed', owner: 'claude' },
+    { id: 'first', position: 1, decision: 'accepted', owner: 'claude' },
+    { id: 'later', position: 2, decision: 'later', owner: 'claude' },
+    { id: 'second', position: 3, decision: 'accepted', owner: 'me' },
+    { id: 'third', position: 4, decision: 'accepted', owner: 'together' },
+    { id: 'fourth', position: 5, decision: 'accepted', owner: 'claude' },
+  ];
+  assert.deepEqual(
+    localTaskSessionKickoffItems(items).map((item) => item.id),
+    ['first', 'third'],
+  );
+});
 
 function fakeChild(pid) {
   const child = Object.assign(new EventEmitter(), {
@@ -65,11 +82,12 @@ function fixture(t, options = {}) {
     '55555555-5555-4555-8555-555555555555',
     '66666666-6666-4666-8666-666666666666',
   ];
+  let fallbackId = 7;
   const manager = createTaskSessionManager({
     dbPath,
     dataDir: dir,
     claudePath: '/fake/claude',
-    randomId: () => ids.shift(),
+    randomId: () => ids.shift() ?? `${String(fallbackId).padStart(8, '0')}-0000-4000-8000-${String(fallbackId++).padStart(12, '0')}`,
     spawnImpl: (executable, args, spawnOptions) => {
       const child = fakeChild(nextPid++);
       children.push(child);
@@ -392,6 +410,28 @@ test('deleting a running task abandons the run without deleting its outputs', (t
   assert.deepEqual(signals, [[41000, 'SIGTERM']]);
 });
 
+test('the manager refuses a seventh active task session with the typed limit error', (t) => {
+  const { manager } = fixture(t);
+  for (let index = 0; index < 6; index += 1) {
+    manager.launch({
+      taskId: `task-capacity-${index}`,
+      owner: 'claude',
+      promptSnapshot: { ...SNAPSHOT, title: `Capacity ${index}` },
+    });
+  }
+  assert.throws(
+    () => manager.launch({
+      taskId: 'task-capacity-7',
+      owner: 'claude',
+      promptSnapshot: { ...SNAPSHOT, title: 'Capacity 7' },
+    }),
+    (error) =>
+      error instanceof TaskSessionCapacityError &&
+      error.limit === 6 &&
+      /up to 6 tasks at once/.test(error.message),
+  );
+});
+
 test('settlement notes a live session without changing its lifecycle', (t) => {
   const { manager } = fixture(t);
   const run = manager.launch({
@@ -646,6 +686,145 @@ test('task session API is local-only and cloud modes never touch the manager', a
     { manager, runtimeMode: 'convex' },
   );
   assert.equal(postResponse.status, 404);
+});
+
+test('task session POST rejects launch and abandon with missing or wrong CSRF tokens', async () => {
+  const manager = new Proxy({}, {
+    get: () => () => {
+      throw new Error('CSRF rejection touched the task session manager');
+    },
+  });
+  const bodies = [
+    {
+      action: 'launch',
+      taskId: 'task-csrf',
+      owner: 'claude',
+      promptSnapshot: SNAPSHOT,
+    },
+    { action: 'abandon', runId: 'run-csrf' },
+  ];
+  for (const body of bodies) {
+    for (const token of [undefined, 'wrong-token']) {
+      const headers = {
+        host: 'localhost:3200',
+        origin: 'http://localhost:3200',
+        'content-type': 'application/json',
+      };
+      if (token) headers['x-cove-csrf'] = token;
+      const response = await handleTaskSessionRunsPost(
+        new NextRequest('http://localhost:3200/api/task-session-runs', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+        }),
+        { manager, runtimeMode: 'local' },
+      );
+      assert.equal(response.status, 403, `${body.action}:${token ?? 'missing'}`);
+      assert.deepEqual(await response.json(), { error: 'Cove request token is missing.' });
+    }
+  }
+});
+
+test('task session API uses an abandon-specific fallback for unknown failures', async () => {
+  const originalConsoleError = console.error;
+  console.error = () => undefined;
+  try {
+    const response = await handleTaskSessionRunsPost(
+      new NextRequest('http://localhost:3200/api/task-session-runs', {
+        method: 'POST',
+        headers: {
+          host: 'localhost:3200',
+          origin: 'http://localhost:3200',
+          'content-type': 'application/json',
+          'x-cove-csrf': getQuietCurrentCsrfToken(),
+        },
+        body: JSON.stringify({ action: 'abandon', runId: 'run-fallback' }),
+      }),
+      {
+        manager: { abandonRun: () => { throw undefined; } },
+        runtimeMode: 'local',
+      },
+    );
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), {
+      error: 'Could not abandon the Claude session.',
+    });
+  } finally {
+    console.error = originalConsoleError;
+  }
+});
+
+test('task session API abandons by run id, keeps terminal calls idempotent, and returns 404 for unknown ids', async (t) => {
+  const { manager } = fixture(t);
+  const run = manager.launch({
+    taskId: 'task-api-abandon',
+    owner: 'claude',
+    promptSnapshot: SNAPSHOT,
+  });
+  const request = (runId) => new NextRequest('http://localhost:3200/api/task-session-runs', {
+    method: 'POST',
+    headers: {
+      host: 'localhost:3200',
+      origin: 'http://localhost:3200',
+      'content-type': 'application/json',
+      'x-cove-csrf': getQuietCurrentCsrfToken(),
+    },
+    body: JSON.stringify({ action: 'abandon', runId }),
+  });
+
+  const first = await handleTaskSessionRunsPost(request(run.id), {
+    manager,
+    runtimeMode: 'local',
+  });
+  assert.equal(first.status, 200);
+  assert.equal((await first.json()).run.status, 'abandoned');
+  const repeated = await handleTaskSessionRunsPost(request(run.id), {
+    manager,
+    runtimeMode: 'local',
+  });
+  assert.equal(repeated.status, 200);
+  assert.equal((await repeated.json()).run.status, 'abandoned');
+  const missing = await handleTaskSessionRunsPost(request('missing-run'), {
+    manager,
+    runtimeMode: 'local',
+  });
+  assert.equal(missing.status, 404);
+  assert.equal((await missing.json()).code, 'task_session_not_found');
+});
+
+test('task session API maps the active run ceiling to a typed 409 response', async (t) => {
+  const { manager } = fixture(t);
+  for (let index = 0; index < 6; index += 1) {
+    manager.launch({
+      taskId: `task-api-capacity-${index}`,
+      owner: 'claude',
+      promptSnapshot: { ...SNAPSHOT, title: `API capacity ${index}` },
+    });
+  }
+  const response = await handleTaskSessionRunsPost(
+    new NextRequest('http://localhost:3200/api/task-session-runs', {
+      method: 'POST',
+      headers: {
+        host: 'localhost:3200',
+        origin: 'http://localhost:3200',
+        'content-type': 'application/json',
+        'x-cove-csrf': getQuietCurrentCsrfToken(),
+      },
+      body: JSON.stringify({
+        action: 'launch',
+        taskId: 'task-api-capacity-7',
+        owner: 'claude',
+        promptSnapshot: SNAPSHOT,
+      }),
+    }),
+    { manager, runtimeMode: 'local' },
+  );
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), {
+    error: 'Claude can work on up to 6 tasks at once. Stop one before starting another.',
+    code: 'task_session_capacity',
+    limit: 6,
+  });
 });
 
 test('orphan reaping covers brief, dump, and gated execution children', (t) => {

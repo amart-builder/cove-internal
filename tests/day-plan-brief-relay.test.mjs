@@ -61,7 +61,6 @@ const WIRE_BRIEF = {
       what_claude_can_start: '',
     },
   ],
-  suggested_additions: [],
   watch_items: [],
   board_actions: [],
 };
@@ -145,7 +144,7 @@ test('export writes one checksum-bearing file, write-once, atomically (no partia
   const relayDir = path.join(dir, 'brief-relay');
   const files = readdirSync(relayDir);
   // Exactly one JSON named for the date + host + artifact id, no lingering temp
-  // file — the rename committed atomically.
+  // file because the rename committed atomically.
   assert.equal(files.filter((name) => name.endsWith('.json')).length, 1);
   assert.equal(files.some((name) => name.includes('.tmp')), false);
   assert.match(files[0], new RegExp(`^2026-07-14-.+-${UUID_A}\\.json$`));
@@ -203,7 +202,7 @@ test('parseRelayFile rejects corrupt, foreign-version, checksum-mismatched, and 
   assert.equal(parseRelayFile(JSON.stringify(foreignSchema)), undefined);
 
   const tampered = JSON.parse(raw);
-  tampered.brief_json = JSON.stringify({ lensNarrative: 'evil', existingTaskCandidates: [], suggestedAdditions: [], watchItems: [] });
+  tampered.brief_json = JSON.stringify({ lensNarrative: 'evil', existingTaskCandidates: [], watchItems: [] });
   assert.equal(parseRelayFile(JSON.stringify(tampered)), undefined, 'checksum no longer matches the mutated content');
 
   const oversize = JSON.stringify({ ...JSON.parse(raw), pad: 'x'.repeat(1_100_000) });
@@ -624,7 +623,7 @@ test('a content mutation auto-stamps the marker so late-attach refuses afterward
   const { store, plan } = planThenBrief(t);
   store.mutateDayPlan({ planId: plan.id, mutationId: 'open:1', expectedVersion: plan.version, action: 'arrival_open' });
   const opened = store.getPlan(plan.id);
-  // arrival_open alone does NOT stamp — a brief can still attach to an opened arrival.
+  // arrival_open alone does NOT stamp. A brief can still attach to an opened arrival.
   assert.equal(opened.arrivalInteractedAt, undefined);
   store.mutateDayPlan({ planId: plan.id, mutationId: 'owner:1', expectedVersion: opened.version, action: 'item_owner', itemId: opened.items[0].id, owner: 'claude' });
   const touched = store.getPlan(plan.id);
@@ -861,7 +860,7 @@ test('arrival heal leaves non-empty, active, and settled plans untouched', (t) =
 });
 
 // ---------------------------------------------------------------------------
-// Review finding 5: strict relay validation — UUID ids, strict ISO ordering,
+// Review finding 5: strict relay validation with UUID ids, strict ISO ordering,
 // required finish time, bounded future skew, filename/envelope identity.
 // ---------------------------------------------------------------------------
 
@@ -908,7 +907,7 @@ test('relay validation enforces filename/envelope identity agreement', (t) => {
 });
 
 // ---------------------------------------------------------------------------
-// Review finding 3: cross-machine clock skew — future timestamps are rejected
+// Review finding 3: cross-machine clock skew. Future timestamps are rejected
 // or clamped for attempt TTL and checkpoint freshness.
 // ---------------------------------------------------------------------------
 
@@ -1069,7 +1068,7 @@ test('a brief already consumed by a plan is pinned: no payload swap under the ar
     ...JSON.parse(consumedJson),
     lensNarrative: 'A rival payload that must never surface.',
   });
-  // Earlier finisher, same key — would win if unpinned.
+  // Earlier finisher, same key, which would win if unpinned.
   store.importMorningBrief(makeArtifact({ id: UUID_C, inputHash: 'PIN', finishedAt: '2026-07-14T11:00:00.000Z', json: rivalJson }));
   const kept = store.getMorningBrief(local.id);
   assert.equal(kept.briefJson, consumedJson);
@@ -1262,7 +1261,7 @@ test('attach-only ensure never creates a plan', (t) => {
 
 // ---------------------------------------------------------------------------
 // Live-acceptance gap: the one-shot init/visibility attach for the "brief
-// finished while the app was closed" state — plan without a brief, generation
+// finished while the app was closed" state: plan without a brief, generation
 // IDLE, artifact already local. The interval poll never engages there; the
 // shouldAttemptLateBriefAttach gate must fire exactly one attach-only ensure.
 // ---------------------------------------------------------------------------
@@ -1303,7 +1302,7 @@ test('init fires exactly one attach-only ensure for a pristine plan with an idle
   const { store } = fixture(t);
   let plan = store.ensureDayPlan({ localDate: DATE, timezone: TZ, mutationId: 'ensure:1', candidates: candidatePool() }).plan;
   // Arrival was opened (still pristine), then the app closed; the brief lands
-  // afterward with no queued/running row — generation reads idle.
+  // afterward with no queued/running row, so generation reads idle.
   plan = store.mutateDayPlan({ planId: plan.id, mutationId: 'open:1', expectedVersion: plan.version, action: 'arrival_open' }).plan;
   const artifact = succeededArtifact(store, briefJson());
   assert.equal(store.listMorningBriefs(DATE).some((row) => row.status === 'queued' || row.status === 'running'), false);
@@ -1330,7 +1329,7 @@ test('negative: an interacted arrival fires no attach ensure, locally or via the
   // Local this-session interaction blocks the gate before any request.
   assert.equal(driveInitAttach(store, { interacted: true }).ensuresFired, 0);
 
-  // The durable marker (set in an earlier session) blocks it too — and it is
+  // The durable marker (set in an earlier session) blocks it too, and it is
   // visible on the read model, which is what the client gate reads.
   store.markArrivalInteraction(plan.id, 'interact:1');
   const marked = store.getReadModel().currentPlan;
