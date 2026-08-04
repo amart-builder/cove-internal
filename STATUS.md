@@ -18,13 +18,38 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-08-03T15:02:08-0700
-- **task:** npm audit triage and fix
+- **since:** 2026-08-03T17:19:41-0700
+- **task:** Land email identity fixes + day-plan work, push, redeploy
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-08-03 (go-public release: 7/31 review debt cleared, sales cadence removed, mirror refreshed and flipped public for the first Jarvis Pro install)
+**Last updated:** 2026-08-03 evening (email identity fixes landed; both work streams committed and pushed; services restarted)
+
+## 2026-08-03 Email identity fixes (COMMITTED, DEPLOYED) + email direction decision
+
+Alex asked whether Cove does email the best way, especially for clients with multiple addresses. Exploration found the email engine sound but the identity layer broken. Three approved fixes, built by a background agent, landed as commit "Email identity: From-header parsing, multi-address contacts, CRM context in drafts":
+
+- **From-header parsing bug fixed.** The email lane passed the raw From header as the contact name, so the same person emailing from a second address silently created a duplicate contact (the ambiguity guard never fired because the address got welded into the normalized name). New pure `src/lib/email/from-header.ts` parses display name + address (quoted names, encoded words, comments, bare addresses); wired at both call sites (runner + classification job).
+- **Multi-address contacts.** Migration 14 adds `contact_emails` (unique normalized_email, is_primary, backfilled from contacts.email) as the source of truth for email resolution; `contacts.email` remains the primary mirror. All identity laws preserved and test-locked: ambiguous never merges or creates; name match with a different known address stays ambiguous; email-less name match locks the first arriving email. New human-only `merge` action on /api/crm moves emails, activities, commitments, email_items and meeting_notes refs in one transaction; the email lane has no path to it. Read-only `scripts/cove-contact-dedupe.mjs` prints likely duplicate pairs (including welded-name forms) for human-approved merges; it writes nothing. Behavior note: changing a contact's email keeps the old address as a resolvable secondary.
+- **Drafts get relationship context.** Classification passes bounded (4KB) CRM context (stored contact fields, activity summaries, open waiting-on commitments; never other threads' bodies) to the draft writer for known senders. Fail-soft: any CRM error classifies without context.
+- Verification on the combined tree (this work + the plan-your-day stream): typecheck clean, lint clean (the dead `address()` helper flagged by the concurrent session was removed), 816/816 tests (42 new for this work), production build clean. Committed as two clean commits (day-plan stream first, email stream second), pushed via safe-push, both services restarted, health checked.
+- **Mirror debt:** these commits are NOT yet re-exported to the public client mirror. Before Gary's install (target 08-05 to 08-07): commit-clean export without allow-dirty, push mirror, per the go-public entry below.
+
+**Direction decision (saved to jarvis-memory):** Cove stays the email system. No Superhuman clone (email clients are a graveyard), no third-party email MCPs (Superhuman's MCP can send; breaks the structural no-send law, same reason Composio was rejected). Superhuman is an optional reading front end only; Alex may trial it and offer it to Gary as the client's own subscription. Approved next build, queued: multi-account support (several Gmail addresses per install, provider-shaped config so an Outlook/Microsoft Graph adapter slots in later; Outlook deferred until a real non-Gmail client exists), Email card deep links straight to the thread/draft in the account's own app (send stays a human act in the human's app), in-card thread + draft reading, a per-user preferred-email-app setting (Gmail/Outlook/Superhuman), and a guided (never browser-automated) Superhuman setup checklist; account sign-in, 2FA, and payment always stay with the human.
+
+## 2026-08-03 Plan your day grid + meeting consolidation (DEPLOYED, reviewed)
+
+Built in orchestrator mode: Sol built from Fable specs, a Claude worker built the meeting consolidation, Opus 5 fresh-context review (verdict PASS after one fix round), Sol cross-reviewed the Claude-built part. Deployed to the live app: production build + both services restarted (com.cove.local and com.cove.claude-worker) + browser-verified.
+
+- Morning Arrival is now exactly two steps: brief, then a "Plan your day" grid. The extras step is gone (Cove manages the board autonomously, so suggested_additions was removed from the brief contract entirely). Grid: Today zone (plan items, up to 10, first 3 active positions are the numbered focus band; owner chip, complete checkmark, detail popup, drag to reorder) and Not today (all other eligible open tasks, capped at 30 shown, drag or tap up to add; server-side idempotent taskId-backed upsert, restores later/dismissed identity, never duplicates).
+- Brief contract: prompt v17 / schema v6. Up to 8 ranked candidates in schema AND runtime validator; overlay sizes Today to min(8, max(3, ranked count)); no brief keeps the exact deterministic 3. Old v16/v5 artifacts are ineligible and parse-tolerated. NOTE: no live v17 artifact exists yet; tomorrow's 7:30 brief is the first real run. If the arrival shows only the deterministic 3, check the worker restarted (both kickstarts).
+- Kickoff: Start my day accepts every retained item but launches ONLY focus-band (first 3 active positions) claude/together items, same shared focusBandItems selector in the local and cloud paths and in the UI. Footer says "Claude will start N focus tasks" honestly; partial launch failures are named. recommendedFirstItemId still scans all accepted items.
+- Task sessions: abandon action on the API (typed 404/409, CSRF), 6-active-run ceiling in the manager, ClaudeDeskStrip on Today (working/ready counts, review link, stop button; renders nothing at zero runs), cost note in the launcher at 3+ active runs.
+- Meeting follow-ups: 2+ operator-owned items from one meeting become ONE task "Follow ups: <meeting title>" with checklist description. Enforced deterministically post-triage in task-writer.ts, scoped to source=meeting events only. Content-free bundle sourceIds keep replays duplicate-safe; non-operator waiting_on items keep exact legacy sourceIds (original extraction indices preserved). Rules of engagement live in prompts/triage.md; cove-task and cove-suggest point there.
+- Verification: typecheck clean, full suite 816/816, production build clean, live health 200, browser QA of the two-step arrival, grid zones, focus badges (a step-change scroll offset bug was found in browser QA, fixed, redeployed, re-verified: step 2 opens at scroll top). Zero em/en dashes in the whole diff. No new dependencies.
+- CONCURRENT SESSION NOTE: the tree also carries CRM/email/from-header work plus a migrations.ts change written 16:16-16:18 by ANOTHER instance while this session's lock was briefly released (a Sol build lane released it; re-acquired since). That work is NOT part of this review. `npm run lint` is red on the repo solely from a dead function in src/lib/email/classification-job.ts belonging to that lane. Its tests pass inside the 816.
+- Nothing committed, per standing rule. Two behavior notes for Alex: the brief no longer proposes "suggested additions" anywhere (Cove adds tasks directly via board actions), and jarvis-held/email/recurring tasks stay on the shelf, not in the grid.
 
 ## 2026-08-03 Go-public release for the first Jarvis Pro client install
 
