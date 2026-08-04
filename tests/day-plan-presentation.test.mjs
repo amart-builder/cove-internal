@@ -24,6 +24,7 @@ import {
   selectBoardExecutionPresentation,
   selectCurrentExecutionRow,
   selectRecommendedHumanFocus,
+  selectShelfTasks,
   shouldShowNeedsSetupToStart,
   shouldAutoPostProgress,
   shouldAttemptLateBriefAttach,
@@ -562,5 +563,40 @@ test('ritual and secondary surface failures remain visible together', () => {
   assert.equal(
     combineSurfaceErrors('Morning Arrival could not load.', 'Morning Arrival could not load.'),
     'Morning Arrival could not load.',
+  );
+});
+
+test('the shelf holds only the email current and recurring occurrences', () => {
+  const shelf = selectShelfTasks([
+    { _id: 'held', title: 'One-off held by Cove', tags: ['jarvis-held'], position: 0 },
+    { _id: 'email', title: 'Email needs you', tags: ['email-current'], position: 1 },
+    { _id: 'tagged', title: 'Tag without a template link', tags: ['recurring'], position: 2 },
+    { _id: 'rhythm', title: 'Water the plants', tags: ['recurring'], recurringTemplateId: 'template-1', position: 3 },
+    { _id: 'plain', title: 'Ordinary task', tags: [], position: 4 },
+  ]);
+  // Recurring occurrences sort ahead of the email card; jarvis-held one-offs
+  // and tag-only "recurring" tasks stay off the shelf entirely.
+  assert.deepEqual(shelf.map((task) => task._id), ['rhythm', 'email']);
+});
+
+test('the shelf overflow count reflects the filtered list, not held one-offs', () => {
+  const tasks = [
+    { _id: 'held-a', tags: ['jarvis-held'], position: 0 },
+    { _id: 'held-b', tags: ['jarvis-held'], position: 1 },
+    { _id: 'email', tags: ['Email-Current '], position: 2 },
+    ...['a', 'b', 'c', 'd'].map((suffix, index) => ({
+      _id: `rhythm-${suffix}`,
+      tags: ['recurring'],
+      recurringTemplateId: `template-${suffix}`,
+      position: 3 + index,
+    })),
+  ];
+  const shelf = selectShelfTasks(tasks);
+  assert.equal(shelf.length, 5);
+  // The shelf shows three cards; the tail button reads "+2 more on the shelf".
+  assert.equal(shelf.length - 3, 2);
+  assert.deepEqual(
+    shelf.map((task) => task._id),
+    ['rhythm-a', 'rhythm-b', 'rhythm-c', 'rhythm-d', 'email'],
   );
 });

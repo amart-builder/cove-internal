@@ -44,6 +44,34 @@ const NON_PROJECT_TAGS = new Set([
   'urgent',
 ]);
 
+// The Cove shelf holds only steady work: the rolling email card and recurring
+// rhythm occurrences (tasks spawned from recurring_templates, linked through
+// recurringTemplateId). One-off jarvis-held tasks stay off the shelf; they
+// remain visible on the All Work board.
+export type ShelfTask = {
+  tags: string[];
+  recurringTemplateId?: string;
+  position: number;
+};
+
+function isEmailCurrentTask(task: ShelfTask): boolean {
+  return task.tags.some((tag) => tag.trim().toLowerCase() === 'email-current');
+}
+
+export function belongsOnShelf(task: ShelfTask): boolean {
+  return isEmailCurrentTask(task) || Boolean(task.recurringTemplateId);
+}
+
+export function selectShelfTasks<T extends ShelfTask>(openTasks: readonly T[]): T[] {
+  return openTasks
+    .filter(belongsOnShelf)
+    .sort(
+      (left, right) =>
+        Number(Boolean(right.recurringTemplateId)) - Number(Boolean(left.recurringTemplateId)) ||
+        left.position - right.position,
+    );
+}
+
 export function morningArrivalGreeting(date: Date, timezone: string): string {
   const hourPart = new Intl.DateTimeFormat('en-US', {
     hour: 'numeric',

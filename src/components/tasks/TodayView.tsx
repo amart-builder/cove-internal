@@ -43,6 +43,7 @@ import {
   formatArrivalDueDate,
   helpfulProjectLabel,
   reorderDayPlanItems,
+  selectShelfTasks,
   selectBoardExecutionPresentation,
   selectCurrentExecutionRow,
   shouldShowNeedsSetupToStart,
@@ -187,7 +188,9 @@ function isEmailDigest(task: TaskData): boolean {
 }
 
 function isRecurringTask(task: TaskData): boolean {
-  return hasTag(task, 'recurring');
+  // Recurring occurrences carry the recurring_templates linkage; the 'recurring'
+  // tag alone is not proof (anyone can tag a one-off task).
+  return Boolean(task.recurringTemplateId);
 }
 
 function withTag(tags: string[], tag: string): string[] {
@@ -763,21 +766,9 @@ function TodayExperience({
     [doneColumn?._id, tasks],
   );
 
-  const jarvisTasks = useMemo(
-    () =>
-      openTasks
-        .filter(
-          (task) =>
-            hasTag(task, JARVIS_HELD_TAG) ||
-            isEmailDigest(task) ||
-            (localMode && isRecurringTask(task)),
-        )
-        .sort((left, right) =>
-          Number(isRecurringTask(right)) - Number(isRecurringTask(left)) ||
-          left.position - right.position
-        ),
-    [localMode, openTasks],
-  );
+  // The shelf shows only steady work (email current + rhythm occurrences).
+  // One-off jarvis-held tasks stay on the All Work board.
+  const jarvisTasks = useMemo(() => selectShelfTasks(openTasks), [openTasks]);
 
   const commitments = useMemo(() => {
     const activeColumnIds = new Set(
@@ -2526,7 +2517,7 @@ function TodayExperience({
 
           <aside className="current-jarvis-current" aria-labelledby="jarvis-lane-title">
             <div className="current-jarvis-heading">
-              <span>Work held for you</span>
+              <span>Steady work</span>
               <h2 id="jarvis-lane-title">Cove shelf</h2>
               {localMode && (
                 <RhythmManager

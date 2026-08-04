@@ -7,7 +7,19 @@ import { openLocalDatabase } from '../src/lib/local/database.ts';
 import { recordReceipt } from '../src/lib/reliability/receipts.ts';
 import { currentCoveReadiness } from '../src/lib/health/readiness.ts';
 import { createCoveReadinessStore } from '../src/components/tasks/useCoveReadiness.ts';
+import { readinessLineItems } from '../src/components/tasks/CoveReadinessStrip.tsx';
 import { emailEmptyStateMessage } from '../src/components/tasks/EmailCardDetail.tsx';
+
+function readinessFixture(overrides = {}) {
+  return {
+    checkedAt: '2026-07-31T17:00:00.000Z',
+    email: { state: 'ready', lastSuccessAt: '2026-07-31T16:01:00.000Z', lastRunOutcome: 'success' },
+    writer: { state: 'ready', lastSuccessAt: '2026-07-31T16:01:00.000Z', label: 'GPT-5.6 Sol' },
+    worker: { state: 'ready' },
+    jobs: { queued: 0, failed: 0, dead: 0 },
+    ...overrides,
+  };
+}
 
 function markEmailConfigured(dir) {
   writeFileSync(path.join(dir, 'cove-workspace.json'), '{}\n');
@@ -116,6 +128,35 @@ test('an install without Google Workspace reports email as not set up', (t) => {
   });
   assert.equal(readiness.email.state, 'not_configured');
   assert.equal(readiness.writer.state, 'waiting');
+});
+
+test('an all-ready readiness line renders nothing at all', () => {
+  assert.deepEqual(readinessLineItems(readinessFixture()), []);
+});
+
+test('a single non-ready lane renders only that lane with honest wording', () => {
+  assert.deepEqual(
+    readinessLineItems(readinessFixture({
+      writer: { state: 'waiting', lastSuccessAt: null, label: 'GPT-5.6 Sol' },
+    })),
+    ['Writer (GPT-5.6 Sol): Waiting for the first run'],
+  );
+  assert.deepEqual(
+    readinessLineItems(readinessFixture({
+      email: { state: 'not_configured', lastSuccessAt: null, lastRunOutcome: null },
+    })),
+    ['Email: Not set up'],
+  );
+});
+
+test('every non-ready lane shows while ready lanes stay silent', () => {
+  assert.deepEqual(
+    readinessLineItems(readinessFixture({
+      email: { state: 'stale', lastSuccessAt: null, lastRunOutcome: 'success' },
+      worker: { state: 'unavailable' },
+    })),
+    ['Email: Stale', 'Worker: Unavailable'],
+  );
 });
 
 test('readiness consumers share one poll loop and stop it after the last unsubscribe', async () => {

@@ -18,13 +18,21 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-08-03T17:19:41-0700
-- **task:** Land email identity fixes + day-plan work, push, redeploy
+- **since:** 2026-08-03T17:37:46-0700
+- **task:** Today screen: hide all-ready readiness line, shelf shows only email + recurring
 <!-- END active-session -->
 
 ---
 
 **Last updated:** 2026-08-03 evening (email identity fixes landed; both work streams committed and pushed; services restarted)
+
+## 2026-08-03 Today screen: quiet readiness line, shelf is steady work only (DEPLOYED)
+
+Alex's direct feedback on the live app, same evening:
+
+- The readiness line ("Email: Ready / Writer: Ready / Worker: Ready") now renders NOTHING when every lane is healthy. Non-ready lanes (Not set up, Waiting for the first run, Stale, Unavailable, jobs needing attention) still show, alone. Display-only change in CoveReadinessStrip.tsx via pure selector readinessLineItems; src/lib/health/readiness.ts untouched, so client installs still see "Not set up" during onboarding.
+- The Cove shelf (was "WORK HELD FOR YOU", now "STEADY WORK") shows only the rolling Email card (email-current tag) and recurring occurrences (tasks.recurring_template_id set). Jarvis-held one-off tasks come off the shelf; data untouched, they stay on All Work and the brief still ranks them. Single selector selectShelfTasks/belongsOnShelf in src/lib/day-plan/presentation.ts; overflow count follows the filter. TodayView's isRecurringTask now keys off recurringTemplateId (was tag-based), so card labels and click behavior match the selector.
+- Verification: typecheck, lint zero warnings, 821/821 tests (5 new), production build, services restarted, live browser check of the Today tab.
 
 ## 2026-08-03 Email identity fixes (COMMITTED, DEPLOYED) + email direction decision
 
