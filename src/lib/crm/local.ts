@@ -123,13 +123,46 @@ export class LocalCRMBackend implements CRMBackend {
     this.db.close();
   }
 
+  // contact_emails is the source of truth for email resolution; the union
+  // with contacts.normalized_email keeps legacy rows (including duplicate
+  // legacy addresses, which must stay ambiguous) resolvable.
   private findRowsByNormalizedEmail(email: string): ContactRow[] {
     return this.db.prepare(
       `SELECT *
        FROM contacts
        WHERE normalized_email = ?
+          OR id IN (
+            SELECT contact_id FROM contact_emails WHERE normalized_email = ?
+          )
        ORDER BY COALESCE(created_at, ''), id`,
-    ).all(email) as ContactRow[];
+    ).all(email, email) as ContactRow[];
+  }
+
+  private hasKnownEmail(contactId: string): boolean {
+    return Boolean(this.db.prepare(
+      "SELECT 1 FROM contact_emails WHERE contact_id = ? LIMIT 1",
+    ).get(contactId));
+  }
+
+  private insertContactEmail(input: {
+    contactId: string;
+    email: string;
+    normalizedEmail: string;
+    isPrimary: boolean;
+    now: string;
+  }): void {
+    this.db.prepare(
+      `INSERT OR IGNORE INTO contact_emails
+         (id, contact_id, email, normalized_email, is_primary, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(
+      randomUUID(),
+      input.contactId,
+      input.email,
+      input.normalizedEmail,
+      input.isPrimary ? 1 : 0,
+      input.now,
+    );
   }
 
   private findByNormalizedName(name: string): ContactRow[] {
@@ -205,22 +238,21 @@ export class LocalCRMBackend implements CRMBackend {
 
     const nameMatches = this.findByNormalizedName(normalizedName);
     if (nameMatches.length === 1) {
-      const existingEmail = normalizeContactEmail(
-        nameMatches[0].email ?? undefined,
-      );
-      if (
-        normalizedEmail &&
-        existingEmail &&
-        normalizedEmail !== existingEmail
-      ) {
+      const hasKnownEmail =
+        Boolean(normalizeContactEmail(nameMatches[0].email ?? undefined)) ||
+        this.hasKnownEmail(nameMatches[0].id);
+      if (normalizedEmail && hasKnownEmail) {
+        // The incoming email did not match at step 1, so it is a DIFFERENT
+        // address than every known one. A new address never auto-attaches to
+        // an existing contact: that is what the explicit merge action is for.
         return {
           status: "ambiguous",
           candidates: nameMatches.map(candidate),
         };
       }
-      if (normalizedEmail && !existingEmail) {
+      if (normalizedEmail && !hasKnownEmail) {
         const now = this.now().toISOString();
-        this.db.prepare(
+        const locked = this.db.prepare(
           `UPDATE contacts
            SET email = ?, normalized_email = ?, updated_at = ?
            WHERE id = ?
@@ -231,13 +263,22 @@ export class LocalCRMBackend implements CRMBackend {
           normalizedEmail,
           now,
           nameMatches[0].id,
-        );
-        const locked = this.db.prepare(
+        ).changes === 1;
+        if (locked) {
+          this.insertContactEmail({
+            contactId: nameMatches[0].id,
+            email: normalizedEmail,
+            normalizedEmail,
+            isPrimary: true,
+            now,
+          });
+        }
+        const row = this.db.prepare(
           "SELECT * FROM contacts WHERE id = ?",
         ).get(nameMatches[0].id) as ContactRow;
         return {
           status: "matched",
-          contact: decodeContact(locked),
+          contact: decodeContact(row),
         };
       }
       return {
@@ -316,6 +357,15 @@ export class LocalCRMBackend implements CRMBackend {
       now,
       now,
     );
+    if (normalizedEmail) {
+      this.insertContactEmail({
+        contactId: id,
+        email: normalizedEmail,
+        normalizedEmail,
+        isPrimary: true,
+        now,
+      });
+    }
     const created = this.db.prepare(
       "SELECT * FROM contacts WHERE id = ?",
     ).get(id) as ContactRow;
@@ -483,6 +533,15 @@ export class LocalCRMBackend implements CRMBackend {
   }
 
   updateContact(contactId: string, patch: Partial<Contact>): Contact | null {
+    return this.db.transaction(
+      () => this.updateContactInTransaction(contactId, patch),
+    ).immediate();
+  }
+
+  private updateContactInTransaction(
+    contactId: string,
+    patch: Partial<Contact>,
+  ): Contact | null {
     const allowed = new Set([
       "company_id",
       "name",
@@ -499,6 +558,7 @@ export class LocalCRMBackend implements CRMBackend {
     ]);
     const updates: string[] = [];
     const values: unknown[] = [];
+    let newEmail: string | null | undefined;
     for (const [key, rawValue] of Object.entries(patch)) {
       if (!allowed.has(key)) continue;
       let value: unknown = rawValue;
@@ -517,15 +577,15 @@ export class LocalCRMBackend implements CRMBackend {
           ? normalizeContactEmail(rawValue)
           : null;
         if (value) {
-          const duplicate = this.db.prepare(
-            `SELECT id FROM contacts
-             WHERE normalized_email = ? AND id <> ?
-             LIMIT 1`,
-          ).get(value, contactId);
+          const duplicate = this.findRowsByNormalizedEmail(value as string)
+            .find((row) => row.id !== contactId);
           if (duplicate) {
-            throw new Error("That email already belongs to another contact.");
+            throw new Error(
+              "That email already belongs to another contact. If both rows are the same person, use the CRM merge action instead.",
+            );
           }
         }
+        newEmail = value as string | null;
         updates.push("normalized_email = ?");
         values.push(value);
       }
@@ -539,14 +599,41 @@ export class LocalCRMBackend implements CRMBackend {
       return current ? decodeContact(current) : null;
     }
     updates.push("updated_at = ?");
-    values.push(this.now().toISOString(), contactId);
+    const now = this.now().toISOString();
+    values.push(now, contactId);
     const row = this.db.prepare(
       `UPDATE contacts
        SET ${updates.join(", ")}
        WHERE id = ?
        RETURNING *`,
     ).get(...values) as ContactRow | undefined;
-    return row ? decodeContact(row) : null;
+    if (!row) return null;
+    if (newEmail !== undefined) {
+      if (newEmail === null) {
+        // Clearing the primary address forgets it; other known addresses stay.
+        this.db.prepare(
+          "DELETE FROM contact_emails WHERE contact_id = ? AND is_primary = 1",
+        ).run(contactId);
+      } else {
+        // The old primary stays known as a secondary address.
+        this.db.prepare(
+          "UPDATE contact_emails SET is_primary = 0 WHERE contact_id = ?",
+        ).run(contactId);
+        this.insertContactEmail({
+          contactId,
+          email: newEmail,
+          normalizedEmail: newEmail,
+          isPrimary: true,
+          now,
+        });
+        this.db.prepare(
+          `UPDATE contact_emails
+           SET is_primary = 1
+           WHERE contact_id = ? AND normalized_email = ?`,
+        ).run(contactId, newEmail);
+      }
+    }
+    return decodeContact(row);
   }
 
   deleteContact(contactId: string): boolean {
@@ -554,9 +641,128 @@ export class LocalCRMBackend implements CRMBackend {
       this.db.prepare(
         "DELETE FROM contact_activities WHERE contact_id = ?",
       ).run(contactId);
+      this.db.prepare(
+        "DELETE FROM contact_emails WHERE contact_id = ?",
+      ).run(contactId);
       return this.db.prepare(
         "DELETE FROM contacts WHERE id = ?",
       ).run(contactId).changes === 1;
+    }).immediate();
+  }
+
+  // A human-only repair action reached through the CRM API. The email lane
+  // and the classifier never call this: automated resolution stays ambiguous
+  // instead of merging.
+  mergeContacts(input: { winnerId: string; loserId: string }): Contact {
+    const winnerId = input.winnerId.trim();
+    const loserId = input.loserId.trim();
+    if (!winnerId || !loserId) {
+      throw new Error("Merge requires a winner and a loser contact id.");
+    }
+    if (winnerId === loserId) {
+      throw new Error("A contact cannot be merged into itself.");
+    }
+    return this.db.transaction(() => {
+      const winner = this.db.prepare(
+        "SELECT * FROM contacts WHERE id = ?",
+      ).get(winnerId) as ContactRow | undefined;
+      if (!winner) throw new Error("Merge winner contact was not found.");
+      const loser = this.db.prepare(
+        "SELECT * FROM contacts WHERE id = ?",
+      ).get(loserId) as ContactRow | undefined;
+      if (!loser) throw new Error("Merge loser contact was not found.");
+      const now = this.now().toISOString();
+
+      // Legacy rows may predate contact_emails; represent both primaries.
+      for (const [row, isPrimary] of [
+        [winner, true],
+        [loser, false],
+      ] as const) {
+        const normalizedEmail = normalizeContactEmail(row.email ?? undefined);
+        if (normalizedEmail) {
+          this.insertContactEmail({
+            contactId: row.id,
+            email: row.email!.trim(),
+            normalizedEmail,
+            isPrimary,
+            now,
+          });
+        }
+      }
+
+      // The winner keeps its primary address; the loser's addresses become
+      // secondary addresses of the winner.
+      this.db.prepare(
+        `UPDATE contact_emails
+         SET contact_id = ?, is_primary = 0
+         WHERE contact_id = ?`,
+      ).run(winnerId, loserId);
+      this.db.prepare(
+        "UPDATE contact_activities SET contact_id = ? WHERE contact_id = ?",
+      ).run(winnerId, loserId);
+      this.db.prepare(
+        "UPDATE commitments SET contact_id = ? WHERE contact_id = ?",
+      ).run(winnerId, loserId);
+      this.db.prepare(
+        "UPDATE email_items SET contact_id = ? WHERE contact_id = ?",
+      ).run(winnerId, loserId);
+      this.db.prepare(
+        "UPDATE meeting_notes SET contact_id = ? WHERE contact_id = ?",
+      ).run(winnerId, loserId);
+
+      // Fill empty winner fields from the loser; never overwrite winner data.
+      const empty = (value: unknown) =>
+        value === null || value === undefined || String(value).trim() === "";
+      const fills: string[] = [];
+      const fillValues: unknown[] = [];
+      for (const field of [
+        "company_id",
+        "company",
+        "phone",
+        "role",
+        "linkedin",
+        "location",
+        "how_we_met",
+        "notes",
+      ]) {
+        if (empty(winner[field]) && !empty(loser[field])) {
+          fills.push(`"${field}" = ?`);
+          fillValues.push(loser[field]);
+        }
+      }
+      if (empty(winner.email) && !empty(loser.email)) {
+        const promoted = normalizeContactEmail(loser.email ?? undefined);
+        fills.push("email = ?", "normalized_email = ?");
+        fillValues.push(promoted, promoted);
+        this.db.prepare(
+          `UPDATE contact_emails
+           SET is_primary = 1
+           WHERE contact_id = ? AND normalized_email = ?`,
+        ).run(winnerId, promoted);
+      }
+      const recency = (field: string) => {
+        const winnerValue = String(winner[field] ?? "");
+        const loserValue = String(loser[field] ?? "");
+        return loserValue > winnerValue ? loserValue : winnerValue;
+      };
+      fills.push("last_interaction_at = ?", "last_contact_date = ?", "updated_at = ?");
+      fillValues.push(
+        recency("last_interaction_at") || null,
+        recency("last_contact_date") || null,
+        now,
+      );
+      this.db.prepare(
+        `UPDATE contacts SET ${fills.join(", ")} WHERE id = ?`,
+      ).run(...fillValues, winnerId);
+
+      // Only the loser row itself is removed; its history was moved above,
+      // so this must never cascade into activity deletion.
+      this.db.prepare("DELETE FROM contacts WHERE id = ?").run(loserId);
+
+      const merged = this.db.prepare(
+        "SELECT * FROM contacts WHERE id = ?",
+      ).get(winnerId) as ContactRow;
+      return decodeContact(merged);
     }).immediate();
   }
 }

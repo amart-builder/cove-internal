@@ -539,6 +539,54 @@ export function getEmailCRMContext(input: {
   }
 }
 
+// Renders CRM context for the classifier's "Trusted Cove context:" slot.
+// Only stored deterministic data belongs here: contact fields, activity
+// summaries, and commitment rows. Never raw email bodies from other threads.
+export function formatEmailCRMContext(
+  context: EmailCRMContext,
+): string | undefined {
+  if (context.status !== "matched" || !context.contact) return undefined;
+  const contact = context.contact;
+  const facts = [
+    contact.role ? `role: ${contact.role}` : "",
+    contact.tier ? `tier: ${contact.tier}` : "",
+    contact.how_we_met ? `how we met: ${contact.how_we_met}` : "",
+    contact.last_interaction_at
+      ? `last interaction: ${contact.last_interaction_at.slice(0, 10)}`
+      : "",
+  ].filter(Boolean);
+  const lines = [
+    `Known contact: ${contact.name}${facts.length ? ` (${facts.join("; ")})` : ""}`,
+  ];
+  if (contact.notes?.trim()) {
+    lines.push(`Notes: ${contact.notes.trim().slice(0, 500)}`);
+  }
+  const activities = context.activities.slice(0, 5);
+  if (activities.length > 0) {
+    lines.push("Recent history:");
+    for (const activity of activities) {
+      const when = String(activity.created_at ?? "").slice(0, 10);
+      const title = (activity.title ?? "").slice(0, 120);
+      const summary = (activity.content ?? "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 200);
+      lines.push(
+        `- ${when} ${activity.activity_type}: ${title}${summary ? `. ${summary}` : ""}`,
+      );
+    }
+  }
+  if (context.waitingOn.length > 0) {
+    lines.push("Open waiting-on commitments:");
+    for (const item of context.waitingOn.slice(0, 5)) {
+      lines.push(
+        `- ${item.title.slice(0, 160)}${item.dueAt ? ` (due ${item.dueAt.slice(0, 10)})` : ""}`,
+      );
+    }
+  }
+  return lines.join("\n").slice(0, 4_000);
+}
+
 export function recordEmailCorrespondence(input: {
   senderName: string;
   senderEmail: string;

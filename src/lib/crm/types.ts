@@ -103,6 +103,8 @@ export interface CRMBackend {
   listContacts(options?: { search?: string; limit?: number }): Contact[];
   updateContact(contactId: string, patch: Partial<Contact>): Contact | null;
   deleteContact(contactId: string): boolean;
+  // Human/API action only; never called from the model or email lane.
+  mergeContacts(input: { winnerId: string; loserId: string }): Contact;
   resolveAndAppendMeetingActivity(
     input: MeetingContactActivityInput,
   ): MeetingContactActivityResult;

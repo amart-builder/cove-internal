@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { classifyEmail, type EmailClassification } from "../src/lib/email/classifier";
+import { parseFromHeader } from "../src/lib/email/from-header";
 import {
   createEmailArtifactHandler,
   createEmailClassificationHandler,
@@ -37,6 +38,7 @@ type RunnerOptions = {
     subject: string;
     text: string;
     voice?: string;
+    recentContext?: string;
   }) => Promise<EmailClassification>;
   now?: () => Date;
 };
@@ -121,14 +123,15 @@ async function runEmailTriageUnchecked(
       seenMessageIds.add(listed.id);
       const message = await gateway.getMessage({ messageId: listed.id, format: "full" });
       if (isFromAccount(message, config.accountEmail)) continue;
+      const from = parseFromHeader(header(message, "From"));
       const observation = observeInboundMessage({
         messageId: message.id,
         threadId: message.threadId,
         gmailHistoryId: message.historyId,
         internalDate: message.internalDate ?? "0",
         accountEmail: config.accountEmail,
-        senderName: header(message, "From").slice(0, 500),
-        senderEmail: address(header(message, "From")),
+        senderName: from.displayName.slice(0, 500),
+        senderEmail: from.address,
         subject: header(message, "Subject").slice(0, 2_000),
         bodyExcerpt: message.text.slice(0, 20_000),
         receivedAt: message.internalDate

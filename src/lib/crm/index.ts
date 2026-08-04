@@ -77,6 +77,11 @@ class ExternalCRMBackend implements CRMBackend {
     return this.unavailable();
   }
 
+  mergeContacts(_input: { winnerId: string; loserId: string }): Contact {
+    void _input;
+    return this.unavailable();
+  }
+
   resolveAndAppendMeetingActivity(
     _input: MeetingContactActivityInput,
   ): MeetingContactActivityResult {

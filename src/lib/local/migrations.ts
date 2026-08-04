@@ -1240,6 +1240,56 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       `);
     },
   },
+  {
+    version: 14,
+    name: "contact-emails",
+    up: (db) => {
+      // contact_emails is the source of truth for email-based contact
+      // resolution. contacts.email stays as the primary-address mirror so
+      // existing readers keep working.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS contact_emails (
+          id TEXT PRIMARY KEY,
+          contact_id TEXT NOT NULL REFERENCES contacts(id),
+          email TEXT NOT NULL,
+          normalized_email TEXT NOT NULL UNIQUE,
+          is_primary INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS contact_emails_contact_idx
+          ON contact_emails(contact_id);
+      `);
+      const rows = db.prepare(
+        `SELECT id, email, created_at
+         FROM contacts
+         WHERE email IS NOT NULL AND trim(email) <> ''
+         ORDER BY COALESCE(created_at, ''), id`,
+      ).all() as Array<{
+        id: string;
+        email: string;
+        created_at: string | null;
+      }>;
+      const insert = db.prepare(
+        `INSERT OR IGNORE INTO contact_emails
+           (id, contact_id, email, normalized_email, is_primary, created_at)
+         VALUES (?, ?, ?, ?, 1, ?)`,
+      );
+      for (const row of rows) {
+        const normalizedEmail = normalizeContactEmail(row.email);
+        if (!normalizedEmail) continue;
+        // OR IGNORE: legacy duplicate emails keep only the oldest row here;
+        // resolution still sees every holder through contacts.normalized_email,
+        // so duplicate addresses stay ambiguous.
+        insert.run(
+          randomUUID(),
+          row.id,
+          row.email.trim(),
+          normalizedEmail,
+          row.created_at ?? new Date().toISOString(),
+        );
+      }
+    },
+  },
 ];
 
 function migrationTableExists(db: Database.Database, name: string): boolean {

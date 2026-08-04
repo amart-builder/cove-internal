@@ -129,6 +129,71 @@ test('explicit_create writes a second same-name contact with all manual facts', 
   );
 });
 
+test('the merge action folds a duplicate contact through the API', {
+  concurrency: false,
+}, async (t) => {
+  const dir = path.join(
+    os.tmpdir(),
+    `cove-crm-merge-route-${process.pid}-${Date.now()}-${Math.random()}`,
+  );
+  mkdirSync(dir, { recursive: true });
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  withEnv(t, {
+    COVE_DATA_DIR: dir,
+    COVE_DB_PATH: path.join(dir, 'cove.db'),
+    NEXT_PUBLIC_COVE_RUNTIME: 'local',
+    COVE_DAY_PLAN_ACCESS_MODE: undefined,
+  });
+
+  const read = await GET(new NextRequest(
+    'http://127.0.0.1:3200/api/crm?operation=list',
+  ));
+  const { csrfToken } = await read.json();
+  const post = (action, input) => POST(new NextRequest(
+    'http://127.0.0.1:3200/api/crm',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Cove-CSRF': csrfToken,
+      },
+      body: JSON.stringify({ action, input }),
+    },
+  ));
+
+  const winner = await (await post('resolve', {
+    name: 'Sarah Chen',
+    email: 'sarah@work.com',
+    source: 'manual',
+  })).json();
+  const loser = await (await post('explicit_create', {
+    name: 'Sarah Chen',
+    email: 'sarah@personal.com',
+    source: 'manual',
+  })).json();
+
+  const missingIds = await post('merge', {});
+  assert.equal(missingIds.status, 400);
+  assert.match((await missingIds.json()).error, /winnerId and loserId/);
+
+  const merged = await post('merge', {
+    winnerId: winner.resolution.contact.id,
+    loserId: loser.creation.contact.id,
+  });
+  assert.equal(merged.status, 200);
+  const payload = await merged.json();
+  assert.equal(payload.contact.id, winner.resolution.contact.id);
+  assert.equal(payload.contact.email, 'sarah@work.com');
+
+  const list = await (await GET(new NextRequest(
+    'http://127.0.0.1:3200/api/crm?operation=list',
+  ))).json();
+  assert.deepEqual(
+    list.contacts.map((contact) => contact.id),
+    [winner.resolution.contact.id],
+  );
+});
+
 test('the local CRM route refuses to split a supabase runtime into SQLite', {
   concurrency: false,
 }, async (t) => {

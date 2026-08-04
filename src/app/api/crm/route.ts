@@ -151,6 +151,22 @@ export async function POST(request: NextRequest) {
       }
       return NextResponse.json({ contact });
     }
+    if (action === "merge") {
+      // Merging is a human decision made through this API; the email lane
+      // and the classifier have no path to it.
+      const merge = recordBody(input);
+      const winnerId = merge.winnerId;
+      const loserId = merge.loserId;
+      if (
+        typeof winnerId !== "string" || !winnerId.trim() ||
+        typeof loserId !== "string" || !loserId.trim()
+      ) {
+        throw new Error("Merge requires winnerId and loserId.");
+      }
+      return NextResponse.json({
+        contact: crm.mergeContacts({ winnerId, loserId }),
+      });
+    }
     if (action === "delete") {
       const deletion = recordBody(input);
       const contactId = deletion.contactId;
