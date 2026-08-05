@@ -18,13 +18,57 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-08-04T20:40:16-0700
-- **task:** Commit Today redesign
+- **since:** 2026-08-05T16:39:04-0700
+- **task:** commit hydration fixes
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-08-04 late evening (Today redesign fully landed and deployed; two-day sim PASS, Opus review PASS; uncommitted)
+**Last updated:** 2026-08-05 late afternoon (hydration errors on load fixed and committed)
+
+## 2026-08-05 Hydration errors on every load (DONE, committed 4c0f6f7)
+
+The two console errors on every load (`script tag while rendering React component` plus an uncaught hydration failure) were one bug, in TabNav, not in the layout's inline theme script that the stack trace blamed.
+
+- **Root cause:** TabNav's `useState` initializer read `document.documentElement.classList.contains('dark')`. The server has no `document`, so it rendered the moon icon (one `<path>`); the browser's first render saw the `dark` class the pre-paint script had already applied and rendered the sun icon (a `<circle>` plus 8 `<line>`s). A structural mismatch makes React 19 throw out the server tree and client-render from the root, which re-creates the layout's inline `<script>` and produces the second error. Only reproduces in dark mode, which is why stashing the arrival redesign never cleared it.
+- **Fix:** theme state starts `false` so both sides agree, with the real preference applied in a mount effect. Both icons always render and CSS picks one through the existing `dark:` variant, so the markup no longer depends on a theme the server cannot know and the icon does not flash.
+- **Also fixed (latent, same class):** `focusedTaskId` and `notes` in TodayView read localStorage in their `useState` initializers. They now restore in a mount effect, gated by `localRestored` so the auto-focus effect at TodayView cannot overwrite a restored focus with the first task. These were hidden only by the `loading` early return, which is accidental ordering, not a guarantee.
+- **Investigated, no change needed:** `scheduleTaskMaintenanceCatchup` in `src/app/tasks/page.tsx` is not per-request work. It is guarded three ways: a module-level once-per-local-day check, `recurring_templates.last_spawned_local_date` in SQLite, and an `INSERT OR IGNORE` behind a unique index. The scheduler path already exists in `scripts/cove-jobs.ts`; the app-open call is the deliberate catch-up for when that runner has not run. Comment added at the call site so it stops getting re-flagged.
+- **Verified:** 880 tests pass, typecheck clean, console clean on fresh loads in both light and dark mode, theme toggle still round-trips through localStorage.
+- **Known gap:** the save-focus-then-reload round trip was not exercised through the UI. The Today view sits behind Morning Arrival, which is backed by the database, and the dev server shares `data/cove.db` with the instance on port 3210, so clicking through would have moved real board state.
+- **Follow-up filed:** `npm run lint` fails at HEAD on one pre-existing `react-hooks/exhaustive-deps` warning on `persistToday2ItemOrder` in TodayView. Not touched, because the rule's suggested fix widens the dependency to the whole `dayRitual` object and changes drag-to-reorder behavior.
+
+## 2026-08-05 Plan-your-day arrival redesign (DONE, committed 3422a16; Opus review PASS after CHANGES_REQUIRED round)
+
+Alex's ask: see the whole board at 100% zoom, wider uniform rectangular cards (title + one-line preview), keep Today/Not-today, make it beautiful. Orchestrator campaign: Fable driving, Sol building (one resumed Codex session; plan red-teamed by Sol pre-build), Opus 5 fresh-context review.
+
+- **Plan-step-only canvas:** new `canvas` width on DayRitualLayer (`min(100rem, 100vw-3rem)`), signaled by MorningArrival via a layout effect with unmount cleanup. Brief step and all `wide` consumers byte-identical to before (review-verified). Plan header compressed to one row (eyebrow + title + evidence timestamp + step dots).
+- **Uniform cards:** one 124px shell in both sections, 2-line clamped title, 1-line preview (summary → whyToday → description), ~5 columns at 1512px via `auto-fill minmax(260px,1fr)`; both sections' track widths compensated to match exactly. Focus trio keeps the dark treatment + Focus 1/2/3 chips; everything else light.
+- **Interactions:** always-visible quiet controls (Complete, Not today, Add to today) at full `text-muted-foreground` contrast (review caught the original `/60`–`/70` opacity at ~1.8:1, near-invisible); dnd-kit drag moved to a dedicated keyboard-focusable grip (`press-scale-suppress` while dragging, per repo convention); OwnerChip converted to an absolute popover (radiogroup semantics kept, Escape captured so it closes only the popover); card-body click opens the detail dialog; footer/error aligned to the card grid on the plan step, with BuddyLauncher clearance below 1120px.
+- **Verified:** typecheck + scoped lint clean; full suite passes (one pre-existing flaky process-group test passes in isolation); live QA at 1512×860 in light mode: whole board visible at 100%, popover/detail/Escape behavior correct, no console errors from this change. Opus re-review of the fix round: PASS.
+- **Known gaps / follow-ups:** pre-existing hydration error on load (`script tag while rendering React component` + hydration mismatch) confirmed present with the redesign stashed — NOT from this change, FIXED 2026-08-05 in 4c0f6f7 (see entry below); DetailDialog has no focus trap and is now the primary card action (pre-existing); focus trio can render non-contiguously if `pending` items ever land in the first three arrival positions (pre-existing logic, newly visible); dark-mode arrival pass not QA'd end-to-end; "Overdue" band deliberately skipped (needs raw due dates passed to cards).
+
+## 2026-08-05 Gmail rich reply drafts and cached signature (DONE, DEPLOYED, uncommitted; Opus review PASS)
+
+**Live acceptance (driver, all passed):** signature-sync run twice against real sent mail (both harvests byte-identical, sha 5f4459…, operator-name gate passed); Gmail composer spike proved API-created multipart/alternative drafts open in RICH mode with working Cmd+B and survive Gmail's own edit/save re-serialization (verified via drafts.get format=raw); four labeled [Cove test] drafts A-D left in Alex's Drafts for his own inspection, safe to discard; driver harness verified sign-off stripping, address/list/quote preservation, autolinking, escaping, deterministic MIME. Full suite 880/880 driver-re-run; production build clean; com.cove.local restarted, app 200. Orchestrator campaign: Fable driving, Sol building (one resumed Codex session, plan red-teamed by Sol pre-build), Opus 5 fresh-context review (CHANGES_REQUIRED round with 2 HIGH findings — correspondent-signature harvesting and a prompt built to lose the sign-off argument — then PASS after fix + micro rounds). Known accepted residuals: no auto-resync of the signature cache (manual `npm run email:signature-sync`); sign-off stripper only catches sign-offs prefix-matching the cached signature; googleusercontent signature image URL durability outside our control; pre-existing References/encodeSubject header-folding follow-up noted by review, untouched.
+
+- Reply drafts now use deterministic `multipart/alternative` MIME with base64-wrapped plain and HTML alternatives, CRLF line endings, unchanged threading/idempotency headers, and the existing Gmail `threadId` draft field.
+- Classifier output is normalized once at the state-machine boundary, so stored draft text, queued operation payload, and `draft_body_hash` share one canonical body. The post-voice-guide prompt forbids sign-offs, and a signature-aware deterministic fallback removes only matching trailing sign-offs without ever emptying the reply.
+- A bounded local `signature.html` plus integrity-checked `signature.json` cache feeds both alternatives. The cache is bound to the configured Gmail account, stale or missing caches warn once, and CID images, executable HTML, control-obfuscated JavaScript URLs, and interrupted cache pairs fail closed.
+- The read-only `npm run email:signature-sync` harvester ignores quoted-thread signatures, prefers the last remaining Gmail signature, and refuses a block that does not contain the configured operator name. It was not executed because live Gmail/network access belongs to the driver.
+- Formatting hardening preserves quote/list/address blocks, joins long wrapped prose with one space, escapes body HTML, and safely autolinks absolute HTTP(S) URLs with balanced parentheses. Both email scripts resolve their default data directory from the repository rather than the caller's working directory, and both warn when the signature cache is over 30 days old.
+- Signature sync refuses an unconfigured fallback operator name and skips mismatched candidate signatures until it finds the operator's own block.
+- Verification: TypeScript clean; 64/64 focused tests passed; 880/880 full tests passed via `node --import tsx --test tests/*.test.mjs`; scoped ESLint clean; independent fresh-context re-review PASS. The literal `npm test` command cannot start its `tsx` CLI IPC socket inside the managed sandbox, after its TypeScript phase passes.
+
+## 2026-08-05 Morning brief never reached the arrival (FIXED, DEPLOYED, uncommitted)
+
+Alex's 8/5 brief was written and paid for (artifact cd925618, succeeded 15:29:39Z, 7841 bytes) but the arrival sat on "Finishing up…" and the plan row kept `brief_id` empty. The brief was fully eligible server-side, so the failure was the late-attach POST itself: every `ensure` with `attachOnly` returned **400 "Task candidate has an unsupported rank reason."**
+
+- **Root cause:** `candidates.ts` labels a brief-picked backlog task `brief_pick_transport` with whyToday "This open task was selected for today's plan." (added in 3bc6cbf), but the `/api/day-plan` validator was never taught either one. Four separate checks rejected it: `WHY_TODAY`, `RANK_REASONS`, the eligibility-source check, and the due-backlog/deadline-reason pairing. The brief's own picks poisoned the payload that would have attached the brief, so the feature defeated itself. Any morning where the brief picks a backlog task loses the brief.
+- **Fix:** taught the validator the transport reason as a first-class backlog eligibility source, and generalized the deadline-reason pairing to cover both backlog sources so neither reason can be smuggled onto an accepted-column candidate. 3 new tests in `tests/day-plan-route.test.mjs` cover the no-deadline pick, the overdue pick, and the smuggling guard.
+- **Also:** `BriefProgress.tsx` now keeps a bar in every waiting state instead of dropping to bare dots at the end. Queued-with-no-start sweeps (`.brief-progress-sweep`, new keyframe in globals.css, killed under reduced motion), running fills against the median estimate, and succeeded-but-attaching holds at 95% and pulses. The honesty rules are unchanged: the bar never reads 100% before the brief lands, and a held or sweeping bar drops `aria-valuenow`.
+- **Verified:** 851 tests pass 0 fail, typecheck clean, production build clean, `com.cove.local` restarted, live app 200. The 8/5 brief attached on the next late-attach poll (plan version 3, `ensure:late-brief:…`) and renders on the live arrival.
+- **Known gap, not fixed:** `pollForLateBrief` swallows the attach error (`catch { }` → plain refresh), so a validation regression like this is invisible until someone reads the network tab. The arrival just times out after 8 polls and offers to buy another brief. Worth surfacing.
 
 ## 2026-08-04 Today redesign: prototype into the live app (DONE, DEPLOYED, uncommitted; Opus review PASS)
 
