@@ -79,6 +79,7 @@ export interface RestrictedMailGateway {
     threadId: string;
     sourceMessageId: string;
     body: string;
+    htmlBody?: string;
     idempotencyKey: string;
   }): Promise<{ id: string; messageId: string; threadId: string }>;
   createSupportDraft(input: {

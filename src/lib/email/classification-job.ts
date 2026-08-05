@@ -49,6 +49,7 @@ export function createEmailClassificationHandler(input: {
   accountEmail: string;
   dbPath?: string;
   repoDir?: string;
+  signatureText?: string | null;
   voice?: () => string;
   classifier?: (input: {
     accountEmail: string;
@@ -190,6 +191,7 @@ export function createEmailClassificationHandler(input: {
       summary: result.summary,
       recommendedAction: result.recommendedAction,
       draftBody: result.draftBody,
+      signatureText: input.signatureText,
       artifactPayload: {
         messageId: message.id,
         threadId: message.threadId,

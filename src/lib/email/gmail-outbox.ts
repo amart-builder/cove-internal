@@ -1,10 +1,13 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
+import path from "node:path";
 import { openLocalDatabase } from "../local/database";
 import type { ScheduledJob } from "../reliability/jobs";
 import { recordReceiptInDatabase } from "../reliability/receipts";
 import type { RestrictedMailGateway } from "../workspace";
 import { WorkspaceGatewayError } from "../workspace";
+import { draftBodyToHtml, signatureHtmlToText } from "./draft-format";
+import { loadSignature } from "./signature";
 import { ensureRollingEmailCardInDatabase } from "./state-machine";
 
 type OperationRow = {
@@ -125,8 +128,30 @@ async function findOperationDraft(
 export function createGmailOperationHandler(input: {
   gateway: RestrictedMailGateway;
   dbPath?: string;
+  dataDir?: string;
+  cachedSignature?: ReturnType<typeof loadSignature>;
   now?: () => Date;
+  warn?: (message: string) => void;
 }) {
+  let signatureLoaded = Object.prototype.hasOwnProperty.call(input, "cachedSignature");
+  let signature: ReturnType<typeof loadSignature> = input.cachedSignature ?? null;
+  let missingSignatureWarned = false;
+  const getCachedSignature = () => {
+    if (!signatureLoaded) {
+      signatureLoaded = true;
+      signature = loadSignature(
+        input.dataDir ?? (input.dbPath ? path.dirname(input.dbPath) : undefined),
+        input.gateway.accountEmail,
+      );
+    }
+    if (!signature && !missingSignatureWarned) {
+      missingSignatureWarned = true;
+      (input.warn ?? console.warn)(
+        "Cove email signature cache is missing. Run `npm run email:signature-sync` to refresh it.",
+      );
+    }
+    return signature;
+  };
   return async (job: ScheduledJob): Promise<{
     summary: string;
     actions: unknown;
@@ -207,10 +232,15 @@ export function createGmailOperationHandler(input: {
           if (typeof payload.body !== "string" || !payload.body.trim()) {
             throw new Error("Draft operation has no body.");
           }
+          const storedSignature = getCachedSignature();
+          const signatureText = storedSignature
+            ? signatureHtmlToText(storedSignature.html)
+            : "";
           const created = await input.gateway.createReplyDraft({
             threadId: row.thread_id,
             sourceMessageId: row.expected_message_id,
-            body: payload.body,
+            body: signatureText ? `${payload.body}\n\n${signatureText}` : payload.body,
+            htmlBody: draftBodyToHtml(payload.body, storedSignature?.html),
             idempotencyKey: row.operation_key,
           });
           remoteId = created.id;
@@ -298,6 +328,8 @@ export function createGmailOperationHandler(input: {
              WHERE id = ? AND thread_version = ?`,
           ).run(
             remoteId,
+            // Deliberately hash only the normalized model body. The appended
+            // signature can refresh independently without changing draft identity.
             draftBodyVerified
               ? createHash("sha256").update(body).digest("hex")
               : null,

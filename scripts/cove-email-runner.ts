@@ -18,6 +18,9 @@ import {
 } from "../src/lib/email/state-machine";
 import { reconcileGmailToCard, type GmailThreadObservation } from "../src/lib/email/automation";
 import { openLocalDatabase } from "../src/lib/local/database";
+import { resolveEmailRuntimePaths } from "../src/lib/email/runtime-paths";
+import { signatureHtmlToText } from "../src/lib/email/draft-format";
+import { loadSignature } from "../src/lib/email/signature";
 import { JobScheduler } from "../src/lib/reliability/jobs";
 import { recordReceipt } from "../src/lib/reliability/receipts";
 import {
@@ -41,6 +44,7 @@ type RunnerOptions = {
     recentContext?: string;
   }) => Promise<EmailClassification>;
   now?: () => Date;
+  warn?: (message: string) => void;
 };
 
 const INTAKE_PAGE_SIZE = 100;
@@ -96,11 +100,26 @@ async function runEmailTriageUnchecked(
 ): Promise<EmailTriageResult> {
   const repoDir = options.repoDir ??
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  const dataDir = options.dataDir ?? path.join(repoDir, "data");
-  const dbPath = options.dbPath ?? path.join(dataDir, "cove.db");
+  const { dataDir, dbPath } = resolveEmailRuntimePaths({
+    repoDir,
+    dataDir: options.dataDir,
+    dbPath: options.dbPath,
+  });
   const now = options.now ?? (() => new Date());
-  const startedAt = now().toISOString();
+  const started = now();
+  const startedAt = started.toISOString();
+  const warn = options.warn ?? console.warn;
   const config = readWorkspaceConfig(dataDir);
+  const cachedSignature = loadSignature(dataDir, config.accountEmail);
+  if (
+    cachedSignature &&
+    started.getTime() - Date.parse(cachedSignature.fetchedAt) > 30 * 24 * 60 * 60 * 1_000
+  ) {
+    warn("Cove email signature cache is over 30 days old. Run `npm run email:signature-sync` to refresh it.");
+  }
+  const signatureText = cachedSignature
+    ? signatureHtmlToText(cachedSignature.html)
+    : null;
   const gateway = options.gateway ?? createGoogleWorkspaceGateway({ dataDir }).mail;
   const classifier = options.classifier ?? ((input) => classifyEmail({ ...input, repoDir }));
   await gateway.getProfile();
@@ -190,6 +209,7 @@ async function runEmailTriageUnchecked(
     accountEmail: config.accountEmail,
     dbPath,
     repoDir,
+    signatureText,
     voice: voiceGuide,
     classifier,
     now,
@@ -197,7 +217,10 @@ async function runEmailTriageUnchecked(
   scheduler.register("gmail-operation", createGmailOperationHandler({
     gateway,
     dbPath,
+    dataDir,
+    cachedSignature,
     now,
+    warn,
   }));
   scheduler.register("email-artifacts", createEmailArtifactHandler({
     dbPath,
@@ -276,8 +299,11 @@ export async function runEmailTriage(options: RunnerOptions = {}): Promise<Email
   } catch (error) {
     const repoDir = options.repoDir ??
       path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-    const dataDir = options.dataDir ?? path.join(repoDir, "data");
-    const dbPath = options.dbPath ?? path.join(dataDir, "cove.db");
+    const { dbPath } = resolveEmailRuntimePaths({
+      repoDir,
+      dataDir: options.dataDir,
+      dbPath: options.dbPath,
+    });
     const occurredAt = (options.now ?? (() => new Date()))().toISOString();
     const failure = safeWorkspaceFailure(error);
     try {

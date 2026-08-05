@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createEmailClassificationHandler } from "../src/lib/email/classification-job.ts";
 import { createGmailOperationHandler } from "../src/lib/email/gmail-outbox.ts";
+import { writeSignature } from "../src/lib/email/signature.ts";
 import {
   applyEmailClassification,
   observeInboundMessage,
@@ -969,6 +971,117 @@ test("a dead classification is requeued when Gmail presents the untriaged messag
     ),
     { message_state: "observed", job_status: "queued", attempts: 0 },
   );
+});
+
+test("reply draft normalization is shared by storage, queueing, hashing, and signed MIME input", async (t) => {
+  const dbPath = fixture(t);
+  const dataDir = path.dirname(dbPath);
+  const signatureHtml = '<div class="gmail_signature">Best,<br><br>Alex<div>Edge AI</div></div>';
+  const observed = observeInboundMessage({
+    messageId: "m-normalized-reply",
+    threadId: "t-normalized-reply",
+    internalDate: "1000",
+    accountEmail: "alex@example.com",
+    dbPath,
+  });
+  const classified = applyEmailClassification({
+    messageId: "m-normalized-reply",
+    emailItemId: observed.emailItemId,
+    threadVersion: observed.threadVersion,
+    bucket: "reply",
+    summary: "Reply needed.",
+    draftBody: "Hello there\r\nthis continues.  \r\n\r\n\r\n- First\r\n- Second\r\n\r\nBest,\r\nAlex\r\nEdge AI",
+    signatureText: "Best,\n\nAlex\nEdge AI",
+    modelVersion: "test",
+    dbPath,
+  });
+  const normalized = "Hello there this continues.\n\n- First\n- Second";
+  assert.equal(
+    row(dbPath, "SELECT draft_response FROM email_items WHERE id = ?", observed.emailItemId)
+      .draft_response,
+    normalized,
+  );
+  const queued = JSON.parse(row(
+    dbPath,
+    "SELECT payload_json FROM cove_gmail_operations WHERE id = ?",
+    classified.operationId,
+  ).payload_json);
+  assert.equal(queued.body, normalized);
+
+  writeSignature({
+    dataDir,
+    html: signatureHtml,
+    metadata: {
+      sendAsEmail: "alex@example.com",
+      fetchedAt: "2026-08-05T12:00:00.000Z",
+      sourceMessageId: "sent-signature",
+    },
+  });
+  let draftInput;
+  await createGmailOperationHandler({
+    dbPath,
+    dataDir,
+    gateway: {
+      listDrafts: async () => ({ drafts: [] }),
+      createReplyDraft: async (input) => {
+        draftInput = input;
+        return { id: "d-normalized", messageId: "dm-normalized", threadId: input.threadId };
+      },
+    },
+  })(fakeJob(classified.operationId));
+  assert.equal(draftInput.body, `${normalized}\n\nBest,\n\nAlex\nEdge AI`);
+  assert.equal(
+    draftInput.htmlBody,
+    `<div dir="ltr"><div>Hello there this continues.</div><div><br></div><div>- First<br>- Second</div><div><br></div>${signatureHtml}</div>`,
+  );
+  assert.equal(
+    row(dbPath, "SELECT draft_body_hash FROM email_items WHERE id = ?", observed.emailItemId)
+      .draft_body_hash,
+    createHash("sha256").update(normalized).digest("hex"),
+  );
+});
+
+test("reply drafts stay rich without a signature cache and warn once", async (t) => {
+  const dbPath = fixture(t);
+  const observed = observeInboundMessage({
+    messageId: "m-no-signature",
+    threadId: "t-no-signature",
+    internalDate: "1000",
+    accountEmail: "alex@example.com",
+    dbPath,
+  });
+  const classified = applyEmailClassification({
+    messageId: "m-no-signature",
+    emailItemId: observed.emailItemId,
+    threadVersion: observed.threadVersion,
+    bucket: "reply",
+    summary: "Reply needed.",
+    draftBody: "First paragraph.\n\nSecond paragraph.",
+    modelVersion: "test",
+    dbPath,
+  });
+  const warnings = [];
+  let draftInput;
+  await createGmailOperationHandler({
+    dbPath,
+    dataDir: path.dirname(dbPath),
+    warn: (message) => warnings.push(message),
+    gateway: {
+      listDrafts: async () => ({ drafts: [] }),
+      createReplyDraft: async (input) => {
+        draftInput = input;
+        return { id: "d-no-signature", messageId: "dm-no-signature", threadId: input.threadId };
+      },
+    },
+  })(fakeJob(classified.operationId));
+  assert.equal(draftInput.body, "First paragraph.\n\nSecond paragraph.");
+  assert.equal(
+    draftInput.htmlBody,
+    '<div dir="ltr"><div>First paragraph.</div><div><br></div><div>Second paragraph.</div></div>',
+  );
+  assert.deepEqual(warnings, [
+    "Cove email signature cache is missing. Run `npm run email:signature-sync` to refresh it.",
+  ]);
 });
 
 test("an uncertain draft create is observed and never blindly created again", async (t) => {

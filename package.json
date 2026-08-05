@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "test": "tsc --noEmit && tsx --test tests/*.test.mjs",
     "verify": "node scripts/cove-verify.mjs",
-    "email:triage": "tsx scripts/cove-email-runner.ts"
+    "email:triage": "tsx scripts/cove-email-runner.ts",
+    "email:signature-sync": "tsx scripts/cove-signature-sync.ts"
   },
   "dependencies": {
     "@auth/core": "^0.41.3",

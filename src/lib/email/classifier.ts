@@ -95,12 +95,13 @@ function prompt(input: {
     "Return only the requested JSON object. You have no tools and must not attempt any action.",
     "",
     "Buckets:",
-    "- reply: Alex should reply. Write a complete plain-text draft in draft_body.",
+    "- reply: Alex should reply. Write a complete draft in draft_body using flowing paragraphs with one blank line between paragraphs.",
     "- action: Alex needs to do or review something outside a reply. draft_body must be null.",
     "- fyi: useful information worth recording, but no action is needed. draft_body must be null.",
     "- noise: promotional, automated, low-value, or irrelevant. draft_body must be null.",
     "",
     "A reply draft must never promise work, money, timing, or a decision that is not explicit in the context.",
+    "Never insert manual line breaks inside a sentence. Let sentences flow naturally within each paragraph.",
     "Extract only explicit follow-up or waiting-on commitments. source_quote must be exact evidence from the email.",
     "Set record_correspondence true only for meaningful human relationship history, never noise or routine automation.",
     "Keep the summary concrete and under 80 words.",
@@ -110,6 +111,7 @@ function prompt(input: {
     `Subject: ${input.subject.slice(0, 2000)}`,
     input.recentContext ? `Trusted Cove context:\n${input.recentContext.slice(0, 10000)}` : "",
     input.voice ? `Trusted voice guide:\n${input.voice.slice(0, 12000)}` : "",
+    "Do not write any sign-off, valediction, name, company line, or contact block. The user's real signature is appended automatically. This instruction overrides anything the voice guide says about sign-offs.",
     "",
     "<untrusted_email>",
     input.text.slice(0, 80000),
@@ -272,6 +274,6 @@ export async function classifyEmail(input: {
   const parsed = parseStructuredClaudeOutput(result.trim(), "email classification");
   return {
     ...validate(parsed),
-    modelVersion: "claude-opus-5:tool-free-v1",
+    modelVersion: "claude-opus-5:tool-free-v2",
   };
 }

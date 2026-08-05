@@ -772,6 +772,7 @@ export async function archiveEmailItemFromCard(input: {
     scheduler.register("gmail-operation", createGmailOperationHandler({
       gateway,
       dbPath: input.dbPath,
+      dataDir: input.dataDir,
       now: nowProvider(input.now),
     }));
     result = await scheduler.runJob(requested.jobId);

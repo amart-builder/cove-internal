@@ -6,7 +6,10 @@ import {
   WorkspaceGatewayError,
 } from "../src/lib/workspace/index.ts";
 import { createGoogleWorkspaceGateway } from "../src/lib/workspace/google/gateway.ts";
-import { buildReplyMime } from "../src/lib/workspace/google/mime.ts";
+import {
+  buildReplyMime,
+  deterministicMessageId,
+} from "../src/lib/workspace/google/mime.ts";
 
 const config = {
   version: 1,
@@ -207,6 +210,55 @@ test("ambiguous draft HTTP failures become unknown outcomes and are never blind-
   assert.equal(draftPosts, 1);
 });
 
+test("gateway preserves threadId and passes both reply alternatives into Gmail MIME", async () => {
+  let postedMessage;
+  const gateway = createGoogleWorkspaceGateway({
+    config,
+    tokenProvider: {
+      getAccessToken: async () => "access",
+      invalidate() {},
+    },
+    fetch: async (url, init) => {
+      const target = String(url);
+      if (target.endsWith("/profile")) return json({ emailAddress: "alex@example.com" });
+      if (target.includes("/messages/source-rich")) {
+        return json({
+          id: "source-rich",
+          threadId: "thread-rich",
+          labelIds: ["INBOX"],
+          internalDate: "1000",
+          payload: {
+            headers: [
+              { name: "Message-ID", value: "<source-rich@example.com>" },
+              { name: "From", value: "Person <person@example.com>" },
+              { name: "Subject", value: "Rich reply" },
+            ],
+          },
+        });
+      }
+      if (target.endsWith("/drafts") && init?.method === "POST") {
+        postedMessage = JSON.parse(init.body).message;
+        return json({
+          id: "draft-rich",
+          message: { id: "draft-message-rich", threadId: "thread-rich" },
+        });
+      }
+      return json({});
+    },
+  });
+  await gateway.mail.createReplyDraft({
+    threadId: "thread-rich",
+    sourceMessageId: "source-rich",
+    body: "Plain reply.",
+    htmlBody: '<div dir="ltr"><div><b>Rich</b> reply.</div></div>',
+    idempotencyKey: "reply:thread-rich:v1",
+  });
+  assert.equal(postedMessage.threadId, "thread-rich");
+  const decoded = decodedMultipart(Buffer.from(postedMessage.raw, "base64url").toString("utf8"));
+  assert.equal(decoded.parts[0].text, "Plain reply.");
+  assert.equal(decoded.parts[1].text, '<div dir="ltr"><div><b>Rich</b> reply.</div></div>');
+});
+
 test("reply MIME rejects header injection and carries a deterministic operation marker", () => {
   assert.throws(() => buildReplyMime({
     to: "victim@example.com\r\nBcc: attacker@example.com",
@@ -237,4 +289,89 @@ test("reply MIME rejects header injection and carries a deterministic operation 
   });
   assert.equal(first, second);
   assert.match(Buffer.from(first, "base64url").toString("utf8"), /X-Cove-Operation-Id: reply:thread:v1/);
+});
+
+function decodedMultipart(raw) {
+  const headerEnd = raw.indexOf("\r\n\r\n");
+  const headers = raw.slice(0, headerEnd).split("\r\n");
+  const boundary = /boundary="([^"]+)"/.exec(headers.at(-1))?.[1];
+  assert.ok(boundary);
+  const chunks = raw.slice(headerEnd + 4).split(`--${boundary}`).slice(1);
+  const parts = [];
+  for (const chunk of chunks) {
+    if (chunk.startsWith("--")) break;
+    const value = chunk.replace(/^\r\n/, "").replace(/\r\n$/, "");
+    const [partHeaders, encoded] = value.split("\r\n\r\n");
+    parts.push({
+      headers: partHeaders.split("\r\n"),
+      encodedLines: encoded.split("\r\n"),
+      text: Buffer.from(encoded.replace(/\r\n/g, ""), "base64").toString("utf8"),
+    });
+  }
+  return { boundary, headers, parts };
+}
+
+test("reply MIME is deterministic multipart alternative with preserved threading headers", () => {
+  const input = {
+    to: "person@example.com",
+    subject: "Planning 👋",
+    body: "First paragraph.\n\n- One\n- Two",
+    htmlBody: '<div dir="ltr"><div>First paragraph.</div><div><br></div><div>- One<br>- Two</div></div>',
+    inReplyTo: "<source@example.com>",
+    references: ["<older@example.com>", "<source@example.com>"],
+    idempotencyKey: "reply:thread:v2",
+    accountEmail: "alex@example.com",
+  };
+  const first = buildReplyMime(input);
+  const second = buildReplyMime(input);
+  assert.equal(first, second);
+  const raw = Buffer.from(first, "base64url").toString("utf8");
+  assert.equal(raw.replace(/\r\n/g, "").includes("\n"), false);
+  const decoded = decodedMultipart(raw);
+  assert.equal(decoded.parts.length, 2);
+  assert.match(decoded.boundary, /^=_cove_[0-9a-f]{32}$/);
+  assert.deepEqual(decoded.headers, [
+    "To: person@example.com",
+    "Subject: =?UTF-8?B?UmU6IFBsYW5uaW5nIPCfkYs=?=",
+    `Message-ID: ${deterministicMessageId(input.idempotencyKey, input.accountEmail)}`,
+    "In-Reply-To: <source@example.com>",
+    "References: <older@example.com> <source@example.com>",
+    "X-Cove-Operation-Id: reply:thread:v2",
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${decoded.boundary}"`,
+  ]);
+  assert.deepEqual(decoded.parts[0].headers, [
+    'Content-Type: text/plain; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+  ]);
+  assert.deepEqual(decoded.parts[1].headers, [
+    'Content-Type: text/html; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+  ]);
+  assert.equal(decoded.parts[0].text, "First paragraph.\r\n\r\n- One\r\n- Two");
+  assert.equal(decoded.parts[1].text, input.htmlBody);
+  for (const part of decoded.parts) {
+    assert.ok(part.encodedLines.every((line) => line.length > 0 && line.length <= 76));
+  }
+  assert.notEqual(
+    decoded.boundary,
+    decodedMultipart(Buffer.from(buildReplyMime({ ...input, idempotencyKey: "reply:thread:v3" }), "base64url").toString("utf8")).boundary,
+  );
+});
+
+test("reply MIME base64 wrapping preserves a 2000-character logical line", () => {
+  const body = "x".repeat(2_000);
+  const raw = Buffer.from(buildReplyMime({
+    to: "person@example.com",
+    subject: "Long line",
+    body,
+    inReplyTo: "<source@example.com>",
+    references: [],
+    idempotencyKey: "reply:long-line:v1",
+    accountEmail: "alex@example.com",
+  }), "base64url").toString("utf8");
+  const decoded = decodedMultipart(raw);
+  assert.equal(decoded.parts[0].text, body);
+  assert.ok(decoded.parts[0].encodedLines.length > 20);
+  assert.ok(decoded.parts[0].encodedLines.every((line) => line.length <= 76));
 });

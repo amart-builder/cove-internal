@@ -575,6 +575,7 @@ class GoogleMailGateway implements RestrictedMailGateway {
   private async replyRaw(input: {
     sourceMessageId: string;
     body: string;
+    htmlBody?: string;
     idempotencyKey: string;
   }): Promise<string> {
     const source = await this.getMessage({ messageId: input.sourceMessageId, format: "metadata" });
@@ -583,6 +584,7 @@ class GoogleMailGateway implements RestrictedMailGateway {
       to: parseAddress(header(source, "Reply-To") || header(source, "From")),
       subject: header(source, "Subject") || "(no subject)",
       body: input.body,
+      htmlBody: input.htmlBody,
       inReplyTo: messageId,
       references: (header(source, "References").match(/<[^<>]+>/g) ?? []),
       idempotencyKey: input.idempotencyKey,
@@ -594,6 +596,7 @@ class GoogleMailGateway implements RestrictedMailGateway {
     threadId: string;
     sourceMessageId: string;
     body: string;
+    htmlBody?: string;
     idempotencyKey: string;
   }): Promise<{ id: string; messageId: string; threadId: string }> {
     await this.verifyAccount();

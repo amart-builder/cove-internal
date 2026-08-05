@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { openLocalDatabase } from "../local/database";
 import { enqueueJobInDatabase } from "../reliability/jobs";
 import { recordReceiptInDatabase } from "../reliability/receipts";
+import { normalizeDraftBody, stripTrailingSignature } from "./draft-format";
 
 export type EmailBucket = "reply" | "action" | "fyi" | "noise";
 
@@ -409,6 +410,7 @@ export function applyEmailClassification(input: {
   summary: string;
   recommendedAction?: string | null;
   draftBody?: string | null;
+  signatureText?: string | null;
   artifactPayload?: unknown;
   modelVersion: string;
   dbPath?: string;
@@ -420,6 +422,11 @@ export function applyEmailClassification(input: {
   cause?: "missing_item" | "item_not_open" | "version_mismatch";
 } {
   const now = (input.now ?? new Date()).toISOString();
+  const draftBody = input.draftBody == null
+    ? null
+    : normalizeDraftBody(
+      stripTrailingSignature(input.draftBody, input.signatureText),
+    ).slice(0, 100_000);
   const db = openLocalDatabase(input.dbPath);
   try {
     return db.transaction(() => {
@@ -458,7 +465,7 @@ export function applyEmailClassification(input: {
       ) {
         return rejectClassification("version_mismatch");
       }
-      if (input.bucket === "reply" && !input.draftBody?.trim()) {
+      if (input.bucket === "reply" && !draftBody) {
         throw new Error("Reply classification requires a draft body.");
       }
       db.prepare(
@@ -490,7 +497,7 @@ export function applyEmailClassification(input: {
         input.summary.slice(0, 4_000),
         input.recommendedAction ?? (input.bucket === "reply" ? "reply" : "review"),
         terminalAfterArchive ? "finalizing" : "open",
-        input.draftBody?.slice(0, 100_000) ?? null,
+        draftBody,
         now,
         input.emailItemId,
       );
@@ -543,7 +550,7 @@ export function applyEmailClassification(input: {
           threadVersion: input.threadVersion,
           kind: "upsert_draft",
           payload: {
-            body: input.draftBody,
+            body: draftBody,
             existingDraftId: thread.gmail_draft_id,
           },
           now,

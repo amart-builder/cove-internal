@@ -77,10 +77,11 @@ The browser opens Google's consent screen. Cove verifies the resulting Gmail ide
 
 ```bash
 ./node_modules/.bin/tsx scripts/cove-google-connect.ts status
+npm run email:signature-sync
 npm run email:triage
 ```
 
-Confirm that a test email appears on the rolling `Email` card, a Reply classification creates one in-thread Gmail draft, and completing the card item archives it. Confirm the Issues page remains clear.
+The signature sync reads recent sent mail and stores the user's Gmail signature in the private Cove data directory. Run it during setup and again if the user changes their Gmail signature. Confirm that a test email appears on the rolling `Email` card, a Reply classification creates one rich in-thread Gmail draft with the real signature, and completing the card item archives it. Confirm the Issues page remains clear.
 
 4. Ask for the user's inbox-check times and timezone before connecting. The connect command writes `triage_times`, `timezone`, and `weekdays_only` to `data/cove-workspace.json`; reauthorization preserves them unless the flags are supplied again. The installer reads those values. Default to `09:00` and `15:00` in the user's local zone.
 
