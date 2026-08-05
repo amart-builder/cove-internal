@@ -24,9 +24,10 @@ export type TaskSessionRun = {
   owner: TaskSessionOwner;
   permissionMode: TaskSessionPermissionMode;
   status: TaskSessionRunStatus;
-  claudeSessionId: string;
+  claudeSessionId?: string;
   outputDir: string;
   resumeUrl: string;
+  resumeCommand?: string;
   promptSnapshot: TaskSessionPromptSnapshot;
   resultSummary?: string;
   hint?: string;

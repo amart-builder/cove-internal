@@ -12,10 +12,12 @@ import { coveDataDir } from "../operator";
 
 export type TaskSettings = {
   stale_after_days: number;
+  focus_count: number;
 };
 
 export const DEFAULT_TASK_SETTINGS: TaskSettings = {
   stale_after_days: 14,
+  focus_count: 1,
 };
 
 export function taskSettingsPath(dataDir?: string): string {
@@ -34,7 +36,18 @@ function validateTaskSettings(value: unknown): TaskSettings {
   if (!Number.isInteger(days) || Number(days) < 1 || Number(days) > 365) {
     throw new Error("cove_task_settings_invalid");
   }
-  return { stale_after_days: Number(days) };
+  const focusCount = (value as Record<string, unknown>).focus_count ?? 1;
+  if (
+    !Number.isInteger(focusCount) ||
+    Number(focusCount) < 1 ||
+    Number(focusCount) > 3
+  ) {
+    throw new Error("cove_task_settings_invalid");
+  }
+  return {
+    stale_after_days: Number(days),
+    focus_count: Number(focusCount),
+  };
 }
 
 export function readTaskSettings(dataDir?: string): TaskSettings {

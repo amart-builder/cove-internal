@@ -13,6 +13,8 @@ import type {
   TaskSessionRun,
 } from '@/lib/task-sessions/types';
 
+const ACTIVE_TASK_SESSION_POLL_INTERVAL_MS = 10_000;
+
 export default function useTaskSessionRuns(taskIds: readonly string[]) {
   const taskIdKey = [...new Set(taskIds)].sort().join('\u0000');
   const stableTaskIds = useMemo(
@@ -48,10 +50,23 @@ export default function useTaskSessionRuns(taskIds: readonly string[]) {
     (run) => run.status === 'running' || run.status === 'awaiting_approval',
   );
   useEffect(() => {
-    if (!hasActiveRun) return;
-    const timer = window.setInterval(() => void refresh(), TASK_SESSION_POLL_INTERVAL_MS);
+    if (typeof window === 'undefined') return;
+    const interval = hasActiveRun
+      ? ACTIVE_TASK_SESSION_POLL_INTERVAL_MS
+      : TASK_SESSION_POLL_INTERVAL_MS;
+    const timer = window.setInterval(() => {
+      if (document.hidden) return;
+      void refresh();
+    }, interval);
     return () => window.clearInterval(timer);
   }, [hasActiveRun, refresh]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleFocus = () => void refresh();
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [refresh]);
 
   const latestByTaskId = useMemo(
     () => new Map(runs.map((run) => [run.taskId, run])),

@@ -28,6 +28,7 @@ import {
 import { parseExecutionResultSummary } from "../claude-execution/commands";
 import { minimalChildEnvironment } from "../claude-execution/worker";
 import { markCoveOrchestratorSession } from "../claude-execution/orchestrator-session";
+import { buildClaudeResumeCommand } from "../claude-execution/resume-command";
 import type {
   LaunchTaskSessionInput,
   TaskSessionPermissionMode,
@@ -66,7 +67,7 @@ type TaskSessionRunRow = {
   owner: TaskSessionRun["owner"];
   permission_mode: TaskSessionPermissionMode;
   status: TaskSessionRunStatus;
-  claude_session_id: string;
+  claude_session_id: string | null;
   pid: number | null;
   server_pid: number;
   server_generation: string;
@@ -242,7 +243,15 @@ function fromRow(row: TaskSessionRunRow): TaskSessionRun {
     owner: row.owner,
     permissionMode: row.permission_mode,
     status: row.status,
-    claudeSessionId: row.claude_session_id,
+    ...(row.claude_session_id
+      ? {
+          claudeSessionId: row.claude_session_id,
+          resumeCommand: buildClaudeResumeCommand(
+            row.output_dir,
+            row.claude_session_id,
+          ),
+        }
+      : {}),
     outputDir: row.output_dir,
     resumeUrl: row.resume_url,
     promptSnapshot: parsePrompt(row.prompt_json),
@@ -540,7 +549,10 @@ export function createTaskSessionManager(
     const pid = child?.pid ?? row.pid ?? undefined;
     if (pid) {
       try {
-        if (child || commandForPid(pid)?.includes(row.claude_session_id)) {
+        if (
+          child ||
+          (row.claude_session_id && commandForPid(pid)?.includes(row.claude_session_id))
+        ) {
           signalGroup(pid, "SIGTERM");
         }
       } catch {

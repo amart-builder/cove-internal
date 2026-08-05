@@ -96,6 +96,11 @@ export type DayPlanItem = RecommendationCandidate & {
   position: number;
   decision: DayPlanItemDecision;
   brief?: DayPlanItemBriefAnnotation;
+  preCompletionBoardPlacement?: {
+    columnId: string;
+    position: number;
+    status: string | null;
+  };
   settlementDecision?: {
     disposition: SettlementDisposition;
     deferUntil?: string;
@@ -227,12 +232,14 @@ export type DayPlanMutationAction =
   | "item_dismiss"
   | "item_add"
   | "item_complete"
+  | "item_reopen"
   | "item_owner"
   | "item_reorder"
   | "start_day"
   | "settlement_offer"
   | "settlement_skip"
   | "settlement_start"
+  | "settlement_cancel"
   | "settlement_decide"
   | "settlement_commit";
 

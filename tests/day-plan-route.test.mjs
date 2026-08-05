@@ -425,6 +425,21 @@ test('parses a complete item_add mutation and requires its bounded payload', () 
     itemId: 'item-a',
   });
   assert.equal(completed.action, 'item_complete');
+  const reopened = parseDayPlanPostBody({
+    action: 'item_reopen',
+    planId: 'plan-a',
+    mutationId: 'reopen:task',
+    expectedVersion: 3,
+    itemId: 'item-a',
+  });
+  assert.equal(reopened.action, 'item_reopen');
+  const settlementCancelled = parseDayPlanPostBody({
+    action: 'settlement_cancel',
+    planId: 'plan-a',
+    mutationId: 'settlement-cancel:1',
+    expectedVersion: 4,
+  });
+  assert.equal(settlementCancelled.action, 'settlement_cancel');
 });
 
 test('POST rejects untrusted hosts and missing CSRF before touching state', async () => {

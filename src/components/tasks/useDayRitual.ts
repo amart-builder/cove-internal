@@ -854,9 +854,17 @@ export default function useDayRitual({
 
   const completeItem = useCallback(async (itemId: string, title: string) => {
     markArrivalInteraction();
-    await enqueueMutation('item_complete', { itemId }, {
+    return await enqueueMutation('item_complete', { itemId }, {
       itemId,
       announce: `${title} completed.`,
+    });
+  }, [enqueueMutation, markArrivalInteraction]);
+
+  const reopenItem = useCallback(async (itemId: string, title: string) => {
+    markArrivalInteraction();
+    return await enqueueMutation('item_reopen', { itemId }, {
+      itemId,
+      announce: `${title} restored to Today.`,
     });
   }, [enqueueMutation, markArrivalInteraction]);
 
@@ -1142,10 +1150,25 @@ export default function useDayRitual({
     });
   }, [enqueueMutation]);
 
-  const cancelSettlement = useCallback(() => {
-    setView('none');
-    setAnnouncement('Closing your day was left open for later.');
-  }, []);
+  const cancelSettlement = useCallback(async () => {
+    const current = planRef.current;
+    let saved = true;
+    if (current?.state === 'settling' && current.settlementState === 'in_progress') {
+      try {
+        await enqueueMutation('settlement_cancel', {}, {
+          mutationId: stableMutationId('settlement-cancel', current),
+          announce: 'Closing your day was left open for later.',
+        });
+      } catch {
+        saved = false;
+      } finally {
+        setView('none');
+      }
+    } else {
+      setView('none');
+    }
+    if (saved) setAnnouncement('Closing your day was left open for later.');
+  }, [enqueueMutation]);
 
   const decideSettlement = useCallback(async (
     itemId: string,
@@ -1369,6 +1392,7 @@ export default function useDayRitual({
     dismissItem,
     laterItem,
     completeItem,
+    reopenItem,
     configureExecution,
     kickoffExecution,
     cancelExecution,

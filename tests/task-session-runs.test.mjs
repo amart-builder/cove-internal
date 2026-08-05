@@ -168,7 +168,7 @@ test('owner modes are structural and never construct bypassPermissions', () => {
   }
 });
 
-test('task sessions launch from Cove outputs with no workspace or git requirement', (t) => {
+test('task sessions launch from Cove outputs with no workspace or git requirement', async (t) => {
   const previousGithubToken = process.env.GITHUB_TOKEN;
   process.env.GITHUB_TOKEN = 'sol-test-sentinel';
   t.after(() => {
@@ -183,6 +183,10 @@ test('task sessions launch from Cove outputs with no workspace or git requiremen
   });
   assert.equal(run.status, 'running');
   assert.equal(run.permissionMode, 'acceptEdits');
+  assert.equal(
+    run.resumeCommand,
+    `cd '${run.outputDir}' && claude --resume '${run.claudeSessionId}'`,
+  );
   assert.match(run.outputDir, new RegExp(`^${dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/outputs/`));
   assert.equal(existsSync(run.outputDir), true);
   assert.equal(spawnCalls[0].options.cwd, run.outputDir);
@@ -207,6 +211,40 @@ test('task sessions launch from Cove outputs with no workspace or git requiremen
     spawnCalls[0].child.pid,
   );
   db.close();
+  const response = await handleTaskSessionRunsGet(
+    new NextRequest('http://localhost:3200/api/task-session-runs', {
+      headers: { host: 'localhost:3200', 'x-forwarded-for': '127.0.0.1' },
+    }),
+    { manager, runtimeMode: 'local' },
+  );
+  assert.equal((await response.json()).runs[0].resumeCommand, run.resumeCommand);
+});
+
+test('task session run payload omits resumeCommand without a Claude session id', async (t) => {
+  const { dbPath, manager } = fixture(t);
+  const launched = manager.launch({
+    taskId: 'task-no-session-id',
+    owner: 'claude',
+    promptSnapshot: SNAPSHOT,
+  });
+  const db = new Database(dbPath);
+  db.prepare(
+    'UPDATE cove_task_session_runs SET claude_session_id = ? WHERE id = ?',
+  ).run('', launched.id);
+  db.close();
+
+  const run = manager.getRun(launched.id);
+  assert.equal('claudeSessionId' in run, false);
+  assert.equal('resumeCommand' in run, false);
+  const response = await handleTaskSessionRunsGet(
+    new NextRequest('http://localhost:3200/api/task-session-runs', {
+      headers: { host: 'localhost:3200', 'x-forwarded-for': '127.0.0.1' },
+    }),
+    { manager, runtimeMode: 'local' },
+  );
+  const payload = await response.json();
+  assert.equal('claudeSessionId' in payload.runs[0], false);
+  assert.equal('resumeCommand' in payload.runs[0], false);
 });
 
 test('log setup failure terminates and fails the registered run', (t) => {

@@ -91,6 +91,7 @@ const CONTENT_MUTATION_ACTIONS = new Set<string>([
   "item_dismiss",
   "item_add",
   "item_complete",
+  "item_reopen",
   "item_owner",
   "item_reorder",
 ]);
@@ -1119,6 +1120,16 @@ function requireArrivalEditing(plan: DayPlan): void {
   if (plan.state !== "proposed" || plan.arrivalState !== "opened") {
     throw new DayPlanInvalidTransition("Arrival items can change only while arrival is open.");
   }
+}
+
+function requirePlanOrdering(plan: DayPlan): void {
+  if (
+    (plan.state === "proposed" && plan.arrivalState === "opened") ||
+    plan.state === "active"
+  ) return;
+  throw new DayPlanInvalidTransition(
+    "Today items can change only while arrival is open or the day is active.",
+  );
 }
 
 function requireAssistantEditing(
@@ -3655,6 +3666,7 @@ export function createDayPlanStore(options: {
       const executionRuns: DayPlanExecutionRun[] = [];
       const unreadyItems: DayPlanUnreadyItem[] = [];
       const kickoffSkips: DayPlanKickoffSkip[] = [];
+      let settlementOrigin: "active" | "proposed" | undefined;
 
       switch (input.action) {
         case "arrival_open":
@@ -3800,7 +3812,8 @@ export function createDayPlanStore(options: {
           break;
         }
         case "item_add": {
-          requireArrivalEditing(plan);
+          requirePlanOrdering(plan);
+          const addedDecision = plan.state === "active" ? "accepted" : "preselected";
           const activeCount = plan.items.filter(
             (item) =>
               item.decision === "pending" ||
@@ -3870,7 +3883,7 @@ export function createDayPlanStore(options: {
               ],
               rankReasons: ["accepted_today", `priority_${taskPriority}`],
               position: activeCount,
-              decision: "preselected",
+              decision: addedDecision,
             };
             const ordered = [...plan.items]
               .sort((left, right) => left.position - right.position)
@@ -3930,12 +3943,12 @@ export function createDayPlanStore(options: {
             humanDecisionEventIds: [input.mutationId],
             rankReasons: ["accepted_today", "priority_high"],
             position: plan.items.length,
-            decision: "preselected",
+            decision: addedDecision,
           });
           break;
         }
         case "item_complete": {
-          requireArrivalEditing(plan);
+          requirePlanOrdering(plan);
           const item = requireItem(plan, input.itemId);
           requireState(
             item.decision,
@@ -3949,6 +3962,19 @@ export function createDayPlanStore(options: {
             const task = managedTask(item.taskId);
             if (!task) throw new DayPlanInvalidTransition("The board task no longer exists.");
             if (task.status !== "done") {
+              if (
+                task.column_id &&
+                typeof task.position === "number" &&
+                Number.isFinite(task.position)
+              ) {
+                item.preCompletionBoardPlacement = {
+                  columnId: task.column_id,
+                  position: task.position,
+                  status: task.status,
+                };
+              } else {
+                delete item.preCompletionBoardPlacement;
+              }
               const doneColumn = (db.prepare(
                 "SELECT id, name FROM task_columns ORDER BY position ASC",
               ).all() as Array<{ id: string; name: string }>).find(
@@ -3970,6 +3996,70 @@ export function createDayPlanStore(options: {
           item.decision = "completed";
           break;
         }
+        case "item_reopen": {
+          requirePlanOrdering(plan);
+          const item = requireItem(plan, input.itemId);
+          requireState(
+            item.decision,
+            ["completed"],
+            "Only a completed Today item can be reopened.",
+          );
+          const taskBacked = item.sourceRefs.some(
+            (source) => source.sourceType === "task" && source.recordId === item.taskId,
+          );
+          if (taskBacked) {
+            const task = managedTask(item.taskId);
+            if (!task) throw new DayPlanInvalidTransition("The board task no longer exists.");
+            const placement = item.preCompletionBoardPlacement;
+            const recordedColumn = placement
+              ? db.prepare("SELECT id FROM task_columns WHERE id = ?")
+                  .get(placement.columnId) as { id: string } | undefined
+              : undefined;
+            const todayColumn = recordedColumn ?? (db.prepare(
+              "SELECT id, name FROM task_columns ORDER BY position ASC",
+            ).all() as Array<{ id: string; name: string }>).find(
+              (column) => taskColumnKeyForName(column.name) === "today",
+            );
+            if (!todayColumn) {
+              throw new DayPlanInvalidTransition("Cove needs a Today list to reopen this task.");
+            }
+            const nextPosition = recordedColumn && placement
+              ? placement.position
+              : db.prepare(
+                  "SELECT COALESCE(MAX(position), -1) + 1 AS position FROM tasks WHERE column_id = ? AND status = 'open'",
+                ).pluck().get(todayColumn.id) as number;
+            if (recordedColumn && placement) {
+              const occupied = db.prepare(
+                `SELECT 1 FROM tasks
+                 WHERE column_id = ? AND id <> ? AND position = ? AND status IS ?
+                 LIMIT 1`,
+              ).get(recordedColumn.id, task.id, placement.position, placement.status);
+              if (occupied) {
+                db.prepare(
+                  `UPDATE tasks
+                   SET position = position + 1
+                   WHERE column_id = ? AND id <> ? AND position >= ? AND status IS ?`,
+                ).run(recordedColumn.id, task.id, placement.position, placement.status);
+              }
+            }
+            db.prepare(
+              `UPDATE tasks
+               SET column_id = ?, status = ?, position = ?, archived_at = NULL,
+                   archived_from_status = NULL, updated_at = ?
+               WHERE id = ?`,
+            ).run(
+              todayColumn.id,
+              recordedColumn && placement ? placement.status : "open",
+              nextPosition,
+              changedAt,
+              task.id,
+            );
+          }
+          item.decision = "accepted";
+          delete item.preCompletionBoardPlacement;
+          delete item.settlementDecision;
+          break;
+        }
         case "item_owner": {
           requireArrivalEditing(plan);
           const item = requireItem(plan, input.itemId);
@@ -3983,7 +4073,7 @@ export function createDayPlanStore(options: {
           break;
         }
         case "item_reorder": {
-          requireArrivalEditing(plan);
+          requirePlanOrdering(plan);
           const item = requireItem(plan, input.itemId);
           if (!Number.isInteger(input.position)) {
             throw new DayPlanInvalidTransition("Item position must be an integer.");
@@ -4168,6 +4258,7 @@ export function createDayPlanStore(options: {
                 ["not_due", "offered", "skipped"],
                 "Settlement is already in progress or complete.",
               );
+              settlementOrigin = plan.state === "active" ? "active" : "proposed";
               plan.state = "settling";
               plan.settlementState = "in_progress";
             }
@@ -4200,6 +4291,14 @@ export function createDayPlanStore(options: {
             }
             break;
           }
+        case "settlement_cancel":
+          if (plan.state !== "settling" || plan.settlementState !== "in_progress") {
+            throw new DayPlanInvalidTransition("Only an active settlement can be cancelled.");
+          }
+          plan.state = settlementOriginState(plan.id);
+          plan.settlementState = "offered";
+          for (const item of plan.items) delete item.settlementDecision;
+          break;
         case "settlement_decide": {
           if (plan.state !== "settling" || plan.settlementState !== "in_progress") {
             throw new DayPlanInvalidTransition("Settlement decisions require an active settlement.");
@@ -4409,7 +4508,7 @@ export function createDayPlanStore(options: {
         changedItem.humanDecisionEventIds = [
           ...new Set([...changedItem.humanDecisionEventIds, input.mutationId]),
         ];
-        if (["item_edit", "item_owner", "item_later", "item_dismiss", "item_complete"].includes(input.action)) {
+        if (["item_edit", "item_owner", "item_later", "item_dismiss", "item_complete", "item_reopen"].includes(input.action)) {
           invalidateQueuedRunsForItem(plan, changedItem, changedAt);
         }
       }
@@ -4433,7 +4532,11 @@ export function createDayPlanStore(options: {
         expectedVersion: input.expectedVersion,
         resultVersion: plan.version,
         before,
-        after: input.action === "start_day" ? { plan, kickoffSkips } : plan,
+        after: input.action === "start_day"
+          ? { plan, kickoffSkips }
+          : input.action === "settlement_start"
+            ? { plan, settlementOriginState: settlementOrigin }
+            : plan,
         createdAt: changedAt,
       });
       return {
@@ -4535,6 +4638,33 @@ export function createDayPlanStore(options: {
       .prepare("SELECT * FROM day_plan_events WHERE day_plan_id = ? ORDER BY created_at, id")
       .all(planId) as EventRow[];
     return rows.map(eventFromRow);
+  }
+
+  function settlementOriginState(planId: string): "active" | "proposed" {
+    const rows = db.prepare(
+      `SELECT event_type, before_json, after_json
+       FROM day_plan_events
+       WHERE day_plan_id = ? AND event_type IN ('settlement_start', 'settlement_cancel')
+       ORDER BY rowid DESC`,
+    ).all(planId) as Array<Pick<EventRow, "event_type" | "before_json" | "after_json">>;
+    for (const row of rows) {
+      if (row.event_type === "settlement_cancel") break;
+      const after = row.after_json
+        ? parseJson<unknown>(row.after_json, "settlement start event after")
+        : undefined;
+      if (after && typeof after === "object" && !Array.isArray(after)) {
+        const origin = (after as { settlementOriginState?: unknown }).settlementOriginState;
+        if (origin === "active" || origin === "proposed") return origin;
+      }
+      const before = row.before_json
+        ? parseJson<unknown>(row.before_json, "settlement start event before")
+        : undefined;
+      if (before && typeof before === "object" && !Array.isArray(before)) {
+        const origin = (before as { state?: unknown }).state;
+        if (origin === "active" || origin === "proposed") return origin;
+      }
+    }
+    throw new DayPlanInvalidTransition("Settlement origin is unavailable.");
   }
 
   // Construction keeps the historical compatibility repair, but board

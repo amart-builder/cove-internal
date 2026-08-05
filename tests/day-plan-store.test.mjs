@@ -56,7 +56,7 @@ function candidates(ids = ['task-a', 'task-b']) {
       updatedAt: '2026-07-10T15:00:00.000Z',
       refreshedAt: '2026-07-10T16:00:00.000Z',
     })),
-  });
+  }, ids.length);
 }
 
 function ensure(store, mutationId = 'ensure:2026-07-10') {
@@ -76,6 +76,19 @@ function mutate(store, plan, action, patch = {}) {
     action,
     ...patch,
   });
+}
+
+function reorderPlanToItemIds(store, plan, orderedItemIds) {
+  let next = plan;
+  for (let position = 0; position < orderedItemIds.length; position += 1) {
+    const ordered = [...next.items].sort((left, right) => left.position - right.position);
+    if (ordered[position]?.id === orderedItemIds[position]) continue;
+    next = mutate(store, next, 'item_reorder', {
+      itemId: orderedItemIds[position],
+      position,
+    }).plan;
+  }
+  return next;
 }
 
 function removeManualCreationMarker(file, planId) {
@@ -465,7 +478,7 @@ test('task-backed item_add stays after active work when completed items lead the
   );
 });
 
-test('item_complete marks a board task done and the plan item completed together', (t) => {
+test('item_complete marks the board task done and legacy reopen falls back to Today', (t) => {
   const { file, store } = isolatedStore(t);
   const db = new Database(file);
   createManagedBoardTables(db);
@@ -518,7 +531,147 @@ test('item_complete marks a board task done and the plan item completed together
     ).get(),
     { status: 'cancelled', error_code: 'item_not_retained' },
   );
+  const staleItems = structuredClone(completed.items);
+  const staleItem = staleItems.find((item) => item.taskId === 'task-a');
+  delete staleItem.preCompletionBoardPlacement;
+  staleItem.settlementDecision = {
+    disposition: 'carry',
+    decidedAt: '2026-07-10T16:00:00.000Z',
+  };
+  verified.prepare('UPDATE day_plans SET items_json = ? WHERE id = ?')
+    .run(JSON.stringify(staleItems), completed.id);
   verified.close();
+  const completedWithSettlement = store.getPlan(completed.id);
+  assert.equal(
+    completedWithSettlement.items.find((item) => item.taskId === 'task-a')
+      .preCompletionBoardPlacement,
+    undefined,
+  );
+  const reopened = mutate(store, completedWithSettlement, 'item_reopen', {
+    itemId: queuedItem.id,
+  }).plan;
+  const reopenedItem = reopened.items.find((item) => item.taskId === 'task-a');
+  assert.equal(reopenedItem.decision, 'accepted');
+  assert.equal(reopenedItem.settlementDecision, undefined);
+  const reopenedDb = new Database(file);
+  assert.deepEqual(
+    reopenedDb.prepare("SELECT column_id, status, position FROM tasks WHERE id = 'task-a'").get(),
+    { column_id: 'col-today', status: 'open', position: 0 },
+  );
+  reopenedDb.close();
+});
+
+test('item_reopen restores the exact recorded board placement', (t) => {
+  const { file, store } = isolatedStore(t);
+  const db = new Database(file);
+  createManagedBoardTables(db);
+  const insert = db.prepare(
+    `INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, position,
+       status, created_at, updated_at)
+     VALUES (?, 'col-today', ?, ?, 'medium', '[]', ?, 'open', ?, ?)`,
+  );
+  ['task-left', 'task-a', 'task-right'].forEach((taskId, position) => insert.run(
+    taskId,
+    `Task ${taskId}`,
+    `Finish ${taskId}`,
+    position,
+    '2026-07-10T15:00:00.000Z',
+    '2026-07-10T15:00:00.000Z',
+  ));
+  db.close();
+
+  let plan = ensure(store, 'ensure:exact-reopen-placement').plan;
+  plan = mutate(store, plan, 'arrival_open').plan;
+  const item = plan.items.find((candidate) => candidate.taskId === 'task-a');
+  plan = mutate(store, plan, 'item_complete', { itemId: item.id }).plan;
+  assert.deepEqual(
+    plan.items.find((candidate) => candidate.id === item.id).preCompletionBoardPlacement,
+    { columnId: 'col-today', position: 1, status: 'open' },
+  );
+
+  plan = mutate(store, plan, 'item_reopen', { itemId: item.id }).plan;
+  assert.equal(
+    plan.items.find((candidate) => candidate.id === item.id).preCompletionBoardPlacement,
+    undefined,
+  );
+  const verified = new Database(file);
+  assert.deepEqual(
+    verified.prepare("SELECT column_id, position, status FROM tasks WHERE id = 'task-a'").get(),
+    { column_id: 'col-today', position: 1, status: 'open' },
+  );
+  assert.deepEqual(
+    verified.prepare(
+      "SELECT id, position FROM tasks WHERE column_id = 'col-today' ORDER BY position, id",
+    ).all(),
+    [
+      { id: 'task-left', position: 0 },
+      { id: 'task-a', position: 1 },
+      { id: 'task-right', position: 2 },
+    ],
+  );
+  verified.close();
+
+  plan = mutate(store, plan, 'item_complete', { itemId: item.id }).plan;
+  const collisionDb = new Database(file);
+  collisionDb.prepare(
+    `INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, position,
+       status, created_at, updated_at)
+     VALUES ('task-new', 'col-today', 'Task task-new', 'Finish task-new', 'medium', '[]', 1,
+             'open', '2026-07-10T15:30:00.000Z', '2026-07-10T15:30:00.000Z')`,
+  ).run();
+  collisionDb.prepare(
+    `INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, position,
+       status, created_at, updated_at)
+     VALUES ('task-done', 'col-today', 'Task task-done', 'Finish task-done', 'medium', '[]', 1,
+             'done', '2026-07-10T15:45:00.000Z', '2026-07-10T15:45:00.000Z')`,
+  ).run();
+  collisionDb.close();
+  plan = mutate(store, plan, 'item_reopen', { itemId: item.id }).plan;
+  const collisionVerified = new Database(file);
+  assert.deepEqual(
+    collisionVerified.prepare(
+      `SELECT id, position, status, updated_at
+       FROM tasks
+       WHERE column_id = 'col-today'
+       ORDER BY id`,
+    ).all(),
+    [
+      {
+        id: 'task-a',
+        position: 1,
+        status: 'open',
+        updated_at: '2026-07-10T16:00:00.000Z',
+      },
+      {
+        id: 'task-done',
+        position: 1,
+        status: 'done',
+        updated_at: '2026-07-10T15:45:00.000Z',
+      },
+      {
+        id: 'task-left',
+        position: 0,
+        status: 'open',
+        updated_at: '2026-07-10T15:00:00.000Z',
+      },
+      {
+        id: 'task-new',
+        position: 2,
+        status: 'open',
+        updated_at: '2026-07-10T15:30:00.000Z',
+      },
+      {
+        id: 'task-right',
+        position: 3,
+        status: 'open',
+        updated_at: '2026-07-10T15:00:00.000Z',
+      },
+    ],
+  );
+  collisionVerified.close();
 });
 
 test('item_complete rolls the board task back when the enclosing mutation fails', (t) => {
@@ -675,6 +828,301 @@ test('Start My Day is strict, durable, and idempotent', (t) => {
   const reopened = createDayPlanStore({ dbPath: file });
   assert.equal(reopened.getReadModel().currentPlan.recommendedFirstTaskId, 'task-a');
   reopened.close();
+});
+
+test('active Today items can be reordered and positions are normalized', (t) => {
+  const { store } = isolatedStore(t);
+  let plan = ensure(store).plan;
+  plan = mutate(store, plan, 'arrival_open').plan;
+  plan = mutate(store, plan, 'item_add', {
+    title: 'Third task',
+    outcome: 'The third task is complete.',
+    why: 'It belongs in today.',
+    owner: 'me',
+  }).plan;
+  plan = mutate(store, plan, 'start_day').plan;
+
+  plan = mutate(store, plan, 'item_reorder', {
+    itemId: plan.items[2].id,
+    position: 0,
+  }).plan;
+
+  assert.deepEqual(plan.items.map((item) => item.title), [
+    'Third task',
+    'Task task-a',
+    'Task task-b',
+  ]);
+  assert.deepEqual(plan.items.map((item) => item.position), [0, 1, 2]);
+});
+
+test('active completion and undo restore the exact plan decisions and positions', (t) => {
+  const { file, store } = isolatedStore(t);
+  const taskIds = ['task-a', 'task-b', 'task-c', 'task-d', 'task-e'];
+  const db = new Database(file);
+  createManagedBoardTables(db);
+  const insert = db.prepare(
+    `INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, position,
+       status, created_at, updated_at)
+     VALUES (?, 'col-today', ?, ?, 'medium', '[]', ?, 'open', ?, ?)`,
+  );
+  taskIds.forEach((taskId, position) => insert.run(
+    taskId,
+    `Task ${taskId}`,
+    `Finish ${taskId}`,
+    position,
+    '2026-07-10T15:00:00.000Z',
+    '2026-07-10T15:00:00.000Z',
+  ));
+  db.close();
+
+  let plan = store.ensureDayPlan({
+    localDate: '2026-07-10',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:active-completion-undo',
+    candidates: candidates(taskIds.slice(0, 3)),
+  }).plan;
+  plan = mutate(store, plan, 'arrival_open').plan;
+  plan = mutate(store, plan, 'item_add', { taskId: 'task-d' }).plan;
+  plan = mutate(store, plan, 'item_add', { taskId: 'task-e' }).plan;
+  plan = mutate(store, plan, 'start_day').plan;
+  const before = [...plan.items]
+    .sort((left, right) => left.position - right.position)
+    .map((item) => ({ id: item.id, decision: item.decision, position: item.position }));
+  const completedItem = plan.items.find((item) => item.taskId === 'task-b');
+
+  plan = mutate(store, plan, 'item_complete', { itemId: completedItem.id }).plan;
+  plan = reorderPlanToItemIds(store, plan, [
+    plan.items.find((item) => item.taskId === 'task-a').id,
+    plan.items.find((item) => item.taskId === 'task-d').id,
+    plan.items.find((item) => item.taskId === 'task-c').id,
+    plan.items.find((item) => item.taskId === 'task-e').id,
+    completedItem.id,
+  ]);
+  assert.equal(plan.items.find((item) => item.id === completedItem.id).decision, 'completed');
+  assert.deepEqual(
+    [...plan.items]
+      .filter((item) => item.decision === 'accepted')
+      .sort((left, right) => left.position - right.position)
+      .map((item) => item.taskId),
+    ['task-a', 'task-d', 'task-c', 'task-e'],
+  );
+
+  const restoreDb = new Database(file);
+  restoreDb.prepare(
+    `UPDATE tasks
+     SET column_id = 'col-today', status = 'open', position = 1,
+         updated_at = '2026-07-10T16:10:00.000Z'
+     WHERE id = 'task-b'`,
+  ).run();
+  restoreDb.close();
+  plan = mutate(store, plan, 'item_reopen', { itemId: completedItem.id }).plan;
+  plan = reorderPlanToItemIds(store, plan, before.map((item) => item.id));
+
+  assert.deepEqual(
+    [...plan.items]
+      .sort((left, right) => left.position - right.position)
+      .map((item) => ({ id: item.id, decision: item.decision, position: item.position })),
+    before,
+  );
+});
+
+test('settlement cancel restores active item mutations and allows settlement to restart', (t) => {
+  const { file, store } = isolatedStore(t);
+  const db = new Database(file);
+  createManagedBoardTables(db);
+  const insert = db.prepare(
+    `INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, position,
+       status, created_at, updated_at)
+     VALUES (?, 'col-today', ?, ?, 'medium', '[]', ?, 'open', ?, ?)`,
+  );
+  ['task-a', 'task-b'].forEach((taskId, position) => insert.run(
+    taskId,
+    `Task ${taskId}`,
+    `Finish ${taskId}`,
+    position,
+    '2026-07-10T15:00:00.000Z',
+    '2026-07-10T15:00:00.000Z',
+  ));
+  db.close();
+
+  let plan = ensure(store, 'ensure:settlement-cancel').plan;
+  plan = mutate(store, plan, 'arrival_open').plan;
+  plan = mutate(store, plan, 'start_day').plan;
+  assert.throws(
+    () => mutate(store, plan, 'settlement_cancel'),
+    (error) => error instanceof DayPlanInvalidTransition && /active settlement/.test(error.message),
+  );
+
+  plan = mutate(store, plan, 'settlement_start').plan;
+  const itemsBeforeCancel = structuredClone(plan.items);
+  plan = mutate(store, plan, 'settlement_decide', {
+    itemId: plan.items[1].id,
+    disposition: 'carry',
+  }).plan;
+  assert.equal(plan.items[1].settlementDecision.disposition, 'carry');
+  plan = mutate(store, plan, 'settlement_cancel').plan;
+  assert.equal(plan.state, 'active');
+  assert.equal(plan.settlementState, 'offered');
+  assert.deepEqual(plan.items, itemsBeforeCancel);
+
+  const firstItem = [...plan.items].sort((left, right) => left.position - right.position)[0];
+  const secondItem = [...plan.items].sort((left, right) => left.position - right.position)[1];
+  plan = mutate(store, plan, 'item_complete', { itemId: firstItem.id }).plan;
+  assert.equal(plan.items.find((item) => item.id === firstItem.id).decision, 'completed');
+  plan = mutate(store, plan, 'item_reopen', { itemId: firstItem.id }).plan;
+  assert.equal(plan.items.find((item) => item.id === firstItem.id).decision, 'accepted');
+  plan = mutate(store, plan, 'item_reorder', { itemId: secondItem.id, position: 0 }).plan;
+  assert.deepEqual(
+    [...plan.items]
+      .sort((left, right) => left.position - right.position)
+      .map((item) => item.id),
+    [secondItem.id, firstItem.id],
+  );
+  assert.deepEqual(
+    [...plan.items].sort((left, right) => left.position - right.position).map((item) => item.position),
+    [0, 1],
+  );
+
+  plan = mutate(store, plan, 'settlement_start').plan;
+  assert.equal(plan.state, 'settling');
+  assert.equal(plan.settlementState, 'in_progress');
+});
+
+test('settlement cancel restores a bypassed proposed plan without enabling item mutations', (t) => {
+  const { store } = isolatedStore(t);
+  let plan = ensure(store, 'ensure:proposed-settlement-cancel').plan;
+  plan = mutate(store, plan, 'arrival_bypass').plan;
+  const before = structuredClone(plan);
+
+  plan = mutate(store, plan, 'settlement_start').plan;
+  assert.equal(plan.state, 'settling');
+  assert.equal(plan.settlementState, 'in_progress');
+  plan = mutate(store, plan, 'settlement_cancel').plan;
+
+  assert.equal(plan.state, before.state);
+  assert.equal(plan.state, 'proposed');
+  assert.equal(plan.arrivalState, before.arrivalState);
+  assert.equal(plan.arrivalState, 'bypassed');
+  assert.equal(plan.confirmedAt, before.confirmedAt);
+  assert.equal(plan.settlementState, 'offered');
+  assert.deepEqual(plan.items, before.items);
+  assert.throws(
+    () => mutate(store, plan, 'item_reorder', { itemId: plan.items[1].id, position: 0 }),
+    (error) => error instanceof DayPlanInvalidTransition && /arrival is open or the day is active/.test(error.message),
+  );
+  assert.throws(
+    () => mutate(store, plan, 'item_complete', { itemId: plan.items[0].id }),
+    (error) => error instanceof DayPlanInvalidTransition && /arrival is open or the day is active/.test(error.message),
+  );
+});
+
+test('completion and reopen mutations are forbidden after settlement', (t) => {
+  const { store } = isolatedStore(t);
+  let plan = ensure(store).plan;
+  plan = mutate(store, plan, 'arrival_open').plan;
+  plan = mutate(store, plan, 'start_day').plan;
+  plan = mutate(store, plan, 'settlement_start').plan;
+  plan = mutate(store, plan, 'settlement_commit', {
+    completedHumanTaskIds: plan.items.map((item) => item.taskId),
+  }).plan;
+  const itemId = plan.items[0].id;
+
+  assert.throws(
+    () => mutate(store, plan, 'item_complete', { itemId }),
+    (error) => error instanceof DayPlanInvalidTransition && /settled/.test(error.message),
+  );
+  assert.throws(
+    () => mutate(store, plan, 'item_reopen', { itemId }),
+    (error) => error instanceof DayPlanInvalidTransition && /settled/.test(error.message),
+  );
+  assert.throws(
+    () => mutate(store, plan, 'settlement_cancel'),
+    (error) => error instanceof DayPlanInvalidTransition && /settled/.test(error.message),
+  );
+});
+
+test('active Today accepts a new item at the end of the current order', (t) => {
+  const { store } = isolatedStore(t);
+  let plan = ensure(store).plan;
+  plan = mutate(store, plan, 'arrival_open').plan;
+  plan = mutate(store, plan, 'start_day').plan;
+
+  plan = mutate(store, plan, 'item_add', {
+    title: 'Call the client',
+    outcome: 'The client has the answer.',
+    why: 'The decision is needed today.',
+    owner: 'together',
+  }).plan;
+
+  assert.equal(plan.items.at(-1).title, 'Call the client');
+  assert.equal(plan.items.at(-1).decision, 'accepted');
+  assert.equal(plan.items.at(-1).position, 2);
+  assert.deepEqual(plan.items.map((item) => item.position), [0, 1, 2]);
+});
+
+test('active Today revives later and dismissed task-backed items as accepted', (t) => {
+  const { file, store } = isolatedStore(t);
+  const db = new Database(file);
+  createManagedBoardTables(db);
+  const insert = db.prepare(
+    `INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, position,
+       status, created_at, updated_at)
+     VALUES (?, 'col-ns', ?, ?, 'medium', '[]', ?, 'open', ?, ?)`,
+  );
+  ['task-later', 'task-dismissed'].forEach((taskId, position) => insert.run(
+    taskId,
+    `Task ${taskId}`,
+    `Finish ${taskId}`,
+    position,
+    '2026-07-10T15:00:00.000Z',
+    '2026-07-10T15:00:00.000Z',
+  ));
+  db.close();
+
+  let plan = ensure(store, 'ensure:active-revival').plan;
+  plan = mutate(store, plan, 'arrival_open').plan;
+  plan = mutate(store, plan, 'item_add', { taskId: 'task-later' }).plan;
+  plan = mutate(store, plan, 'item_add', { taskId: 'task-dismissed' }).plan;
+  const laterItem = plan.items.find((item) => item.taskId === 'task-later');
+  const dismissedItem = plan.items.find((item) => item.taskId === 'task-dismissed');
+  plan = mutate(store, plan, 'item_later', { itemId: laterItem.id }).plan;
+  plan = mutate(store, plan, 'item_dismiss', { itemId: dismissedItem.id }).plan;
+  plan = mutate(store, plan, 'start_day').plan;
+
+  plan = mutate(store, plan, 'item_add', { taskId: 'task-later' }).plan;
+  plan = mutate(store, plan, 'item_add', { taskId: 'task-dismissed' }).plan;
+
+  const revivedLater = plan.items.find((item) => item.taskId === 'task-later');
+  const revivedDismissed = plan.items.find((item) => item.taskId === 'task-dismissed');
+  assert.equal(revivedLater.id, laterItem.id);
+  assert.equal(revivedLater.decision, 'accepted');
+  assert.equal(revivedDismissed.id, dismissedItem.id);
+  assert.equal(revivedDismissed.decision, 'accepted');
+  assert.equal(plan.items.filter((item) => item.taskId === 'task-later').length, 1);
+  assert.equal(plan.items.filter((item) => item.taskId === 'task-dismissed').length, 1);
+});
+
+test('settled Today items cannot be reordered', (t) => {
+  const { store } = isolatedStore(t);
+  let plan = ensure(store).plan;
+  plan = mutate(store, plan, 'arrival_open').plan;
+  plan = mutate(store, plan, 'start_day').plan;
+  plan = mutate(store, plan, 'settlement_start').plan;
+  plan = mutate(store, plan, 'settlement_commit', {
+    completedHumanTaskIds: plan.items.map((item) => item.taskId),
+  }).plan;
+
+  assert.equal(plan.state, 'settled');
+  assert.throws(
+    () => mutate(store, plan, 'item_reorder', {
+      itemId: plan.items[0].id,
+      position: 1,
+    }),
+    (error) => error instanceof DayPlanInvalidTransition && /settled/.test(error.message),
+  );
 });
 
 test('Morning Arrival reopens an active day and Start My Day activates it again', (t) => {
