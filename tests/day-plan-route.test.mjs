@@ -81,6 +81,94 @@ test('parses an honestly labeled due-backlog candidate', () => {
   assert.equal(parsed.input.candidates[0].rankReasons.includes('accepted_today'), false);
 });
 
+// The regression that stranded the 2026-08-05 brief: the brief picked an open
+// backlog task, the candidate builder labeled it brief_pick_transport, and this
+// validator had never been taught the reason. Every late-attach POST 400'd, so a
+// brief that was written, paid for, and sitting in the database never reached
+// the arrival, which sat on "Finishing up…" until it timed out.
+test('parses a brief-picked backlog candidate that carries no deadline', () => {
+  const picked = buildDayPlanCandidates({
+    localDate: '2026-08-05',
+    timezone: 'America/Los_Angeles',
+    tasks: [{
+      id: 'backlog-picked',
+      title: 'Open work the brief chose',
+      priority: 'medium',
+      position: 0,
+      column: 'due_backlog',
+      status: 'open',
+      briefPicked: true,
+      updatedAt: '2026-08-05T15:00:00.000Z',
+      refreshedAt: '2026-08-05T15:27:54.096Z',
+    }],
+  })[0];
+  const parsed = parseDayPlanPostBody({
+    action: 'ensure',
+    localDate: '2026-08-05',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:late-brief:brief-pick',
+    candidates: [picked],
+    attachOnly: true,
+  });
+
+  assert.equal(
+    parsed.input.candidates[0].whyToday,
+    "This open task was selected for today's plan.",
+  );
+  assert.ok(parsed.input.candidates[0].rankReasons.includes('brief_pick_transport'));
+  assert.equal(parsed.input.candidates[0].rankReasons.includes('due_backlog'), false);
+  assert.equal(parsed.input.attachOnly, true);
+});
+
+test('parses a brief-picked backlog candidate that is also overdue', () => {
+  const picked = buildDayPlanCandidates({
+    localDate: '2026-08-05',
+    timezone: 'America/Los_Angeles',
+    tasks: [{
+      id: 'backlog-picked-overdue',
+      title: 'Overdue work the brief chose',
+      priority: 'medium',
+      dueAt: '2026-07-17T16:00:00.000Z',
+      position: 0,
+      column: 'due_backlog',
+      status: 'open',
+      briefPicked: true,
+      updatedAt: '2026-08-05T15:00:00.000Z',
+      refreshedAt: '2026-08-05T15:27:54.096Z',
+    }],
+  })[0];
+  const parsed = parseDayPlanPostBody({
+    action: 'ensure',
+    localDate: '2026-08-05',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:late-brief:brief-pick-overdue',
+    candidates: [picked],
+    attachOnly: true,
+  });
+
+  assert.equal(parsed.input.candidates[0].whyToday, 'This is overdue and still open.');
+  assert.ok(parsed.input.candidates[0].rankReasons.includes('brief_pick_transport'));
+  assert.ok(parsed.input.candidates[0].rankReasons.includes('verified_overdue'));
+});
+
+test('rejects a brief-pick reason smuggled onto an accepted-column candidate', () => {
+  const accepted = candidate();
+  assert.throws(
+    () =>
+      parseDayPlanPostBody({
+        action: 'ensure',
+        localDate: '2026-07-10',
+        timezone: 'America/Los_Angeles',
+        mutationId: 'ensure:smuggled-brief-pick',
+        candidates: [{
+          ...accepted,
+          whyToday: "This open task was selected for today's plan.",
+        }],
+      }),
+    /open deadline reason/,
+  );
+});
+
 test('parses manual creation intent and rejects unknown creation intent', () => {
   const parsed = parseDayPlanPostBody({
     action: 'ensure',

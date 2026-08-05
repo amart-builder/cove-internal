@@ -2739,6 +2739,19 @@ input, textarea, select {
   to { opacity: 0; transform: translateY(-4px); }
 }
 
+/* The arrival's waiting bar while a brief is queued but has not started, so
+   there is no honest elapsed time to fill against. It sweeps rather than fills:
+   motion says "still working" without claiming a position it does not know. */
+.brief-progress-sweep {
+  width: 34%;
+  animation: brief-progress-sweep 1500ms cubic-bezier(.65, 0, .35, 1) infinite;
+}
+
+@keyframes brief-progress-sweep {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(330%); }
+}
+
 [data-day-ritual-layer] [data-day-plan-id] {
   border-color: color-mix(in srgb, white 48%, var(--border));
   background:
@@ -2833,6 +2846,13 @@ input, textarea, select {
   .day-ritual-swap-overlay,
   .panel-pop-in {
     animation: none !important;
+  }
+
+  /* The sweep stops and the stub stays put: a still, partial bar is the honest
+     reading of "queued, position unknown." */
+  .brief-progress-sweep {
+    animation: none !important;
+    transform: none;
   }
 
   .press-scale,
