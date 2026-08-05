@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { useBuddy, useBuddyStream } from '@/components/buddy/BuddyProvider';
 import type { MorningBriefGeneration, PublicMorningBrief } from '@/lib/day-plan/brief';
 import type { DayPlan, DayPlanItem, DayPlanOwner as DayOwner } from '@/lib/day-plan/types';
@@ -50,6 +50,7 @@ interface MorningArrivalProps {
   titleId: string;
   descriptionId: string;
   escapeRef?: RefObject<(() => void) | null>;
+  onPlanCanvasChange?: (active: boolean) => void;
   onInteract?: () => void;
   onOwnerChange: (itemId: string, owner: DayOwner) => void | Promise<void>;
   onDragReorder: (activeId: string, overId: string) => void | Promise<void>;
@@ -95,6 +96,7 @@ export default function MorningArrival({
   titleId,
   descriptionId,
   escapeRef,
+  onPlanCanvasChange,
   onInteract,
   onOwnerChange,
   onDragReorder,
@@ -137,6 +139,11 @@ export default function MorningArrival({
   const buddyActive = buddyBusy || Boolean(streamingTurn);
   const currentStepIndex = availableSteps.indexOf(step);
   const isFinalStep = step === 'plan';
+
+  useLayoutEffect(() => {
+    onPlanCanvasChange?.(step === 'plan');
+    return () => onPlanCanvasChange?.(false);
+  }, [onPlanCanvasChange, step]);
 
   useEffect(() => {
     if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
@@ -193,44 +200,64 @@ export default function MorningArrival({
 
   return (
     <div
-      className="mx-auto my-auto w-full max-w-[80rem] overflow-hidden rounded-3xl border bg-background shadow-2xl"
+      className={`mx-auto my-auto w-full overflow-hidden rounded-3xl border bg-background shadow-2xl ${
+        step === 'brief' ? 'max-w-[80rem]' : 'max-w-none'
+      }`}
       data-day-plan-id={plan.id}
     >
       <div ref={scrollContainerRef} className="max-h-[calc(100dvh-7rem)] overflow-y-auto">
-        <header className="sticky top-0 z-20 border-b bg-background/95 py-5 backdrop-blur">
-          <div className="mx-auto w-full max-w-[76rem] px-6 sm:px-10">
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Morning arrival
-              </p>
+        {step === 'brief' ? (
+          <header className="sticky top-0 z-20 border-b bg-background/95 py-5 backdrop-blur">
+            <div className="mx-auto w-full max-w-[76rem] px-6 sm:px-10">
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Morning arrival
+                </p>
+                <StepDots steps={availableSteps} activeStep={step} />
+              </div>
+              <div className="mx-auto w-full max-w-[70ch]">
+                <h1
+                  id={titleId}
+                  tabIndex={-1}
+                  className="mt-3 text-2xl font-semibold tracking-tight text-foreground outline-none sm:text-3xl"
+                >
+                  {morningArrivalGreeting(new Date(), plan.timezone)}
+                </h1>
+                <p id={descriptionId} className="arrival-brief-kicker mt-2.5">
+                  {arrivalDateLabel(plan.localDate)}
+                </p>
+                {freshnessLabel && <p className="mt-2 text-xs text-muted-foreground">{freshnessLabel}</p>}
+              </div>
+              <p className="sr-only" aria-live="polite" aria-atomic="true">{stepAnnouncement}</p>
+            </div>
+          </header>
+        ) : (
+          <header className="sticky top-0 z-20 border-b bg-background/95 py-3 backdrop-blur">
+            <div className="flex w-full items-center justify-between gap-5 px-4 sm:px-5">
+              <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Morning arrival
+                </p>
+                <h1
+                  id={titleId}
+                  tabIndex={-1}
+                  className="text-2xl font-semibold tracking-tight text-foreground outline-none"
+                >
+                  {STEP_TITLES[step]}
+                </h1>
+                {freshnessLabel && <p className="text-xs text-muted-foreground">{freshnessLabel}</p>}
+                <p id={descriptionId} className="sr-only">{STEP_DESCRIPTIONS[step]}</p>
+              </div>
               <StepDots steps={availableSteps} activeStep={step} />
+              <p className="sr-only" aria-live="polite" aria-atomic="true">{stepAnnouncement}</p>
             </div>
-            <div className="mx-auto w-full max-w-[70ch]">
-              <h1
-                id={titleId}
-                tabIndex={-1}
-                className="mt-3 text-2xl font-semibold tracking-tight text-foreground outline-none sm:text-3xl"
-              >
-                {step === 'brief'
-                  ? morningArrivalGreeting(new Date(), plan.timezone)
-                  : STEP_TITLES[step]}
-              </h1>
-              <p
-                id={descriptionId}
-                className={step === 'brief'
-                  ? 'arrival-brief-kicker mt-2.5'
-                  : 'mt-2 text-sm leading-relaxed text-muted-foreground'}
-              >
-                {step === 'brief' ? arrivalDateLabel(plan.localDate) : STEP_DESCRIPTIONS[step]}
-              </p>
-              {freshnessLabel && <p className="mt-2 text-xs text-muted-foreground">{freshnessLabel}</p>}
-            </div>
-            <p className="sr-only" aria-live="polite" aria-atomic="true">{stepAnnouncement}</p>
-          </div>
-        </header>
+          </header>
+        )}
 
         {error && (
-          <div className="mx-auto w-full max-w-[76rem] px-6 pt-5 sm:px-10">
+          <div className={step === 'brief'
+            ? 'mx-auto w-full max-w-[76rem] px-6 pt-5 sm:px-10'
+            : 'w-full px-[29px] pt-5 sm:px-[33px]'}>
             <p role="alert" className="rounded-xl border border-accent-red/30 bg-accent-red/5 p-3 text-sm text-accent-red">
               {error}
             </p>
@@ -275,7 +302,9 @@ export default function MorningArrival({
         </div>
 
         <footer className="sticky bottom-0 z-20 border-t !bg-background">
-          <div className="mx-auto flex w-full max-w-[76rem] flex-col items-stretch gap-2 py-3 pl-4 pr-20 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 sm:py-4 sm:pl-10 sm:pr-24 min-[1120px]:pr-10">
+          <div className={step === 'brief'
+            ? 'mx-auto flex w-full max-w-[76rem] flex-col items-stretch gap-2 py-3 pl-4 pr-20 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 sm:py-4 sm:pl-10 sm:pr-24 min-[1120px]:pr-10'
+            : 'mx-auto flex w-full max-w-none flex-col items-stretch gap-2 py-3 pl-[29px] pr-20 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 sm:py-4 sm:pl-[33px] sm:pr-24 min-[1120px]:pr-[33px]'}>
             <div className="flex w-full flex-wrap items-center justify-center gap-x-3 sm:w-auto sm:justify-start sm:gap-x-4 sm:gap-y-1">
               {currentStepIndex > 0 && (
                 <button

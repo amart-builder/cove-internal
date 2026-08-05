@@ -744,6 +744,7 @@ function TodayExperience({
   const [captureOpen, setCaptureOpen] = useState(false);
   const [focusExpanded, setFocusExpanded] = useState(false);
   const [wakeOpen, setWakeOpen] = useState(false);
+  const [arrivalPlanCanvas, setArrivalPlanCanvas] = useState(false);
   const [showAllDownstream, setShowAllDownstream] = useState(false);
   const [expandedSuggestionId, setExpandedSuggestionId] = useState<string | null>(null);
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
@@ -3048,7 +3049,11 @@ function TodayExperience({
           describedBy={RITUAL_DESCRIPTION_IDS[ritualView]}
           announcement={dayRitual.announcement}
           inertTargetRef={livingCurrentRef}
-          width={ritualView === 'settlement' ? 'default' : 'wide'}
+          width={ritualView === 'settlement'
+            ? 'default'
+            : ritualView === 'arrival' && arrivalPlanCanvas
+              ? 'canvas'
+              : 'wide'}
           onEscape={
             ritualView === 'arrival'
               ? () => arrivalEscapeRef.current?.()
@@ -3085,6 +3090,7 @@ function TodayExperience({
                 titleId={RITUAL_TITLE_IDS.arrival}
                 descriptionId={RITUAL_DESCRIPTION_IDS.arrival}
                 escapeRef={arrivalEscapeRef}
+                onPlanCanvasChange={setArrivalPlanCanvas}
                 onInteract={dayRitual.markArrivalInteraction}
                 onOwnerChange={(itemId, owner) => dayRitual.setOwner(itemId, owner)}
                 onDragReorder={async (activeId, overId) => {

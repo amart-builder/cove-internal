@@ -25,6 +25,7 @@ import type { MorningArrivalBoardTask, MorningArrivalItem, MorningArrivalProps }
 import OwnerChip, { type OwnerChipEscapeHandler } from './OwnerChip';
 
 const TODAY_ZONE_ID = 'arrival-today-zone';
+const CARD_SHELL_CLASS = 'relative flex h-[124px] flex-col rounded-xl border p-[14px] shadow-sm';
 
 type Detail = {
   title: string;
@@ -32,6 +33,10 @@ type Detail = {
   project?: string;
   due?: string;
 };
+
+function firstPreview(...values: Array<string | undefined>) {
+  return values.find((value) => value?.trim())?.trim();
+}
 
 function TodayCard({
   view,
@@ -63,6 +68,11 @@ function TodayCard({
     transition,
     isDragging,
   } = useSortable({ id: sortableId, disabled: busy });
+  const isFocus = focusNumber !== undefined;
+  const preview = firstPreview(view.summary, view.whyToday, view.description);
+  const controlTone = isFocus
+    ? 'border-background/20 text-background/55 hover:text-background focus-visible:text-background'
+    : 'border-border text-muted-foreground hover:text-foreground focus-visible:text-foreground';
 
   return (
     <li
@@ -71,25 +81,20 @@ function TodayCard({
       className={isDragging ? 'relative z-10 opacity-75' : ''}
     >
       <article
-        className={`flex min-h-52 flex-col rounded-2xl border border-foreground/10 bg-foreground p-4 text-background shadow-sm ${busy ? '' : 'cursor-grab active:cursor-grabbing'}`}
+        className={`${CARD_SHELL_CLASS} ${
+          isFocus
+            ? 'border-foreground/10 bg-foreground text-background'
+            : 'border-foreground/10 bg-card text-foreground'
+        }`}
         onClick={(event) => {
           if ((event.target as HTMLElement).closest('button, a, [data-card-control]')) return;
           onOpen();
         }}
-        {...attributes}
-        {...listeners}
       >
-        <div className="flex items-start justify-between gap-3">
-          {focusNumber ? (
-            <span className="rounded-full bg-background px-2.5 py-1 text-xs font-semibold text-foreground">
-              Focus {focusNumber}
-            </span>
-          ) : (
-            <span className="text-xs font-medium text-background/60">Today</span>
-          )}
+        <div className="absolute right-2.5 top-2.5 flex items-center gap-1">
           <button
             type="button"
-            className="press-scale grid size-8 place-items-center rounded-full border border-background/25 text-sm text-background hover:bg-background/10 disabled:opacity-40"
+            className={`press-scale grid size-7 place-items-center rounded-full border text-xs outline-none focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-40 ${controlTone}`}
             aria-label={`Complete ${view.title}`}
             disabled={busy}
             onClick={(event) => {
@@ -99,10 +104,23 @@ function TodayCard({
           >
             ✓
           </button>
+          <button
+            type="button"
+            className={`press-scale ${isDragging ? 'press-scale-suppress' : ''} grid size-7 touch-none cursor-grab place-items-center rounded-full border text-sm outline-none active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-40 ${controlTone}`}
+            aria-label={`Drag ${view.title}`}
+            disabled={busy}
+            onClick={(event) => event.stopPropagation()}
+            {...attributes}
+            {...listeners}
+          >
+            <span aria-hidden="true">⠿</span>
+          </button>
         </div>
         <button
           type="button"
-          className="mt-4 text-left text-base font-semibold leading-snug text-background outline-none focus-visible:ring-2 focus-visible:ring-background/50"
+          className={`line-clamp-2 w-full pr-16 text-left text-[15px] font-medium leading-5 outline-none focus-visible:ring-2 focus-visible:ring-accent-blue/40 ${
+            isFocus ? 'text-background' : 'text-foreground'
+          }`}
           onClick={(event) => {
             event.stopPropagation();
             onOpen();
@@ -110,23 +128,35 @@ function TodayCard({
         >
           {view.title}
         </button>
-        {view.summary && (
-          <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-background/70">
-            {view.summary}
+        {preview && (
+          <p className={`mt-1 line-clamp-1 text-[13px] leading-[18px] ${
+            isFocus ? 'text-background/65' : 'text-muted-foreground'
+          }`}>
+            {preview}
           </p>
         )}
-        <div className="mt-auto flex flex-wrap items-end justify-between gap-2 pt-5 [&_button]:border-background/25 [&_button]:text-background/75 [&_button:hover]:text-background">
+        <div className="mt-auto flex min-w-0 items-center gap-1.5 pt-1">
+          {focusNumber && (
+            <span className="shrink-0 rounded-full bg-background/95 px-2 py-1 text-[10px] font-semibold leading-none text-foreground">
+              Focus {focusNumber}
+            </span>
+          )}
           <OwnerChip
             itemId={view.item.id}
             owner={view.item.owner}
             disabled={busy}
+            inverted={isFocus}
             onOwnerChange={(owner) => onOwnerChange(view.item.id, owner)}
             onOpen={onOwnerChipOpen}
             onClose={onOwnerChipClose}
           />
           <button
             type="button"
-            className="press-scale min-h-9 rounded-full border border-background/25 px-3 text-xs text-background/75 hover:text-background disabled:opacity-40"
+            className={`press-scale ml-auto h-7 shrink-0 rounded-full px-2 text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-40 ${
+              isFocus
+                ? 'text-background/55 hover:text-background focus-visible:text-background'
+                : 'text-muted-foreground hover:text-foreground focus-visible:text-foreground'
+            }`}
             disabled={busy}
             onClick={(event) => {
               event.stopPropagation();
@@ -158,6 +188,7 @@ function NotTodayCard({
     id: `not-today:${task.id}`,
     disabled: busy,
   });
+  const preview = task.description?.trim();
   return (
     <li
       ref={setNodeRef}
@@ -165,17 +196,26 @@ function NotTodayCard({
       className={isDragging ? 'relative z-10 opacity-70' : ''}
     >
       <article
-        className={`flex min-h-40 flex-col rounded-2xl border bg-card p-4 text-foreground ${busy ? '' : 'cursor-grab active:cursor-grabbing'}`}
+        className={`${CARD_SHELL_CLASS} border-foreground/10 bg-card text-foreground`}
         onClick={(event) => {
-          if ((event.target as HTMLElement).closest('button, a')) return;
+          if ((event.target as HTMLElement).closest('button, a, [data-card-control]')) return;
           onOpen();
         }}
-        {...attributes}
-        {...listeners}
       >
         <button
           type="button"
-          className="text-left text-sm font-semibold leading-snug outline-none focus-visible:ring-2 focus-visible:ring-accent-blue/40"
+          className={`press-scale ${isDragging ? 'press-scale-suppress' : ''} absolute right-2.5 top-2.5 grid size-7 touch-none cursor-grab place-items-center rounded-full border border-border text-sm text-muted-foreground outline-none active:cursor-grabbing hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40 focus-visible:text-foreground disabled:opacity-40`}
+          aria-label={`Drag ${task.title}`}
+          disabled={busy}
+          onClick={(event) => event.stopPropagation()}
+          {...attributes}
+          {...listeners}
+        >
+          <span aria-hidden="true">⠿</span>
+        </button>
+        <button
+          type="button"
+          className="line-clamp-2 w-full pr-8 text-left text-[15px] font-medium leading-5 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-accent-blue/40"
           onClick={(event) => {
             event.stopPropagation();
             onOpen();
@@ -183,14 +223,14 @@ function NotTodayCard({
         >
           {task.title}
         </button>
-        {task.description && (
-          <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-            {task.description}
+        {preview && (
+          <p className="mt-1 line-clamp-1 text-[13px] leading-[18px] text-muted-foreground">
+            {preview}
           </p>
         )}
         <button
           type="button"
-          className="press-scale mt-auto min-h-9 self-start rounded-full border px-3 text-xs font-medium hover:bg-muted disabled:opacity-40"
+          className="press-scale mt-auto h-7 self-start rounded-full px-2 text-[11px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40 focus-visible:text-foreground disabled:opacity-40"
           disabled={busy}
           onClick={(event) => {
             event.stopPropagation();
@@ -317,7 +357,7 @@ export default function ArrivalPlanGrid({
   }
 
   return (
-    <section className="mx-auto w-full max-w-[76rem] space-y-8 px-6 py-8 sm:px-10" aria-label="Plan your day">
+    <section className="w-full space-y-5 px-4 py-4 sm:px-5" aria-label="Plan your day">
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -334,10 +374,10 @@ export default function ArrivalPlanGrid({
           </div>
           <div
             ref={setNodeRef}
-            className={`mt-3 min-h-40 rounded-3xl border p-3 transition-colors ${isOver ? 'border-accent-blue bg-accent-blue/5' : 'border-transparent bg-muted/30'}`}
+            className={`mt-3 min-h-[150px] rounded-3xl border p-3 transition-colors ${isOver ? 'border-accent-blue bg-accent-blue/5' : 'border-transparent bg-muted/30'}`}
           >
             <SortableContext items={orderedToday.map((view) => `today:${view.item.id}`)} strategy={rectSortingStrategy}>
-              <ol className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <ol className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
                 {orderedToday.map((view) => {
                   const focusIndex = focusBandItems(orderedToday.map((entry) => entry.item))
                     .findIndex((item) => item.id === view.item.id);
@@ -392,7 +432,7 @@ export default function ArrivalPlanGrid({
           </div>
           <p className="mt-1 text-xs text-muted-foreground">Drag a task up or tap Add to today.</p>
           {notTodayTasks.length > 0 ? (
-            <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3 px-[13px]">
               {visibleNotTodayTasks.map((task) => (
                 <NotTodayCard
                   key={task.id}

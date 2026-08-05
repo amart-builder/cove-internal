@@ -25,7 +25,7 @@ interface DayRitualLayerProps {
   announcement?: string;
   initialFocusRef?: RefObject<HTMLElement | null>;
   inertTargetRef?: RefObject<HTMLElement | null>;
-  width?: 'default' | 'wide';
+  width?: 'default' | 'wide' | 'canvas';
   onEscape: () => void;
   children: ReactNode;
 }
@@ -110,7 +110,9 @@ export default function DayRitualLayer({
 
   return (
     <div
-      className="absolute inset-0 z-[100] overflow-y-auto overscroll-contain bg-background/70 p-3 backdrop-blur-md sm:p-6"
+      className={`absolute inset-0 z-[100] overflow-y-auto overscroll-contain bg-background/70 backdrop-blur-md ${
+        width === 'canvas' ? 'p-2 sm:p-3' : 'p-3 sm:p-6'
+      }`}
       data-day-ritual-layer
     >
       <section
@@ -120,8 +122,12 @@ export default function DayRitualLayer({
         aria-labelledby={labelledBy}
         aria-describedby={describedBy}
         tabIndex={-1}
-        className={`mx-auto flex min-h-full w-full flex-col justify-center outline-none ${
-          width === 'wide' ? 'max-w-7xl' : 'max-w-3xl'
+        className={`mx-auto flex min-h-full flex-col justify-center outline-none ${
+          width === 'canvas'
+            ? 'w-[min(100rem,calc(100vw-3rem))] max-w-none'
+            : width === 'wide'
+              ? 'w-full max-w-7xl'
+              : 'w-full max-w-3xl'
         }`}
       >
         {children}

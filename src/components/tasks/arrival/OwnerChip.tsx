@@ -21,6 +21,7 @@ export default function OwnerChip({
   itemId,
   owner,
   disabled,
+  inverted = false,
   triggerLabel,
   closeOnArrow = false,
   onOwnerChange,
@@ -30,6 +31,7 @@ export default function OwnerChip({
   itemId: string;
   owner: DayPlanOwner;
   disabled: boolean;
+  inverted?: boolean;
   triggerLabel?: string;
   closeOnArrow?: boolean;
   onOwnerChange: (owner: DayPlanOwner) => void | Promise<void>;
@@ -37,6 +39,7 @@ export default function OwnerChip({
   onClose: (itemId: string) => void;
 }) {
   const groupId = useId();
+  const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const choiceRefs = useRef(new Map<number, HTMLButtonElement>());
   const [open, setOpen] = useState(false);
@@ -47,6 +50,17 @@ export default function OwnerChip({
     if (!open) return;
     choiceRefs.current.get(focusIndex)?.focus();
   }, [focusIndex, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function closeOnOutsidePointer(event: PointerEvent) {
+      if (containerRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
+      onClose(itemId);
+    }
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    return () => document.removeEventListener('pointerdown', closeOnOutsidePointer);
+  }, [itemId, onClose, open]);
 
   function closeAndFocus() {
     setOpen(false);
@@ -71,14 +85,16 @@ export default function OwnerChip({
     closeAndFocus();
   }
 
-  function handleChoiceKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+  function handlePopoverKeyDownCapture(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.key === 'Escape') {
       event.preventDefault();
+      event.stopPropagation();
       (event.nativeEvent as KeyboardEvent).stopImmediatePropagation();
       closeAndFocus();
-      return;
     }
+  }
 
+  function handleChoiceKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
     let nextIndex: number | undefined;
     if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
       nextIndex = (focusIndex + 1) % OWNERS.length;
@@ -105,11 +121,15 @@ export default function OwnerChip({
   }
 
   return (
-    <div className="flex min-h-9 flex-wrap items-center gap-1" data-card-control>
+    <div ref={containerRef} className="relative inline-flex shrink-0" data-card-control>
       <button
         ref={triggerRef}
         type="button"
-        className="press-scale min-h-9 rounded-full border px-3 text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-50"
+        className={`press-scale h-7 rounded-full border px-2 text-[11px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-50 ${
+          inverted
+            ? 'border-background/20 text-background/65 hover:text-background focus-visible:text-background'
+            : 'border-foreground/10 text-muted-foreground hover:text-foreground focus-visible:text-foreground'
+        }`}
         aria-expanded={open}
         aria-controls={groupId}
         disabled={disabled}
@@ -124,7 +144,9 @@ export default function OwnerChip({
           id={groupId}
           role="radiogroup"
           aria-label="Owner"
-          className="panel-pop-in flex flex-wrap items-center gap-1 [animation-duration:150ms]"
+          aria-orientation="horizontal"
+          className="panel-pop-in absolute bottom-[calc(100%+0.375rem)] left-0 z-50 flex items-center gap-1 whitespace-nowrap rounded-xl border bg-background p-1.5 text-foreground shadow-lg [animation-duration:150ms]"
+          onKeyDownCapture={handlePopoverKeyDownCapture}
         >
           {OWNERS.map((choice, index) => (
             <button
@@ -138,7 +160,7 @@ export default function OwnerChip({
               aria-checked={optimisticOwner === choice}
               tabIndex={focusIndex === index ? 0 : -1}
               disabled={disabled}
-              className={`press-scale min-h-9 rounded-full border px-3 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-50 ${
+              className={`press-scale h-7 rounded-full border px-2 text-[11px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-50 ${
                 optimisticOwner === choice
                   ? 'border-accent-blue text-foreground'
                   : 'border-border text-muted-foreground hover:text-foreground'
