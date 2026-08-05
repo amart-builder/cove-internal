@@ -26,27 +26,22 @@ export function preferredDarkTheme(
 export default function TabNav() {
   const pathname = usePathname();
   const tabs = tabNavItems(getRuntimeMode());
-  const [dark, setDark] = useState(
-    () => typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
-  );
+  // Must start false so the server and the first client render agree; reading
+  // the theme here instead would fail hydration for anyone in dark mode. The
+  // pre-paint script in the root layout owns the <html> class, and the icons
+  // below follow it through CSS, so this state only drives the label and toggle.
+  const [dark, setDark] = useState(false);
 
-  // Hydration can rewrite the <html> class the pre-paint script added, so
-  // re-apply the stored preference once after mount.
   useEffect(() => {
-    let wantDark: boolean;
     try {
-      const stored = localStorage.getItem('theme');
-      wantDark = preferredDarkTheme(
-        stored,
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setDark(preferredDarkTheme(
+        localStorage.getItem('theme'),
         matchMedia('(prefers-color-scheme: dark)').matches,
-      );
+      ));
     } catch {
-      return;
+      // localStorage throws in some privacy modes; the light default stands.
     }
-    document.documentElement.classList.toggle('dark', wantDark);
-    // Hydration may replace the pre-paint class, so mirror its repaired state.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDark(wantDark);
   }, []);
 
   function toggleTheme() {
@@ -101,23 +96,22 @@ export default function TabNav() {
           className="w-7 h-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors duration-150"
           aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
         >
-          {dark ? (
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="5" />
-              <line x1="12" y1="1" x2="12" y2="3" />
-              <line x1="12" y1="21" x2="12" y2="23" />
-              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-              <line x1="1" y1="12" x2="3" y2="12" />
-              <line x1="21" y1="12" x2="23" y2="12" />
-              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-            </svg>
-          ) : (
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-            </svg>
-          )}
+          {/* Both icons always render and CSS picks one, so the markup never
+              depends on a theme the server cannot know. */}
+          <svg className="hidden dark:block" aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="5" />
+            <line x1="12" y1="1" x2="12" y2="3" />
+            <line x1="12" y1="21" x2="12" y2="23" />
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+            <line x1="1" y1="12" x2="3" y2="12" />
+            <line x1="21" y1="12" x2="23" y2="12" />
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+          </svg>
+          <svg className="block dark:hidden" aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+          </svg>
         </button>
       </div>
     </nav>

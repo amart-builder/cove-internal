@@ -736,9 +736,12 @@ function TodayExperience({
   // hydration of the entire page. The effect below applies the real value on
   // mount, so nothing is lost by deferring it one frame.
   const [ambientPaused, setAmbientPaused] = useState(false);
-  const [focusedTaskId, setFocusedTaskId] = useState<string | null>(() => {
-    return readLocalValue(FOCUS_KEY);
-  });
+  // Saved focus and notes live in localStorage, which the server cannot read, so
+  // for the same reason as ambientPaused above they must start at the value the
+  // server renders and load one frame later. localRestored tells the auto-focus
+  // effect to wait for that load instead of racing it.
+  const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
+  const [localRestored, setLocalRestored] = useState(false);
   const [capture, setCapture] = useState('');
   const [capturing, setCapturing] = useState(false);
   const [captureOpen, setCaptureOpen] = useState(false);
@@ -756,13 +759,7 @@ function TodayExperience({
   const [dismissMenuId, setDismissMenuId] = useState<string | null>(null);
   const [editingSuggestionId, setEditingSuggestionId] = useState<string | null>(null);
   const [suggestionDraft, setSuggestionDraft] = useState({ title: '', description: '' });
-  const [notes, setNotes] = useState<Record<string, string>>(() => {
-    try {
-      return JSON.parse(readLocalValue(NOTES_KEY) ?? '{}') as Record<string, string>;
-    } catch {
-      return {};
-    }
-  });
+  const [notes, setNotes] = useState<Record<string, string>>({});
   const focusHeadingRef = useRef<HTMLHeadingElement>(null);
   const livingCurrentRef = useRef<HTMLDivElement>(null);
   const today2MotionRef = useRef<TodayRiverStageV2MotionHandle>(null);
@@ -1016,8 +1013,23 @@ function TodayExperience({
   }, []);
 
   useEffect(() => {
+    const savedFocus = readLocalValue(FOCUS_KEY);
+    if (savedFocus) setFocusedTaskId(savedFocus);
+    const savedNotes = readLocalValue(NOTES_KEY);
+    if (savedNotes) {
+      try {
+        setNotes(JSON.parse(savedNotes) as Record<string, string>);
+      } catch {
+        // Corrupt stored notes just start empty rather than breaking the day.
+      }
+    }
+    setLocalRestored(true);
+  }, []);
+
+  useEffect(() => {
     const availableFocusTasks = TODAY_RIVER_STAGE_V2 ? today2FocusTasks : commitments;
     if (
+      !localRestored ||
       loading ||
       dayRitual.view === 'checking' ||
       dayRitual.ritualOpen ||
@@ -1027,7 +1039,7 @@ function TodayExperience({
     const first = availableFocusTasks[0];
     setFocusedTaskId(first._id);
     writeLocalValue(FOCUS_KEY, first._id);
-  }, [commitments, dayRitual.ritualOpen, dayRitual.view, focusedTask, loading, today2FocusTasks]);
+  }, [commitments, dayRitual.ritualOpen, dayRitual.view, focusedTask, loading, localRestored, today2FocusTasks]);
 
   useEffect(() => {
     if (!undo || undoPaused) return;
