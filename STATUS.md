@@ -18,8 +18,8 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-08-05T22:00:18-0700
-- **task:** Arrival redesign ship (final verify+deploy)
+- **since:** 2026-08-05T23:05:58-0700
+- **task:** Arrival backdrop tweak ship
 <!-- END active-session -->
 
 ---
@@ -35,6 +35,7 @@ Full visual redesign of both arrival steps against four Alex-approved static moc
 - **Shell:** shared ~63rem sheet for both steps, non-sticky masthead, sticky footer, sheet height constrained to the overlay's real available height (the old 100dvh math cut the CTA off below the app nav). Warm canvas washes light/dark; arrival-scoped CSS overrides the unlayered ritual-dialog chrome (warm light shadow, quiet dark hairline, backdrop-filter off).
 - **QA'd by the driver at 1512x860, light AND dark:** all four surfaces vs mockups, Escape layering, add-to-today optimistic re-render, pointer drag reorder (synthetic pointer path; swap + restore), equal card heights, disclosure line, accessible names incl. state ("Focus n:", "Today:"). 880/880 tests + typecheck re-run by driver after every Sol round.
 - **Review round trip:** Opus caught a real consent regression (the visible "Claude will start N focus tasks" line had become sr-only — restored), reduced-motion gaps on the five new hover transforms, bench height mismatch, the dead CSS chrome, dead onOpenAllWork pass-through, and label/live-region a11y nits. All fixed and re-verified.
+- **Post-ship tweak (Alex):** dropped the opaque warm canvas wash behind the arrival dialog; the backdrop is the standard translucent blur again, so the real Today view shows through in both themes.
 - **Deferred (recorded, not forgotten):** (1) the `TODAY_ZONE_ID` droppable is registered outside DndContext so the today drop *zone* is dead — pre-existing at HEAD; card-on-card drops work, but with the always-visible "Add to today" buttons gone the zone matters more now; fix is moving `useDroppable` into a child inside the context. (2) Picker header "Everything on your plate" + open-task count overstate: the list comes from `eligibleNotTodayTasks`, which filters recurring occurrences, email-current digests, and jarvis-held tasks — wording is from the approved mockup, so changing it is Alex's call. (3) Keyboard drag unverified end-to-end (wiring is the correct dnd-kit shape; CDP synthetic keys likely the harness gap; note the handle is `disabled={busy}` mid-mutation, pre-existing). (4) No component tests cover the new surfaces; cheap SSR assertions worth adding (TaskSheet eyebrows, bench names, `data-arrival-shell` presence). (5) Narrow/mobile layout unexercised.
 
 ## 2026-08-05 Hydration errors on every load (DONE, committed 4c0f6f7)

@@ -2706,23 +2706,6 @@ input, textarea, select {
   animation: day-ritual-backdrop-in 320ms var(--ease-out-cove) both;
 }
 
-/* Morning Arrival uses the approved warm wash inside the existing canvas-sized
-   ritual dialog. The dark counterpart keeps the same warm/cool depth without
-   putting a light veil over dark-mode cards. */
-[data-day-ritual-layer][data-day-ritual-width="canvas"] {
-  background:
-    radial-gradient(1200px 600px at 18% -10%, #f8f0e4 0%, rgba(248, 240, 228, 0) 60%),
-    radial-gradient(1000px 700px at 96% 112%, #e4eef6 0%, rgba(228, 238, 246, 0) 55%),
-    #f5f2ed;
-}
-
-.dark [data-day-ritual-layer][data-day-ritual-width="canvas"] {
-  background:
-    radial-gradient(1200px 600px at 18% -10%, #302b25 0%, rgba(48, 43, 37, 0) 60%),
-    radial-gradient(1000px 700px at 96% 112%, #202b31 0%, rgba(32, 43, 49, 0) 55%),
-    #1a1917;
-}
-
 /* Positioning context for a view swap: the incoming view is live in normal flow
    while the outgoing snapshot fades as an inert overlay pinned on top of it. */
 .day-ritual-swap {
