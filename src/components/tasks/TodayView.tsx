@@ -1645,11 +1645,16 @@ function TodayExperience({
     }
   }
 
+  // useDayRitual returns a fresh object every render, so hold the two values this
+  // callback needs. Calling reorder through a local also keeps exhaustive-deps from
+  // asking for the whole dayRitual object, which a method call would otherwise require.
+  const { plan: dayRitualPlan, reorder: dayRitualReorder } = dayRitual;
+
   const persistToday2ItemOrder = useCallback(async (
     orderedItemIds: readonly string[],
     startingPlan?: DayPlan,
   ) => {
-    const plan = startingPlan ?? dayRitual.plan;
+    const plan = startingPlan ?? dayRitualPlan;
     if (!plan || plan.state !== 'active') {
       throw new Error('Start the day before changing Today order.');
     }
@@ -1663,11 +1668,11 @@ function TodayExperience({
       const item = desired[position];
       const currentPosition = working.findIndex((candidate) => candidate.id === item.id);
       if (currentPosition === position) continue;
-      await dayRitual.reorder(item.id, position, item.title);
+      await dayRitualReorder(item.id, position, item.title);
       const [moved] = working.splice(currentPosition, 1);
       working.splice(position, 0, moved);
     }
-  }, [dayRitual.plan, dayRitual.reorder]);
+  }, [dayRitualPlan, dayRitualReorder]);
 
   const persistToday2Order = useCallback(async (
     orderedTaskIds: readonly string[],
