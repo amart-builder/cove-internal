@@ -1,10 +1,5 @@
 @import "tailwindcss";
 
-html[data-day-ritual-open] [data-buddy-launcher],
-html[data-day-ritual-open] [data-buddy-panel] {
-  display: none;
-}
-
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {

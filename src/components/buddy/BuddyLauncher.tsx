@@ -53,12 +53,12 @@ export default function BuddyLauncher() {
   const stateClass = drooping ? 'buddy-droop' : busy ? 'buddy-working' : 'buddy-idle';
   return (
     <>
+      {/* Buddy must stay above ritual layers per owner decision. */}
       <button
-        data-buddy-launcher
         type="button"
         aria-label={open ? 'Close Buddy chat' : 'Open Buddy chat'}
         aria-expanded={open}
-        className={`press-scale fixed bottom-4 right-4 z-[120] grid size-14 place-items-center rounded-full drop-shadow-[0_10px_18px_rgba(37,112,176,.28)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent-blue ${stateClass} ${open ? 'buddy-open' : ''}`}
+        className={`press-scale fixed bottom-4 right-4 z-[150] grid size-14 place-items-center rounded-full drop-shadow-[0_10px_18px_rgba(37,112,176,.28)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent-blue ${stateClass} ${open ? 'buddy-open' : ''}`}
         onClick={() => setOpen((current) => !current)}
       >
         <BuddyGlyph className="h-[62px] w-14 overflow-visible" mood={drooping ? 'frown' : 'smile'} />

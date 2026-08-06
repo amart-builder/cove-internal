@@ -3138,7 +3138,6 @@ function TodayExperience({
                   await dayRitual.addTask(taskId, title);
                 }}
                 onSnooze={() => dayRitual.snooze().catch(() => undefined)}
-                onSkip={() => dayRitual.skip().catch(() => undefined)}
                 onBypass={() => dayRitual.bypass().catch(() => undefined)}
                 onStartDay={startPlannedDay}
               />

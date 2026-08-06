@@ -19,8 +19,6 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
-let openDayRitualLayerCount = 0;
-
 interface DayRitualLayerProps {
   labelledBy: string;
   describedBy?: string;
@@ -48,17 +46,6 @@ export default function DayRitualLayer({
   useEffect(() => {
     escapeHandlerRef.current = onEscape;
   }, [onEscape]);
-
-  useEffect(() => {
-    openDayRitualLayerCount += 1;
-    document.documentElement.setAttribute('data-day-ritual-open', '');
-    return () => {
-      openDayRitualLayerCount = Math.max(0, openDayRitualLayerCount - 1);
-      if (openDayRitualLayerCount === 0) {
-        document.documentElement.removeAttribute('data-day-ritual-open');
-      }
-    };
-  }, []);
 
   useEffect(() => {
     const returnFocus = document.activeElement instanceof HTMLElement

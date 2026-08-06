@@ -808,11 +808,6 @@ export default function useDayRitual({
     setView('none');
   }, [enqueueMutation]);
 
-  const skip = useCallback(async () => {
-    await enqueueMutation('arrival_skip', {}, { announce: 'Morning Arrival skipped for today.' });
-    setView('none');
-  }, [enqueueMutation]);
-
   const bypass = useCallback(async () => {
     await enqueueMutation('arrival_bypass', {}, { announce: 'Continued to Today.' });
     setView('none');
@@ -1389,7 +1384,6 @@ export default function useDayRitual({
     openArrival,
     markArrivalInteraction,
     snooze,
-    skip,
     bypass,
     addTask,
     setOwner,

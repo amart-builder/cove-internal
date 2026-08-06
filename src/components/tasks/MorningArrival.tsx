@@ -58,7 +58,6 @@ interface MorningArrivalProps {
   onComplete: (itemId: string, title: string) => void | Promise<void>;
   onAddTask: (taskId: string, title: string) => void | Promise<void>;
   onSnooze: () => void | Promise<void>;
-  onSkip: () => void | Promise<void>;
   onBypass: () => void | Promise<void>;
   onStartDay: () => void | Promise<void>;
   onForceBrief?: () => void;
@@ -104,7 +103,6 @@ export default function MorningArrival({
   onComplete,
   onAddTask,
   onSnooze,
-  onSkip,
   onBypass,
   onStartDay,
   onForceBrief,
@@ -280,9 +278,6 @@ export default function MorningArrival({
               )}
               <button type="button" disabled={busy} className="press-scale min-h-8 text-[13px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-50" onClick={() => void onSnooze()}>
                 Snooze 15 minutes
-              </button>
-              <button type="button" disabled={busy} className="press-scale min-h-8 text-[13px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-50" onClick={() => void onSkip()}>
-                Skip today
               </button>
               <button type="button" disabled={busy} className="press-scale min-h-8 text-[13px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-50" onClick={() => void onBypass()}>
                 Continue to Today

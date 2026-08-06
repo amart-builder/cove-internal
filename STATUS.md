@@ -18,13 +18,20 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-08-06T00:16:57-0700
-- **task:** P0 ship
+- **since:** 2026-08-06T09:09:37-0700
+- **task:** Round 1 verify+commit
 <!-- END active-session -->
 
 ---
 
 **Last updated:** 2026-08-06 early morning (full-system audits + P0 hardening round shipped)
+
+## 2026-08-06 Round 1 quick wins (DONE, COMMITTED)
+
+- Reversed Buddy suppression during rituals by removing the document attribute and CSS/data-selector mechanism. The fixed launcher and panel now sit at z-150, above the unchanged z-140 ritual layer and below the shared z-160 Task Sheet and All Work picker scrim.
+- Removed Buddy's Auto/Fast/Deep selector. Ordinary messages use the existing automatic router; replan previews, Apply, and session cards are unchanged.
+- Removed the duplicate Skip today arrival control and its unused client callback. The footer retains Snooze 15 minutes, Continue to Today, the primary CTA, and Back on the plan step; the durable `arrival_skip` store transition remains for compatibility.
+- Verification: TypeScript clean; scoped ESLint clean; full suite 892/892 (re-run by driver); removal and z-index scans clean. Driver live-verified on the dev server: Buddy droplet visible and clickable above the open settlement ritual, panel opens above it with no depth selector, Escape closes only Buddy (ritual untouched). Alex's stale Wednesday settlement was left on screen for him to close himself.
 
 ## 2026-08-06 Full-system audits (Sol xhigh + Opus xhigh) and P0 hardening round (DONE, DEPLOYED)
 

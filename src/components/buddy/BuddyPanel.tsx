@@ -13,15 +13,12 @@ import BuddyMessage from './BuddyMessage';
 import { BuddyGlyph } from './BuddyLauncher';
 import { useBuddy, useBuddyStream } from './BuddyProvider';
 
-type OverrideChoice = 'auto' | 'fast' | 'deep';
-
 export default function BuddyPanel() {
   const {
     open, setOpen, turns, send, resetConversation, sessionInfo,
   } = useBuddy();
   const { streamingTurn, thinking } = useBuddyStream();
   const [draft, setDraft] = useState('');
-  const [override, setOverride] = useState<OverrideChoice>('auto');
   const [error, setError] = useState<string>();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -66,7 +63,7 @@ export default function BuddyPanel() {
     if (!text.trim() || streamingTurn) return;
     setError(undefined);
     try {
-      await send(text, override === 'auto' ? undefined : override);
+      await send(text);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Buddy couldn't send that.");
     }
@@ -103,12 +100,12 @@ export default function BuddyPanel() {
   }
 
   return (
+    // Buddy must stay above ritual layers per owner decision.
     <section
-      data-buddy-panel
       aria-label="Buddy chat"
       aria-hidden={!open}
       inert={!open}
-      className={`fixed bottom-[5.5rem] right-4 z-[120] flex max-h-[calc(100dvh-7.5rem)] w-[26rem] max-w-[calc(100vw-2rem)] origin-bottom-right flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl transition-[opacity,transform] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transform-none ${
+      className={`fixed bottom-[5.5rem] right-4 z-[150] flex max-h-[calc(100dvh-7.5rem)] w-[26rem] max-w-[calc(100vw-2rem)] origin-bottom-right flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl transition-[opacity,transform] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transform-none ${
         open
           ? 'scale-100 translate-y-0 opacity-100 duration-200'
           : 'pointer-events-none scale-[0.96] translate-y-2 opacity-0 duration-150'
@@ -119,25 +116,6 @@ export default function BuddyPanel() {
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <BuddyGlyph className="h-7 w-6 shrink-0" />
             <h2 className="truncate text-sm font-semibold">Buddy</h2>
-          </div>
-          <div
-            className="flex shrink-0 rounded-lg bg-muted p-0.5"
-            role="group"
-            aria-label="Buddy response depth"
-          >
-            {(['auto', 'fast', 'deep'] as const).map((choice) => (
-              <button
-                key={choice}
-                type="button"
-                aria-pressed={override === choice}
-                className={`min-h-7 rounded-md px-2.5 text-[11px] font-medium capitalize transition-transform duration-150 ease-out active:scale-[0.97] motion-reduce:transform-none ${
-                  override === choice ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-                }`}
-                onClick={() => setOverride(choice)}
-              >
-                {choice}
-              </button>
-            ))}
           </div>
           <button
             type="button"
