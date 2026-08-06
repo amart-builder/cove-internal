@@ -174,7 +174,7 @@ function SessionState({
   }
   if (run.status === 'awaiting_approval') {
     return run.claudeSessionId ? (
-      <span onClick={(event) => event.stopPropagation()}>
+      <span className="today2-session-link" onClick={(event) => event.stopPropagation()}>
         <OpenInClaudeCode
           sessionId={run.claudeSessionId}
           title={task.title}
@@ -187,7 +187,7 @@ function SessionState({
   }
   if (run.status === 'output_ready') {
     return run.claudeSessionId ? (
-      <span onClick={(event) => event.stopPropagation()}>
+      <span className="today2-session-link" onClick={(event) => event.stopPropagation()}>
         <OpenInClaudeCode
           sessionId={run.claudeSessionId}
           title={task.title}

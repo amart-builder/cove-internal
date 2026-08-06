@@ -18,15 +18,21 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-08-06T09:27:56-0700
-- **task:** Round 2 verify+commit
+- **since:** 2026-08-06T09:41:59-0700
+- **task:** Round 3 verify+commit
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-08-06 morning (deterministic Friday demo environment prepared)
+**Last updated:** 2026-08-06 morning (Today V2 type ramp complete)
 
-## 2026-08-06 deterministic Friday demo environment (DONE, uncommitted)
+## 2026-08-06 Today V2 type ramp (DONE, COMMITTED)
+
+- Mapped every explicit Today V2 text style to the locked 30, 21, 15.5, 13.5, 12, and 10.5px ramp. Changed weights now use only 500, 550, and 650. This includes the clock, greeting, quiet actions, weekend gate, status and errors, Second Current, done wake, focus cards, session states, detail sheet, empty state, Focus Grid, and the nested Rhythm Manager.
+- Raised the compact completion orb from 35px to 40px with a 20px glyph, and the Focus Grid trigger from 35px to 44px with recentered dots and close mark. Dark mode inherits the same type ramp and keeps its existing color treatments.
+- Verification: TypeScript clean; scoped ESLint clean; full suite 892/892; grep audit found no Today V2 text below 10.5px, no actionable or status text below 12px, and no Today V2 size or changed weight outside the ramp. Driver live-verified on a dev-mode demo server (new npm run demo:dev, port 3001, isolated demo DB): computed font-size walk of .today2-root found min 10.5px with no actionable text under 12px on the Today view and inside the open Focus Grid, in light and dark; completion orb 40px; grid trigger 44x44; diff audit shows every added size and weight on the ramp.
+
+## 2026-08-06 deterministic Friday demo environment (DONE, COMMITTED)
 
 - Added an idempotent `npm run demo:seed` reset for an isolated `data/demo/` database, settings, operator profile, execution registry, and fictional brief sources. It creates five open tasks, two tasks completed yesterday, a proposed same-day arrival with three focus items and two bench tasks, and a pre-written succeeded Morning Brief artifact.
 - Added `npm run demo:start` for the production server on `127.0.0.1:3300` with demo-only database, config, brief-source, email-state, receipts, Buddy, and task-session paths. Optional Attio and Jarvis brief sources are disabled. `npm run demo:reset` reseeds and prints the restart reminder.

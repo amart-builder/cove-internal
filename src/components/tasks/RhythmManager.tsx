@@ -64,33 +64,33 @@ export default function RhythmManager({
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="rounded-full border border-border/60 bg-background/70 px-2.5 py-1 text-[10px] font-medium normal-case tracking-normal text-muted-foreground hover:text-foreground"
+        className="rounded-full border border-border/60 bg-background/70 px-2.5 py-1 text-[12px] font-medium normal-case tracking-normal text-muted-foreground hover:text-foreground"
       >
         Rhythms
       </button>
       {open && (
         <div className="absolute right-0 top-8 z-30 w-80 rounded-xl border bg-card p-3 text-left shadow-lg">
           <div className="mb-2">
-            <strong className="text-xs text-foreground">Rhythms</strong>
-            <p className="mt-0.5 text-[10px] normal-case tracking-normal text-muted-foreground">
+            <strong className="text-[21px] font-[650] tracking-[-0.018em] text-foreground">Rhythms</strong>
+            <p className="mt-0.5 text-[13.5px] leading-[1.55] normal-case tracking-normal text-muted-foreground">
               Recurring work in the second current.
             </p>
           </div>
-          {error && <p role="alert" className="mb-2 text-[11px] text-accent-red">{error}</p>}
+          {error && <p role="alert" className="mb-2 text-[12px] font-medium text-accent-red">{error}</p>}
           <div className="max-h-72 space-y-2 overflow-y-auto">
             {templates.length === 0 ? (
-              <p className="rounded-lg border border-dashed p-3 text-[11px] normal-case tracking-normal text-muted-foreground">
+              <p className="rounded-lg border border-dashed p-3 text-[13.5px] leading-[1.55] normal-case tracking-normal text-muted-foreground">
                 No rhythms yet.
               </p>
             ) : templates.map((template) => (
               <div key={template.id} className="rounded-lg border border-border/70 bg-background/60 p-2.5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate text-xs font-medium normal-case tracking-normal text-foreground">
+                    <p className="truncate text-[15.5px] font-[550] normal-case tracking-[-0.012em] text-foreground">
                       {template.title}
                     </p>
                     {!template.active && (
-                      <span className="text-[10px] normal-case tracking-normal text-muted-foreground">
+                      <span className="text-[12px] font-medium normal-case tracking-normal text-muted-foreground">
                         Stopped
                       </span>
                     )}
@@ -100,7 +100,7 @@ export default function RhythmManager({
                       type="button"
                       disabled={busyId === template.id}
                       onClick={() => void change(template.id, { id: template.id, active: true })}
-                      className="text-[10px] normal-case tracking-normal text-muted-foreground hover:text-foreground disabled:opacity-50"
+                      className="text-[12px] font-medium normal-case tracking-normal text-muted-foreground hover:text-foreground disabled:opacity-50"
                     >
                       Restart
                     </button>
@@ -110,7 +110,7 @@ export default function RhythmManager({
                       type="button"
                       disabled={busyId === template.id}
                       onClick={() => void change(template.id, { id: template.id, active: false })}
-                      className="text-[10px] normal-case tracking-normal text-muted-foreground hover:text-accent-red disabled:opacity-50"
+                      className="text-[12px] font-medium normal-case tracking-normal text-muted-foreground hover:text-accent-red disabled:opacity-50"
                     >
                       Stop
                     </button>
@@ -127,7 +127,7 @@ export default function RhythmManager({
                           id: template.id,
                           cadence: event.target.value,
                         })}
-                      className="mt-2 w-full rounded-md border bg-card px-2 py-1.5 text-[11px] normal-case tracking-normal text-foreground"
+                      className="mt-2 w-full rounded-md border bg-card px-2 py-1.5 text-[12px] font-medium normal-case tracking-normal text-foreground"
                     >
                       <option value="daily">Daily</option>
                       <option value="weekdays">Weekdays</option>
@@ -146,7 +146,7 @@ export default function RhythmManager({
                           id: template.id,
                           pausedUntil: template.pausedUntil ? null : '9999-12-31',
                         })}
-                      className="mt-2 text-[10px] normal-case tracking-normal text-muted-foreground hover:text-foreground disabled:opacity-50"
+                      className="mt-2 text-[12px] font-medium normal-case tracking-normal text-muted-foreground hover:text-foreground disabled:opacity-50"
                     >
                       {template.pausedUntil ? 'Resume' : 'Pause'}
                     </button>
