@@ -1,6 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import {
   DndContext,
   KeyboardSensor,
@@ -24,7 +31,7 @@ import type { MorningArrivalBoardTask, MorningArrivalItem, MorningArrivalProps }
 import AllWorkPicker, { TODAY_TAG_CLASS } from './AllWorkPicker';
 import TaskSheet, { type TaskSheetDetail } from './TaskSheet';
 
-const TODAY_ZONE_ID = 'arrival-today-zone';
+export const TODAY_ZONE_ID = 'arrival-today-zone';
 const BOARD_TASK_LIMIT = 7;
 
 type OpenTaskSheet = {
@@ -41,6 +48,33 @@ function cardKeyDown(event: React.KeyboardEvent<HTMLElement>, onOpen: (trigger: 
   if (event.key !== 'Enter' && event.key !== ' ') return;
   event.preventDefault();
   onOpen(event.currentTarget);
+}
+
+export function addNotTodayDropToToday(
+  activeId: string,
+  overId: string,
+  notTodayTasks: readonly MorningArrivalBoardTask[],
+  addTask: (task: MorningArrivalBoardTask) => boolean | Promise<boolean>,
+): boolean {
+  if (!activeId.startsWith('not-today:')) return false;
+  if (overId !== TODAY_ZONE_ID && !overId.startsWith('today:')) return true;
+  const task = notTodayTasks.find((candidate) => candidate.id === activeId.slice(10));
+  if (task) void Promise.resolve(addTask(task)).catch(() => undefined);
+  return true;
+}
+
+function TodayDropZone({ children }: { children: ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: TODAY_ZONE_ID });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`min-h-[134px] rounded-[20px] outline outline-2 outline-offset-4 transition-colors duration-150 ${
+        isOver ? 'outline-accent-blue/50' : 'outline-transparent'
+      }`}
+    >
+      {children}
+    </div>
+  );
 }
 
 function KeyboardDragHandle({
@@ -312,6 +346,7 @@ function BenchCard({
 export default function ArrivalPlanGrid({
   todayItems,
   notTodayTasks,
+  focusCount,
   busy,
   escapeRef,
   onInteract,
@@ -323,6 +358,7 @@ export default function ArrivalPlanGrid({
 }: {
   todayItems: MorningArrivalItem[];
   notTodayTasks: MorningArrivalBoardTask[];
+  focusCount: 1 | 2 | 3;
   busy: boolean;
   escapeRef?: RefObject<(() => void) | null>;
   onInteract?: () => void;
@@ -336,7 +372,6 @@ export default function ArrivalPlanGrid({
   const [pickerTrigger, setPickerTrigger] = useState<HTMLElement | null>(null);
   const [capacityNote, setCapacityNote] = useState(false);
   const pendingAddIdsRef = useRef(new Set<string>());
-  const { setNodeRef, isOver } = useDroppable({ id: TODAY_ZONE_ID });
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
@@ -346,8 +381,13 @@ export default function ArrivalPlanGrid({
     () => [...todayItems].sort((left, right) => left.item.position - right.item.position),
     [todayItems],
   );
-  const focusViews = orderedToday.slice(0, 3);
-  const alsoTodayViews = orderedToday.slice(3);
+  const focusViews = orderedToday.slice(0, focusCount);
+  const alsoTodayViews = orderedToday.slice(focusCount);
+  const focusGridClass = focusCount === 1
+    ? 'sm:grid-cols-1'
+    : focusCount === 2
+      ? 'sm:grid-cols-2'
+      : 'sm:grid-cols-3';
   const boardTasks = notTodayTasks.slice(0, BOARD_TASK_LIMIT);
   const hiddenTaskCount = Math.max(0, notTodayTasks.length - boardTasks.length);
   const allWorkTileLabel = hiddenTaskCount > 0
@@ -396,12 +436,7 @@ export default function ArrivalPlanGrid({
     const overId = event.over ? String(event.over.id) : undefined;
     if (!overId) return;
     onInteract?.();
-    if (activeId.startsWith('not-today:')) {
-      if (overId !== TODAY_ZONE_ID && !overId.startsWith('today:')) return;
-      const task = notTodayTasks.find((candidate) => candidate.id === activeId.slice(10));
-      if (task) void addTask(task).catch(() => undefined);
-      return;
-    }
+    if (addNotTodayDropToToday(activeId, overId, notTodayTasks, addTask)) return;
     if (!activeId.startsWith('today:') || !overId.startsWith('today:')) return;
     if (activeId === overId) return;
     void onDragReorder(activeId.slice(6), overId.slice(6));
@@ -420,13 +455,8 @@ export default function ArrivalPlanGrid({
           strategy={rectSortingStrategy}
         >
           <section aria-label="Today focus">
-            <div
-              ref={setNodeRef}
-              className={`min-h-[134px] rounded-[20px] outline outline-2 outline-offset-4 transition-colors duration-150 ${
-                isOver ? 'outline-accent-blue/50' : 'outline-transparent'
-              }`}
-            >
-              <ol className="grid grid-cols-1 gap-[18px] sm:grid-cols-3">
+            <TodayDropZone>
+              <ol className={`grid grid-cols-1 gap-[18px] ${focusGridClass}`}>
                 {focusViews.map((view, index) => (
                   <FocusCard
                     key={view.item.id}
@@ -443,7 +473,7 @@ export default function ArrivalPlanGrid({
                   />
                 ))}
               </ol>
-            </div>
+            </TodayDropZone>
           </section>
 
           {alsoTodayViews.length > 0 && (

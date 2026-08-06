@@ -21,12 +21,17 @@ test.after(() => {
   else process.env.NEXT_PUBLIC_COVE_RUNTIME = PREVIOUS_RUNTIME;
 });
 
-function setup(t, executionEnvironment = { autonomousEnabled: false, workspaces: new Map() }) {
+function setup(
+  t,
+  executionEnvironment = { autonomousEnabled: false, workspaces: new Map() },
+  focusCount = 3,
+) {
   const file = path.join(os.tmpdir(), `cove-execution-${process.pid}-${Date.now()}-${Math.random()}.db`);
   const store = createDayPlanStore({
     dbPath: file,
     now: () => new Date('2026-07-10T16:00:00.000Z'),
     executionEnvironment,
+    focusCount,
   });
   t.after(() => {
     store.close();
@@ -477,6 +482,27 @@ test('Start My Day accepts every retained item but batch-kicks only the first th
   assert.equal(replay.replayed, true);
   assert.equal(replay.executionRuns.length, 3);
   assert.equal(store.listExecutionRuns(plan.id).length, 3);
+});
+
+test('Start My Day limits cloud kickoff to the configured focus count', (t) => {
+  const { store, plan: original } = setup(
+    t,
+    { autonomousEnabled: false, workspaces: new Map() },
+    1,
+  );
+  let plan = original;
+  for (const item of plan.items) {
+    plan = mutate(store, plan, 'item_owner', { itemId: item.id, owner: 'claude' });
+  }
+  const started = store.mutateDayPlan({
+    planId: plan.id,
+    expectedVersion: plan.version,
+    mutationId: 'start-day:focus-count-one',
+    action: 'start_day',
+  });
+
+  assert.equal(started.executionRuns.length, 1);
+  assert.equal(started.executionRuns[0].itemId, plan.items[0].id);
 });
 
 test('cloud kickoff uses the first three positions without owner-based backfill', (t) => {

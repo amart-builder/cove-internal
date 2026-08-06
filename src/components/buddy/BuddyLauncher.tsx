@@ -54,6 +54,7 @@ export default function BuddyLauncher() {
   return (
     <>
       <button
+        data-buddy-launcher
         type="button"
         aria-label={open ? 'Close Buddy chat' : 'Open Buddy chat'}
         aria-expanded={open}

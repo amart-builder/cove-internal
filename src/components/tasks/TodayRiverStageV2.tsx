@@ -86,12 +86,17 @@ export type TodayRiverStageV2Model = {
   morningArrivalDisabled?: boolean;
   morningArrivalTitle?: string;
   closeDayDisabled?: boolean;
+  weekendGate?: {
+    weekday: string;
+    planning: boolean;
+  };
   ritualOpen: boolean;
 };
 
 export type TodayRiverStageV2Callbacks = {
   onOpenMorningArrival: () => void;
   onOpenCloseDay: () => void;
+  onPlanWeekend: () => void;
   onFocusTask: (taskId: string) => void;
   onCompleteTask: (taskId: string, seatIndex: number) => Promise<void>;
   onStartSession: (taskId: string, owner: TaskSessionOwner) => void;
@@ -922,6 +927,18 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
               Close My Day
             </button>
           </div>
+          {model.weekendGate && (
+            <div className="today2-weekend-gate">
+              <p>It&apos;s {model.weekendGate.weekday}. Cove plans weekdays.</p>
+              <button
+                type="button"
+                disabled={model.weekendGate.planning}
+                onClick={callbacks.onPlanWeekend}
+              >
+                {model.weekendGate.planning ? 'Planning…' : 'Plan today anyway'}
+              </button>
+            </div>
+          )}
           {headerSupplement}
           {model.statusMessage && <p className="today2-status" role="status">{model.statusMessage}</p>}
           {model.errorMessage && <p className="today2-error" role="alert">{model.errorMessage}</p>}
@@ -1061,7 +1078,13 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
           ) : (
             <div className="today2-clear-state">
               <h2>You&apos;re clear for now.</h2>
-              <button type="button" onClick={callbacks.onOpenCloseDay}>Close My Day</button>
+              <button
+                type="button"
+                disabled={model.closeDayDisabled}
+                onClick={callbacks.onOpenCloseDay}
+              >
+                Close My Day
+              </button>
             </div>
           )}
 

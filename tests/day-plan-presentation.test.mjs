@@ -5,6 +5,7 @@ import {
   advanceMorningBriefAttachPoll,
   allSettlementDecisionsMade,
   claudeResumeUrl,
+  canStartDayPlanSettlement,
   combineSurfaceErrors,
   firstContinuingItem,
   focusBandItems,
@@ -311,9 +312,25 @@ test('focus band matches Start My Day by retaining only preselected and accepted
     { id: 'third', position: 4, decision: 'pending' },
     { id: 'fourth', position: 5, decision: 'accepted' },
   ];
-  assert.deepEqual(focusBandItems(items).map((item) => item.id), [
+  assert.deepEqual(focusBandItems(items, 3).map((item) => item.id), [
     'first', 'second', 'fourth',
   ]);
+  assert.deepEqual(focusBandItems(items, 1).map((item) => item.id), ['first']);
+  assert.deepEqual(focusBandItems(items, Number.NaN).map((item) => item.id), [
+    'first', 'second', 'fourth',
+  ]);
+});
+
+test('settlement availability includes snoozed proposed plans and matches active states', () => {
+  const base = { state: 'proposed', arrivalState: 'opened', settlementState: 'not_due' };
+  assert.equal(canStartDayPlanSettlement(base), false);
+  assert.equal(canStartDayPlanSettlement({ ...base, arrivalState: 'snoozed' }), true);
+  assert.equal(canStartDayPlanSettlement({ ...base, state: 'active' }), true);
+  assert.equal(canStartDayPlanSettlement({
+    ...base,
+    state: 'settling',
+    settlementState: 'in_progress',
+  }), true);
 });
 
 test('resume command quotes both workspace and session for the copy fallback', () => {

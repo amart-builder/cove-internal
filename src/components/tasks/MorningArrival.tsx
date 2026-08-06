@@ -35,6 +35,7 @@ export type MorningArrivalBoardTask = {
 
 interface MorningArrivalProps {
   plan: DayPlan;
+  focusCount: 1 | 2 | 3;
   items: MorningArrivalItem[];
   notTodayTasks: MorningArrivalBoardTask[];
   recommendation: string;
@@ -70,7 +71,7 @@ const STEP_TITLES: Record<Exclude<ArrivalStep, 'brief'>, string> = {
 
 const STEP_DESCRIPTIONS: Record<ArrivalStep, string> = {
   brief: '',
-  plan: 'Build the whole day here. The first three tasks are your focus.',
+  plan: 'Build the whole day here.',
 };
 
 const STEP_ANNOUNCEMENTS: Record<ArrivalStep, string> = {
@@ -80,6 +81,7 @@ const STEP_ANNOUNCEMENTS: Record<ArrivalStep, string> = {
 
 export default function MorningArrival({
   plan,
+  focusCount,
   items,
   notTodayTasks,
   recommendation,
@@ -129,7 +131,10 @@ export default function MorningArrival({
         view.item.decision === 'accepted',
     )
     .sort((left, right) => left.item.position - right.item.position);
-  const focusAgentCount = focusBandItems(visibleItems.map((view) => view.item))
+  const focusAgentCount = focusBandItems(
+    visibleItems.map((view) => view.item),
+    focusCount,
+  )
     .filter((item) => item.owner === 'claude' || item.owner === 'together')
     .length;
   const buddyActive = buddyBusy || Boolean(streamingTurn);
@@ -208,7 +213,11 @@ export default function MorningArrival({
             </div>
           </div>
           <p id={descriptionId} className="sr-only">
-            {STEP_DESCRIPTIONS[step]} {freshnessLabel}
+            {STEP_DESCRIPTIONS[step]}{' '}
+            {step === 'plan'
+              ? `The first ${focusCount} ${focusCount === 1 ? 'task is' : 'tasks are'} your focus. `
+              : ''}
+            {freshnessLabel}
           </p>
           <p className="sr-only" aria-live="polite" aria-atomic="true">{stepAnnouncement}</p>
         </header>
@@ -244,6 +253,7 @@ export default function MorningArrival({
             <ArrivalPlanGrid
               todayItems={visibleItems}
               notTodayTasks={notTodayTasks}
+              focusCount={focusCount}
               busy={busy}
               onInteract={onInteract}
               onOwnerChange={onOwnerChange}

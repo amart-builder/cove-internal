@@ -37,6 +37,7 @@ import {
   selectArrivalCandidateTasks,
 } from '@/lib/day-plan/candidates';
 import {
+  canStartDayPlanSettlement,
   combineSurfaceErrors,
   firstContinuingItem,
   focusBandItems,
@@ -872,6 +873,7 @@ function TodayExperience({
     enabled: !loading && Boolean(todayColumn && doneColumn),
     candidates: dayPlanCandidates,
     candidatesReady: candidateEvidence?.freshness === 'current',
+    focusCount,
     onBriefPicksChange,
   });
   const ritualView: OverlayRitualView | undefined =
@@ -1866,7 +1868,9 @@ function TodayExperience({
   const planPositionByTaskId = new Map(
     activePlanItems.map((item, index) => [item.taskId, index]),
   );
-  const focusTaskIds = new Set(focusBandItems(activePlanItems).map((item) => item.taskId));
+  const focusTaskIds = new Set(
+    focusBandItems(activePlanItems, focusCount).map((item) => item.taskId),
+  );
   const downstream = commitments
     .filter((task) => task._id !== focusedTask?._id)
     .sort((left, right) => {
@@ -1929,7 +1933,9 @@ function TodayExperience({
   const greeting = getGreeting(now.getHours());
   const waterTone = now.getHours() < 11 ? 'morning' : now.getHours() < 17 ? 'day' : 'evening';
   const morningArrivalUnavailableReason = !dayRitual.plan
-    ? "Morning Arrival is available when today's plan is ready."
+    ? dayRitual.weekendGate
+      ? `Morning Arrival is paused on ${dayRitual.weekendGate.weekday}. Choose Plan today anyway to open it.`
+      : "Morning Arrival is available when today's plan is ready."
     : dayRitual.plan.localDate !== localDateInTimezone(now, dayRitual.plan.timezone)
       ? 'Morning Arrival is available only for today.'
       : dayRitual.plan.state === 'settled'
@@ -1937,6 +1943,9 @@ function TodayExperience({
         : dayRitual.busy
           ? 'Cove is updating today\'s plan.'
           : undefined;
+  const closeDayDisabled = !dayRitual.plan ||
+    dayRitual.busy ||
+    !canStartDayPlanSettlement(dayRitual.plan);
   const searchResults = openTasks
     .filter((task) => {
       const query = searchQuery.trim().toLowerCase();
@@ -2318,12 +2327,19 @@ function TodayExperience({
             errorMessage: visibleSurfaceError ?? error,
             morningArrivalDisabled: Boolean(morningArrivalUnavailableReason),
             morningArrivalTitle: morningArrivalUnavailableReason,
-            closeDayDisabled: !dayRitual.plan || dayRitual.busy || dayRitual.plan.state === 'settled',
+            closeDayDisabled,
+            weekendGate: !dayRitual.plan && dayRitual.weekendGate
+              ? {
+                  weekday: dayRitual.weekendGate.weekday,
+                  planning: dayRitual.planningWeekend,
+                }
+              : undefined,
             ritualOpen: dayRitual.ritualOpen,
           }}
           callbacks={{
             onOpenMorningArrival: () => void openMorningArrival(),
             onOpenCloseDay: () => void openDaySettlement(),
+            onPlanWeekend: () => void dayRitual.planWeekendAnyway(),
             onFocusTask: (taskId) => focusTask(taskId, 'today2_card'),
             onCompleteTask: async (taskId, seatIndex) => {
               const task = tasks.find((candidate) => candidate._id === taskId);
@@ -2420,7 +2436,7 @@ function TodayExperience({
               <button
                 type="button"
                 className="current-capture-toggle"
-                disabled={!dayRitual.plan || dayRitual.busy || dayRitual.plan.state === 'settled'}
+                disabled={closeDayDisabled}
                 onClick={() => void openDaySettlement()}
               >
                 Close My Day
@@ -3080,6 +3096,7 @@ function TodayExperience({
             {ritualView === 'arrival' ? (
               <MorningArrival
                 plan={dayRitual.plan}
+                focusCount={focusCount}
                 items={arrivalItems}
                 notTodayTasks={notTodayTasks}
                 recommendation={recommendation}

@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+html[data-day-ritual-open] [data-buddy-launcher],
+html[data-day-ritual-open] [data-buddy-panel] {
+  display: none;
+}
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
@@ -1614,6 +1619,11 @@ input, textarea, select {
 
 .today2-quiet-actions button:hover:not(:disabled) { color: rgba(23,33,38,.78); }
 .today2-quiet-actions button:disabled { opacity: .38; cursor: not-allowed; }
+.today2-weekend-gate { display: flex; align-items: center; gap: 10px; margin-top: 9px; color: var(--today2-muted); font-size: 9px; }
+.today2-weekend-gate p { margin: 0; }
+.today2-weekend-gate button { border: 0; padding: 3px 0; color: rgba(23,33,38,.58); background: none; font-size: 9px; }
+.today2-weekend-gate button:hover:not(:disabled) { color: rgba(23,33,38,.82); }
+.today2-weekend-gate button:disabled { opacity: .4; cursor: not-allowed; }
 .today2-header .quiet-readiness-strip { margin-top: 10px; }
 .today2-header .quiet-claude-desk { margin-top: 8px; }
 .today2-status,
@@ -1827,7 +1837,7 @@ input, textarea, select {
   background: transparent;
   cursor: pointer;
 }
-.water-workspace .today2-focus-open:focus-visible {
+.today2-root .today2-focus-open:focus-visible {
   outline: 2px solid rgba(45,127,192,.76);
   outline-offset: 3px;
   box-shadow: 0 0 0 4px rgba(69,167,232,.2);
@@ -2047,6 +2057,8 @@ input, textarea, select {
 .dark .today2-greeting,
 .dark .today2-quiet-actions button { color: rgba(238,246,248,.58); }
 .dark .today2-quiet-actions button:hover:not(:disabled) { color: rgba(238,246,248,.88); }
+.dark .today2-weekend-gate button { color: rgba(238,246,248,.68); }
+.dark .today2-weekend-gate button:hover:not(:disabled) { color: rgba(238,246,248,.9); }
 .dark .today2-sun-arc { opacity: .7; }
 .dark .today2-second-current-card,
 .dark .today2-second-current-item,
@@ -2066,7 +2078,7 @@ input, textarea, select {
 .dark .today2-done-marker { color: rgba(238,246,248,.76); }
 .dark .today2-focus-card { border-color: rgba(255,255,255,.13); box-shadow: 0 25px 76px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.09); }
 .dark .today2-focus-card.is-selected { border-color: rgba(130,200,242,.4); box-shadow: 0 25px 76px rgba(0,0,0,.25), 0 0 0 1px rgba(130,200,242,.28), 0 0 24px rgba(69,167,232,.09), inset 0 1px 0 rgba(255,255,255,.1); }
-.dark .water-workspace .today2-focus-open:focus-visible { outline-color: rgba(130,200,242,.88); box-shadow: 0 0 0 4px rgba(130,200,242,.22); }
+.dark .today2-root .today2-focus-open:focus-visible { outline-color: rgba(130,200,242,.88); box-shadow: 0 0 0 4px rgba(130,200,242,.22); }
 .dark .today2-focus-card:hover { box-shadow: 0 28px 82px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.12); }
 .dark .today2-owner-chip { border-color: rgba(255,255,255,.08); color: rgba(238,246,248,.72); background: rgba(255,255,255,.08); }
 .dark .today2-owner-chip[data-owner='You'] { color: rgba(238,246,248,.82); background: rgba(255,255,255,.12); }

@@ -26,6 +26,7 @@ export default function AllWorkPicker({
   const [optimisticTodayIds, setOptimisticTodayIds] = useState<Set<string>>(() => new Set());
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
   const [capacityMessage, setCapacityMessage] = useState('');
+  const [addError, setAddError] = useState('');
   const todayTaskIds = useMemo(
     () => new Set(todayItems.map((view) => view.item.taskId).filter(Boolean)),
     [todayItems],
@@ -41,6 +42,7 @@ export default function AllWorkPicker({
   async function addTask(task: MorningArrivalBoardTask) {
     if (pendingIds.has(task.id) || optimisticTodayIds.has(task.id)) return;
     setCapacityMessage('');
+    setAddError('');
     setOptimisticTodayIds((current) => new Set(current).add(task.id));
     setPendingIds((current) => new Set(current).add(task.id));
     try {
@@ -59,6 +61,7 @@ export default function AllWorkPicker({
         next.delete(task.id);
         return next;
       });
+      setAddError("Cove couldn't add that task to today. Try again.");
     } finally {
       setPendingIds((current) => {
         const next = new Set(current);
@@ -117,9 +120,13 @@ export default function AllWorkPicker({
       </div>
 
       <footer className="mt-5 flex flex-wrap items-center justify-between gap-3">
-        <p role="status" className="text-xs text-muted-foreground">
-          {capacityMessage || 'Click a task to add it to today.'}
-        </p>
+        {addError ? (
+          <p role="alert" className="text-xs text-accent-red">{addError}</p>
+        ) : (
+          <p role="status" className="text-xs text-muted-foreground">
+            {capacityMessage || 'Click a task to add it to today.'}
+          </p>
+        )}
         <button
           type="button"
           data-modal-initial-focus

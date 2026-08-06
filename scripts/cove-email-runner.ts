@@ -61,6 +61,28 @@ type EmailTriageResult = {
   intakeTruncated: boolean;
 };
 
+export function emailTriageAttentionMessage(input: {
+  archiveFailures: number;
+  jobsFailed: number;
+  jobsDead: number;
+}): string | undefined {
+  const parts: string[] = [];
+  if (input.archiveFailures > 0) {
+    parts.push(
+      `${input.archiveFailures} ${input.archiveFailures === 1 ? "email could" : "emails could"} not be archived`,
+    );
+  }
+  const backgroundJobs = input.jobsFailed + input.jobsDead;
+  if (backgroundJobs > 0) {
+    parts.push(
+      `${backgroundJobs} background ${backgroundJobs === 1 ? "job needs" : "jobs need"} attention`,
+    );
+  }
+  if (parts.length === 0) return undefined;
+  if (parts.length === 1) return `${parts[0]}.`;
+  return `${parts[0]} and ${parts[1]}.`;
+}
+
 function header(message: MailMessage, name: string): string {
   return message.headers.find((item) => item.name.toLowerCase() === name.toLowerCase())
     ?.value ?? "";
@@ -278,7 +300,11 @@ async function runEmailTriageUnchecked(
       intakeTruncated || reconciled.archiveFailures.length > 0 || jobsFailed > 0 || jobsDead > 0
       ? intakeTruncated
         ? `Inbox intake reached its ${MAX_INTAKE_PAGES}-page safety limit. Cove marks observed messages with Cove/Triaged so later runs can move past them and reach more of the inbox.`
-        : `${reconciled.archiveFailures.length} archive, ${jobsFailed} retryable job, and ${jobsDead} stopped job failure(s) need attention.`
+        : emailTriageAttentionMessage({
+            archiveFailures: reconciled.archiveFailures.length,
+            jobsFailed,
+            jobsDead,
+          })
       : undefined,
   });
   return {

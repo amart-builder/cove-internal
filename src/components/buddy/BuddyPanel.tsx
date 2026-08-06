@@ -104,6 +104,7 @@ export default function BuddyPanel() {
 
   return (
     <section
+      data-buddy-panel
       aria-label="Buddy chat"
       aria-hidden={!open}
       inert={!open}

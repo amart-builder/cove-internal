@@ -217,13 +217,61 @@ test('automatic weekday creation still creates a plan', (t) => {
   assert.equal(result.plan.localDate, '2026-08-03');
 });
 
+test('arrival skip promotes proposed work into an active non-empty Today list', (t) => {
+  const { store } = isolatedStore(t);
+  let plan = ensure(store, 'ensure:skip-promotes').plan;
+  plan = mutate(store, plan, 'arrival_skip').plan;
+
+  assert.equal(plan.arrivalState, 'skipped');
+  assert.equal(plan.state, 'active');
+  assert.ok(plan.items.filter((item) => item.decision === 'accepted').length > 0);
+  assert.equal(
+    plan.items.some((item) => item.decision === 'pending' || item.decision === 'preselected'),
+    false,
+  );
+  assert.equal(store.listExecutionRuns(plan.id).length, 0);
+});
+
+test('arrival bypass promotes proposed work into an active non-empty Today list', (t) => {
+  const { store } = isolatedStore(t);
+  let plan = ensure(store, 'ensure:bypass-promotes').plan;
+  plan = mutate(store, plan, 'arrival_bypass').plan;
+
+  assert.equal(plan.arrivalState, 'bypassed');
+  assert.equal(plan.state, 'active');
+  assert.ok(plan.items.filter((item) => item.decision === 'accepted').length > 0);
+  assert.equal(
+    plan.items.some((item) => item.decision === 'pending' || item.decision === 'preselected'),
+    false,
+  );
+  assert.equal(store.listExecutionRuns(plan.id).length, 0);
+});
+
+test('settlement from a snoozed arrival promotes the proposed items before opening', (t) => {
+  const { store } = isolatedStore(t);
+  let plan = ensure(store, 'ensure:snoozed-settlement').plan;
+  plan = mutate(store, plan, 'arrival_open').plan;
+  plan = mutate(store, plan, 'arrival_snooze', {
+    snoozedUntil: '2026-07-10T17:00:00.000Z',
+  }).plan;
+  plan = mutate(store, plan, 'settlement_start').plan;
+
+  assert.equal(plan.state, 'settling');
+  assert.equal(plan.settlementState, 'in_progress');
+  assert.ok(plan.items.filter((item) => item.decision === 'accepted').length > 0);
+  assert.equal(
+    plan.items.some((item) => item.decision === 'pending' || item.decision === 'preselected'),
+    false,
+  );
+});
+
 test('initialize auto-settles an untouched legacy weekend through settlement and writes one receipt', (t) => {
   const { file, store, setClock } = isolatedStore(t, '2026-08-01T16:00:00.000Z');
   const plan = store.ensureDayPlan({
     localDate: '2026-08-01',
     timezone: 'America/Los_Angeles',
     mutationId: 'ensure:legacy-weekend',
-    candidates: [],
+    candidates: candidates(['weekend-task']),
     creation: 'manual',
   }).plan;
   removeManualCreationMarker(file, plan.id);
@@ -233,6 +281,7 @@ test('initialize auto-settles an untouched legacy weekend through settlement and
   const settled = store.getPlan(plan.id);
   assert.equal(settled.state, 'settled');
   assert.equal(settled.settlementState, 'settled');
+  assert.equal(settled.items[0].decision, 'preselected');
   assert.ok(store.getSnapshot(plan.id));
   const eventTypes = store.listEvents(plan.id).map((event) => event.eventType);
   assert.ok(eventTypes.includes('settlement_start'));
@@ -246,6 +295,32 @@ test('initialize auto-settles an untouched legacy weekend through settlement and
     1,
   );
   db.close();
+});
+
+test('fresh construction auto-settles an untouched weekend with proposed items without throwing', (t) => {
+  const { file, store } = isolatedStore(t, '2026-08-01T16:00:00.000Z');
+  const plan = store.ensureDayPlan({
+    localDate: '2026-08-01',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:legacy-weekend-construction',
+    candidates: candidates(['weekend-construction-task']),
+    creation: 'manual',
+  }).plan;
+  removeManualCreationMarker(file, plan.id);
+  store.close();
+
+  let reopened;
+  assert.doesNotThrow(() => {
+    reopened = createDayPlanStore({
+      dbPath: file,
+      now: () => new Date('2026-08-03T16:00:00.000Z'),
+    });
+  });
+  t.after(() => reopened?.close());
+  const settled = reopened.getPlan(plan.id);
+  assert.equal(settled.state, 'settled');
+  assert.equal(settled.settlementState, 'settled');
+  assert.equal(settled.items[0].decision, 'preselected');
 });
 
 test('initialize leaves touched and manually-created weekend plans for normal closeout', (t) => {
@@ -559,6 +634,95 @@ test('item_complete marks the board task done and legacy reopen falls back to To
     { column_id: 'col-today', status: 'open', position: 0 },
   );
   reopenedDb.close();
+});
+
+test('item_complete moves the item to the end so the remaining Today items can reorder', (t) => {
+  const { file, store } = isolatedStore(t);
+  const db = new Database(file);
+  createManagedBoardTables(db);
+  const insert = db.prepare(
+    `INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, position,
+       status, created_at, updated_at)
+     VALUES (?, 'col-today', ?, ?, 'medium', '[]', ?, 'open', ?, ?)`,
+  );
+  ['task-a', 'task-b', 'task-c'].forEach((taskId, position) => insert.run(
+    taskId,
+    `Task ${taskId}`,
+    `Finish ${taskId}`,
+    position,
+    '2026-07-10T15:00:00.000Z',
+    '2026-07-10T15:00:00.000Z',
+  ));
+  db.close();
+
+  let plan = store.ensureDayPlan({
+    localDate: '2026-07-10',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:complete-reorder',
+    candidates: candidates(['task-a', 'task-b', 'task-c']),
+  }).plan;
+  plan = mutate(store, plan, 'arrival_open').plan;
+  const firstItem = plan.items.find((item) => item.taskId === 'task-a');
+  const thirdItem = plan.items.find((item) => item.taskId === 'task-c');
+  plan = mutate(store, plan, 'item_complete', { itemId: firstItem.id }).plan;
+  assert.deepEqual(
+    [...plan.items].sort((left, right) => left.position - right.position).map((item) => item.taskId),
+    ['task-b', 'task-c', 'task-a'],
+  );
+
+  plan = mutate(store, plan, 'item_reorder', { itemId: thirdItem.id, position: 0 }).plan;
+  assert.deepEqual(
+    [...plan.items]
+      .filter((item) => item.decision !== 'completed')
+      .sort((left, right) => left.position - right.position)
+      .map((item) => item.taskId),
+    ['task-c', 'task-b'],
+  );
+});
+
+test('item_reopen restores the completed item to its prior plan position', (t) => {
+  const { file, store } = isolatedStore(t);
+  const db = new Database(file);
+  createManagedBoardTables(db);
+  const insert = db.prepare(
+    `INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, position,
+       status, created_at, updated_at)
+     VALUES (?, 'col-today', ?, ?, 'medium', '[]', ?, 'open', ?, ?)`,
+  );
+  ['task-a', 'task-b', 'task-c'].forEach((taskId, position) => insert.run(
+    taskId,
+    `Task ${taskId}`,
+    `Finish ${taskId}`,
+    position,
+    '2026-07-10T15:00:00.000Z',
+    '2026-07-10T15:00:00.000Z',
+  ));
+  db.close();
+  let plan = store.ensureDayPlan({
+    localDate: '2026-07-10',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:reopen-plan-position',
+    candidates: candidates(['task-a', 'task-b', 'task-c']),
+  }).plan;
+  plan = mutate(store, plan, 'arrival_open').plan;
+  const originalOrder = [...plan.items]
+    .sort((left, right) => left.position - right.position)
+    .map((item) => item.id);
+  const middleItem = plan.items.find((item) => item.taskId === 'task-b');
+
+  plan = mutate(store, plan, 'item_complete', { itemId: middleItem.id }).plan;
+  assert.deepEqual(
+    [...plan.items].sort((left, right) => left.position - right.position).map((item) => item.taskId),
+    ['task-a', 'task-c', 'task-b'],
+  );
+  plan = mutate(store, plan, 'item_reopen', { itemId: middleItem.id }).plan;
+
+  assert.deepEqual(
+    [...plan.items].sort((left, right) => left.position - right.position).map((item) => item.id),
+    originalOrder,
+  );
 });
 
 test('item_reopen restores the exact recorded board placement', (t) => {
@@ -990,7 +1154,7 @@ test('settlement cancel restores active item mutations and allows settlement to 
   assert.equal(plan.settlementState, 'in_progress');
 });
 
-test('settlement cancel restores a bypassed proposed plan without enabling item mutations', (t) => {
+test('settlement cancel restores a bypassed active plan with its promoted items', (t) => {
   const { store } = isolatedStore(t);
   let plan = ensure(store, 'ensure:proposed-settlement-cancel').plan;
   plan = mutate(store, plan, 'arrival_bypass').plan;
@@ -1002,19 +1166,18 @@ test('settlement cancel restores a bypassed proposed plan without enabling item 
   plan = mutate(store, plan, 'settlement_cancel').plan;
 
   assert.equal(plan.state, before.state);
-  assert.equal(plan.state, 'proposed');
+  assert.equal(plan.state, 'active');
   assert.equal(plan.arrivalState, before.arrivalState);
   assert.equal(plan.arrivalState, 'bypassed');
   assert.equal(plan.confirmedAt, before.confirmedAt);
   assert.equal(plan.settlementState, 'offered');
   assert.deepEqual(plan.items, before.items);
-  assert.throws(
-    () => mutate(store, plan, 'item_reorder', { itemId: plan.items[1].id, position: 0 }),
-    (error) => error instanceof DayPlanInvalidTransition && /arrival is open or the day is active/.test(error.message),
-  );
-  assert.throws(
-    () => mutate(store, plan, 'item_complete', { itemId: plan.items[0].id }),
-    (error) => error instanceof DayPlanInvalidTransition && /arrival is open or the day is active/.test(error.message),
+  assert.ok(plan.items.every((item) => item.decision === 'accepted'));
+  const movedId = plan.items[1].id;
+  plan = mutate(store, plan, 'item_reorder', { itemId: movedId, position: 0 }).plan;
+  assert.equal(
+    [...plan.items].sort((left, right) => left.position - right.position)[0].id,
+    movedId,
   );
 });
 

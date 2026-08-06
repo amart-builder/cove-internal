@@ -96,6 +96,7 @@ export type DayPlanItem = RecommendationCandidate & {
   position: number;
   decision: DayPlanItemDecision;
   brief?: DayPlanItemBriefAnnotation;
+  preCompletionPlanPosition?: number;
   preCompletionBoardPlacement?: {
     columnId: string;
     position: number;

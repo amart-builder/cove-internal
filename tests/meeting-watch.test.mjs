@@ -6,8 +6,15 @@ import test from "node:test";
 import {
   readMeetingState,
   runMeetingWatch,
+  shouldRecordMeetingWatchReceipt,
   writeMeetingState,
 } from "../scripts/cove-meeting-watch.mjs";
+
+test("meeting watcher skips the receipt for a no-op run", () => {
+  assert.equal(shouldRecordMeetingWatchReceipt({ processed: 0, errors: 0 }), false);
+  assert.equal(shouldRecordMeetingWatchReceipt({ processed: 1, errors: 0 }), true);
+  assert.equal(shouldRecordMeetingWatchReceipt({ processed: 0, errors: 1 }), true);
+});
 
 function fixture(t, meeting = {}) {
   const dir = path.join(

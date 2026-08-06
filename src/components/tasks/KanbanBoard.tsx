@@ -99,6 +99,7 @@ interface KanbanBoardContentProps {
   tasksData: TaskData[];
   loading: boolean;
   error?: string;
+  onRetry: () => Promise<void>;
   onSeed?: () => Promise<void>;
   onCreateTask: (input: CreateTaskInput) => Promise<void>;
   onUpdateTask: (id: string, patch: UpdateTaskInput, nextTasks?: TaskData[]) => Promise<void>;
@@ -294,6 +295,7 @@ function SupabaseKanbanBoard() {
       tasksData={tasks}
       loading={loading}
       error={error}
+      onRetry={reload}
       onSeed={!loading && !error ? ensureDefaultColumns : undefined}
       onCreateTask={async (input) => {
         const targetColumnId = input.columnId ?? null;
@@ -405,6 +407,7 @@ function KanbanBoardContent({
   tasksData,
   loading,
   error,
+  onRetry,
   onSeed,
   onCreateTask,
   onUpdateTask,
@@ -423,6 +426,11 @@ function KanbanBoardContent({
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all');
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
   const [showRecentlyDeleted, setShowRecentlyDeleted] = useState(false);
+  const [operationError, setOperationError] = useState<{
+    message: string;
+    retry?: () => Promise<void>;
+  }>();
+  const [retryingOperation, setRetryingOperation] = useState(false);
   const [archiveUndo, setArchiveUndo] = useState<{
     id: string;
     title: string;
@@ -435,6 +443,22 @@ function KanbanBoardContent({
     description: '',
     tags: '',
   });
+
+  async function retryOperation() {
+    const retry = operationError?.retry;
+    if (!retry || retryingOperation) return;
+    setRetryingOperation(true);
+    try {
+      await retry();
+      setOperationError(undefined);
+    } catch {
+      setOperationError((current) => current
+        ? { ...current, message: "That still didn't save. Try again." }
+        : current);
+    } finally {
+      setRetryingOperation(false);
+    }
+  }
 
   useEffect(() => {
     if (!seeded && onSeed) {
@@ -735,14 +759,27 @@ function KanbanBoardContent({
     const movedTasks = applyMove(originalTasks, activeId, overCol, destinationIndex);
     setLocalTasks(movedTasks);
 
-    try {
-      await onUpdateTask(activeId, {
+    const persistMove = () => onUpdateTask(activeId, {
         columnId: overCol,
         position: destinationIndex,
         status: statusForColumn(overCol),
       }, movedTasks);
+    try {
+      await persistMove();
+      setOperationError(undefined);
     } catch (err) {
       console.error('Failed to persist drag:', err);
+      setOperationError({
+        message: "That task move didn't save. The board was restored.",
+        retry: async () => {
+          setLocalTasks(movedTasks);
+          try {
+            await persistMove();
+          } finally {
+            setLocalTasks(null);
+          }
+        },
+      });
     } finally {
       setLocalTasks(null);
     }
@@ -769,8 +806,12 @@ function KanbanBoardContent({
 
       setNewTask({ title: '', priority: 'medium', dueDate: '', description: '', tags: '' });
       setShowAddForm(false);
+      setOperationError(undefined);
     } catch (err) {
       console.error('Failed to add task:', err);
+      setOperationError({
+        message: "Cove couldn't add that task. Your draft is still here.",
+      });
     }
   }
 
@@ -801,8 +842,7 @@ function KanbanBoardContent({
 
     setCompletingTaskId(taskId);
     setLocalTasks(movedTasks);
-    try {
-      await onUpdateTask(
+    const persistCompletion = () => onUpdateTask(
         taskId,
         {
           columnId: doneColumn._id,
@@ -811,9 +851,25 @@ function KanbanBoardContent({
         },
         movedTasks
       );
+    try {
+      await persistCompletion();
+      setOperationError(undefined);
     } catch (err) {
       console.error('Failed to mark task done:', err);
       setLocalTasks(null);
+      setOperationError({
+        message: "Cove couldn't mark that task done. The board was restored.",
+        retry: async () => {
+          setCompletingTaskId(taskId);
+          setLocalTasks(movedTasks);
+          try {
+            await persistCompletion();
+          } finally {
+            setCompletingTaskId(null);
+            setLocalTasks(null);
+          }
+        },
+      });
     } finally {
       setCompletingTaskId(null);
       setLocalTasks(null);
@@ -876,6 +932,13 @@ function KanbanBoardContent({
         <div className="water-empty-state max-w-lg p-5 text-sm">
           <p className="font-medium text-foreground">Tasks could not load.</p>
           <p className="mt-1 text-muted-foreground">{error}</p>
+          <button
+            type="button"
+            className="water-text-button mt-3 px-3 py-2"
+            onClick={() => void onRetry()}
+          >
+            Retry
+          </button>
         </div>
       </div>
     );
@@ -955,6 +1018,30 @@ function KanbanBoardContent({
           + Add Task
         </button>
       </div>
+
+      {operationError && (
+        <div role="alert" className="mx-5 mt-3 flex items-center gap-3 rounded-xl border border-accent-red/30 bg-accent-red/5 px-4 py-3 text-xs text-accent-red">
+          <p className="min-w-0 flex-1">{operationError.message}</p>
+          {operationError.retry && (
+            <button
+              type="button"
+              disabled={retryingOperation}
+              className="shrink-0 font-medium underline underline-offset-2 disabled:opacity-50"
+              onClick={() => void retryOperation()}
+            >
+              {retryingOperation ? 'Retrying…' : 'Retry'}
+            </button>
+          )}
+          <button
+            type="button"
+            aria-label="Dismiss operation error"
+            className="shrink-0 text-base leading-none"
+            onClick={() => setOperationError(undefined)}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {taskSessions.error && (
         <p role="alert" className="mx-5 mt-2 text-xs text-accent-red">

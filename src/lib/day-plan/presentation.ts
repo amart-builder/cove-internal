@@ -1,5 +1,6 @@
 import type { MorningBriefGenerationState } from './brief';
 import type {
+  DayPlan,
   DayPlanExecutionConfig,
   DayPlanExecutionReadiness,
   DayPlanExecutionRun,
@@ -212,8 +213,12 @@ export function ownerDescription(owner: DayOwner): string {
   return OWNER_DESCRIPTIONS[owner];
 }
 
-/** The active Today items in committed order, limited to the three focus slots. */
-export function focusBandItems<T extends DayPlanItem>(items: readonly T[]): T[] {
+/** The active Today items in committed order, limited to the configured focus slots. */
+export function focusBandItems<T extends DayPlanItem>(
+  items: readonly T[],
+  focusCount: number,
+): T[] {
+  const finiteFocusCount = Number.isFinite(focusCount) ? focusCount : 3;
   return [...items]
     .filter(
       (item) =>
@@ -221,7 +226,16 @@ export function focusBandItems<T extends DayPlanItem>(items: readonly T[]): T[] 
         item.decision === 'accepted',
     )
     .sort((left, right) => left.position - right.position)
-    .slice(0, 3);
+    .slice(0, Math.max(1, Math.min(3, finiteFocusCount)));
+}
+
+export function canStartDayPlanSettlement(plan: DayPlan): boolean {
+  if (plan.state === 'active') return true;
+  if (plan.state === 'settling' && plan.settlementState === 'in_progress') return true;
+  return plan.state === 'proposed' &&
+    (plan.arrivalState === 'bypassed' ||
+      plan.arrivalState === 'skipped' ||
+      plan.arrivalState === 'snoozed');
 }
 
 export function reorderDayPlanItems<T extends DayPlanItem>(

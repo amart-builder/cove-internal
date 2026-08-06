@@ -78,8 +78,11 @@ export function executionPollingPolicy(localMode: boolean): {
       };
 }
 
-export function localTaskSessionKickoffItems<T extends DayPlanItem>(items: readonly T[]): T[] {
-  return focusBandItems(items).filter(
+export function localTaskSessionKickoffItems<T extends DayPlanItem>(
+  items: readonly T[],
+  focusCount: number,
+): T[] {
+  return focusBandItems(items, focusCount).filter(
     (item) => item.owner === 'claude' || item.owner === 'together',
   );
 }
@@ -94,6 +97,7 @@ type UseDayRitualInput = {
   enabled: boolean;
   candidates: RecommendationCandidate[];
   candidatesReady: boolean;
+  focusCount: 1 | 2 | 3;
   onBriefPicksChange?: (
     picks: ReadonlyArray<{ taskId: string; whyToday: string }>,
     briefReady: boolean,
@@ -164,6 +168,7 @@ export default function useDayRitual({
   enabled,
   candidates,
   candidatesReady,
+  focusCount,
   onBriefPicksChange,
 }: UseDayRitualInput) {
   const [plan, setPlan] = useState<DayPlan>();
@@ -1069,7 +1074,7 @@ export default function useDayRitual({
         announce: 'Your day is set.',
       });
       const executionRuns = result.executionRuns ?? [];
-      const localFocusItems = localTaskSessionKickoffItems(result.plan.items);
+      const localFocusItems = localTaskSessionKickoffItems(result.plan.items, focusCount);
       const sessionLaunches = getRuntimeMode() === 'local'
         ? await Promise.allSettled(
             localFocusItems
@@ -1138,7 +1143,7 @@ export default function useDayRitual({
     } finally {
       setStartDayApplying(false);
     }
-  }, [acceptExecutionState, enqueueMutation]);
+  }, [acceptExecutionState, enqueueMutation, focusCount]);
 
   const openSettlement = useCallback(async () => {
     const current = planRef.current;

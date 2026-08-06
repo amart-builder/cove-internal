@@ -18,13 +18,49 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-08-05T23:05:58-0700
-- **task:** Arrival backdrop tweak ship
+- **since:** 2026-08-06T00:16:57-0700
+- **task:** P0 ship
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-08-05 night (arrival v2 redesign committed on top of 5995265)
+**Last updated:** 2026-08-06 early morning (full-system audits + P0 hardening round shipped)
+
+## 2026-08-06 Full-system audits (Sol xhigh + Opus xhigh) and P0 hardening round (DONE, DEPLOYED)
+
+Alex ordered complete adversarial reviews of Cove against the North Star ("source of truth", two flawless rituals, Apple-bar polish) ahead of the Gary Gersh demo Friday 2026-08-07. Two independent fresh-context audits (Sol: design/product, code-derived; Opus: correctness + live walkthrough of the running app and real database), then one P0 fix round (Sol built, driver live-QA'd on the dev server, Opus reviewed the diff and reproduced one blocker on a scratch DB, second fix round, re-verified). Full reports in the session scratchpad; verdicts: Sol NOT_SHIPPABLE → both audits' P0s now fixed; Opus SHIPPABLE_WITH_FIXES.
+
+**Shipped in this round (11 spec items + 4 review fixes):**
+- Skip/Continue-to-Today/bypass now activate the plan and promote items, so Today can never render "You're clear for now" over real commitments (was live-reproduced against the real DB). Settlement can start from a snoozed arrival; the Close My Day buttons share the store's exact eligibility predicate and can no longer throw raw "Settlement cannot start yet." at the user.
+- The automated weekend auto-settle path is exempt from promotion (Opus reproduced a construction-time crash that would have permanently 500'd every day-plan request if a legacy untouched weekend plan existed) and the constructor cleanup now fails open.
+- Arrival's blank-Today drop zone actually registers (useDroppable moved inside DndContext); live-verified with hover outline + add.
+- item_complete now push-to-end + renumbers (fixes silently no-op reorders after "Already done"), and item_reopen restores the exact pre-completion plan position.
+- The focus_count setting (currently 1) is honored end to end: focus band, arrival grid columns, ALSO TODAY split, disclosure copy (counts only claude/together owners), client and server kickoff selection. Corrupt task-settings.json falls back to defaults instead of failing start_day; clamp is NaN-safe.
+- Issues page states are mutually exclusive with Retry; per-row dismiss pending state; job-failure summaries in plain language; meeting-watch no longer writes a receipt every 5 minutes when nothing happened (was 73% of the receipts table).
+- All Work surfaces drag/add/complete failures in a dismissible banner with initial-load Retry; add drafts survive failure. Arrival Task Sheet awaits mutations (busy label, inline error, close on success); picker add failures show a visible alert.
+- Today V2 focus cards have a working focus ring (selector was scoped to an ancestor that doesn't exist there). Weekend gate is reachable in V2 with "Plan today anyway".
+- Rituals are true full-viewport modals (fixed, z-140, nav behind scrim); Buddy is hidden while any ritual layer is open (includes the Focus Grid; judged desirable).
+
+**Verified:** typecheck + lint clean; 892/892 tests (12 new, incl. weekend-auto-settle regressions reproduced from the reviewer's scenario); driver live-QA at 1280x720 of the modal ownership, Buddy suppression, drop zone, focus-count rendering, and awaited Task Sheet actions. Driver's live QA ran a dev server against the real DB; two accidental plan additions during drag/picker probes were caught and reverted through the UI (plan restored to the brief's original 4 items, now decision:'later' for the two reverted tasks).
+
+**Behavior change to know:** skipping the arrival now means Close My Day asks for a Progress/Carry/Defer/Drop decision per planned item (they were previously invisible to settlement). Honest, but it changes the "skip then close" flow shape.
+
+**Deferred (recorded):** brief prompt still says "first 3 are the focus" regardless of focus_count (needs plumbing into brief.ts/skill); drop-zone regression cover is a source-text test (live QA is the real protection); focusCount renders 1 for a frame until settings load (invisible at setting=1); focus_count=2 untested end to end; plus the full P1/P2 lists in both audit reports (Today type ramp, All Work/People restyle, Buddy scope reduction, CRM contact cleanup, demo-database rehearsal state, EmailCardDetail restyle, day-rollover-needs-reload, dead V1 branch removal).
+
+**Waiting on Alex before Friday:** settle Wednesday's plan (Friday must not cold-open into a stale settlement; brief takes ~2.5 min to generate live); decide on a dedicated demo database; taste calls (type ramp, restyles, one arrival exit instead of two, Buddy scope).
+
+## 2026-08-05 P0 pre-demo hardening (DONE, uncommitted)
+
+- Fixed all 11 scoped P0 findings: arrival exit activation, snoozed closeout and matching button gates, the Today drop zone context, completion ordering, configured focus counts, Issues failure states and quiet receipts, All Work errors and retries, arrival sheet mutation errors, the Today focus ring, the V2 weekend gate, and full-viewport ritual layering with Buddy suppression.
+- Added regressions for Skip, Continue, snoozed settlement, completion/reorder, configured focus kickoff, the Today drop target, email failure copy, and no-op meeting receipts.
+- Verification: TypeScript clean; scoped ESLint clean; full suite 890/890; `git diff --check` clean. No dev server, live database write, commit, or push was performed.
+- Final structural check: the fixed full-viewport ritual layer retains the arrival shell's max-height, internal scroll, and sticky footer; settlement retains its default-width path. Live visual QA was intentionally not run because this worker was instructed not to start a dev server.
+
+### 2026-08-06 review fixes
+
+- Kept weekend auto-settlement from activating proposed items, made construction-time cleanup fail open, restored completed items to their prior Today position on reopen, made corrupt task settings fall back once to defaults, and made the focus-count clamp NaN-safe.
+- Added regressions for preselected weekend cleanup through both initialization and fresh construction, plus completion/reopen plan ordering. The existing user Skip and Continue promotion tests remain unchanged.
+- Verification: TypeScript clean; scoped ESLint clean; focused day-plan tests 88/88; full suite 892/892. No dev server, live data write, commit, or push was performed.
 
 ## 2026-08-05 Morning Arrival v2: first-principles redesign of Brief + Plan (DONE, DEPLOYED; Opus review CHANGES_REQUIRED then fixes applied)
 

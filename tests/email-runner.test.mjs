@@ -3,7 +3,10 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { runEmailTriage } from "../scripts/cove-email-runner.ts";
+import {
+  emailTriageAttentionMessage,
+  runEmailTriage,
+} from "../scripts/cove-email-runner.ts";
 import { resolveEmailRuntimePaths } from "../src/lib/email/runtime-paths.ts";
 import { writeSignature } from "../src/lib/email/signature.ts";
 import { openLocalDatabase } from "../src/lib/local/database.ts";
@@ -73,6 +76,24 @@ function threadMessage(input) {
     text: "",
   };
 }
+
+test("email triage attention copy names only non-zero plain-language categories", () => {
+  assert.equal(emailTriageAttentionMessage({
+    archiveFailures: 0,
+    jobsFailed: 4,
+    jobsDead: 0,
+  }), "4 background jobs need attention.");
+  assert.equal(emailTriageAttentionMessage({
+    archiveFailures: 1,
+    jobsFailed: 0,
+    jobsDead: 2,
+  }), "1 email could not be archived and 2 background jobs need attention.");
+  assert.equal(emailTriageAttentionMessage({
+    archiveFailures: 0,
+    jobsFailed: 0,
+    jobsDead: 0,
+  }), undefined);
+});
 
 test("top-level Google auth failure is surfaced on Issues before the runner exits", async () => {
   const dataDir = mkdtempSync(path.join(os.tmpdir(), "cove-email-runner-"));

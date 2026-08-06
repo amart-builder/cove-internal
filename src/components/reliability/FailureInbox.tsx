@@ -63,11 +63,14 @@ export default function FailureInbox({ receiptsEnabled }: { receiptsEnabled: boo
   const [activityCursor, setActivityCursor] = useState<ActivityCursor | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [csrfToken, setCsrfToken] = useState("");
-  const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [operationError, setOperationError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [dismissingId, setDismissingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setError("");
+    setLoading(true);
+    setLoadError("");
     try {
       const response = await fetch("/api/failures", { cache: "no-store" });
       const payload = await response.json() as FailureResponse;
@@ -78,7 +81,7 @@ export default function FailureInbox({ receiptsEnabled }: { receiptsEnabled: boo
       setActivityCursor(payload.activityNextCursor ?? null);
       setCsrfToken(payload.csrfToken ?? "");
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Could not load issues.");
+      setLoadError(loadError instanceof Error ? loadError.message : "Could not load issues.");
     } finally {
       setLoading(false);
     }
@@ -89,7 +92,8 @@ export default function FailureInbox({ receiptsEnabled }: { receiptsEnabled: boo
   }, [load]);
 
   async function dismiss(id: string) {
-    setError("");
+    setOperationError("");
+    setDismissingId(id);
     try {
       const response = await fetch("/api/failures", {
         method: "POST",
@@ -103,15 +107,17 @@ export default function FailureInbox({ receiptsEnabled }: { receiptsEnabled: boo
       if (!response.ok) throw new Error(payload.error ?? "Could not dismiss issue.");
       setItems((current) => current.filter((item) => item.id !== id));
     } catch (dismissError) {
-      setError(
+      setOperationError(
         dismissError instanceof Error ? dismissError.message : "Could not dismiss issue.",
       );
+    } finally {
+      setDismissingId(null);
     }
   }
 
   async function loadMoreActivity() {
     setLoadingMore(true);
-    setError("");
+    setOperationError("");
     try {
       const params = new URLSearchParams({ receiptLimit: "15" });
       if (activityCursor) {
@@ -128,7 +134,7 @@ export default function FailureInbox({ receiptsEnabled }: { receiptsEnabled: boo
       setActivityHasMore(payload.activityHasMore === true);
       setActivityCursor(payload.activityNextCursor ?? null);
     } catch (loadError) {
-      setError(
+      setOperationError(
         loadError instanceof Error ? loadError.message : "Could not load recent activity.",
       );
     } finally {
@@ -149,16 +155,31 @@ export default function FailureInbox({ receiptsEnabled }: { receiptsEnabled: boo
           See what Cove finished and anything that still needs a look.
         </p>
 
-        {error && (
+        {operationError && (
           <div className="mt-6 rounded-lg border border-red-300/50 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
-            {error}
+            {operationError}
           </div>
         )}
 
-        <div className="mt-7 overflow-hidden rounded-xl border border-border bg-card">
-          {loading ? (
+        {loading ? (
+          <div className="mt-7 overflow-hidden rounded-xl border border-border bg-card">
             <p className="px-5 py-8 text-sm text-muted-foreground">Checking for issues...</p>
-          ) : items.length === 0 ? (
+          </div>
+        ) : loadError ? (
+          <div className="mt-7 rounded-xl border border-red-300/50 bg-red-50 px-5 py-5 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+            <p>{loadError}</p>
+            <button
+              type="button"
+              className="mt-3 rounded-md border border-current px-3 py-1.5 text-xs font-medium"
+              onClick={() => void load()}
+            >
+              Retry
+            </button>
+          </div>
+        ) : (
+          <>
+          <div className="mt-7 overflow-hidden rounded-xl border border-border bg-card">
+          {items.length === 0 ? (
             <div className="px-5 py-10">
               <p className="text-sm font-medium text-foreground">Nothing needs attention.</p>
               <p className="mt-1 text-sm text-muted-foreground">
@@ -181,18 +202,19 @@ export default function FailureInbox({ receiptsEnabled }: { receiptsEnabled: boo
                   </div>
                   <button
                     type="button"
+                    disabled={dismissingId !== null}
                     onClick={() => void dismiss(item.id)}
-                    className="self-start rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    className="self-start rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
                   >
-                    Dismiss
+                    {dismissingId === item.id ? "Dismissing..." : "Dismiss"}
                   </button>
                 </li>
               ))}
             </ul>
           )}
-        </div>
+          </div>
 
-        {receiptsEnabled && (
+          {receiptsEnabled && (
           <section className="mt-10">
             <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
               Recent activity
@@ -201,9 +223,7 @@ export default function FailureInbox({ receiptsEnabled }: { receiptsEnabled: boo
               What Cove has done for you lately, newest first.
             </p>
             <div className="mt-4 overflow-hidden rounded-xl border border-border bg-card">
-              {loading ? (
-                <p className="px-5 py-8 text-sm text-muted-foreground">Loading recent activity...</p>
-              ) : activity.length === 0 ? (
+              {activity.length === 0 ? (
                 <div className="px-5 py-10">
                   <p className="text-sm font-medium text-foreground">No recent activity yet.</p>
                   <p className="mt-1 text-sm text-muted-foreground">
@@ -249,6 +269,8 @@ export default function FailureInbox({ receiptsEnabled }: { receiptsEnabled: boo
               )}
             </div>
           </section>
+          )}
+          </>
         )}
       </div>
     </section>

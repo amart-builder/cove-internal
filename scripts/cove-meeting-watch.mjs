@@ -768,6 +768,10 @@ export async function runMeetingWatch(options = {}) {
   }
 }
 
+export function shouldRecordMeetingWatchReceipt(summary) {
+  return summary.processed !== 0 || summary.errors !== 0;
+}
+
 export async function main(args = process.argv.slice(2), options = {}) {
   const unknown = args.filter((arg) => arg !== "--once" && arg !== "--dry-run");
   if (unknown.length > 0) {
@@ -780,7 +784,7 @@ export async function main(args = process.argv.slice(2), options = {}) {
     ...(options.runOptions ?? {}),
     dryRun,
   });
-  if (!dryRun) {
+  if (!dryRun && shouldRecordMeetingWatchReceipt(result.summary)) {
     const outcome = result.exitCode !== 0
       ? "failed"
       : result.summary.errors > 0

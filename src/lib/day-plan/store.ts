@@ -10,6 +10,7 @@ import { getRuntimeMode } from "../runtime/mode";
 import { operatorTimezone } from "../operator";
 import { recordReceiptInDatabase } from "../reliability/receipts";
 import { taskColumnKeyForName } from "../tasks/columns";
+import { DEFAULT_TASK_SETTINGS, readTaskSettings } from "../tasks/settings";
 import {
   applyLocalMigration,
   type LocalMigration,
@@ -76,7 +77,10 @@ import {
   DayPlanNotFound,
   DayPlanVersionConflict,
 } from "./store-errors";
-import { focusBandItems } from "./presentation";
+import {
+  canStartDayPlanSettlement,
+  focusBandItems,
+} from "./presentation";
 
 type Clock = () => Date;
 
@@ -1132,6 +1136,41 @@ function requirePlanOrdering(plan: DayPlan): void {
   );
 }
 
+function activatePlanWithoutKickoff(
+  plan: DayPlan,
+  mutationId: string,
+  changedAt: string,
+  includePending: boolean,
+): DayPlanItem[] {
+  const accepted = [...plan.items]
+    .filter(
+      (item) =>
+        item.decision === "accepted" ||
+        item.decision === "preselected" ||
+        (includePending && item.decision === "pending"),
+    )
+    .sort((left, right) => left.position - right.position);
+  for (const item of accepted) {
+    item.decision = "accepted";
+    item.humanDecisionEventIds = [
+      ...new Set([...item.humanDecisionEventIds, mutationId]),
+    ];
+  }
+  const firstHuman = accepted.find(
+    (item) => item.owner === "me" || item.owner === "together",
+  );
+  const first = firstHuman ?? accepted[0];
+  plan.state = "active";
+  plan.recommendedFirstItemId = first?.id;
+  plan.recommendedFirstTaskId = first?.taskId;
+  plan.confirmedAt = changedAt;
+  return accepted;
+}
+
+function isWeekendAutoSettleMutation(mutationId: string): boolean {
+  return mutationId.startsWith("weekend-auto-settle:");
+}
+
 function requireAssistantEditing(
   plan: DayPlan,
   hasMiddayReplanProof: boolean,
@@ -1184,6 +1223,7 @@ export function createDayPlanStore(options: {
   now?: Clock;
   executionEnvironment?: CoveExecutionEnvironment | (() => CoveExecutionEnvironment);
   resolveProjectDirectory?: (hint: string) => string | null;
+  focusCount?: number | (() => number);
 }) {
   const db = openSqliteDatabase(options.dbPath);
   const now = options.now ?? (() => new Date());
@@ -1192,6 +1232,12 @@ export function createDayPlanStore(options: {
       ? options.executionEnvironment()
       : options.executionEnvironment ?? loadCoveExecutionEnvironment();
   const projectDirectoryResolver = options.resolveProjectDirectory ?? resolveProjectDirectory;
+  const configuredFocusCount = () => {
+    const value = typeof options.focusCount === "function"
+      ? options.focusCount()
+      : options.focusCount ?? 3;
+    return Math.max(1, Math.min(3, value));
+  };
   db.pragma("foreign_keys = ON");
   for (const migration of DAY_PLAN_MIGRATIONS) {
     applyLocalMigration(db, migration, now);
@@ -3702,6 +3748,7 @@ export function createDayPlanStore(options: {
           );
           plan.arrivalState = "skipped";
           plan.snoozedUntil = undefined;
+          activatePlanWithoutKickoff(plan, input.mutationId, changedAt, true);
           break;
         case "arrival_bypass":
           requireState(
@@ -3711,6 +3758,9 @@ export function createDayPlanStore(options: {
           );
           plan.arrivalState = "bypassed";
           plan.snoozedUntil = undefined;
+          if (!isWeekendAutoSettleMutation(input.mutationId)) {
+            activatePlanWithoutKickoff(plan, input.mutationId, changedAt, true);
+          }
           break;
         case "arrival_reopen":
           if (plan.state === "proposed") {
@@ -3955,6 +4005,7 @@ export function createDayPlanStore(options: {
             ["pending", "preselected", "accepted"],
             "Only a Today item can be completed.",
           );
+          item.preCompletionPlanPosition = item.position;
           const taskBacked = item.sourceRefs.some(
             (source) => source.sourceType === "task" && source.recordId === item.taskId,
           );
@@ -3994,6 +4045,13 @@ export function createDayPlanStore(options: {
             }
           }
           item.decision = "completed";
+          plan.items = [
+            ...plan.items.filter((candidate) => candidate.id !== item.id),
+            item,
+          ];
+          plan.items.forEach((candidate, index) => {
+            candidate.position = index;
+          });
           break;
         }
         case "item_reopen": {
@@ -4056,6 +4114,26 @@ export function createDayPlanStore(options: {
             );
           }
           item.decision = "accepted";
+          const preCompletionPlanPosition = item.preCompletionPlanPosition;
+          if (
+            typeof preCompletionPlanPosition === "number" &&
+            Number.isInteger(preCompletionPlanPosition)
+          ) {
+            const ordered = [...plan.items].sort(
+              (left, right) => left.position - right.position,
+            );
+            ordered.splice(ordered.indexOf(item), 1);
+            ordered.splice(
+              Math.max(0, Math.min(ordered.length, preCompletionPlanPosition)),
+              0,
+              item,
+            );
+            ordered.forEach((candidate, index) => {
+              candidate.position = index;
+            });
+            plan.items = ordered;
+          }
+          delete item.preCompletionPlanPosition;
           delete item.preCompletionBoardPlacement;
           delete item.settlementDecision;
           break;
@@ -4102,22 +4180,9 @@ export function createDayPlanStore(options: {
               "Start My Day requires one accepted focus.",
             );
           }
-          for (const item of accepted) {
-            item.decision = "accepted";
-            item.humanDecisionEventIds = [
-              ...new Set([...item.humanDecisionEventIds, input.mutationId]),
-            ];
-          }
-          const focus = focusBandItems(plan.items);
-          const firstHuman = accepted.find(
-            (item) => item.owner === "me" || item.owner === "together",
-          );
-          const first = firstHuman ?? accepted[0];
-          plan.state = "active";
+          activatePlanWithoutKickoff(plan, input.mutationId, changedAt, false);
+          const focus = focusBandItems(plan.items, configuredFocusCount());
           plan.arrivalState = "confirmed";
-          plan.recommendedFirstItemId = first.id;
-          plan.recommendedFirstTaskId = first.taskId;
-          plan.confirmedAt = changedAt;
           // Local owner chips launch resumable task sessions through the
           // separate task-session lifecycle. Keep the allowlisted headless lane
           // intact for unattended work and preserve its existing cloud behavior.
@@ -4245,11 +4310,7 @@ export function createDayPlanStore(options: {
           {
             const alreadyInProgress =
               plan.state === "settling" && plan.settlementState === "in_progress";
-            if (
-              !alreadyInProgress &&
-              plan.state !== "active" &&
-              !(plan.state === "proposed" && ["bypassed", "skipped"].includes(plan.arrivalState))
-            ) {
+            if (!canStartDayPlanSettlement(plan)) {
               throw new DayPlanInvalidTransition("Settlement cannot start yet.");
             }
             if (!alreadyInProgress) {
@@ -4258,6 +4319,12 @@ export function createDayPlanStore(options: {
                 ["not_due", "offered", "skipped"],
                 "Settlement is already in progress or complete.",
               );
+              if (
+                plan.state === "proposed" &&
+                plan.arrivalState === "snoozed"
+              ) {
+                activatePlanWithoutKickoff(plan, input.mutationId, changedAt, true);
+              }
               settlementOrigin = plan.state === "active" ? "active" : "proposed";
               plan.state = "settling";
               plan.settlementState = "in_progress";
@@ -4671,7 +4738,11 @@ export function createDayPlanStore(options: {
   // activation is reserved for the guarded GET initialization call (or the
   // worker's explicit same-day activation) so a task-table problem cannot make
   // store construction fail before the route's fail-open boundary.
-  cleanupWeekendPlan();
+  try {
+    cleanupWeekendPlan();
+  } catch (error) {
+    console.error("Day plan initialization skipped.", error);
+  }
 
   return {
     initialize,
@@ -4746,12 +4817,27 @@ export function createDayPlanStore(options: {
 
 type DayPlanGlobal = { __coveDayPlanStore?: DayPlanStore };
 
+let warnedTaskSettingsReadFailure = false;
+
+function configuredFocusCountFromTaskSettings(): number {
+  try {
+    return readTaskSettings().focus_count;
+  } catch (error) {
+    if (!warnedTaskSettingsReadFailure) {
+      warnedTaskSettingsReadFailure = true;
+      console.warn("Task settings could not be read. Using defaults.", error);
+    }
+    return DEFAULT_TASK_SETTINGS.focus_count;
+  }
+}
+
 export function getDayPlanStore(): DayPlanStore {
   const global = globalThis as unknown as DayPlanGlobal;
   if (!global.__coveDayPlanStore) {
     global.__coveDayPlanStore = createDayPlanStore({
       dbPath:
         coveEnv("DB_PATH") ?? path.join(process.cwd(), "data", "cove.db"),
+      focusCount: configuredFocusCountFromTaskSettings,
     });
   }
   return global.__coveDayPlanStore;

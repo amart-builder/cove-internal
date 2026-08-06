@@ -148,6 +148,8 @@ export default function TaskSheet({
   const titleId = useId();
   const descriptionId = useId();
   const [addMessage, setAddMessage] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [pendingAction, setPendingAction] = useState<'remove' | 'complete' | 'add'>();
   const today = detail.kind === 'today' ? detail.view : undefined;
   const task = detail.kind === 'bench' ? detail.task : undefined;
   const title = today?.title ?? task?.title ?? '';
@@ -156,6 +158,43 @@ export default function TaskSheet({
     : task?.description?.trim();
   const project = today?.project ?? task?.project;
   const due = today?.deadline ?? task?.due;
+  const actionBusy = busy || pendingAction !== undefined;
+
+  async function runTodayAction(
+    action: 'remove' | 'complete',
+    mutation: () => void | Promise<void>,
+  ) {
+    setActionError('');
+    setPendingAction(action);
+    try {
+      await mutation();
+      setPendingAction(undefined);
+      onClose();
+    } catch {
+      setActionError(
+        action === 'remove'
+          ? "Cove couldn't move this task out of today. Try again."
+          : "Cove couldn't mark this task done. Try again.",
+      );
+      setPendingAction(undefined);
+    }
+  }
+
+  async function addBenchTask() {
+    if (!task) return;
+    setAddMessage('');
+    setActionError('');
+    setPendingAction('add');
+    try {
+      const added = await onAdd(task);
+      setPendingAction(undefined);
+      if (added) onClose();
+      else setAddMessage('Today is full at 10. Move one task down before adding another.');
+    } catch {
+      setActionError("Cove couldn't add this task to today. Try again.");
+      setPendingAction(undefined);
+    }
+  }
 
   return (
     <ModalScrim
@@ -186,7 +225,7 @@ export default function TaskSheet({
         <OwnerControl
           itemId={today.item.id}
           owner={today.item.owner}
-          disabled={busy}
+          disabled={actionBusy}
           onOwnerChange={onOwnerChange}
         />
       )}
@@ -196,6 +235,11 @@ export default function TaskSheet({
           {addMessage}
         </p>
       )}
+      {actionError && (
+        <p role="alert" className="mt-4 text-xs text-accent-red">
+          {actionError}
+        </p>
+      )}
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t pt-5">
         {today ? (
@@ -203,37 +247,35 @@ export default function TaskSheet({
             <div className="flex items-center gap-5">
               <button
                 type="button"
-                disabled={busy}
+                disabled={actionBusy}
                 className="press-scale min-h-9 text-[13px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-40"
-                onClick={() => {
-                  void onRemove(
+                onClick={() => void runTodayAction('remove', () => onRemove(
                     today.item.id,
                     today.title,
                     today.item.sourceRefs.some(
                       (source) => source.sourceType === 'task' && source.recordId === today.item.taskId,
                     ),
-                  );
-                  onClose();
-                }}
+                  ))}
               >
-                Not today
+                {pendingAction === 'remove' ? 'Moving…' : 'Not today'}
               </button>
               <button
                 type="button"
-                disabled={busy}
+                disabled={actionBusy}
                 className="press-scale min-h-9 text-[13px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-40"
-                onClick={() => {
-                  void onComplete(today.item.id, today.title);
-                  onClose();
-                }}
+                onClick={() => void runTodayAction(
+                  'complete',
+                  () => onComplete(today.item.id, today.title),
+                )}
               >
-                Already done
+                {pendingAction === 'complete' ? 'Completing…' : 'Already done'}
               </button>
             </div>
             <button
               type="button"
               data-modal-initial-focus
-              className="press-scale min-h-10 rounded-xl border bg-card px-4 text-[13.5px] font-medium text-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-accent-blue/40"
+              disabled={actionBusy}
+              className="press-scale min-h-10 rounded-xl border bg-card px-4 text-[13.5px] font-medium text-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-40"
               onClick={onClose}
             >
               {detail.kind === 'today' && detail.focusNumber ? 'Keep in focus' : 'Keep for today'}
@@ -251,17 +293,11 @@ export default function TaskSheet({
             <button
               type="button"
               data-modal-initial-focus
-              disabled={busy}
+              disabled={actionBusy}
               className="press-scale min-h-10 rounded-xl border bg-foreground px-4 text-[13.5px] font-medium text-background outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-40"
-              onClick={() => {
-                setAddMessage('');
-                void Promise.resolve(onAdd(task)).then((added) => {
-                  if (added) onClose();
-                  else setAddMessage('Today is full at 10. Move one task down before adding another.');
-                }).catch(() => undefined);
-              }}
+              onClick={() => void addBenchTask()}
             >
-              Add to today
+              {pendingAction === 'add' ? 'Adding…' : 'Add to today'}
             </button>
           </>
         ) : null}

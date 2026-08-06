@@ -38,7 +38,7 @@ import {
   localTaskSessionKickoffItems,
 } from '../src/components/tasks/useDayRitual.ts';
 
-test('local kickoff launches only agent-owned items in the three active focus slots', () => {
+test('local kickoff launches agent-owned items only inside the configured focus slots', () => {
   const items = [
     { id: 'done', position: 0, decision: 'completed', owner: 'claude' },
     { id: 'first', position: 1, decision: 'accepted', owner: 'claude' },
@@ -48,8 +48,12 @@ test('local kickoff launches only agent-owned items in the three active focus sl
     { id: 'fourth', position: 5, decision: 'accepted', owner: 'claude' },
   ];
   assert.deepEqual(
-    localTaskSessionKickoffItems(items).map((item) => item.id),
+    localTaskSessionKickoffItems(items, 3).map((item) => item.id),
     ['first', 'third'],
+  );
+  assert.deepEqual(
+    localTaskSessionKickoffItems(items, 1).map((item) => item.id),
+    ['first'],
   );
 });
 
