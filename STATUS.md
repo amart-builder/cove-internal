@@ -18,13 +18,20 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-08-06T09:09:37-0700
-- **task:** Round 1 verify+commit
+- **since:** 2026-08-06T09:27:56-0700
+- **task:** Round 2 verify+commit
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-08-06 early morning (full-system audits + P0 hardening round shipped)
+**Last updated:** 2026-08-06 morning (deterministic Friday demo environment prepared)
+
+## 2026-08-06 deterministic Friday demo environment (DONE, uncommitted)
+
+- Added an idempotent `npm run demo:seed` reset for an isolated `data/demo/` database, settings, operator profile, execution registry, and fictional brief sources. It creates five open tasks, two tasks completed yesterday, a proposed same-day arrival with three focus items and two bench tasks, and a pre-written succeeded Morning Brief artifact.
+- Added `npm run demo:start` for the production server on `127.0.0.1:3300` with demo-only database, config, brief-source, email-state, receipts, Buddy, and task-session paths. Optional Attio and Jarvis brief sources are disabled. `npm run demo:reset` reseeds and prints the restart reminder.
+- Added `--no-claude` to make all focus items Me-owned for a zero-dispatch walkthrough, plus a tight Friday runbook with narration, safe clicks, recovery, and known hardcoded background-worker exclusions.
+- Verification: TypeScript and scoped ESLint clean; default and `--no-claude` seeds pass their built-in store assertions; the safety guard rejects a real-DB override; `data/cove.db` remained at mtime `2026-08-06T00:02:16-0700`. No server, commit, or real-data write was performed.
 
 ## 2026-08-06 Round 1 quick wins (DONE, COMMITTED)
 

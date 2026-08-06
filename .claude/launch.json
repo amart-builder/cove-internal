@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 3000
+    },
+    {
+      "name": "cove-demo",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "demo:start"],
+      "port": 3300
     }
   ]
 }

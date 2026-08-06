@@ -14,6 +14,9 @@
     "typecheck": "tsc --noEmit",
     "test": "tsc --noEmit && tsx --test tests/*.test.mjs",
     "verify": "node scripts/cove-verify.mjs",
+    "demo:seed": "COVE_DATA_DIR=\"$PWD/data/demo\" COVE_DB_PATH=\"$PWD/data/demo/cove.db\" COVE_PROFILE_PATH=\"$PWD/data/demo/cove-profile.json\" COVE_TIMEZONE=\"America/Los_Angeles\" NEXT_PUBLIC_COVE_RUNTIME=local node --import tsx scripts/cove-demo-seed.ts",
+    "demo:start": "test -f \"$PWD/data/demo/cove.db\" || { echo \"Demo data is missing. Run npm run demo:seed first.\"; exit 1; }; COVE_DATA_DIR=\"$PWD/data/demo\" COVE_DB_PATH=\"$PWD/data/demo/cove.db\" COVE_PROFILE_PATH=\"$PWD/data/demo/cove-profile.json\" COVE_EXECUTION_CONFIG=\"$PWD/data/demo/cove-execution.json\" COVE_TIMEZONE=\"America/Los_Angeles\" COVE_OPERATOR_NAME=\"Alex\" COVE_BRIEF_TIMEZONE=\"America/Los_Angeles\" COVE_BRIEF_WEB_BASE=\"http://127.0.0.1:3300\" COVE_BRIEF_GOALS_PATH=\"$PWD/data/demo/brief/goals.md\" COVE_BRIEF_SPRINT_MEMO_PATH=\"$PWD/data/demo/brief/sprint-memo.md\" COVE_BRIEF_OPERATOR_PROFILE_PATH=\"$PWD/data/demo/brief/operator-profile.md\" COVE_BRIEF_LEADUP_PATH=\"$PWD/data/demo/brief/leadup.md\" COVE_BRIEF_MEMORY_PATH=\"$PWD/data/demo/brief/memory.md\" COVE_BRIEF_JARVIS_URL=\"\" COVE_BRIEF_JARVIS_TOKEN_PATH=\"$PWD/data/demo/brief/jarvis-disabled\" COVE_SUPERNOVA_DIR=\"$PWD/data/demo/supernova\" ATTIO_API_KEY=\"\" ATTIO_TOKEN=\"\" COVE_BUDDY_APP_URL=\"http://127.0.0.1:3300\" NEXT_PUBLIC_COVE_RUNTIME=local next start -H 127.0.0.1 -p 3300",
+    "demo:reset": "npm run demo:seed && node -e \"console.log('Demo reset complete. Restart npm run demo:start if it is already running.')\"",
     "email:triage": "tsx scripts/cove-email-runner.ts",
     "email:signature-sync": "tsx scripts/cove-signature-sync.ts"
   },
