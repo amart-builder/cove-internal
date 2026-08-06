@@ -16,15 +16,26 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** none
-- **device:** —
-- **since:** —
-- **task:** —
+- **system:** cowork
+- **device:** Alexanders-MacBook-Pro-2
+- **since:** 2026-08-05T22:00:18-0700
+- **task:** Arrival redesign ship (final verify+deploy)
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-08-05 evening (everything in this file is committed and pushed to origin/main through 5995265; working tree clean)
+**Last updated:** 2026-08-05 night (arrival v2 redesign committed on top of 5995265)
+
+## 2026-08-05 Morning Arrival v2: first-principles redesign of Brief + Plan (DONE, DEPLOYED; Opus review CHANGES_REQUIRED then fixes applied)
+
+Full visual redesign of both arrival steps against four Alex-approved static mockups (charcoal focus trio, 4-col "Not today" bench with 7 cards + dashed "Browse All Work" tile, massive white space, one ink CTA). Orchestrator campaign: Fable driving + mockup loop with Alex, Sol building (one resumed Codex session, three rounds), Opus 5 fresh-context review.
+
+- **New surfaces:** TaskSheet.tsx (520px modal on scrim: eyebrow FOCUS n / TODAY / NOT TODAY, why text, Me/Claude/Together radiogroup, Not today / Already done / Keep actions, focus trap, layered Escape) and AllWorkPicker.tsx (~1040px overlay, TODAY-tagged cells first, click-to-add with cap rollback). Both portal to document.body (fixes a latent containing-block bug under the shell's old backdrop-filter). OwnerChip.tsx and the old DetailDialog deleted.
+- **Board:** focus trio (charcoal, numeral chips, bottom preview) + "ALSO TODAY" overflow section (today items 4+, TODAY pill, same sortable context so drag promotes into focus seats) + bench + tile. Whole-card pointer drag (8px activation), hidden focusable keyboard drag handles, hover ↑ add shortcut.
+- **Shell:** shared ~63rem sheet for both steps, non-sticky masthead, sticky footer, sheet height constrained to the overlay's real available height (the old 100dvh math cut the CTA off below the app nav). Warm canvas washes light/dark; arrival-scoped CSS overrides the unlayered ritual-dialog chrome (warm light shadow, quiet dark hairline, backdrop-filter off).
+- **QA'd by the driver at 1512x860, light AND dark:** all four surfaces vs mockups, Escape layering, add-to-today optimistic re-render, pointer drag reorder (synthetic pointer path; swap + restore), equal card heights, disclosure line, accessible names incl. state ("Focus n:", "Today:"). 880/880 tests + typecheck re-run by driver after every Sol round.
+- **Review round trip:** Opus caught a real consent regression (the visible "Claude will start N focus tasks" line had become sr-only — restored), reduced-motion gaps on the five new hover transforms, bench height mismatch, the dead CSS chrome, dead onOpenAllWork pass-through, and label/live-region a11y nits. All fixed and re-verified.
+- **Deferred (recorded, not forgotten):** (1) the `TODAY_ZONE_ID` droppable is registered outside DndContext so the today drop *zone* is dead — pre-existing at HEAD; card-on-card drops work, but with the always-visible "Add to today" buttons gone the zone matters more now; fix is moving `useDroppable` into a child inside the context. (2) Picker header "Everything on your plate" + open-task count overstate: the list comes from `eligibleNotTodayTasks`, which filters recurring occurrences, email-current digests, and jarvis-held tasks — wording is from the approved mockup, so changing it is Alex's call. (3) Keyboard drag unverified end-to-end (wiring is the correct dnd-kit shape; CDP synthetic keys likely the harness gap; note the handle is `disabled={busy}` mid-mutation, pre-existing). (4) No component tests cover the new surfaces; cheap SSR assertions worth adding (TaskSheet eyebrows, bench names, `data-arrival-shell` presence). (5) Narrow/mobile layout unexercised.
 
 ## 2026-08-05 Hydration errors on every load (DONE, committed 4c0f6f7)
 

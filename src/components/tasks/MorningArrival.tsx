@@ -12,7 +12,6 @@ import {
 } from '@/lib/day-plan/presentation';
 import ArrivalStepBrief from './arrival/ArrivalStepBrief';
 import ArrivalPlanGrid from './arrival/ArrivalPlanGrid';
-import type { OwnerChipEscapeHandler } from './arrival/OwnerChip';
 import StepDots, { morningArrivalSteps, type ArrivalStep } from './arrival/StepDots';
 
 export type MorningArrivalItem = {
@@ -61,7 +60,6 @@ interface MorningArrivalProps {
   onSkip: () => void | Promise<void>;
   onBypass: () => void | Promise<void>;
   onStartDay: () => void | Promise<void>;
-  onOpenAllWork?: () => void;
   onForceBrief?: () => void;
   forcingBrief?: boolean;
 }
@@ -107,14 +105,12 @@ export default function MorningArrival({
   onSkip,
   onBypass,
   onStartDay,
-  onOpenAllWork,
   onForceBrief,
   forcingBrief,
 }: MorningArrivalProps) {
   const { setPageContext, busy: buddyBusy } = useBuddy();
   const { streamingTurn } = useBuddyStream();
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const ownerChipEscapeRef = useRef<OwnerChipEscapeHandler | null>(null);
   const availableSteps = morningArrivalSteps();
   const [step, setStep] = useState<ArrivalStep>('brief');
   const [stepAnnouncement, setStepAnnouncement] = useState('');
@@ -141,9 +137,9 @@ export default function MorningArrival({
   const isFinalStep = step === 'plan';
 
   useLayoutEffect(() => {
-    onPlanCanvasChange?.(step === 'plan');
+    onPlanCanvasChange?.(true);
     return () => onPlanCanvasChange?.(false);
-  }, [onPlanCanvasChange, step]);
+  }, [onPlanCanvasChange]);
 
   useEffect(() => {
     if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
@@ -172,92 +168,53 @@ export default function MorningArrival({
 
   useEffect(() => () => setPageContext({ view: 'tasks' }), [setPageContext]);
 
-  function handleOwnerChipOpen(handler: OwnerChipEscapeHandler) {
-    onInteract?.();
-    if (ownerChipEscapeRef.current?.itemId !== handler.itemId) {
-      ownerChipEscapeRef.current?.closeAndFocus();
-    }
-    ownerChipEscapeRef.current = handler;
-  }
-
-  function handleOwnerChipClose(itemId: string) {
-    if (ownerChipEscapeRef.current?.itemId === itemId) ownerChipEscapeRef.current = null;
-  }
-
   useEffect(() => {
-    if (!escapeRef) return;
-    escapeRef.current = () => ownerChipEscapeRef.current?.closeAndFocus();
-    return () => {
-      escapeRef.current = null;
-    };
-  }, [escapeRef]);
+    if (step === 'brief' && escapeRef) escapeRef.current = null;
+  }, [escapeRef, step]);
 
   function changeStep(nextStep: ArrivalStep) {
-    ownerChipEscapeRef.current?.closeAndFocus();
     onInteract?.();
     setStep(nextStep);
   }
 
+  const title = step === 'brief'
+    ? morningArrivalGreeting(new Date(), plan.timezone)
+    : STEP_TITLES[step];
+
   return (
     <div
-      className={`mx-auto my-auto w-full overflow-hidden rounded-3xl border bg-background shadow-2xl ${
-        step === 'brief' ? 'max-w-[80rem]' : 'max-w-none'
-      }`}
+      className="mx-auto my-auto flex max-h-full min-h-0 w-full max-w-[63rem] flex-col overflow-hidden rounded-3xl border bg-card"
       data-day-plan-id={plan.id}
+      data-arrival-shell
     >
-      <div ref={scrollContainerRef} className="max-h-[calc(100dvh-7rem)] overflow-y-auto">
-        {step === 'brief' ? (
-          <header className="sticky top-0 z-20 border-b bg-background/95 py-5 backdrop-blur">
-            <div className="mx-auto w-full max-w-[76rem] px-6 sm:px-10">
-              <div className="flex items-center justify-between gap-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Morning arrival
-                </p>
-                <StepDots steps={availableSteps} activeStep={step} />
-              </div>
-              <div className="mx-auto w-full max-w-[70ch]">
-                <h1
-                  id={titleId}
-                  tabIndex={-1}
-                  className="mt-3 text-2xl font-semibold tracking-tight text-foreground outline-none sm:text-3xl"
-                >
-                  {morningArrivalGreeting(new Date(), plan.timezone)}
-                </h1>
-                <p id={descriptionId} className="arrival-brief-kicker mt-2.5">
-                  {arrivalDateLabel(plan.localDate)}
-                </p>
-                {freshnessLabel && <p className="mt-2 text-xs text-muted-foreground">{freshnessLabel}</p>}
-              </div>
-              <p className="sr-only" aria-live="polite" aria-atomic="true">{stepAnnouncement}</p>
+      <div ref={scrollContainerRef} className="min-h-0 overflow-y-auto">
+        <header className="bg-card px-6 pt-8 sm:px-10 lg:px-16 lg:pt-[52px]">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-8 gap-y-4">
+            <div className="min-w-0">
+              <p className="mb-2.5 text-[10.5px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                Morning arrival
+              </p>
+              <h1
+                id={titleId}
+                tabIndex={-1}
+                className="text-[30px] font-semibold leading-[1.15] tracking-[-0.022em] text-foreground outline-none"
+              >
+                {title}
+              </h1>
             </div>
-          </header>
-        ) : (
-          <header className="sticky top-0 z-20 border-b bg-background/95 py-3 backdrop-blur">
-            <div className="flex w-full items-center justify-between gap-5 px-4 sm:px-5">
-              <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Morning arrival
-                </p>
-                <h1
-                  id={titleId}
-                  tabIndex={-1}
-                  className="text-2xl font-semibold tracking-tight text-foreground outline-none"
-                >
-                  {STEP_TITLES[step]}
-                </h1>
-                {freshnessLabel && <p className="text-xs text-muted-foreground">{freshnessLabel}</p>}
-                <p id={descriptionId} className="sr-only">{STEP_DESCRIPTIONS[step]}</p>
-              </div>
+            <div className="flex items-center gap-3.5 text-xs text-muted-foreground" title={freshnessLabel}>
+              <span>{arrivalDateLabel(plan.localDate)}</span>
               <StepDots steps={availableSteps} activeStep={step} />
-              <p className="sr-only" aria-live="polite" aria-atomic="true">{stepAnnouncement}</p>
             </div>
-          </header>
-        )}
+          </div>
+          <p id={descriptionId} className="sr-only">
+            {STEP_DESCRIPTIONS[step]} {freshnessLabel}
+          </p>
+          <p className="sr-only" aria-live="polite" aria-atomic="true">{stepAnnouncement}</p>
+        </header>
 
         {error && (
-          <div className={step === 'brief'
-            ? 'mx-auto w-full max-w-[76rem] px-6 pt-5 sm:px-10'
-            : 'w-full px-[29px] pt-5 sm:px-[33px]'}>
+          <div className="px-6 pt-5 sm:px-10 lg:px-16">
             <p role="alert" className="rounded-xl border border-accent-red/30 bg-accent-red/5 p-3 text-sm text-accent-red">
               {error}
             </p>
@@ -294,41 +251,37 @@ export default function MorningArrival({
               onRemove={onRemove}
               onComplete={onComplete}
               onAddTask={onAddTask}
-              onOpenAllWork={onOpenAllWork}
-              onOwnerChipOpen={handleOwnerChipOpen}
-              onOwnerChipClose={handleOwnerChipClose}
+              escapeRef={escapeRef}
             />
           )}
         </div>
 
-        <footer className="sticky bottom-0 z-20 border-t !bg-background">
-          <div className={step === 'brief'
-            ? 'mx-auto flex w-full max-w-[76rem] flex-col items-stretch gap-2 py-3 pl-4 pr-20 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 sm:py-4 sm:pl-10 sm:pr-24 min-[1120px]:pr-10'
-            : 'mx-auto flex w-full max-w-none flex-col items-stretch gap-2 py-3 pl-[29px] pr-20 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 sm:py-4 sm:pl-[33px] sm:pr-24 min-[1120px]:pr-[33px]'}>
-            <div className="flex w-full flex-wrap items-center justify-center gap-x-3 sm:w-auto sm:justify-start sm:gap-x-4 sm:gap-y-1">
+        <footer className="sticky bottom-0 z-20 mt-12 border-t bg-card px-6 pb-6 pt-5 sm:px-10 lg:px-16">
+          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <div className="flex w-full flex-wrap items-center justify-center gap-x-5 sm:w-auto sm:justify-start sm:gap-x-7 sm:gap-y-1">
               {currentStepIndex > 0 && (
                 <button
                   type="button"
-                  className="press-scale min-h-8 text-xs text-muted-foreground hover:underline hover:underline-offset-2"
+                  className="press-scale min-h-8 text-[13px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40"
                   onClick={() => changeStep(availableSteps[currentStepIndex - 1])}
                 >
                   Back
                 </button>
               )}
-              <button type="button" disabled={busy} className="press-scale min-h-8 text-xs text-muted-foreground hover:underline disabled:opacity-50" onClick={() => void onSnooze()}>
+              <button type="button" disabled={busy} className="press-scale min-h-8 text-[13px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-50" onClick={() => void onSnooze()}>
                 Snooze 15 minutes
               </button>
-              <button type="button" disabled={busy} className="press-scale min-h-8 text-xs text-muted-foreground hover:underline disabled:opacity-50" onClick={() => void onSkip()}>
+              <button type="button" disabled={busy} className="press-scale min-h-8 text-[13px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-50" onClick={() => void onSkip()}>
                 Skip today
               </button>
-              <button type="button" disabled={busy} className="press-scale min-h-8 text-xs text-muted-foreground hover:underline disabled:opacity-50" onClick={() => void onBypass()}>
+              <button type="button" disabled={busy} className="press-scale min-h-8 text-[13px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-50" onClick={() => void onBypass()}>
                 Continue to Today
               </button>
             </div>
 
-            <div className="sm:ml-auto">
+            <div className="flex flex-col items-stretch gap-1.5 sm:ml-auto sm:items-end">
               {isFinalStep && focusAgentCount > 0 && (
-                <p className="mb-1 text-center text-xs text-muted-foreground sm:text-right">
+                <p className="text-center text-[11.5px] leading-[1.35] text-muted-foreground sm:text-right">
                   Claude will start {focusAgentCount} focus {focusAgentCount === 1 ? 'task' : 'tasks'}.
                 </p>
               )}
@@ -336,11 +289,7 @@ export default function MorningArrival({
                 type="button"
                 data-ritual-primary={isFinalStep ? '' : undefined}
                 disabled={isFinalStep && (busy || buddyActive || visibleItems.length === 0)}
-                className={`press-scale min-h-11 w-full rounded-xl px-5 text-sm font-semibold disabled:opacity-40 sm:w-auto ${
-                  isFinalStep
-                    ? 'bg-foreground text-background hover:opacity-90'
-                    : 'border text-foreground hover:bg-muted'
-                }`}
+                className="min-h-11 w-full rounded-[13px] bg-foreground px-6 text-[14.5px] font-semibold tracking-[-0.005em] text-background shadow-lg outline-none transition-[transform,box-shadow,opacity] duration-150 hover:-translate-y-px hover:shadow-xl focus-visible:ring-2 focus-visible:ring-accent-blue/40 active:translate-y-0 active:shadow-md disabled:opacity-40 motion-reduce:transform-none sm:w-auto"
                 onClick={() => {
                   if (isFinalStep) void onStartDay();
                   else changeStep(availableSteps[currentStepIndex + 1]);

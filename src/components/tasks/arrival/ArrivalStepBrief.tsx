@@ -38,27 +38,27 @@ export default function ArrivalStepBrief({
     });
 
   return (
-    <section className="mx-auto w-full max-w-[85rem] space-y-9 px-6 py-8 sm:px-10" aria-label="The brief">
-      <div className="mx-auto w-full max-w-[70ch] space-y-7">
-        {leadHeadline && <h2 className="arrival-brief-headline text-balance">{leadHeadline}</h2>}
+    <section className="w-full px-6 pb-2 pt-10 sm:px-10 lg:px-16" aria-label="The brief">
+      <div className="w-full max-w-[40rem]">
+        {leadHeadline && (
+          <h2 className="text-balance text-[21px] font-semibold leading-[1.42] tracking-[-0.016em] text-foreground">
+            {leadHeadline}
+          </h2>
+        )}
 
         {recap && (
-          <div className="arrival-brief-recap space-y-1">
-            <p className="arrival-brief-kicker">Since the last close</p>
-            <p className="text-pretty text-[0.95rem] leading-relaxed text-foreground">{recap}</p>
-          </div>
+          <p className="mt-5 text-pretty text-[13px] leading-relaxed text-muted-foreground">
+            <span className="font-medium text-foreground/75">Since the last close:</span>{' '}
+            {recap}
+          </p>
         )}
 
         {body.length > 0 && (
-          <div className="space-y-4">
+          <div className="mt-4.5 space-y-[18px]">
             {body.map((paragraph, index) => (
               <p
                 key={index}
-                className={
-                  index === 0
-                    ? 'arrival-brief-lead text-pretty'
-                    : 'text-pretty text-base leading-relaxed text-foreground'
-                }
+                className="text-pretty text-[15px] leading-[1.62] text-foreground/75 dark:text-foreground/80"
               >
                 {paragraph}
               </p>
@@ -67,15 +67,17 @@ export default function ArrivalStepBrief({
         )}
 
         {briefWriting && (
-          <BriefProgress
-            startedAt={briefGeneration?.startedAt}
-            estimateSeconds={briefGeneration?.estimateSeconds}
-            generationState={briefGeneration?.state}
-          />
+          <div className="mt-7">
+            <BriefProgress
+              startedAt={briefGeneration?.startedAt}
+              estimateSeconds={briefGeneration?.estimateSeconds}
+              generationState={briefGeneration?.state}
+            />
+          </div>
         )}
 
         {failed && (
-          <p role="alert" className="text-sm leading-relaxed text-muted-foreground">
+          <p role="alert" className="mt-6 text-sm leading-relaxed text-muted-foreground">
             Your plan is still here. Try the brief again, or continue to Today.
           </p>
         )}
@@ -83,7 +85,7 @@ export default function ArrivalStepBrief({
         {stalled && onForceBrief && (
           <button
             type="button"
-            className="press-scale min-h-11 w-full rounded-xl bg-foreground px-5 text-sm font-semibold text-background hover:opacity-90 disabled:cursor-default disabled:opacity-60 sm:w-auto"
+            className="press-scale mt-6 min-h-11 w-full rounded-xl bg-foreground px-5 text-sm font-semibold text-background outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:cursor-default disabled:opacity-60 sm:w-auto"
             onClick={onForceBrief}
             // The round trip can take a beat, and the optimistic progress state
             // only lands after it. Without this, an impatient second tap fires a
@@ -95,17 +97,21 @@ export default function ArrivalStepBrief({
         )}
 
         {watchItems.length > 0 && (
-          <div className="arrival-brief-watch space-y-3" aria-label="Watching for you">
-            <h2 className="arrival-brief-kicker">Watching for you</h2>
+          <div className="mt-12" aria-label="Watching for you">
+            <h2 className="mb-[18px] text-[10.5px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+              Watching for you
+            </h2>
+            <div className="space-y-3.5">
             {watchItems.map((watch, index) => (
-              <p key={index} className="flex gap-2.5 text-pretty text-sm leading-relaxed text-muted-foreground">
-                <span className="arrival-brief-watch-dot mt-[0.5rem] shrink-0" aria-hidden="true" />
+              <p key={index} className="flex gap-3 text-pretty text-sm leading-[1.55] text-muted-foreground">
+                <span className="mt-2 size-1.5 shrink-0 rounded-full bg-muted-foreground/45" aria-hidden="true" />
                 <span>
                   <span className="font-medium text-foreground">{watch.label}.</span>{' '}
                   {watch.evidence}
                 </span>
               </p>
             ))}
+            </div>
           </div>
         )}
       </div>

@@ -110,10 +110,13 @@ export default function DayRitualLayer({
 
   return (
     <div
-      className={`absolute inset-0 z-[100] overflow-y-auto overscroll-contain bg-background/70 backdrop-blur-md ${
-        width === 'canvas' ? 'p-2 sm:p-3' : 'p-3 sm:p-6'
+      className={`absolute inset-0 z-[100] overscroll-contain bg-background/70 backdrop-blur-md ${
+        width === 'canvas'
+          ? 'flex min-h-0 flex-col overflow-hidden p-2 sm:p-3'
+          : 'overflow-y-auto p-3 sm:p-6'
       }`}
       data-day-ritual-layer
+      data-day-ritual-width={width}
     >
       <section
         ref={dialogRef}
@@ -122,12 +125,12 @@ export default function DayRitualLayer({
         aria-labelledby={labelledBy}
         aria-describedby={describedBy}
         tabIndex={-1}
-        className={`mx-auto flex min-h-full flex-col justify-center outline-none ${
+        className={`mx-auto flex flex-col justify-center outline-none ${
           width === 'canvas'
-            ? 'w-[min(100rem,calc(100vw-3rem))] max-w-none'
+            ? 'h-full min-h-0 w-[min(100rem,calc(100vw-3rem))] max-w-none flex-1'
             : width === 'wide'
-              ? 'w-full max-w-7xl'
-              : 'w-full max-w-3xl'
+              ? 'min-h-full w-full max-w-7xl'
+              : 'min-h-full w-full max-w-3xl'
         }`}
       >
         {children}
@@ -147,6 +150,7 @@ interface DayRitualContentSwapProps {
   // Element id of the incoming view's heading (tabIndex={-1}); focused on swap so the
   // dialog's name, Escape routing, and the focus trap all follow the new view at once.
   focusTargetId?: string;
+  fillAvailable?: boolean;
   children: ReactNode;
 }
 
@@ -163,6 +167,7 @@ type RitualSnapshot = { key: string; content: ReactNode };
 export function DayRitualContentSwap({
   viewKey,
   focusTargetId,
+  fillAvailable = false,
   children,
 }: DayRitualContentSwapProps) {
   // Mirror of the last committed view, held in a ref so parent re-renders while a
@@ -199,8 +204,11 @@ export function DayRitualContentSwap({
   }, [outgoing]);
 
   return (
-    <div className="day-ritual-swap">
-      <div key={viewKey} className="day-ritual-swap-in">
+    <div className={`day-ritual-swap ${fillAvailable ? 'flex min-h-0 flex-1 flex-col' : ''}`}>
+      <div
+        key={viewKey}
+        className={`day-ritual-swap-in ${fillAvailable ? 'flex min-h-0 flex-1 flex-col justify-center' : ''}`}
+      >
         {children}
       </div>
       {outgoing && (

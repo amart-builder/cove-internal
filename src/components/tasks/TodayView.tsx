@@ -133,12 +133,7 @@ interface TodayExperienceProps {
   createTask: (input: CreateTaskInput) => Promise<string>;
   updateTask: (id: string, patch: UpdateTaskInput) => Promise<TaskData>;
   deleteTask: (id: string) => Promise<void>;
-  onOpenAllWork?: () => void;
 }
-
-type TodayViewProps = {
-  onOpenAllWork?: () => void;
-};
 
 type UndoAction = {
   message: string;
@@ -390,11 +385,11 @@ function toRestPatch(patch: UpdateTaskInput): Partial<RestTask> {
   };
 }
 
-export default function TodayView({ onOpenAllWork }: TodayViewProps) {
-  return <RestTodayView onOpenAllWork={onOpenAllWork} />;
+export default function TodayView() {
+  return <RestTodayView />;
 }
 
-function RestTodayView({ onOpenAllWork }: TodayViewProps) {
+function RestTodayView() {
   const [columns, setColumns] = useState<ColumnData[]>([]);
   const [tasks, setTasks] = useState<TaskData[]>([]);
   const [candidateEvidence, setCandidateEvidence] = useState<CandidateEvidence>();
@@ -696,7 +691,6 @@ function RestTodayView({ onOpenAllWork }: TodayViewProps) {
           await settleMutation(forceRefresh);
         }
       }}
-      onOpenAllWork={onOpenAllWork}
     />
   );
 }
@@ -711,7 +705,6 @@ function TodayExperience({
   createTask,
   updateTask,
   deleteTask,
-  onOpenAllWork,
 }: TodayExperienceProps) {
   const localMode = getRuntimeMode() === 'local';
   const taskSessions = useTaskSessionRuns(
@@ -3082,6 +3075,7 @@ function TodayExperience({
           <DayRitualContentSwap
             viewKey={ritualView}
             focusTargetId={RITUAL_TITLE_IDS[ritualView]}
+            fillAvailable={ritualView === 'arrival'}
           >
             {ritualView === 'arrival' ? (
               <MorningArrival
@@ -3130,7 +3124,6 @@ function TodayExperience({
                 onSkip={() => dayRitual.skip().catch(() => undefined)}
                 onBypass={() => dayRitual.bypass().catch(() => undefined)}
                 onStartDay={startPlannedDay}
-                onOpenAllWork={onOpenAllWork}
               />
             ) : ritualView === 'settlement' ? (
               <DaySettlement
