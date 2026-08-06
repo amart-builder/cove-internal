@@ -5,10 +5,6 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
-import type {
-  LaunchTaskSessionInput,
-  TaskSessionRun,
-} from '@/lib/task-sessions/types';
 import TaskCard from './TaskCard';
 
 interface ColumnData {
@@ -38,9 +34,6 @@ interface ColumnProps {
   onOpenDetail: (taskId: string) => void;
   onCompleteTask?: (taskId: string) => void | Promise<void>;
   completingTaskId?: string | null;
-  sessionRuns?: ReadonlyMap<string, TaskSessionRun>;
-  launchingTaskIds?: ReadonlySet<string>;
-  onLaunchSession?: (input: LaunchTaskSessionInput) => void | Promise<unknown>;
 }
 
 const COLUMN_ICONS: Record<string, React.ReactNode> = {
@@ -87,9 +80,6 @@ export default function Column({
   onOpenDetail,
   onCompleteTask,
   completingTaskId,
-  sessionRuns,
-  launchingTaskIds,
-  onLaunchSession,
 }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: `column-${column._id}`,
@@ -100,12 +90,12 @@ export default function Column({
   return (
     <div
       ref={setNodeRef}
-      className={`water-board-column flex w-72 shrink-0 flex-col ${
+      className={`water-board-column flex w-[292px] shrink-0 flex-col ${
         isOver ? 'is-over' : ''
       }`}
     >
       {/* Header */}
-      <div className="water-column-heading flex items-center gap-2 border-b px-4 py-3">
+      <div className="water-column-heading flex items-center gap-2 border-b px-4 py-3.5">
         {icon}
         <span className="truncate text-foreground">
           {column.name}
@@ -116,7 +106,7 @@ export default function Column({
       </div>
 
       {/* Task list */}
-      <div className="water-task-list min-h-[120px] flex-1 space-y-2 overflow-y-auto p-2.5">
+      <div className="water-task-list min-h-[120px] flex-1 space-y-3 overflow-y-auto p-3">
         <SortableContext
           items={tasks.map((t) => t._id)}
           strategy={verticalListSortingStrategy}
@@ -129,9 +119,6 @@ export default function Column({
               onCompleteTask={onCompleteTask}
               isDone={isDoneColumn}
               isCompleting={completingTaskId === task._id}
-              sessionRun={sessionRuns?.get(task._id)}
-              sessionBusy={launchingTaskIds?.has(task._id)}
-              onLaunchSession={onLaunchSession}
             />
           ))}
         </SortableContext>

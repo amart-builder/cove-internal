@@ -2154,64 +2154,44 @@ input, textarea, select {
   animation-play-state: paused;
 }
 
-/* Shared water language for the All Work and People workspaces. */
+/* Warm paper language shared by the local All Work and People workspaces. */
 @layer components {
 .water-workspace {
   position: relative;
   isolation: isolate;
-  background:
-    radial-gradient(circle at 10% -12%, color-mix(in srgb, var(--current-line-warm) 52%, transparent), transparent 36%),
-    radial-gradient(circle at 88% 2%, color-mix(in srgb, var(--current-water-blue) 30%, transparent), transparent 42%),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--background) 88%, var(--current-line-core)) 0%,
-      color-mix(in srgb, var(--background) 90%, var(--current-water-blue)) 100%
-    );
+  background: #f7f4ef;
 }
 
 .water-workspace::before {
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  background:
-    radial-gradient(ellipse at 50% 108%, color-mix(in srgb, var(--quiet-water) 10%, transparent), transparent 58%);
-  content: '';
-  pointer-events: none;
+  content: none;
 }
 
 .dark .water-workspace {
-  background:
-    radial-gradient(circle at 84% -8%, color-mix(in srgb, var(--current-kicker) 10%, transparent), transparent 34%),
-    radial-gradient(circle at 12% 4%, color-mix(in srgb, var(--quiet-water) 8%, transparent), transparent 40%),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--background) 94%, var(--current-water-blue)) 0%,
-      color-mix(in srgb, var(--background) 86%, var(--current-water-deep)) 100%
-    );
+  background: #181817;
 }
 
 .water-toolbar {
-  border-color: color-mix(in srgb, var(--quiet-water) 15%, transparent);
-  background: color-mix(in srgb, var(--quiet-glass) 68%, transparent);
-  box-shadow: 0 14px 40px rgba(60,102,126,.06);
-  backdrop-filter: blur(18px) saturate(118%);
-  -webkit-backdrop-filter: blur(18px) saturate(118%);
+  border-color: #e5e0d9;
+  background: #faf8f4;
+  box-shadow: none;
 }
 
 .water-workspace-title {
   color: var(--current-title-ink);
-  font-weight: 560;
-  letter-spacing: -.025em;
+  font-size: 30px;
+  font-weight: 650;
+  letter-spacing: -.022em;
+  line-height: 1.15;
 }
 
 .water-eyebrow,
 .water-form-panel label,
 .water-detail-panel label,
 .water-detail-label {
-  color: color-mix(in srgb, var(--foreground) 70%, transparent);
-  font-size: 10px;
-  font-weight: 670;
-  letter-spacing: .14em;
+  color: color-mix(in srgb, var(--foreground) 66%, transparent);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: .24em;
   text-transform: uppercase;
 }
 
@@ -2222,13 +2202,13 @@ input, textarea, select {
 .water-detail-panel input:not([type='checkbox']),
 .water-detail-panel textarea,
 .water-detail-panel select {
-  border: 1px solid color-mix(in srgb, var(--quiet-water) 22%, var(--border));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--quiet-glass) 82%, transparent);
+  border: 1px solid #e3ded7;
+  border-radius: 10px;
+  background: #fffdfa;
   color: var(--foreground);
-  box-shadow: 0 7px 22px rgba(60,102,126,.045);
-  backdrop-filter: blur(13px);
-  -webkit-backdrop-filter: blur(13px);
+  box-shadow: none;
+  font-size: 13.5px;
+  line-height: 1.55;
   transition:
     border-color 180ms var(--ease-out-cove),
     background 180ms var(--ease-out-cove),
@@ -2237,7 +2217,7 @@ input, textarea, select {
 
 .water-form-panel textarea,
 .water-detail-panel textarea {
-  border-radius: 17px;
+  border-radius: 10px;
 }
 
 .water-control:focus,
@@ -2247,11 +2227,9 @@ input, textarea, select {
 .water-detail-panel input:not([type='checkbox']):focus,
 .water-detail-panel textarea:focus,
 .water-detail-panel select:focus {
-  border-color: color-mix(in srgb, var(--quiet-water) 60%, var(--border));
+  border-color: color-mix(in srgb, var(--quiet-ink) 58%, #8d877f);
   outline: none;
-  box-shadow:
-    0 10px 28px rgba(60,102,126,.08),
-    0 0 0 3px color-mix(in srgb, var(--quiet-water) 12%, transparent);
+  box-shadow: 0 0 0 3px rgba(74, 82, 77, .08);
 }
 
 .water-workspace button,
@@ -2282,31 +2260,31 @@ input, textarea, select {
 .water-secondary-button,
 .water-text-button {
   border-radius: 999px;
-  font-size: 11px;
-  font-weight: 590;
+  font-size: 12px;
+  font-weight: 550;
 }
 
 .water-primary-button {
-  border: 1px solid color-mix(in srgb, var(--quiet-ink) 82%, transparent);
-  background: var(--quiet-ink);
-  color: var(--background);
-  box-shadow: 0 8px 22px color-mix(in srgb, var(--quiet-ink) 16%, transparent);
+  border: 1px solid #303632;
+  background: #303632;
+  color: #fffdfa;
+  box-shadow: none;
 }
 
 .water-primary-button:hover:not(:disabled) {
-  box-shadow: 0 11px 28px color-mix(in srgb, var(--quiet-ink) 20%, transparent);
+  box-shadow: none;
   transform: translateY(-1px);
 }
 
 .water-secondary-button {
-  border: 1px solid color-mix(in srgb, var(--quiet-water) 24%, var(--border));
-  background: color-mix(in srgb, var(--quiet-glass) 70%, transparent);
+  border: 1px solid #ded9d1;
+  background: #fffdfa;
   color: var(--muted-foreground);
 }
 
 .water-secondary-button:hover:not(:disabled),
 .water-text-button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--quiet-glass) 94%, transparent);
+  background: #f1ede7;
   color: var(--foreground);
 }
 
@@ -2318,11 +2296,9 @@ input, textarea, select {
 .water-detail-panel,
 .water-popover,
 .water-empty-state {
-  border: 1px solid rgba(255,255,255,.64);
-  background: color-mix(in srgb, var(--quiet-glass) 84%, transparent);
-  box-shadow: 0 14px 40px rgba(60,102,126,.06);
-  backdrop-filter: blur(18px) saturate(112%);
-  -webkit-backdrop-filter: blur(18px) saturate(112%);
+  border: 1px solid #e5e0d9;
+  background: #fffdfa;
+  box-shadow: none;
 }
 
 .water-form-panel {
@@ -2330,17 +2306,17 @@ input, textarea, select {
 }
 
 .water-empty-state {
-  border-radius: 20px;
+  border-radius: 14px;
   color: var(--muted-foreground);
 }
 
 .water-pill {
-  border: 1px solid color-mix(in srgb, var(--quiet-water) 18%, transparent);
+  border: 1px solid #ded9d1;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--quiet-water-soft) 38%, transparent);
+  background: #f6f2ec;
   color: color-mix(in srgb, var(--foreground) 70%, transparent);
-  font-size: 10px;
-  font-weight: 570;
+  font-size: 10.5px;
+  font-weight: 650;
   letter-spacing: .025em;
 }
 
@@ -2350,8 +2326,27 @@ input, textarea, select {
 }
 
 .all-work-toolbar {
-  min-height: 58px;
-  padding-block: 10px;
+  padding-block: 14px 10px;
+}
+
+.all-work-toolbar-row {
+  min-height: 42px;
+}
+
+.all-work-toolbar-meta {
+  min-height: 28px;
+  padding-top: 5px;
+}
+
+.all-work-filter summary::-webkit-details-marker {
+  display: none;
+}
+
+.all-work-filter-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent-blue);
 }
 
 .all-work-board {
@@ -2360,12 +2355,10 @@ input, textarea, select {
 }
 
 .water-board-column {
-  border: 1px solid rgba(255,255,255,.54);
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--quiet-glass) 42%, transparent);
-  box-shadow: 0 14px 40px rgba(60,102,126,.045);
-  backdrop-filter: blur(13px);
-  -webkit-backdrop-filter: blur(13px);
+  border: 0;
+  border-left: 1px solid #e3ded7;
+  background: transparent;
+  box-shadow: none;
   transition:
     background 200ms var(--ease-out-cove),
     border-color 200ms var(--ease-out-cove),
@@ -2373,21 +2366,19 @@ input, textarea, select {
 }
 
 .water-board-column.is-over {
-  border-color: color-mix(in srgb, var(--quiet-water) 56%, rgba(255,255,255,.72));
-  background: color-mix(in srgb, var(--quiet-water-soft) 26%, var(--quiet-glass));
-  box-shadow:
-    0 18px 46px rgba(60,102,126,.09),
-    inset 0 0 0 1px color-mix(in srgb, var(--quiet-water) 18%, transparent);
+  border-color: #b8afa3;
+  background: rgba(255, 253, 250, .56);
+  box-shadow: inset 0 0 0 1px #e3ded7;
 }
 
 .water-column-heading {
-  border-color: color-mix(in srgb, var(--quiet-water) 13%, transparent);
+  border-color: #e3ded7;
 }
 
 .water-column-heading > span:first-of-type {
-  font-size: 10px;
-  font-weight: 680;
-  letter-spacing: .12em;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: .24em;
   text-transform: uppercase;
 }
 
@@ -2396,11 +2387,12 @@ input, textarea, select {
   min-width: 23px;
   height: 23px;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--quiet-water) 16%, transparent);
+  border: 1px solid #ded9d1;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--quiet-glass) 68%, transparent);
+  background: #fffdfa;
   color: color-mix(in srgb, var(--foreground) 70%, transparent);
-  font-size: 10px;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .water-task-list {
@@ -2408,10 +2400,10 @@ input, textarea, select {
 }
 
 .water-task-card {
-  border: 1px solid rgba(255,255,255,.68);
-  border-radius: 17px;
-  background: color-mix(in srgb, var(--quiet-glass) 84%, transparent);
-  box-shadow: 0 8px 26px rgba(60,102,126,.055);
+  border: 1px solid #e5e0d9;
+  border-radius: 14px;
+  background: #fffdfa;
+  box-shadow: 0 2px 8px rgba(54, 48, 42, .025);
   transition:
     transform 180ms var(--ease-out-cove),
     border-color 180ms var(--ease-out-cove),
@@ -2420,9 +2412,9 @@ input, textarea, select {
 }
 
 .water-task-card:hover {
-  border-color: color-mix(in srgb, var(--quiet-water) 36%, rgba(255,255,255,.72));
-  background: color-mix(in srgb, var(--quiet-glass) 96%, transparent);
-  box-shadow: 0 13px 34px rgba(60,102,126,.09);
+  border-color: #ccc5bc;
+  background: #fffefa;
+  box-shadow: 0 5px 14px rgba(54, 48, 42, .05);
   transform: translateY(-1px);
 }
 
@@ -2433,8 +2425,8 @@ input, textarea, select {
 }
 
 .water-card-title {
-  font-weight: 560;
-  letter-spacing: -.018em;
+  font-weight: 550;
+  letter-spacing: -.012em;
 }
 
 .water-task-card.is-overlay {
@@ -2449,9 +2441,9 @@ input, textarea, select {
 }
 
 .water-complete-button {
-  border-color: color-mix(in srgb, var(--quiet-water) 28%, transparent);
-  background: color-mix(in srgb, var(--quiet-glass) 94%, transparent);
-  box-shadow: 0 4px 12px rgba(60,102,126,.07);
+  border-color: #ded9d1;
+  background: #fffdfa;
+  box-shadow: none;
 }
 
 .water-complete-button:hover {
@@ -2464,19 +2456,20 @@ input, textarea, select {
   border: 1px solid currentColor;
   border-radius: 999px;
   background: transparent;
-  font-size: 10px;
-  font-weight: 630;
+  font-size: 12px;
+  font-weight: 650;
   letter-spacing: .06em;
   text-transform: uppercase;
 }
 
 .water-empty-column {
   margin: 8px;
-  border: 1px dashed color-mix(in srgb, var(--quiet-water) 23%, transparent);
-  border-radius: 15px;
+  border: 1px dashed #d8d2ca;
+  border-radius: 14px;
   padding: 24px 10px;
   color: var(--muted-foreground);
-  font-size: 10px;
+  font-size: 12px;
+  font-weight: 500;
   letter-spacing: .04em;
 }
 
@@ -2487,12 +2480,10 @@ input, textarea, select {
 
 .water-sidebar {
   margin: 12px 0 12px 12px;
-  border: 1px solid rgba(255,255,255,.58);
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--quiet-glass) 72%, transparent);
-  box-shadow: 0 14px 40px rgba(60,102,126,.055);
-  backdrop-filter: blur(17px);
-  -webkit-backdrop-filter: blur(17px);
+  border: 1px solid #e5e0d9;
+  border-radius: 14px;
+  background: #fffdfa;
+  box-shadow: none;
 }
 
 .water-sidebar-row {
@@ -2514,16 +2505,16 @@ input, textarea, select {
 
 .water-list-panel,
 .water-table-panel {
-  background: color-mix(in srgb, var(--quiet-glass) 18%, transparent);
+  background: #f7f4ef;
 }
 
 .water-table-tools {
-  border-color: color-mix(in srgb, var(--quiet-water) 12%, transparent);
-  background: color-mix(in srgb, var(--quiet-glass) 36%, transparent);
+  border-color: #e5e0d9;
+  background: #faf8f4;
 }
 
 .water-popover {
-  border-radius: 17px;
+  border-radius: 14px;
 }
 
 .water-contact-table {
@@ -2532,22 +2523,20 @@ input, textarea, select {
 }
 
 .water-contact-table thead tr {
-  border-color: color-mix(in srgb, var(--quiet-water) 16%, transparent);
-  background: color-mix(in srgb, var(--quiet-glass) 88%, transparent);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  border-color: #e5e0d9;
+  background: #faf8f4;
 }
 
 .water-contact-table th {
   color: color-mix(in srgb, var(--foreground) 70%, transparent);
-  font-size: 10px;
-  font-weight: 670;
-  letter-spacing: .12em;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: .24em;
   text-transform: uppercase;
 }
 
 .water-contact-row {
-  border-color: color-mix(in srgb, var(--quiet-water) 11%, transparent);
+  border-color: #e5e0d9;
   background: transparent;
 }
 
@@ -2561,27 +2550,26 @@ input, textarea, select {
 }
 
 .water-list-row {
-  border-color: color-mix(in srgb, var(--quiet-water) 12%, transparent);
+  border-color: #e5e0d9;
   background: transparent;
 }
 
 .water-list-row:hover {
-  background: color-mix(in srgb, var(--quiet-water-soft) 25%, transparent);
+  background: #fbf9f5;
 }
 
 .water-list-row.is-active {
-  background: color-mix(in srgb, var(--quiet-water-soft) 46%, transparent);
-  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--quiet-water) 66%, transparent);
+  background: #f0ece6;
+  box-shadow: inset 3px 0 0 #8f9b94;
 }
 
 .water-detail-shell {
-  margin: 12px 12px 12px 0;
-  border: 1px solid rgba(255,255,255,.58);
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--quiet-glass) 72%, transparent);
-  box-shadow: 0 14px 40px rgba(60,102,126,.06);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  margin: 0;
+  border: 0;
+  border-left: 1px solid #e5e0d9;
+  border-radius: 0;
+  background: #fffdfa;
+  box-shadow: none;
 }
 
 .water-detail-panel {
@@ -2594,14 +2582,14 @@ input, textarea, select {
 }
 
 .water-detail-heading {
-  border-color: color-mix(in srgb, var(--quiet-water) 13%, transparent);
-  background: color-mix(in srgb, var(--quiet-glass) 24%, transparent);
+  border-color: #e5e0d9;
+  background: #faf8f4;
 }
 
 .water-detail-heading h2 {
   color: var(--current-title-ink);
-  font-weight: 560;
-  letter-spacing: -.025em;
+  font-weight: 650;
+  letter-spacing: -.018em;
 }
 
 .water-avatar {
@@ -2613,49 +2601,129 @@ input, textarea, select {
 }
 
 .water-field-row {
-  border-color: color-mix(in srgb, var(--quiet-water) 12%, transparent);
+  border-color: #e5e0d9;
 }
 
 .water-activity-card {
-  border-color: color-mix(in srgb, var(--quiet-water) 17%, transparent);
-  border-radius: 17px;
-  background: color-mix(in srgb, var(--quiet-glass) 42%, transparent);
+  border-color: #e5e0d9;
+  border-radius: 14px;
+  background: #faf8f4;
 }
 
+.people-mobile-back {
+  display: none;
+}
+
+.dark .water-toolbar,
+.dark .water-table-tools,
+.dark .water-detail-heading {
+  border-color: #34322f;
+  background: #1d1c1a;
+}
+
+.dark .water-control,
+.dark .water-form-panel input:not([type='checkbox']),
+.dark .water-form-panel textarea,
+.dark .water-form-panel select,
+.dark .water-detail-panel input:not([type='checkbox']),
+.dark .water-detail-panel textarea,
+.dark .water-detail-panel select,
 .dark .water-form-panel,
 .dark .water-detail-panel,
 .dark .water-popover,
 .dark .water-empty-state,
-.dark .water-board-column,
 .dark .water-task-card,
 .dark .water-sidebar,
 .dark .water-detail-shell {
-  border-color: color-mix(in srgb, var(--quiet-water) 18%, var(--border));
+  border-color: #3b3834;
+  background: #22211f;
 }
 
-.dark .water-task-card:hover {
-  border-color: color-mix(in srgb, var(--quiet-water) 42%, var(--border));
+.dark .water-list-panel,
+.dark .water-table-panel {
+  background: #181817;
 }
 
-@media (max-width: 1023px) {
-  .water-detail-shell {
-    margin: 0 12px 12px;
+.dark .water-board-column {
+  border-color: #34322f;
+}
+
+.dark .water-board-column.is-over,
+.dark .water-list-row.is-active {
+  background: #25231f;
+}
+
+.dark .water-task-card:hover,
+.dark .water-list-row:hover {
+  border-color: #504b45;
+  background: #282622;
+}
+
+.dark .water-secondary-button,
+.dark .water-pill,
+.dark .water-column-count,
+.dark .water-complete-button,
+.dark .water-activity-card {
+  border-color: #3b3834;
+  background: #25231f;
+}
+
+.dark .water-primary-button {
+  border-color: #e6e0d7;
+  background: #e6e0d7;
+  color: #20211f;
+}
+
+@media (max-width: 799px) {
+  .people-surface {
+    display: block;
+  }
+
+  .people-list-pane,
+  .people-detail-pane {
+    width: 100% !important;
+    height: 100%;
+  }
+
+  .people-detail-pane {
+    display: none;
+    border-left: 0;
+  }
+
+  .people-surface.is-detail-open .people-list-pane {
+    display: none;
+  }
+
+  .people-surface.is-detail-open .people-detail-pane {
+    display: block;
+  }
+
+  .people-mobile-back {
+    display: inline-flex;
   }
 }
 
 @media (max-width: 720px) {
   .all-work-toolbar {
-    align-items: flex-start;
+    padding-inline: 14px;
+  }
+
+  .all-work-toolbar-row {
+    flex-wrap: wrap;
+  }
+
+  .all-work-toolbar-row > .relative.ml-4 {
+    order: 3;
+    width: 100%;
+    max-width: none;
+    flex-basis: 100%;
+    margin-left: 0;
   }
 
   .all-work-board {
     padding: 14px;
   }
 
-  .water-sidebar,
-  .water-detail-shell {
-    border-radius: 17px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

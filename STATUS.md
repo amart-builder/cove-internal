@@ -18,13 +18,20 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-08-06T09:41:59-0700
-- **task:** Round 3 verify+commit
+- **since:** 2026-08-06T09:55:32-0700
+- **task:** Round 4 verify+commit
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-08-06 morning (Today V2 type ramp complete)
+**Last updated:** 2026-08-06 morning (All Work and People warm-paper restyle complete)
+
+## 2026-08-06 All Work and People warm-paper restyle (DONE, COMMITTED)
+
+- Replaced the shared glass treatment with the shipped Arrival language: warm flat paper, #e5e0d9-family hairlines, restrained shadows, 14px compact cards, and the locked 30, 15.5, 13.5, 12, and 10.5px type ramp in light and dark modes.
+- All Work now keeps title, search, one combined Filter control, and Add Task in the primary row. Count and Recently deleted sit on a quiet secondary line. Cards show title, one context line, priority/due, and no Claude launcher; the existing launcher state and action now render in Task Detail. Drag, completion, add, detail, filters, Recently deleted, and operation-error behavior are unchanged.
+- People now uses 56px sparse list rows and switches below 800px from two panes to full-width list-or-detail navigation with Back. Blur autosave shows request-backed Saving... and Saved feedback, clears when the draft changes, and retains the existing visible failure path. The blocking load state has one Retry action.
+- Verification: TypeScript clean; scoped ESLint clean; full suite 892/892; type-floor audits found no changed-surface text below 10.5px and no actionable/status text below 12px. Driver live-verified on the demo-dev server: All Work warm restyle in light and dark, priority filter narrows 7 tasks to 2 and resets, Task Detail carries the Claude session launcher, cards are launcher-free; People add-contact flow, request-backed Saved indicator with the note confirmed persisted in the demo SQLite, and sub-800px single-pane navigation with a working Back. Demo DB reseeded to pristine afterward.
 
 ## 2026-08-06 Today V2 type ramp (DONE, COMMITTED)
 

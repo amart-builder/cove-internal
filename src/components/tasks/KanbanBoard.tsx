@@ -950,11 +950,11 @@ function KanbanBoardContent({
 
   return (
     <div className="water-workspace all-work-surface flex h-full flex-col">
-      <div className="water-toolbar all-work-toolbar flex items-center gap-3 border-b px-5">
-        <h1 className="water-workspace-title text-sm">All Work</h1>
+      <header className="water-toolbar all-work-toolbar border-b px-5">
+        <div className="all-work-toolbar-row flex items-center gap-3">
+          <h1 className="water-workspace-title shrink-0">All Work</h1>
 
-        <div className="ml-4 flex items-center gap-2 flex-1">
-          <div className="relative max-w-[240px] flex-1">
+          <div className="relative ml-4 max-w-[320px] flex-1">
             <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <circle cx="11" cy="11" r="8" />
               <path d="m21 21-4.3-4.3" />
@@ -965,59 +965,75 @@ function KanbanBoardContent({
               placeholder="Search tasks..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="water-control w-full py-1.5 pl-8 pr-3 text-xs placeholder:text-muted-foreground"
+              className="water-control w-full py-2 pl-8 pr-3 text-[13.5px] placeholder:text-muted-foreground"
             />
           </div>
 
-          <select
-            aria-label="Filter tasks"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-            className="water-control px-3 py-1.5 text-xs"
-          >
-            <option value="all">All Tasks</option>
-            <option value="today">Must happen today</option>
-            <option value="not-started">Not Started</option>
-            <option value="in-progress">In Flight / Waiting</option>
-            <option value="blocked">Blocked</option>
-            <option value="done">Done</option>
-          </select>
+          <details className="all-work-filter relative ml-auto">
+            <summary className="water-secondary-button flex cursor-pointer list-none items-center gap-2 px-4 py-2">
+              Filter
+              {(statusFilter !== 'all' || priorityFilter !== 'all') && (
+                <span className="all-work-filter-dot" aria-label="Filters active" />
+              )}
+            </summary>
+            <div className="water-popover absolute right-0 top-[calc(100%+8px)] z-20 w-[250px] space-y-3 p-4">
+              <label className="block">
+                Status
+                <select
+                  aria-label="Filter tasks"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+                  className="water-control mt-1.5 w-full px-3 py-2 text-[13.5px]"
+                >
+                  <option value="all">All Tasks</option>
+                  <option value="today">Must happen today</option>
+                  <option value="not-started">Not Started</option>
+                  <option value="in-progress">In Flight / Waiting</option>
+                  <option value="blocked">Blocked</option>
+                  <option value="done">Done</option>
+                </select>
+              </label>
+              <label className="block">
+                Priority
+                <select
+                  aria-label="Filter tasks by priority"
+                  value={priorityFilter}
+                  onChange={(e) => setPriorityFilter(e.target.value as PriorityFilter)}
+                  className="water-control mt-1.5 w-full px-3 py-2 text-[13.5px]"
+                >
+                  <option value="all">All Priority</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </label>
+            </div>
+          </details>
 
-          <select
-            aria-label="Filter tasks by priority"
-            value={priorityFilter}
-            onChange={(e) => setPriorityFilter(e.target.value as PriorityFilter)}
-            className="water-control px-3 py-1.5 text-xs"
+          <button
+            onClick={() => setShowAddForm(!showAddForm)}
+            aria-label={showAddForm ? 'Close add task form' : 'Open add task form'}
+            className="water-primary-button px-4 py-2"
           >
-            <option value="all">All Priority</option>
-            <option value="high">High</option>
-            <option value="medium">Medium</option>
-            <option value="low">Low</option>
-          </select>
-
-          <span className="text-[11px] text-muted-foreground tabular-nums">
-            {filteredTasks.length}/{totalTasks}
-          </span>
+            + Add Task
+          </button>
         </div>
 
-        {onRestoreTask && (
-          <button
-            type="button"
-            onClick={() => setShowRecentlyDeleted(true)}
-            className="water-text-button ml-2 px-2.5 py-1.5"
-          >
-            Recently deleted
-          </button>
-        )}
-
-        <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          aria-label={showAddForm ? 'Close add task form' : 'Open add task form'}
-          className="water-primary-button ml-2 px-4 py-2"
-        >
-          + Add Task
-        </button>
-      </div>
+        <div className="all-work-toolbar-meta flex items-center gap-3">
+          <span className="text-[12px] font-medium text-muted-foreground tabular-nums">
+            Showing {filteredTasks.length} of {totalTasks} tasks
+          </span>
+          {onRestoreTask && (
+            <button
+              type="button"
+              onClick={() => setShowRecentlyDeleted(true)}
+              className="water-text-button px-2 py-1"
+            >
+              Recently deleted
+            </button>
+          )}
+        </div>
+      </header>
 
       {operationError && (
         <div role="alert" className="mx-5 mt-3 flex items-center gap-3 rounded-xl border border-accent-red/30 bg-accent-red/5 px-4 py-3 text-xs text-accent-red">
@@ -1144,7 +1160,7 @@ function KanbanBoardContent({
           onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
         >
-          <div className="flex h-full min-w-max gap-4">
+          <div className="flex h-full min-w-max gap-[18px]">
             {columns.length === 0 ? (
               <div className="water-empty-state flex min-h-[180px] w-[360px] items-center justify-center px-6 text-center text-sm">
                 No task lists yet.
@@ -1158,9 +1174,6 @@ function KanbanBoardContent({
                   onOpenDetail={setDetailTaskId}
                   onCompleteTask={handleCompleteTask}
                   completingTaskId={completingTaskId}
-                  sessionRuns={getRuntimeMode() === 'local' ? taskSessions.latestByTaskId : undefined}
-                  launchingTaskIds={taskSessions.launchingTaskIds}
-                  onLaunchSession={getRuntimeMode() === 'local' ? taskSessions.launch : undefined}
                 />
               ))
             )}
@@ -1192,6 +1205,10 @@ function KanbanBoardContent({
                 await onConfirmRecurrence(detailTaskId, cadence);
               }
             : undefined}
+          sessionRun={getRuntimeMode() === 'local' ? taskSessions.latestByTaskId.get(detailTaskId) : undefined}
+          sessionBusy={taskSessions.launchingTaskIds.has(detailTaskId)}
+          sessionError={taskSessions.error}
+          onLaunchSession={getRuntimeMode() === 'local' ? taskSessions.launch : undefined}
         />
       )}
 

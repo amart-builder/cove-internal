@@ -2,11 +2,6 @@
 
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type {
-  LaunchTaskSessionInput,
-  TaskSessionRun,
-} from '@/lib/task-sessions/types';
-import { TaskSessionLauncher } from './TaskSessionLauncher';
 
 interface TaskData {
   _id: string;
@@ -30,9 +25,6 @@ interface TaskCardProps {
   isDone?: boolean;
   isOverlay?: boolean;
   isCompleting?: boolean;
-  sessionRun?: TaskSessionRun;
-  sessionBusy?: boolean;
-  onLaunchSession?: (input: LaunchTaskSessionInput) => void | Promise<unknown>;
 }
 
 const priorityColors: Record<string, string> = {
@@ -57,9 +49,6 @@ export default function TaskCard({
   isDone = false,
   isOverlay,
   isCompleting = false,
-  sessionRun,
-  sessionBusy = false,
-  onLaunchSession,
 }: TaskCardProps) {
   const {
     attributes,
@@ -77,6 +66,7 @@ export default function TaskCard({
     touchAction: 'none',
   };
   const displayTags = visibleTags(task.tags);
+  const contextLine = task.description || displayTags.slice(0, 2).join(' · ');
   const showCompleteButton = !isOverlay && !isDone && Boolean(onCompleteTask);
 
   function handleCompletePointerDown(e: React.PointerEvent<HTMLButtonElement>) {
@@ -138,37 +128,20 @@ export default function TaskCard({
         </button>
       )}
 
-      {/* Tags row */}
-      {(task.blocked || displayTags.length > 0) && (
-        <div className="flex gap-1 mb-1.5 flex-wrap">
-          {task.blocked && (
-            <span className="water-pill border-accent-orange/30 bg-accent-orange/10 px-2 py-0.5 text-accent-orange">
-              Blocked
-            </span>
-          )}
-          {displayTags.slice(0, 2).map((tag) => (
-            <span
-              key={tag}
-              className="water-pill px-2 py-0.5"
-            >
-              {tag}
-            </span>
-          ))}
-          {displayTags.length > 2 && (
-            <span className="text-[10px] text-muted-foreground">+{displayTags.length - 2}</span>
-          )}
-        </div>
-      )}
+      <p className="water-card-title text-[15.5px] leading-snug text-foreground">{task.title}</p>
 
-      <p className="water-card-title text-[13px] leading-snug text-foreground">{task.title}</p>
-
-      {task.description && (
-        <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2 leading-relaxed">
-          {task.description}
+      {contextLine && (
+        <p className="mt-1 line-clamp-1 text-[13.5px] leading-[1.55] text-muted-foreground">
+          {contextLine}
         </p>
       )}
 
-      <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        {task.blocked && (
+          <span className="water-pill border-accent-orange/30 bg-accent-orange/10 px-2 py-0.5 text-[12px] text-accent-orange">
+            Blocked
+          </span>
+        )}
         <span
           className={`water-priority px-2 py-0.5 ${
             priorityColors[task.priority] ?? priorityColors.medium
@@ -178,30 +151,11 @@ export default function TaskCard({
         </span>
 
         {task.dueDate && (
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[12px] font-medium text-muted-foreground">
             {formatDate(task.dueDate)}
           </span>
         )}
       </div>
-
-      {!isOverlay && onLaunchSession && (!isDone || sessionRun) && (
-        <div className="mt-2">
-          <TaskSessionLauncher
-            compact
-            input={{
-              taskId: task._id,
-              promptSnapshot: {
-                title: task.title,
-                detail: task.description || task.title,
-                dueAt: task.dueDate,
-              },
-            }}
-            run={sessionRun}
-            busy={sessionBusy}
-            onLaunch={onLaunchSession}
-          />
-        </div>
-      )}
     </div>
   );
 }

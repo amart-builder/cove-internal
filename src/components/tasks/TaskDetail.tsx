@@ -2,7 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { getRuntimeMode } from '@/lib/runtime/mode';
+import type {
+  LaunchTaskSessionInput,
+  TaskSessionRun,
+} from '@/lib/task-sessions/types';
 import EmailCardDetail from './EmailCardDetail';
+import { TaskSessionLauncher } from './TaskSessionLauncher';
 
 interface ColumnData {
   _id: string;
@@ -48,6 +53,10 @@ interface TaskDetailProps {
   onSaveTask: (patch: UpdateTaskInput) => Promise<void>;
   onDeleteTask: () => Promise<void>;
   onConfirmRecurrence?: (cadence: string) => Promise<void>;
+  sessionRun?: TaskSessionRun;
+  sessionBusy?: boolean;
+  sessionError?: string;
+  onLaunchSession?: (input: LaunchTaskSessionInput) => void | Promise<unknown>;
 }
 
 function formatTimestamp(epoch: number): string {
@@ -82,6 +91,10 @@ export default function TaskDetail({
   onSaveTask,
   onDeleteTask,
   onConfirmRecurrence,
+  sessionRun,
+  sessionBusy,
+  sessionError,
+  onLaunchSession,
 }: TaskDetailProps) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? '');
@@ -247,21 +260,21 @@ export default function TaskDetail({
               <p className="text-xs font-medium text-foreground">
                 Make this a {recurrenceLabel(task.proposedRecurrenceCadence)} rhythm?
               </p>
-              <p className="mt-1 text-[11px] text-muted-foreground">
+              <p className="mt-1 text-[13.5px] leading-[1.55] text-muted-foreground">
                 Cove created only today&apos;s task. This starts future copies.
               </p>
               <button
                 type="button"
                 disabled={confirmingRecurrence}
                 onClick={() => void handleConfirmRecurrence()}
-                className="mt-2 rounded-full border border-accent-blue/30 px-2.5 py-1 text-[11px] font-medium text-accent-blue disabled:opacity-50"
+                className="mt-2 rounded-full border border-accent-blue/30 px-2.5 py-1 text-[12px] font-medium text-accent-blue disabled:opacity-50"
               >
                 {confirmingRecurrence ? 'Making rhythm…' : 'Make rhythm'}
               </button>
             </div>
           )}
           <div>
-            <label className="block text-[11px] text-muted-foreground mb-1">Title</label>
+            <label className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Title</label>
             <input
               type="text"
               value={title}
@@ -271,7 +284,7 @@ export default function TaskDetail({
           </div>
 
           <div>
-            <label className="block text-[11px] text-muted-foreground mb-1">Description</label>
+            <label className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Description</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -282,7 +295,7 @@ export default function TaskDetail({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[11px] text-muted-foreground mb-1">Priority</label>
+              <label className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Priority</label>
               <select
                 value={priority}
                 onChange={(e) =>
@@ -296,7 +309,7 @@ export default function TaskDetail({
               </select>
             </div>
             <div>
-              <label className="block text-[11px] text-muted-foreground mb-1">Status</label>
+              <label className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Status</label>
               <select
                 value={columnId}
                 onChange={(e) => setColumnId(e.target.value)}
@@ -312,7 +325,7 @@ export default function TaskDetail({
           </div>
 
           <div>
-            <label className="block text-[11px] text-muted-foreground mb-1">Due Date</label>
+            <label className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Due Date</label>
             <input
               type="date"
               value={dueDate}
@@ -332,7 +345,7 @@ export default function TaskDetail({
           </label>
 
           <div>
-            <label className="block text-[11px] text-muted-foreground mb-1">Tags (comma-separated)</label>
+            <label className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Tags (comma-separated)</label>
             <input
               type="text"
               value={tagsStr}
@@ -342,11 +355,40 @@ export default function TaskDetail({
             />
           </div>
 
-          <div className="flex gap-4 text-[10px] text-muted-foreground pt-1">
+          <div className="flex gap-4 pt-1 text-[12px] font-medium text-muted-foreground">
             <span>Created: {formatTimestamp(task.createdAt)}</span>
             <span>Updated: {formatTimestamp(task.updatedAt)}</span>
           </div>
         </div>
+
+        {localMode && onLaunchSession && (
+          <section className="mt-3 rounded-xl border bg-muted/40 p-3" aria-label="Claude session">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-xs font-medium text-foreground">Claude session</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  Start this task with Claude, or open its latest session.
+                </p>
+              </div>
+              <TaskSessionLauncher
+                input={{
+                  taskId: task._id,
+                  promptSnapshot: {
+                    title: task.title,
+                    detail: task.description || task.title,
+                    dueAt: task.dueDate,
+                  },
+                }}
+                run={sessionRun}
+                busy={sessionBusy}
+                onLaunch={onLaunchSession}
+              />
+            </div>
+            {sessionError && (
+              <p role="alert" className="mt-2 text-xs text-accent-red">{sessionError}</p>
+            )}
+          </section>
+        )}
 
         {actionError && (
           <p role="alert" className="mt-4 text-xs text-accent-red">
@@ -357,7 +399,7 @@ export default function TaskDetail({
         <div className="flex items-center justify-between mt-5 pt-3 border-t">
           <button
             onClick={handleDelete}
-            className="text-[11px] text-accent-red hover:underline"
+            className="text-[12px] font-medium text-accent-red hover:underline"
           >
             Delete task
           </button>
