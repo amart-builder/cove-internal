@@ -18,13 +18,23 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-08-06T09:55:32-0700
-- **task:** Round 4 verify+commit
+- **since:** 2026-08-06T10:27:45-0700
+- **task:** Round 5 verify+ship
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-08-06 morning (All Work and People warm-paper restyle complete)
+**Last updated:** 2026-08-06 morning (Round 5 consolidated review fixes complete)
+
+## 2026-08-06 Round 5 consolidated review fixes (DONE, COMMITTED)
+
+- Fixed dark warm-workspace hover contrast, completed the dark counterparts for board and People hairlines, restored a visible light/dark column drop cue, and removed the first column's unnecessary left divider.
+- Made the sub-800 People navigation and sub-720 All Work toolbar rules unlayered so they outrank Tailwind utilities. Removed competing input font, radius, background, and focus utilities so the shared 13.5px warm-paper field rules apply.
+- Tagged Buddy's root, made the ritual focus trap yield to it, and moved Buddy Escape handling to document capture with immediate propagation stop. One Escape closes only Buddy while it is open; ritual Escape remains unchanged otherwise. The 140, 150, and 160 z-index values are unchanged.
+- Made People autosave feedback field-aware and request-backed, with an unconditional live region and a three-second Saved state. Expanded the demo seed safety guard to the real DB, WAL, SHM, profile, task settings, and workspace config. Corrected stale STATUS and runbook wording.
+- Added three source-level regression guards. Verification: TypeScript clean; scoped ESLint clean; full suite 895/895; `git diff --check` clean. No day-plan file, z-index value, real data, server, commit, or push was touched.
+- Driver addendum: found one more instance of the same cascade trap the review flagged: the pre-existing unlayered `input, textarea, select { font-size: inherit }` (globals.css:103) still beat the layered 13.5px field rule, so inputs rendered 14px. Added an unlayered field-size rule next to the responsive overrides; inputs now compute 13.5px live.
+- Driver live verification on the demo-dev server: Tab keeps focus inside Buddy while a ritual is open; one Escape closes only Buddy over both the arrival and the Focus Grid (grid aria-expanded stayed true), second Escape closes the layer; narrow People list pane is truly display:none with zero focusables; autosave race (blur field A, immediately edit field B) still shows Saved, auto-idles after 3s, both values persisted to the demo SQLite; extended seed guard asserts real DB, WAL, SHM, and config mtimes unchanged.
 
 ## 2026-08-06 All Work and People warm-paper restyle (DONE, COMMITTED)
 
@@ -66,7 +76,7 @@ Alex ordered complete adversarial reviews of Cove against the North Star ("sourc
 - Issues page states are mutually exclusive with Retry; per-row dismiss pending state; job-failure summaries in plain language; meeting-watch no longer writes a receipt every 5 minutes when nothing happened (was 73% of the receipts table).
 - All Work surfaces drag/add/complete failures in a dismissible banner with initial-load Retry; add drafts survive failure. Arrival Task Sheet awaits mutations (busy label, inline error, close on success); picker add failures show a visible alert.
 - Today V2 focus cards have a working focus ring (selector was scoped to an ancestor that doesn't exist there). Weekend gate is reachable in V2 with "Plan today anyway".
-- Rituals are true full-viewport modals (fixed, z-140, nav behind scrim); Buddy is hidden while any ritual layer is open (includes the Focus Grid; judged desirable).
+- Rituals are true full-viewport modals (fixed, z-140, nav behind scrim); Buddy remains visible and usable above rituals at z-150 per the owner decision.
 
 **Verified:** typecheck + lint clean; 892/892 tests (12 new, incl. weekend-auto-settle regressions reproduced from the reviewer's scenario); driver live-QA at 1280x720 of the modal ownership, Buddy suppression, drop zone, focus-count rendering, and awaited Task Sheet actions. Driver's live QA ran a dev server against the real DB; two accidental plan additions during drag/picker probes were caught and reverted through the UI (plan restored to the brief's original 4 items, now decision:'later' for the two reverted tasks).
 

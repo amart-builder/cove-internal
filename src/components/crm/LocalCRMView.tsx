@@ -69,6 +69,8 @@ const ACTIVITY_TYPES: Array<{ value: string; label: string }> = [
   { value: 'email', label: 'Email' },
 ];
 
+type EditableContactField = 'notes' | 'location' | 'howWeMet' | 'tier' | 'tags';
+
 export default function LocalCRMView() {
   const [contacts, setContacts] = useState<Contact[] | null>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -383,7 +385,7 @@ function AddContactForm({
             }}
             placeholder="Full name"
             autoFocus
-            className={`w-full rounded-md border bg-card px-2.5 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent-blue/40 ${
+            className={`w-full px-2.5 py-1.5 text-foreground ${
               formError && !name.trim() ? 'border-accent-red' : ''
             }`}
           />
@@ -395,7 +397,7 @@ function AddContactForm({
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="Email"
-            className="w-full rounded-md border bg-card px-2.5 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent-blue/40"
+            className="w-full px-2.5 py-1.5 text-foreground"
           />
         </div>
         <div>
@@ -405,7 +407,7 @@ function AddContactForm({
             value={role}
             onChange={(e) => setRole(e.target.value)}
             placeholder="Role"
-            className="w-full rounded-md border bg-card px-2.5 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent-blue/40"
+            className="w-full px-2.5 py-1.5 text-foreground"
           />
         </div>
         <div>
@@ -415,7 +417,7 @@ function AddContactForm({
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             placeholder="Phone"
-            className="w-full rounded-md border bg-card px-2.5 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent-blue/40"
+            className="w-full px-2.5 py-1.5 text-foreground"
           />
         </div>
         <div>
@@ -423,7 +425,7 @@ function AddContactForm({
           <select
             value={companyId}
             onChange={(e) => setCompanyId(e.target.value)}
-            className="w-full rounded-md border bg-card px-2.5 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent-blue/40"
+            className="w-full px-2.5 py-1.5 text-foreground"
           >
             <option value="">No company</option>
             {companies.map((c) => (
@@ -444,7 +446,7 @@ function AddContactForm({
               value={newCompanyName}
               onChange={(e) => setNewCompanyName(e.target.value)}
               placeholder="Company name"
-              className="w-full rounded-md border bg-card px-2.5 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent-blue/40"
+              className="w-full px-2.5 py-1.5 text-foreground"
             />
           </div>
         )}
@@ -494,46 +496,91 @@ function ContactDetailPanel({
   const [tier, setTier] = useState(contact.tier ?? 'C');
   const [tagsStr, setTagsStr] = useState(contact.tags.join(', '));
   const [saveError, setSaveError] = useState<string>();
-  const [saveStatus, setSaveStatus] = useState<'saving' | 'saved'>();
-  const saveRequestId = useRef(0);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const latestSaveRequestId = useRef(0);
+  const dirtyVersionByField = useRef<Record<EditableContactField, number>>({
+    notes: 0,
+    location: 0,
+    howWeMet: 0,
+    tier: 0,
+    tags: 0,
+  });
+  const saveStatusField = useRef<EditableContactField | undefined>(undefined);
+  const savedStatusTimer = useRef<number | undefined>(undefined);
 
-  function markDraftDirty() {
-    saveRequestId.current += 1;
-    setSaveStatus(undefined);
+  useEffect(() => {
+    return () => {
+      if (savedStatusTimer.current !== undefined) {
+        window.clearTimeout(savedStatusTimer.current);
+      }
+    };
+  }, []);
+
+  function clearSavedStatusTimer() {
+    if (savedStatusTimer.current === undefined) return;
+    window.clearTimeout(savedStatusTimer.current);
+    savedStatusTimer.current = undefined;
   }
 
-  async function saveField(patch: Partial<Contact>) {
-    const requestId = ++saveRequestId.current;
+  function markDraftDirty(field: EditableContactField) {
+    dirtyVersionByField.current[field] += 1;
+    if (saveStatus === 'saved' && saveStatusField.current === field) {
+      clearSavedStatusTimer();
+      saveStatusField.current = undefined;
+      setSaveStatus('idle');
+    }
+  }
+
+  async function saveField(field: EditableContactField, patch: Partial<Contact>) {
+    const requestId = ++latestSaveRequestId.current;
+    const dirtyVersionAtStart = dirtyVersionByField.current[field];
+    clearSavedStatusTimer();
+    saveStatusField.current = field;
     try {
       setSaveError(undefined);
       setSaveStatus('saving');
       await onSaveContact(patch);
-      if (requestId === saveRequestId.current) setSaveStatus('saved');
+      if (requestId !== latestSaveRequestId.current) return;
+      if (dirtyVersionByField.current[field] !== dirtyVersionAtStart) {
+        saveStatusField.current = undefined;
+        setSaveStatus('idle');
+        return;
+      }
+      setSaveStatus('saved');
+      savedStatusTimer.current = window.setTimeout(() => {
+        if (requestId !== latestSaveRequestId.current) return;
+        saveStatusField.current = undefined;
+        setSaveStatus('idle');
+        savedStatusTimer.current = undefined;
+      }, 3000);
     } catch (err) {
-      if (requestId === saveRequestId.current) setSaveStatus(undefined);
+      if (requestId !== latestSaveRequestId.current) return;
+      saveStatusField.current = undefined;
+      setSaveStatus('idle');
       setSaveError(err instanceof Error ? err.message : String(err));
     }
   }
 
   function commitNotes() {
     if (notes === (contact.notes ?? '')) return;
-    void saveField({ notes });
+    void saveField('notes', { notes });
   }
 
   function commitLocation() {
     if (location === (contact.location ?? '')) return;
-    void saveField({ location: location || null });
+    void saveField('location', { location: location || null });
   }
 
   function commitHowWeMet() {
     if (howWeMet === (contact.how_we_met ?? '')) return;
-    void saveField({ how_we_met: howWeMet || null });
+    void saveField('howWeMet', { how_we_met: howWeMet || null });
   }
 
   function commitTier(next: string) {
     setTier(next);
     if (next === contact.tier) return;
-    void saveField({ tier: next });
+    markDraftDirty('tier');
+    void saveField('tier', { tier: next });
   }
 
   function commitTags() {
@@ -546,7 +593,7 @@ function ContactDetailPanel({
       ),
     );
     if (parsed.join(',') === contact.tags.join(',')) return;
-    void saveField({ tags: parsed });
+    void saveField('tags', { tags: parsed });
   }
 
   async function handleDelete() {
@@ -575,11 +622,9 @@ function ContactDetailPanel({
             <h2 className="truncate text-[21px] font-[650] tracking-[-0.018em]">
               {contact.name}
             </h2>
-            {saveStatus && (
-              <span className="text-[12px] font-medium text-muted-foreground" role="status" aria-live="polite">
-                {saveStatus === 'saving' ? 'Saving...' : 'Saved'}
-              </span>
-            )}
+            <span className="text-[12px] font-medium text-muted-foreground" role="status" aria-live="polite">
+              {saveStatus === 'idle' ? '' : saveStatus === 'saving' ? 'Saving...' : 'Saved'}
+            </span>
           </div>
           <p className="mt-0.5 text-[13.5px] leading-[1.55] text-muted-foreground">
             {[contact.role, companyName].filter(Boolean).join(' at ') ||
@@ -639,12 +684,12 @@ function ContactDetailPanel({
             value={notes}
             onChange={(e) => {
               setNotes(e.target.value);
-              markDraftDirty();
+              markDraftDirty('notes');
             }}
             onBlur={commitNotes}
             rows={4}
             placeholder="What should you remember about this person?"
-            className="w-full resize-y rounded-md border bg-background px-2.5 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-accent-blue/40"
+            className="w-full resize-y px-2.5 py-2 text-foreground"
           />
         </div>
 
@@ -656,7 +701,7 @@ function ContactDetailPanel({
             <select
               value={tier}
               onChange={(e) => commitTier(e.target.value)}
-              className="w-full rounded-md border bg-background px-2.5 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-accent-blue/40"
+              className="w-full px-2.5 py-2 text-foreground"
             >
               <option value="A">Tier A</option>
               <option value="B">Tier B</option>
@@ -672,11 +717,11 @@ function ContactDetailPanel({
               value={location}
               onChange={(e) => {
                 setLocation(e.target.value);
-                markDraftDirty();
+                markDraftDirty('location');
               }}
               onBlur={commitLocation}
               placeholder="City, region"
-              className="w-full rounded-md border bg-background px-2.5 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-accent-blue/40"
+              className="w-full px-2.5 py-2 text-foreground"
             />
           </div>
         </div>
@@ -690,11 +735,11 @@ function ContactDetailPanel({
             value={howWeMet}
             onChange={(e) => {
               setHowWeMet(e.target.value);
-              markDraftDirty();
+              markDraftDirty('howWeMet');
             }}
             onBlur={commitHowWeMet}
             placeholder="Where the relationship started"
-            className="w-full rounded-md border bg-background px-2.5 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-accent-blue/40"
+            className="w-full px-2.5 py-2 text-foreground"
           />
         </div>
 
@@ -707,11 +752,11 @@ function ContactDetailPanel({
             value={tagsStr}
             onChange={(e) => {
               setTagsStr(e.target.value);
-              markDraftDirty();
+              markDraftDirty('tags');
             }}
             onBlur={commitTags}
             placeholder="investor, warm intro, roofing"
-            className="w-full rounded-md border bg-background px-2.5 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-accent-blue/40"
+            className="w-full px-2.5 py-2 text-foreground"
           />
         </div>
       </div>
@@ -812,7 +857,7 @@ function ActivityTimeline({
           <select
             value={activityType}
             onChange={(e) => setActivityType(e.target.value)}
-            className="rounded-md border bg-card px-2 py-1.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-accent-blue/40"
+            className="px-2 py-1.5 text-foreground"
           >
             {ACTIVITY_TYPES.map((t) => (
               <option key={t.value} value={t.value}>
@@ -828,7 +873,7 @@ function ActivityTimeline({
               if (error) setError(undefined);
             }}
             placeholder="Title"
-            className="min-w-0 flex-1 rounded-md border bg-card px-2.5 py-1.5 text-sm text-foreground outline-none focus:ring-1 focus:ring-accent-blue/40"
+            className="min-w-0 flex-1 px-2.5 py-1.5 text-foreground"
           />
         </div>
         <textarea
@@ -836,7 +881,7 @@ function ActivityTimeline({
           onChange={(e) => setContent(e.target.value)}
           rows={2}
           placeholder="Details (optional)"
-          className="w-full resize-y rounded-md border bg-card px-2.5 py-1.5 text-sm text-foreground outline-none focus:ring-1 focus:ring-accent-blue/40"
+          className="w-full resize-y px-2.5 py-1.5 text-foreground"
         />
         <div className="flex justify-end">
           <button

@@ -5,7 +5,7 @@ import BuddyPanel from './BuddyPanel';
 
 export default function BuddyDock() {
   return (
-    <>
+    <div data-buddy-root>
       <BuddyPanel />
       <BuddyLauncher />
       <style>{`
@@ -13,6 +13,6 @@ export default function BuddyDock() {
         .buddy-thinking { animation: buddy-shimmer 1.2s ease-in-out infinite; }
         @media (prefers-reduced-motion: reduce) { .buddy-thinking { animation: none; } }
       `}</style>
-    </>
+    </div>
   );
 }

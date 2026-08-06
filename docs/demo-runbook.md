@@ -4,7 +4,7 @@
 
 1. From the Cove repo, run `npm run demo:seed`.
 2. Run `npm run demo:start`.
-3. Open `http://localhost:3300/tasks` in a fresh tab. The Morning Arrival should open immediately with a finished brief, three charcoal focus cards, and two Not today cards.
+3. Open `http://127.0.0.1:3300/tasks` in a fresh tab. The Morning Arrival should open immediately with a finished brief, three charcoal focus cards, and two Not today cards.
 4. Confirm the brief has three paragraphs and three Watching for you items. There should be no writing progress bar.
 5. Stop the server with Control-C.
 
@@ -16,7 +16,7 @@ If the production build is missing or the code changed after the last build, run
 
 ### 1. Cold open
 
-Open `http://localhost:3300/tasks` in a fresh tab.
+Open `http://127.0.0.1:3300/tasks` in a fresh tab.
 
 Say: "This is Cove. It starts with the work that matters today instead of making me reconstruct the day from five different tools."
 
@@ -68,7 +68,7 @@ Pause on the focus card and show the Claude session state if it appears.
 1. Stop `demo:start` with Control-C.
 2. Run `npm run demo:reset`.
 3. Run `npm run demo:start`.
-4. Reload `http://localhost:3300/tasks` in a fresh tab.
+4. Reload `http://127.0.0.1:3300/tasks` in a fresh tab.
 
 The reset recreates `data/demo/` from scratch and takes well under a minute. If the server was running during reset, always restart it so its in-memory stores cannot retain the previous rehearsal.
 

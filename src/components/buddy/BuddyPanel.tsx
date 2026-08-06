@@ -42,11 +42,14 @@ export default function BuddyPanel() {
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setOpen(false);
     };
-    window.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keydown', onKeyDown, { capture: true });
     window.requestAnimationFrame(() => textareaRef.current?.focus());
-    return () => window.removeEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown, { capture: true });
   }, [open, setOpen]);
 
   useEffect(() => {

@@ -45,6 +45,14 @@ import { workspaceConfigPath } from "../src/lib/workspace/config";
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const realDataDir = path.join(repoDir, "data");
 const realDbPath = path.join(realDataDir, "cove.db");
+const realDataGuardPaths = [
+  realDbPath,
+  path.join(realDataDir, "cove.db-wal"),
+  path.join(realDataDir, "cove.db-shm"),
+  path.join(realDataDir, "cove-profile.json"),
+  path.join(realDataDir, "cove-task-settings.json"),
+  path.join(realDataDir, "cove-workspace.json"),
+] as const;
 const demoDataDir = path.join(realDataDir, "demo");
 const demoDbPath = path.join(demoDataDir, "cove.db");
 const demoProfilePath = path.join(demoDataDir, "cove-profile.json");
@@ -649,7 +657,9 @@ function main(): void {
   const unknownArgs = process.argv.slice(2).filter((arg) => !allowedArgs.has(arg));
   assert.deepEqual(unknownArgs, [], `Unknown demo seed arguments: ${unknownArgs.join(", ")}`);
   const noClaude = process.argv.includes("--no-claude");
-  const realDbMtimeBefore = statMtimeNs(realDbPath);
+  const realDataMtimesBefore = new Map(
+    realDataGuardPaths.map((file) => [file, statMtimeNs(file)]),
+  );
 
   assertSafeDemoPaths();
   configureDemoEnvironment();
@@ -709,17 +719,19 @@ function main(): void {
     store?.close();
   }
 
-  assert.equal(
-    statMtimeNs(realDbPath),
-    realDbMtimeBefore,
-    "The real Cove database changed while seeding the demo.",
-  );
+  for (const file of realDataGuardPaths) {
+    assert.equal(
+      statMtimeNs(file),
+      realDataMtimesBefore.get(file),
+      `Real data file changed or was created while seeding the demo: ${path.basename(file)}`,
+    );
+  }
 
   console.log(`Demo seed ready for ${localDate} (${demoTimezone}).`);
   console.log(`Mode: ${noClaude ? "no Claude dispatch" : "one Together-owned focus task"}.`);
   console.log(`Database: ${path.relative(repoDir, demoDbPath)}`);
   for (const check of checks) console.log(`PASS: ${check}`);
-  console.log("PASS: real data/cove.db mtime is unchanged");
+  console.log("PASS: real database, WAL, SHM, profile, task settings, and workspace mtimes are unchanged");
 }
 
 try {

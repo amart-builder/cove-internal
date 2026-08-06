@@ -67,6 +67,15 @@ export default function DayRitualLayer({
       }
       if (event.key !== 'Tab') return;
 
+      const activeElement = document.activeElement;
+      const eventTarget = event.target instanceof Element ? event.target : null;
+      if (
+        (activeElement instanceof Element && activeElement.closest('[data-buddy-root]')) ||
+        eventTarget?.closest('[data-buddy-root]')
+      ) {
+        return;
+      }
+
       const focusable = Array.from(
         dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ?? [],
       ).filter(
@@ -85,7 +94,6 @@ export default function DayRitualLayer({
 
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      const activeElement = document.activeElement;
       const focusIsOutside = !dialogRef.current?.contains(activeElement);
       if (
         event.shiftKey &&

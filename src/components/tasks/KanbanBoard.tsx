@@ -1077,7 +1077,7 @@ function KanbanBoardContent({
                 onChange={(e) => setNewTask((prev) => ({ ...prev, title: e.target.value }))}
                 placeholder="Task title"
                 autoFocus
-                className="w-full px-3 py-2 text-sm"
+                className="w-full px-3 py-2"
               />
             </div>
             <div className="w-24">
@@ -1088,7 +1088,7 @@ function KanbanBoardContent({
                 onChange={(e) =>
                   setNewTask((prev) => ({ ...prev, priority: e.target.value as 'low' | 'medium' | 'high' }))
                 }
-                className="w-full px-3 py-2 text-sm"
+                className="w-full px-3 py-2"
               >
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
@@ -1102,7 +1102,7 @@ function KanbanBoardContent({
                 aria-label="New task due date"
                 value={newTask.dueDate}
                 onChange={(e) => setNewTask((prev) => ({ ...prev, dueDate: e.target.value }))}
-                className="w-full px-3 py-2 text-sm"
+                className="w-full px-3 py-2"
               />
             </div>
             <div className="flex gap-1.5 shrink-0">
@@ -1134,7 +1134,7 @@ function KanbanBoardContent({
                 value={newTask.description}
                 onChange={(e) => setNewTask((prev) => ({ ...prev, description: e.target.value }))}
                 placeholder="Optional description"
-                className="w-full px-3 py-2 text-sm"
+                className="w-full px-3 py-2"
               />
             </div>
             <div className="flex-1">
@@ -1145,7 +1145,7 @@ function KanbanBoardContent({
                 value={newTask.tags}
                 onChange={(e) => setNewTask((prev) => ({ ...prev, tags: e.target.value }))}
                 placeholder="design, frontend (comma-separated)"
-                className="w-full px-3 py-2 text-sm"
+                className="w-full px-3 py-2"
               />
             </div>
           </div>
