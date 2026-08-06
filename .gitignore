@@ -58,3 +58,6 @@ next-env.d.ts
 /.sim-two-days/
 .gbrain-source
 /supabase/
+
+# Graphify tool output cache
+/graphify-out/
