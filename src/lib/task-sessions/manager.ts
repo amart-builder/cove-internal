@@ -353,7 +353,9 @@ export function routeTaskSessionModel(input: {
           `PROJECT=${promptValue(task.project)}`,
           `DUE=${promptValue(task.dueAt)}`,
         ].join("\n"),
-        timeout: Math.min(Math.max(input.timeoutMs ?? 10_000, 1_000), 10_000),
+        // A cold-cache Fable call takes ~9s wall clock; 10s left too little
+        // margin and the router fell back on most fresh mornings.
+        timeout: Math.min(Math.max(input.timeoutMs ?? 15_000, 1_000), 15_000),
         maxBuffer: 1024 * 1024,
         env: { ...minimalChildEnvironment(), CLAUDE_EFFORT: "medium" },
       },

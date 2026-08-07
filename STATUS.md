@@ -39,7 +39,8 @@
   - Fix 2: focus-card completion orb was top-aligned (34px above center); mockup centers it. `align-self: center` on `.today2-check-orb`. Verified 0px offset live.
   - Fix 3: the model router capped its own claude call at $0.25, but a Fable 5 CLI call costs ~$0.26 minimum (fixed system prompt), so every launch silently fell back. Raised to $1.00; live Auto launch then recorded router-chosen claude-sonnet-5 high with a real reason line in the DB.
   - Fix 4: with a finished run, the detail-card footer (Ready chip + Planning + Auto) overlapped the "Start with Claude" label; the label now hides in that state. Verified no overlap live.
-  - Full suite re-run after fixes: 902/902.
+  - Fix 5 (found in the full Gary walkthrough on the production demo server): the router's 10s timeout left ~1s of margin over a cold-cache Fable call (~9s wall), so the first launch of a fresh morning usually fell back. Raised to 15s. Re-ran the walkthrough after a reseed: Start my day launched the pricing session with router-chosen claude-sonnet-5 high and a real reason, session init record confirms plan mode and read-only tools.
+  - Full suite re-run after fixes: 902/902. Gary walkthrough verified end to end on the reseeded production demo server (port 3300): instant brief, Continue to Plan, both runbook drags (Meridian to Also today, promote onto Focus 1 with clean swap), Task Sheet owner control, Browse All Work, Buddy open and Escape-close with ritual intact, Start my day to Today with inline session status and no card-height change. Demo reset to pristine afterward.
 
 ## 2026-08-06 Round 5 consolidated review fixes (DONE, COMMITTED)
 

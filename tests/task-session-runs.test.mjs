@@ -216,7 +216,7 @@ test('Fable routes fresh sessions at medium effort and falls back without blocki
   assert.equal(calls[0].args[calls[0].args.indexOf('--effort') + 1], 'medium');
   assert.equal(calls[0].args.filter((arg) => arg === '--effort').length, 1);
   assert.equal(calls[0].options.env.CLAUDE_EFFORT, 'medium');
-  assert.equal(calls[0].options.timeout, 10_000);
+  assert.equal(calls[0].options.timeout, 15_000);
 
   const failed = (mode, stdout = '') => routeTaskSessionModel({
     claudePath: '/fake/claude',
