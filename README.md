@@ -16,27 +16,35 @@ Your assistant follows the playbook in [SETUP.md](SETUP.md): it checks the Mac, 
 
 When it is done, Cove is running at `http://localhost:3200` on your Mac.
 
-For a first-day assisted rollout, the safe baseline is the local task board,
-People, Buddy, a real Morning Brief, Close My Day, and a verified local backup.
-Email, meeting-note ingestion, and text-message reminders can wait. Skipping an
-optional integration does not make the core install incomplete.
+For a first-day Basic Mode rollout, the safe baseline is real profile and task
+context, the two Claude rituals, durable operator learning, and a verified local
+backup. Full Cove adds the visual task board, People, Buddy, Morning Arrival,
+and Close My Day. Email, meeting-note ingestion, and message reminders remain
+opt-in backend connections. Skipping one does not make the core install
+incomplete.
 
 ### Start with Basic Mode
 
-Basic Mode puts Cove inside one ongoing Claude Code session in the Claude Mac
-app. The same local task database, goals, email, meeting-note context, and
-safety rules run underneath it, but the user does not need to open the Cove
-website or use Terminal in daily life.
+Basic Mode puts Cove's backend together while keeping the user experience to
+two daily Claude rituals. Tasks, goals, selected email and meeting-note
+connections, workers, receipts, and backups run underneath it, but the user
+does not need to open the Cove website or use Terminal in daily life.
 
-At 8:00 AM Cove talks through the Morning Brief. At 8:30 AM and 2:00 PM it
-triages email, prepares drafts, and separates urgent work from useful context
-and noise. At 5:00 PM it closes the day, records progress, and carries unfinished
-work forward. Every moment returns to the same conversation so the user can
-reply naturally and Cove can maintain one continuous working relationship.
+In the morning, Cove reviews the real context and recommends what the user
+should focus on. At the end of the day, it asks what got done, what should carry
+forward, and whether there are any notes or decisions the user wants to talk
+through. The closeout also asks one thoughtful operator question each day so
+Cove understands the user better over time.
+
+Basic Mode does not require one persistent Claude session. Each ritual may open
+in a fresh session because tasks, closeout context, and useful operator answers
+are saved durably for the next one. Connected email and meeting notes can work
+quietly in the backend, but they do not create separate scheduled Basic Mode
+conversations.
 
 To request it, add this sentence to the setup note above:
 
-> Set me up in Basic Mode. Use one ongoing Cove session in the Claude Mac app as my only daily surface. Follow the Basic Mode experience contract in SETUP.md and use the best supported Claude capabilities to deliver it.
+> Set me up in Basic Mode. Put Cove's backend together, then give me only two daily rituals in the Claude Mac app: a Morning Brief and an end-of-day conversation that captures what I completed, lets me talk through notes, and asks one useful question each day to understand me better. Follow the Basic Mode experience contract in SETUP.md and use the best supported Claude capabilities to deliver it.
 
 The canonical Basic Mode experience and acceptance criteria are in
 [SETUP.md](SETUP.md#basic-mode). It is a different interface over the same Cove

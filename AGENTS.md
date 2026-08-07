@@ -11,15 +11,18 @@ For a person's first Cove install:
 
 - Default to the assisted first-day rollout in `SETUP.md`.
 - If the user asks for Basic Mode, treat the `Basic Mode` section of `SETUP.md`
-  as the user-experience and acceptance contract. Use one ongoing Cove session
-  in the Claude Mac app as the user's daily surface. Use the best supported
-  Claude capabilities to achieve that outcome rather than hard-coding a
-  fragile mechanism.
+  as the user-experience and acceptance contract. Deliver only two scheduled
+  Claude Mac app rituals: a Morning Brief and an end-of-day conversation. Put
+  the daily operator question inside closeout rather than creating a third
+  interruption. Use the best supported Claude capabilities rather than
+  hard-coding a fragile mechanism.
 - Basic Mode uses Cove's existing local database, goals, connectors, workers,
   and safety boundaries. Do not build a prompt-only substitute, a parallel task
-  store, or a separate Claude session for every scheduled moment. Terminal and
-  the Cove website may be used by the setup agent for installation and testing,
-  but they are not part of the user's Basic Mode workflow.
+  store, or user-facing email-triage routine. Basic Mode does not depend on a
+  persistent Claude session. Persist task changes, closeout notes, and useful
+  operator answers so a fresh ritual session can recover them. Terminal and the
+  Cove website may be used by the setup agent for installation and testing, but
+  they are not part of the user's Basic Mode workflow.
 - Use paths discovered on that Mac. Never copy another person's database,
   profile, goals, credentials, LaunchAgents, or absolute paths.
 - Never run a demo seed or a `demo:*` command against the person's install.
