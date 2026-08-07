@@ -31,7 +31,7 @@
 - Hardened `AGENTS.md`, `README.md`, `SETUP.md`, and `CONFIGURATION.md` for a true first-user AI-agent handoff. The assisted first-day baseline now captures real work before Morning Arrival, leaves optional integrations off unless chosen, keeps both model attention lanes shadowed, bans demo and `--mini` use on the laptop, and requires evidence for every completion claim.
 - Made Claude the real default Morning Brief writer and carried that choice into the server and both worker plist templates. Added fail-fast Codex binary discovery, a read-only `check:brief-writer` acceptance command, and rendered-plist regressions.
 - Strengthened `npm run verify` so it avoids the tsx IPC socket and pins all child processes to the same Node runtime. Added public-handoff identity, path, and shadow-default regressions.
-- Private source release: `7f5f9fff32f361feb8c1f1154cb432994bd73943`. Sanitized public mirror: `d9fef78071c197e2ee7e8c8de4f2452acd57710a`, visibility verified `PUBLIC`.
+- Private source release: `7f5f9fff32f361feb8c1f1154cb432994bd73943`. Sanitized public mirror: `d9fef78d0c347290475cc064b08eb7fb4bac4c8f`, visibility verified `PUBLIC`.
 - Fresh anonymous HTTPS clone verification under Node 24.14.0: 412 manifest hashes passed, live data excluded, secret scan passed, 0 npm vulnerabilities, TypeScript clean, ESLint zero warnings, 943/943 tests, and production build passed. Only the six existing non-fatal Turbopack tracing warnings remain.
 - Rollout remains an assisted first-user pilot. The first brief, task create, edit, complete, and undo flows, closeout, restart persistence, backup, integrity check, and selected integrations must be verified on Gary's physical Mac before setup is called complete.
 
