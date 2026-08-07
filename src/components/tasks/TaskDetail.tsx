@@ -218,7 +218,7 @@ export default function TaskDetail({
         ref={backdropRef}
         onMouseDown={handleBackdropMouseDown}
         onClick={handleBackdropClick}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 dark:bg-black/40 backdrop-blur-sm"
+        className="fixed inset-0 z-[160] flex items-center justify-center bg-black/20 dark:bg-black/40 backdrop-blur-sm"
       >
         <div className="bg-card rounded-lg border w-full max-w-lg mx-4 p-5 max-h-[90vh] overflow-y-auto transition-colors duration-200">
           <div className="flex items-start justify-between mb-4">
@@ -241,7 +241,7 @@ export default function TaskDetail({
       ref={backdropRef}
       onMouseDown={handleBackdropMouseDown}
       onClick={handleBackdropClick}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 dark:bg-black/40 backdrop-blur-sm"
+      className="fixed inset-0 z-[160] flex items-center justify-center bg-black/20 dark:bg-black/40 backdrop-blur-sm"
     >
       <div className="bg-card rounded-lg border w-full max-w-lg mx-4 p-5 max-h-[90vh] overflow-y-auto transition-colors duration-200">
         <div className="flex items-start justify-between mb-4">

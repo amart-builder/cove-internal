@@ -74,7 +74,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-[160] flex items-center justify-center">
       <div
         className="absolute inset-0 bg-black/20 dark:bg-black/40 backdrop-blur-sm"
         onClick={onClose}

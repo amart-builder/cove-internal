@@ -1040,7 +1040,7 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
 
         <svg className="today2-sun-arc" viewBox="0 0 290 120" aria-hidden="true">
           <path d="M8 104 C58 46 134 17 274 28" />
-          <circle className="today2-sun-now" cx={model.sunPoint.x} cy={model.sunPoint.y} r="3.2" />
+          <circle suppressHydrationWarning className="today2-sun-now" cx={model.sunPoint.x} cy={model.sunPoint.y} r="3.2" />
           <g className="today2-sun-glyph" transform="translate(269 29)">
             <circle r="4.2" />
             <path d="M0 -9 V-12 M0 9 V12 M-9 0 H-12 M9 0 H12 M-6.4 -6.4 L-8.5 -8.5 M6.4 -6.4 L8.5 -8.5 M-6.4 6.4 L-8.5 8.5 M6.4 6.4 L8.5 8.5" />
@@ -1210,6 +1210,9 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
           onEdit={() => {
             const taskId = richTaskId;
             setRichTaskId(undefined);
+            // Also close the inline detail card so the scrim's focus return
+            // cannot land on a control behind the edit modal.
+            setDetailTaskId(undefined);
             window.requestAnimationFrame(() => callbacks.onEditTask(taskId));
           }}
           onStart={(mode) => callbacks.onStartSession(richTaskId, mode)}

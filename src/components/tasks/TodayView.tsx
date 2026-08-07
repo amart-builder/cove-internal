@@ -2232,7 +2232,7 @@ function TodayExperience({
             <div className="current-day-arc" aria-hidden="true">
               <svg viewBox="0 0 324 132">
                 <path d="M 18 112 C 116 116, 244 76, 306 18" />
-                <circle cx={dayPoint.x} cy={dayPoint.y} r="6" />
+                <circle suppressHydrationWarning cx={dayPoint.x} cy={dayPoint.y} r="6" />
                 <g className="current-sun" transform="translate(306 18)">
                   <circle r="9" />
                 </g>
@@ -2471,7 +2471,7 @@ function TodayExperience({
           <div className="current-day-arc" aria-hidden="true">
             <svg viewBox="0 0 324 132">
               <path d="M 18 112 C 116 116, 244 76, 306 18" />
-              <circle cx={dayPoint.x} cy={dayPoint.y} r="6" />
+              <circle suppressHydrationWarning cx={dayPoint.x} cy={dayPoint.y} r="6" />
               <g className="current-sun" transform="translate(306 18)">
                 <circle r="9" />
                 {[0, 45, 90, 135].map((angle) => (

@@ -125,7 +125,7 @@ export default function TabNav() {
     />
     <nav
       ref={navRef}
-      className={`quiet-main-nav fixed inset-x-0 top-0 z-[130] grid h-12 grid-cols-[1fr_auto_1fr] items-center border-b px-4 transition-[transform,opacity] duration-[350ms] ease-[cubic-bezier(.22,.8,.25,1)] motion-reduce:transform-none motion-reduce:duration-150 sm:px-6 ${
+      className={`quiet-main-nav fixed inset-x-0 top-0 z-[130] grid h-12 grid-cols-[1fr_auto_1fr] items-center border-b px-4 transition-[translate,opacity] duration-[350ms] ease-[cubic-bezier(.22,.8,.25,1)] motion-reduce:translate-none motion-reduce:duration-150 sm:px-6 ${
         visible ? 'translate-y-0 opacity-100' : 'pointer-events-none -translate-y-full opacity-0'
       }`}
       aria-label="Main navigation"

@@ -24,7 +24,20 @@
 
 ---
 
-**Last updated:** 2026-08-06 evening (Round 6 verified live and committed; Opus review pending)
+**Last updated:** 2026-08-06 evening (Round 6 shipped through the Opus review; deployed to the live app)
+
+## 2026-08-06 Round 6 Opus review disposition (DONE, COMMITTED)
+
+Fresh-context Opus review of the Round 6 diff returned CHANGES_REQUIRED with 2 HIGH, 4 MEDIUM, 7 LOW. All five required changes applied and live-verified:
+
+- HIGH: the Edit Task and CSV import modals sat at z-50, under the new fixed top bar (z-130) and its reveal strip (z-129). Raised both to z-160 (the modal-scrim rung). Verified live: the edit modal renders over the revealed bar.
+- HIGH: the model router's synchronous claude call blocks the entire Node server for its duration (up to 15s per launch). Demo mitigation: COVE_MODEL_ROUTER=0 in demo:start and demo:dev skips straight to the fixed rule (reason recorded as "router is off in this environment"). Verified live: demo launch settles in under 1s. The live app keeps the router. Proper fix (async router) is deferred post-demo and tracked below.
+- MEDIUM: task text could close the [task notes] fence and have the remainder read as instructions (regression vs the old JSON encoding). Both prompt builders now neutralize embedded markers; new regression test asserts a crafted breakout stays fenced.
+- MEDIUM: Tailwind v4 emits the standalone `translate` property, so `transition-[transform,opacity]` never animated the slide and `motion-reduce:transform-none` was a no-op. Fixed to `transition-[translate,opacity]` and `motion-reduce:translate-none`; computed transition-property verified live.
+- MEDIUM: the 2-decimal arc rounding does not cover a load straddling a minute boundary; added suppressHydrationWarning to the three time-derived arc circles.
+- MEDIUM: after Edit task, focus could return to a control behind the modal; the inline detail card now closes too.
+- LOW findings deferred deliberately (post-demo backlog): reveal-strip click/wheel interception (replace with a document mousemove listener), hardcoded operator name in the session prompt, orphaned convex notice id, failed-run controls clipping in the 25px slot, sub-960px skeleton padding, humanDueDate timezone for timestamped dues, owner/mode denormalization, and the review's test-gap list (top-bar behavior tests, real spawnSync path, source-grep tests).
+- Full suite 903/903 after all fixes (one new fence-breakout regression test). Demo reseeded pristine; all servers stopped.
 
 ## 2026-08-06 Round 6 owner-approved demo changes (DONE, COMMITTED)
 
