@@ -150,8 +150,8 @@ function promptValue(value: string | undefined): string {
 
 function humanDueDate(value: string | undefined): string {
   if (!value) return "Open";
-  const calendarDate = /^\d{4}-\d{2}-\d{2}$/.test(value);
-  const parsed = new Date(calendarDate ? `${value}T00:00:00Z` : value);
+  const calendarDate = /^(\d{4}-\d{2}-\d{2})(?:T00:00:00(?:\.000)?Z)?$/.exec(value)?.[1];
+  const parsed = new Date(calendarDate ? `${calendarDate}T00:00:00Z` : value);
   if (Number.isNaN(parsed.getTime())) return value.replace(/\s+/g, " ").trim();
   return new Intl.DateTimeFormat("en-US", {
     month: "short",

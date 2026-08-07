@@ -103,10 +103,13 @@ export function arrivalDateLabel(localDate: string): string {
 }
 
 export function formatArrivalDueDate(dueAt: string): string {
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(dueAt)
-    ? new Date(`${dueAt}T00:00:00`)
-    : new Date(dueAt);
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const calendarDate = /^(\d{4}-\d{2}-\d{2})(?:T00:00:00(?:\.000)?Z)?$/.exec(dueAt)?.[1];
+  const date = new Date(calendarDate ? `${calendarDate}T00:00:00Z` : dueAt);
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(calendarDate ? { timeZone: 'UTC' } : {}),
+  });
 }
 
 export function shortArrivalSummary(value: string | undefined, title?: string): string | undefined {
