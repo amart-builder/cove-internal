@@ -16,15 +16,25 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** none
-- **device:** —
-- **since:** —
-- **task:** —
+- **system:** codex
+- **device:** Alexanders-MacBook-Pro-2
+- **since:** 2026-08-07T01:23:26-0700
+- **task:** Document full codebase for agent onboarding
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-08-07 early morning (dual-agent first-user simulation passed and public mirror refreshed)
+**Last updated:** 2026-08-07 early morning (agent codebase guide and documentation coverage ready to release)
+
+## 2026-08-07 agent-readable codebase documentation (DONE, PRIVATE SOURCE COMMITTED)
+
+- Added `CODEBASE_GUIDE.md` as the public engineering map for product surfaces, process boundaries, all 20 `src/lib` domains, all 18 API routes, state ownership, migrations, model execution, LaunchAgent profiles, reliability invariants, trace recipes, test placement, and the expected commenting style.
+- Added `docs/README.md` to classify every private documentation artifact as current, historical, or supporting. Updated the README, agent contract, architecture, data, and repository instructions so a new coding agent reaches the correct documents before editing.
+- Added high-signal module contract comments to 34 implementation and operations entry files. The comments explain authority, durable state, safety boundaries, and failure semantics without narrating obvious code line by line.
+- Added documentation regressions that fail if a new server domain, API route, rendered LaunchAgent label, or private docs artifact becomes undiscoverable. The public exporter now ships `CODEBASE_GUIDE.md` while continuing to exclude the private `docs/` archive.
+- Opus 5 reviewed the documentation through Alex's Claude Max account in a read-only, tool-restricted session. Its first verdict found the public-export and coverage gaps above. After the fixes, its final verdict was `PASS`; the remaining low-severity legacy `--mini` label note was also fixed and regression-covered.
+- Verification on the final tree: TypeScript clean, ESLint zero warnings, 958 of 958 tests passed, 12 of 12 focused documentation/export tests passed, `git diff --check` clean, and the production Turbopack build passed with the six known non-fatal filesystem-tracing warnings. The live service was rebuilt, restarted, and returned HTTP 200 at `/tasks`.
+- Private source commit: `e917859`. Public mirror refresh and anonymous-clone verification are the remaining release steps.
 
 ## 2026-08-07 dual-agent first-user release (DONE)
 
