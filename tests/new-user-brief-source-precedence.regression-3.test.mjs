@@ -59,3 +59,31 @@ test('documented client brief files win over legacy Atlas brain files', (t) => {
   );
   assert.equal(policy.operator_profile.format, undefined);
 });
+
+test('the setup profile JSON wins when no client operator markdown exists', (t) => {
+  const root = path.join(
+    os.tmpdir(),
+    `cove-client-profile-precedence-${process.pid}-${Date.now()}-${Math.random()}`,
+  );
+  const dataDir = path.join(root, 'data');
+  const homeDir = path.join(root, 'home');
+  const legacyBrainDir = path.join(homeDir, 'Atlas', 'brain');
+  mkdirSync(dataDir, { recursive: true });
+  mkdirSync(legacyBrainDir, { recursive: true });
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const profilePath = path.join(dataDir, 'cove-profile.json');
+  writeFileSync(profilePath, JSON.stringify({ name: 'New Cove user' }));
+  writeFileSync(path.join(legacyBrainDir, 'operator-profile.md'), 'Older profile.');
+
+  const previous = process.env.COVE_BRIEF_OPERATOR_PROFILE_PATH;
+  delete process.env.COVE_BRIEF_OPERATOR_PROFILE_PATH;
+  t.after(() => {
+    if (previous === undefined) delete process.env.COVE_BRIEF_OPERATOR_PROFILE_PATH;
+    else process.env.COVE_BRIEF_OPERATOR_PROFILE_PATH = previous;
+  });
+
+  const policy = resolveBriefFileSourcePolicy({ dataDir, homeDir });
+  assert.equal(policy.operator_profile.path, profilePath);
+  assert.equal(policy.operator_profile.format, 'operator-profile-json');
+});

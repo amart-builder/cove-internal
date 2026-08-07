@@ -34,7 +34,10 @@ test('the public setup checks real release commands and keeps judgment shadowed'
     'node scripts/cove-check-brief-writer.mjs',
   );
   assert.match(setup, /npm run verify/);
-  assert.match(setup, /npm run check:brief-writer -- --expect claude/);
+  assert.match(
+    setup,
+    /npm run check:brief-writer -- --expect claude --expect-local-sources/,
+  );
   assert.match(verifyScript, /process\.execPath/);
   assert.match(verifyScript, /path\.dirname\(process\.execPath\)/);
   assert.doesNotMatch(verifyScript, /\["npx", \["tsx"/);
@@ -42,4 +45,10 @@ test('the public setup checks real release commands and keeps judgment shadowed'
     installer,
     /printf '%s\\n' '\{"shadow":true,"email_shadow":true\}' > "\$ATTENTION_CONFIG"/,
   );
+});
+
+test('the public agent notes keep the client on the supported local runtime', () => {
+  const contract = readFileSync(path.join(root, 'AGENT_CONTRACT.md'), 'utf8');
+  assert.match(contract, /supported runtime is one local server and one local SQLite database/);
+  assert.doesNotMatch(contract, /In a Supabase or Convex setup/);
 });

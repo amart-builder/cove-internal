@@ -56,4 +56,6 @@ Cove records focus, acceptance, refinement, dismissal, decay, handoff, completio
 
 If Cove surfaces a rollback error after reopening a proposal, pencil and ink may both remain visible until the person resolves the mismatch. Treat that pair as one fail-visible item: do not duplicate it, re-propose it, or infer that either side won.
 
-Quiet Current state lives on the machine serving the Cove page. In a Supabase or Convex setup, choose one canonical Cove server and have every browser and agent use that URL. Running separate Cove servers against the same cloud task database will sync ink but not the pencil layer.
+Quiet Current state lives on the Mac serving the Cove page. Do not assemble a
+Supabase, Convex, or other cloud task database for a client install. Cove's
+supported runtime is one local server and one local SQLite database.

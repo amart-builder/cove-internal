@@ -218,6 +218,17 @@ The two `jarvis_*` keys are old internal names kept for compatibility. Describe 
 
 Write `data/brief/goals.md` in prose. Cover the north star and its numbers, each line of attack and why it matters now, the never-drop list, and how the user wants to work. Read it back and correct it until they say it is right. Keep credentials, raw email, and private message text out.
 
+Write two short companion files from the same interview:
+
+- `data/brief/leadup.md`: what happened recently, what changed, and which
+  conversations or decisions shape the next morning.
+- `data/brief/sprint-memo.md`: the current one-to-two-week push, its scoreboard,
+  and the few tradeoffs that should govern priority.
+
+These files belong to this Cove installation. Do not copy an older person's
+planning files or point them at another checkout. If either has no honest
+content yet, write a plain sentence saying that instead of inventing context.
+
 The profile helps Cove explain and rank suggestions. It does not grant permission for outside action or silently create tasks.
 
 ### Tasks and people
@@ -250,8 +261,9 @@ If they have a people export, run the `cove-contact` import flow after the local
 Groundwork is opt-in. It lets Claude do one bounded read-only research or drafting pass and add a marked draft to the user's task. It never sends, but it changes task text. Leave `data/cove-autonomy.json` at `"level": "off"` unless the user says yes to `"groundwork"`.
 
 **Worker-start checkpoint.** Before continuing, confirm the profile and goals
-files exist, the real task count is correct, the first People record is visible,
-the temporary web process is stopped, and no Cove worker process is running.
+files plus `data/brief/leadup.md` and `data/brief/sprint-memo.md` exist, the real
+task count is correct, the first People record is visible, the temporary web
+process is stopped, and no Cove worker process is running.
 The next worker start must see the finished first-day data.
 
 ## Step 5: Build and run a quiet smoke test
@@ -336,7 +348,7 @@ Prove which writer produced the successful brief without printing its contents,
 then confirm the installed worker carries the same choice:
 
 ```bash
-npm run check:brief-writer -- --expect claude
+npm run check:brief-writer -- --expect claude --expect-local-sources
 /usr/libexec/PlistBuddy -c \
   "Print :EnvironmentVariables:COVE_BRIEF_WRITER" \
   "$HOME/Library/LaunchAgents/com.cove.claude-worker.plist"

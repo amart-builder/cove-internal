@@ -111,9 +111,9 @@ export function resolveBriefFileSourcePolicy(
   const operatorPath = explicitOperatorProfile || envOperatorProfile ||
     (existsSync(clientOperatorProfile)
       ? clientOperatorProfile
-      : existsSync(legacyOperatorProfile)
-        ? legacyOperatorProfile
-        : jsonProfile);
+      : existsSync(jsonProfile)
+        ? jsonProfile
+        : legacyOperatorProfile);
 
   return {
     goals: {
