@@ -1109,6 +1109,19 @@ export function relayCheckpointSources(
   });
 }
 
+export function morningBriefFailureMessage(code: string): string {
+  if (code.startsWith("required_source_missing:")) {
+    return "Cove could not write the morning brief because required setup information is missing. Check your profile and goals, then try again.";
+  }
+  if (code.includes("unavailable")) {
+    return "Cove could not reach the morning brief writer. Check that Codex or Claude is signed in, then try again.";
+  }
+  if (code.includes("timeout")) {
+    return "The morning brief took too long to finish. Try again from Morning Arrival.";
+  }
+  return "Cove could not write the morning brief. Try again from Morning Arrival.";
+}
+
 // The Morning Brief lane. It reuses the same bounded spawn machinery as the
 // other lanes but drains through its own loop, so a brief can never starve
 // behind a long execution run. Brief output carries contact names and drafts,
@@ -1173,7 +1186,7 @@ export async function runOneMorningBrief(
   // stops waiting on this attempt.
   const failBrief = (code: string) => {
     options.store.failMorningBrief(claimed.id, code);
-    recordBriefReceipt("failed", `Morning brief failed: ${code}`, { errorCode: code });
+    recordBriefReceipt("failed", morningBriefFailureMessage(code), { errorCode: code });
     if (relay) {
       writeBriefAttemptStatus(
         {
