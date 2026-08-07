@@ -16,10 +16,10 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** codex
-- **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-08-07T01:18:48-0700
-- **task:** Record final dual-agent simulation and public release
+- **system:** none
+- **device:** —
+- **since:** —
+- **task:** —
 <!-- END active-session -->
 
 ---
