@@ -11,7 +11,7 @@ The user sent you this repository and asked you to set up Cove. Follow these ste
 Check the Mac before cloning. Run every command you can for the user. The user should only need to click a macOS dialog or type a password when macOS asks. Explain those moments first.
 
 1. Run `xcode-select -p`. If it fails, run `xcode-select --install`. Tell the user to click Install and that an administrator account is needed. Wait, then run the check again.
-2. Run `node --version`. Cove needs Node 20 or newer. If it is missing or old:
+2. Run `node --version`. Cove needs Node 20.19+, Node 22.13+, or Node 24+. Odd-numbered Node releases are not supported. If Node is missing or old:
    - If `brew --version` works, run `brew install node`.
    - Otherwise, find the current LTS package with `curl -s https://nodejs.org/dist/index.json`, download the correct macOS package to a temporary folder, and run `sudo installer -pkg <file> -target /`. Apple Silicon needs arm64. Warn the user before the password prompt. Do not install Homebrew just for Node.
    - Check Node again in a fresh shell.

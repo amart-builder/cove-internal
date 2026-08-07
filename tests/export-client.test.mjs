@@ -104,7 +104,9 @@ test("client export is clean by default and explicit about dirty exports", (t) =
     "utf8",
   ));
   assert.equal(clientPackage.license, "SEE LICENSE IN LICENSE");
-  assert.deepEqual(clientPackage.engines, { node: ">=20" });
+  assert.deepEqual(clientPackage.engines, {
+    node: "^20.19.0 || ^22.13.0 || >=24",
+  });
 
   writeFileSync(path.join(repo, "dirty.txt"), "untracked\n");
   const refusedOutput = path.join(dir, "refused-export");
