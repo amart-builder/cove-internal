@@ -24,9 +24,18 @@
 
 ---
 
-**Last updated:** 2026-08-07 morning (Basic Mode contract published and anonymously reverified)
+**Last updated:** 2026-08-07 morning (simplified Basic Mode published and anonymously reverified)
 
-## 2026-08-07 Basic Mode experience contract (DONE, PUBLISHED)
+## 2026-08-07 simplified Basic Mode contract (DONE, PUBLISHED)
+
+- Replaced the persistent-session version of Basic Mode with exactly two user-facing Claude Mac app rituals: a Morning Brief and an end-of-day conversation. Basic Mode no longer schedules 8:30 AM or 2:00 PM email-triage conversations and does not depend on one ongoing Claude session.
+- The end-of-day ritual asks what the user completed, what should carry, and which notes, decisions, concerns, or ideas they want to discuss. It also asks one useful operator question inside the same closeout, not as a third interruption.
+- Continuity now comes from durable Cove state. Task changes, closeout context, and useful operator answers must survive into a fresh ritual session and inform future Morning Briefs. Selected email and meeting-note connections may still work quietly in the backend under the existing safety rules.
+- Updated `SETUP.md`, `README.md`, `AGENTS.md`, and the public documentation regression. The test fails if the discarded twice-daily email sessions, same-conversation requirement, or one-ongoing-session wording returns to the Basic Mode contract.
+- Private source commit: `ff3d1f940574b59349f4cc3e36a6792489c0f1bb`. The sanitized public mirror is published at `dbfc0c56bca3ec34ae4526dc56172daaf8eaae6a` with all 421 manifest hashes tied to that source SHA.
+- Verification: zero-warning ESLint and all 959 repository tests passed. A fresh anonymous public clone passed all 7 focused documentation tests, verified every manifest hash, and proved the Basic Mode section contains only the two intended rituals.
+
+## 2026-08-07 original Basic Mode experience contract (SUPERSEDED)
 
 - Defined Basic Mode in `SETUP.md` as one ongoing Cove session in the Claude Mac app over the existing local backend. It is a different interface, not a second database or a prompt-only substitute, and the user can later open Full Cove without migrating data.
 - Locked the daily experience to a real 8:00 AM Morning Brief, 8:30 AM and 2:00 PM email triage, and 5:00 PM closeout in the same conversation. The contract covers real goals and work context, durable task capture, meeting follow-ups, draft-only email safety, laptop wake catch-up, and normal conversational replies.
