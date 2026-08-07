@@ -24,7 +24,41 @@
 
 ---
 
-**Last updated:** 2026-08-07 late morning (outcome-led setup handoff published and anonymously reverified)
+**Last updated:** 2026-08-07 midday (branded native notifications published and anonymously reverified)
+
+## 2026-08-07 branded native notifications (DONE, PUBLISHED)
+
+- Added a first-party `Cove Notifications.app` sender with the blue Cove buddy
+  icon. The local installer builds the Swift helper against the discovered
+  macOS SDK, creates its complete `.icns`, signs and registers the app, and
+  gives every notification-capable LaunchAgent the same sender identity.
+- Routed reminders, attention, email, reliability, intake, and Claude execution
+  banners through the branded sender. User-controlled copy stays in argv, the
+  sender opens the relevant Cove page when clicked, and AppleScript remains a
+  safe fallback if the helper is missing.
+- Added the one-time macOS notification permission check to the setup flow and
+  documented what the branded banner means. Hardened repeat installation with
+  a bounded worker-shutdown retry and made the release verifier use Next's
+  supported Webpack mode so Claude and Codex sandboxes do not fail on
+  Turbopack's internal port binding.
+- Moved custom test helpers out of Next 16.3 route and page entry modules while
+  preserving the implementation bytes exactly. The production build now passes
+  Next's route export validation without warnings.
+- Installed and live-verified locally: bundle id `ai.cove.notifications`, signed
+  helper, macOS authorization granted, notification request accepted, worker
+  healthy, localhost health responding, and restart-persistent LaunchAgent
+  paths rendered. Screen sharing suppressed the visible banner during the
+  check, but the correct Cove icon was visually verified in macOS Settings and
+  the notification subsystem logged a successful request.
+- Source release: `52d94ed38fcfa27518e875caf57eaebb3417e3b9` on private
+  `amart-builder/cove-internal`. Public release: `e9939d9` on the verified
+  `PUBLIC` repository `amart-builder/cove`, with 436 manifest hashes bound to
+  the source SHA.
+- Verification: local TypeScript, zero-warning ESLint, 964 tests, production
+  build, complete installer, live server, and notification delivery checks all
+  passed. The sanitized public export installed under supported Node 24 with
+  zero npm vulnerabilities, passed all 964 tests and the production build, and
+  a fresh anonymous HTTPS clone verified all 436 manifest hashes.
 
 ## 2026-08-07 outcome-led GitHub setup handoff (DONE, PUBLISHED)
 
