@@ -24,7 +24,16 @@
 
 ---
 
-**Last updated:** 2026-08-07 early morning (agent codebase guide published and anonymously reverified)
+**Last updated:** 2026-08-07 morning (Basic Mode contract published and anonymously reverified)
+
+## 2026-08-07 Basic Mode experience contract (DONE, PUBLISHED)
+
+- Defined Basic Mode in `SETUP.md` as one ongoing Cove session in the Claude Mac app over the existing local backend. It is a different interface, not a second database or a prompt-only substitute, and the user can later open Full Cove without migrating data.
+- Locked the daily experience to a real 8:00 AM Morning Brief, 8:30 AM and 2:00 PM email triage, and 5:00 PM closeout in the same conversation. The contract covers real goals and work context, durable task capture, meeting follow-ups, draft-only email safety, laptop wake catch-up, and normal conversational replies.
+- Updated `README.md` with a copyable Basic Mode setup request and `AGENTS.md` with the handoff rules. The implementation agent may choose the best supported Claude mechanisms, but cannot change the single-session experience, durable-state boundary, or safety rules.
+- Added a public documentation regression that protects the four daily moments, Claude Mac app surface, same-session requirement, SQLite authority, draft-only boundary, public discoverability, and exporter allowlist.
+- Private source commit: `2d1479b75458cbd51f1dd4497bbfeb341e9bc830`. The sanitized `amart-builder/cove` mirror remains `PUBLIC` and is published at `21ab874418eebb1bb3df30e01230f7a88ded2df6` with all 421 manifest hashes tied to that private source SHA.
+- Verification: zero-warning ESLint; all 959 repository tests passed locally. A fresh anonymous public clone installed under Node 24.14.0 with zero npm vulnerabilities, passed zero-warning ESLint, and passed 957 tests with zero failures and the two expected `lsof`-dependent skips. Its focused documentation suite passed 7 of 7.
 
 ## 2026-08-07 agent-readable codebase documentation (DONE, PUBLISHED)
 
