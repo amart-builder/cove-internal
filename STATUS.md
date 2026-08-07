@@ -16,15 +16,25 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** none
-- **device:** —
-- **since:** —
-- **task:** —
+- **system:** codex
+- **device:** Alexanders-MacBook-Pro-2
+- **since:** 2026-08-07T01:18:48-0700
+- **task:** Record final dual-agent simulation and public release
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-08-06 late evening (Gary agent handoff hardened and public release verified)
+**Last updated:** 2026-08-07 early morning (dual-agent first-user simulation passed and public mirror refreshed)
+
+## 2026-08-07 dual-agent first-user release (DONE)
+
+- Ran a clean-user release campaign against a new allowlisted export, not Alex's live database. Seven first-user defects were fixed in isolated commits: minimal autonomy-off parsing, setup ordering, client-local brief-source precedence, Pacific date display, Today V2 practice instructions, explicit brief provenance, and closeout next-step loss during an in-flight blur save.
+- The final client export contains 419 allowlisted files at private source SHA `082723d938c28bcc6150cc3fdf8e976c82dcdee4`. Secret patterns, setup text, live-data exclusion, and all 419 manifest hashes passed.
+- The exact export passed Node 24.14.0 installation with zero npm vulnerabilities, TypeScript, ESLint with zero warnings, 952 tests with zero failures (950 passed and two lsof-dependent tests skipped only in the isolated runner), and the production build. The six known Turbopack filesystem-tracing warnings remain non-fatal for this local product.
+- The clean browser simulation covered profile and brief sources, task and People capture, Claude-written Morning Brief provenance, Arrival, Plan Day, ownership, Start My Day, Focus Grid keyboard drag and drop, task completion, Undo, and Close My Day. The final post-fix rerun proved a progress note and next step both persisted through the exact blur race and into the settled snapshot, with no console errors.
+- Opus 5 independently reviewed the same post-fix evidence through Alex's Claude Max account and agreed with Sol: `READY_ASSISTED_PILOT`, not unattended. It found no remaining software blocker for tomorrow's assisted pilot.
+- Private `amart-builder/cove-internal` main is pushed through `082723d`. Public `amart-builder/cove` remains `PUBLIC` and is refreshed at `c386844f89ebdc3b3eb72d97537150b110ede70a`. A fresh anonymous HTTPS clone reverified all 419 hashes, zero npm vulnerabilities, the 952-test gate, and the production build.
+- Gary's physical Mac still needs its own Claude writer check, real task and People capture before the first brief, LaunchAgent restart proof, notification delivery, sleep/wake catch-up, backup receipt, and a supervised multi-item closeout. Optional email and meeting lanes stay off for the baseline; both attention lanes stay shadow-only.
 
 ## 2026-08-06 Gary agent handoff and public release (DONE)
 
