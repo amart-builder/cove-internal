@@ -143,7 +143,7 @@ export default function FailureInbox({ receiptsEnabled }: { receiptsEnabled: boo
   }
 
   return (
-    <section className="h-full overflow-y-auto bg-background px-5 py-8 sm:px-8">
+    <section className="h-full overflow-y-auto bg-background px-5 pb-8 pt-[80px] sm:px-8">
       <div className="mx-auto max-w-3xl">
         <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
           Cove activity

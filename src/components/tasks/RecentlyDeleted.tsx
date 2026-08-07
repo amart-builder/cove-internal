@@ -64,7 +64,7 @@ export default function RecentlyDeleted({ onClose }: { onClose: () => void }) {
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
-      <div className="flex items-center gap-3 border-b px-5 py-3">
+      <div className="flex items-center gap-3 border-b px-5 pb-3 pt-[60px]">
         <button
           type="button"
           onClick={onClose}
@@ -74,7 +74,7 @@ export default function RecentlyDeleted({ onClose }: { onClose: () => void }) {
         </button>
         <div>
           <h2 className="text-sm font-semibold text-foreground">Recently deleted</h2>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-[12px] text-muted-foreground">
             Tasks stay here for 30 days.
           </p>
         </div>
@@ -93,7 +93,7 @@ export default function RecentlyDeleted({ onClose }: { onClose: () => void }) {
               <article key={task.id} className="flex items-center gap-4 px-4 py-3">
                 <div className="min-w-0 flex-1">
                   <h3 className="truncate text-sm font-medium text-foreground">{task.title}</h3>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  <p className="mt-0.5 text-[12px] text-muted-foreground">
                     Deleted {task.archived_at
                       ? new Date(task.archived_at).toLocaleDateString('en-US', {
                           month: 'short',
@@ -114,7 +114,7 @@ export default function RecentlyDeleted({ onClose }: { onClose: () => void }) {
                   type="button"
                   disabled={busyId === task.id}
                   onClick={() => void permanentlyDelete(task)}
-                  className="text-[11px] text-accent-red hover:underline disabled:opacity-50"
+                  className="text-[12px] text-accent-red hover:underline disabled:opacity-50"
                 >
                   Delete forever
                 </button>

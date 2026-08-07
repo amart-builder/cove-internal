@@ -29,11 +29,15 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react';
-import type { TaskSessionOwner, TaskSessionRun } from '@/lib/task-sessions/types';
+import type {
+  TaskSessionLaunchMode,
+  TaskSessionRun,
+} from '@/lib/task-sessions/types';
 import { reduceFocusSeats } from '@/lib/tasks/focus-seats';
-import { taskSessionOwnerButtons } from './TaskSessionLauncher';
+import { taskSessionModeButtons } from './TaskSessionLauncher';
 import { OpenInClaudeCode } from './ClaudeRunIndicators';
 import DayRitualLayer from './DayRitualLayer';
+import { ModalScrim } from './arrival/TaskSheet';
 import {
   beginCompletionMotion,
   beginUndoMotion,
@@ -51,8 +55,9 @@ export type TodayRiverTaskV2 = {
   itemId: string;
   title: string;
   description: string;
+  project?: string;
+  dueLabel?: string;
   owner: string;
-  provenance: string;
   run?: TaskSessionRun;
   sessionBusy: boolean;
 };
@@ -99,12 +104,13 @@ export type TodayRiverStageV2Callbacks = {
   onPlanWeekend: () => void;
   onFocusTask: (taskId: string) => void;
   onCompleteTask: (taskId: string, seatIndex: number) => Promise<void>;
-  onStartSession: (taskId: string, owner: TaskSessionOwner) => void;
-  onRetrySession: (taskId: string, owner: TaskSessionOwner) => void;
+  onStartSession: (taskId: string, mode: TaskSessionLaunchMode) => void;
+  onRetrySession: (taskId: string, mode: TaskSessionLaunchMode) => void;
   onReorder: (orderedTaskIds: string[]) => void | Promise<void>;
   onFocusCountChange: (count: 1 | 2 | 3) => void;
   onGridOpenChange: (open: boolean) => void;
   onOpenSecondCurrentItem: (item: SecondCurrentItemV2) => void;
+  onEditTask: (taskId: string) => void;
   onMotionDataFailure: () => void;
 };
 
@@ -129,7 +135,7 @@ function refillCardTemplate(
   seatIndex: number,
 ): HTMLElement {
   const template = source.cloneNode(true) as HTMLElement;
-  template.classList.remove('is-selected', 'is-completing');
+  template.classList.remove('is-selected', 'is-open', 'is-completing');
   const kicker = template.querySelector<HTMLElement>('.today2-kicker');
   const title = template.querySelector<HTMLElement>('h2');
   const footer = template.querySelector<HTMLElement>('.today2-card-footer');
@@ -160,7 +166,7 @@ function SessionState({
 }: {
   task: TodayRiverTaskV2;
   compact: boolean;
-  onRetry: (owner: TaskSessionOwner) => void;
+  onRetry: (mode: TaskSessionLaunchMode) => void;
 }) {
   const run = task.run;
   if (!run) return null;
@@ -168,7 +174,7 @@ function SessionState({
     return (
       <span className="today2-task-state">
         <i aria-hidden="true" />
-        {run.owner === 'together' ? 'Planning with Claude' : 'Claude working'}
+        {run.permissionMode === 'plan' ? 'Planning with Claude' : 'Claude working'}
       </span>
     );
   }
@@ -204,7 +210,7 @@ function SessionState({
         <a href={run.resumeUrl} onClick={(event) => event.stopPropagation()}>Didn&apos;t finish ·</a>
         <button type="button" onClick={(event) => {
           event.stopPropagation();
-          onRetry(run.owner);
+          onRetry(run.permissionMode === 'plan' ? 'planning' : 'auto');
         }}>
           Retry
         </button>
@@ -212,6 +218,59 @@ function SessionState({
     );
   }
   return null;
+}
+
+function SessionFooter({
+  task,
+  localMode,
+  activeRunCount,
+  onStart,
+  onRetry,
+}: {
+  task: TodayRiverTaskV2;
+  localMode: boolean;
+  activeRunCount: number;
+  onStart: (mode: TaskSessionLaunchMode) => void;
+  onRetry: (mode: TaskSessionLaunchMode) => void;
+}) {
+  const modes = taskSessionModeButtons(task.run, undefined);
+  const launchDisabled = task.sessionBusy || activeRunCount >= 6;
+  const live = task.run?.status === 'running' || task.run?.status === 'awaiting_approval';
+  // With a finished run the actions row holds a state chip plus both launch
+  // buttons; the label no longer fits beside them in a compact card.
+  const showLabel = live || !(localMode && task.run);
+
+  return (
+    <div className="today2-session-footer">
+      {showLabel && <span className="today2-session-footer-label">Start with Claude</span>}
+      <div className="today2-session-footer-actions">
+        {live ? (
+          <SessionState task={task} compact onRetry={onRetry} />
+        ) : localMode ? (
+          <>
+            {task.run && <SessionState task={task} compact onRetry={onRetry} />}
+            <button
+              type="button"
+              className="is-planning"
+              disabled={launchDisabled || !modes.includes('planning')}
+              onClick={() => onStart('planning')}
+            >
+              {task.sessionBusy ? 'Starting…' : 'Planning'}
+            </button>
+            <button
+              type="button"
+              disabled={launchDisabled || !modes.includes('auto')}
+              onClick={() => onStart('auto')}
+            >
+              {task.sessionBusy ? 'Starting…' : 'Auto'}
+            </button>
+          </>
+        ) : (
+          <span className="today2-local-note">Available in local Cove.</span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function FocusCard({
@@ -225,6 +284,7 @@ function FocusCard({
   activeRunCount,
   onSelect,
   onToggleDetail,
+  onMore,
   onComplete,
   onStart,
   onRetry,
@@ -240,18 +300,17 @@ function FocusCard({
   onSelect: () => void;
   onToggleDetail: () => void;
   onComplete: () => void;
-  onStart: (owner: TaskSessionOwner) => void;
-  onRetry: (owner: TaskSessionOwner) => void;
+  onMore: (returnFocus: HTMLElement) => void;
+  onStart: (mode: TaskSessionLaunchMode) => void;
+  onRetry: (mode: TaskSessionLaunchMode) => void;
 }) {
   const run = task.run;
-  const owners = taskSessionOwnerButtons(run, undefined);
-  const launchDisabled = task.sessionBusy || activeRunCount >= 6;
   const cardClass = single ? 'today2-focus-card is-hero' : 'today2-focus-card is-compact';
 
   return (
     <div className={`today2-focus-unit ${single ? 'is-single' : ''}`}>
       <article
-        className={`${cardClass} ${selected ? 'is-selected' : ''} ${completing ? 'is-completing' : ''}`}
+        className={`${cardClass} ${selected ? 'is-selected' : ''} ${detailOpen ? 'is-open' : ''} ${completing ? 'is-completing' : ''}`}
         data-today2-task-id={task.id}
       >
         <button
@@ -267,14 +326,11 @@ function FocusCard({
         <div className="today2-focus-copy">
           <p className="today2-kicker">{`Focus ${ROMAN[index]}`}</p>
           <h2>{task.title}</h2>
-          {run?.status === 'running' && (
-            <SessionState task={task} compact={!single} onRetry={onRetry} />
-          )}
           <div className="today2-card-footer">
             <span className="today2-owner-chip" data-owner={task.owner}>{task.owner}</span>
-            {run?.status !== 'running' && (
-              <SessionState task={task} compact={!single} onRetry={onRetry} />
-            )}
+            <span className="today2-card-session-slot">
+              {run && <SessionState task={task} compact={!single} onRetry={onRetry} />}
+            </span>
           </div>
         </div>
         <button
@@ -295,44 +351,79 @@ function FocusCard({
       </article>
 
       <section
-        className={`today2-task-detail ${detailOpen ? 'is-open' : ''}`}
+        className={`today2-focus-detail-card ${detailOpen ? 'is-open' : ''}`}
         aria-hidden={!detailOpen}
         aria-label={`${task.title} details`}
       >
-        <p className="today2-detail-block today2-task-description" style={{ '--today2-delay': '0ms' } as CSSProperties}>
+        <div className="today2-focus-detail-head">
+          <p>Description</p>
+          <button type="button" onClick={(event) => onMore(event.currentTarget)}>More</button>
+        </div>
+        <p className="today2-focus-detail-description">
           {task.description || 'No additional detail has been added yet.'}
         </p>
-        <p className="today2-detail-block today2-task-meta" style={{ '--today2-delay': '35ms' } as CSSProperties}>
-          {task.owner} · {task.provenance}
+        <p className="today2-focus-detail-meta">
+          {task.project || 'No project'} · {task.dueLabel ? `Due ${task.dueLabel}` : 'No due date'}
         </p>
-        <div className="today2-detail-block" style={{ '--today2-delay': '70ms' } as CSSProperties}>
-          <p className="today2-detail-label">Start with Claude</p>
-          {localMode ? (
-            <div className="today2-detail-actions">
-              <button
-                type="button"
-                disabled={launchDisabled || !owners.includes('together')}
-                onClick={() => onStart('together')}
-              >
-                <i aria-hidden="true" /> Planning
-              </button>
-              <button
-                type="button"
-                disabled={launchDisabled || !owners.includes('claude')}
-                onClick={() => onStart('claude')}
-              >
-                <i aria-hidden="true" /> Auto
-              </button>
-            </div>
-          ) : (
-            <p className="today2-local-note">Claude sessions are available in local Cove.</p>
-          )}
-          {activeRunCount >= 6 && owners.length > 0 && (
-            <p className="today2-local-note">Six Claude sessions are already active.</p>
-          )}
-        </div>
+        <SessionFooter
+          task={task}
+          localMode={localMode}
+          activeRunCount={activeRunCount}
+          onStart={onStart}
+          onRetry={onRetry}
+        />
       </section>
     </div>
+  );
+}
+
+function FocusRichSheet({
+  task,
+  returnFocus,
+  localMode,
+  activeRunCount,
+  onClose,
+  onEdit,
+  onStart,
+  onRetry,
+}: {
+  task: TodayRiverTaskV2;
+  returnFocus: HTMLElement | null;
+  localMode: boolean;
+  activeRunCount: number;
+  onClose: () => void;
+  onEdit: () => void;
+  onStart: (mode: TaskSessionLaunchMode) => void;
+  onRetry: (mode: TaskSessionLaunchMode) => void;
+}) {
+  const titleId = `today2-rich-sheet-${task.id}`;
+  return (
+    <ModalScrim
+      labelledBy={titleId}
+      returnFocus={returnFocus}
+      onClose={onClose}
+      panelClassName="today2-rich-sheet"
+    >
+      <button type="button" className="today2-round-close" aria-label="Close task details" onClick={onClose}>×</button>
+      <p className="today2-rich-eyebrow">Focus</p>
+      <h2 id={titleId}>{task.title}</h2>
+      <p className="today2-rich-meta">
+        {task.project || 'No project'} · {task.dueLabel ? `Due ${task.dueLabel}` : 'No due date'} · {task.owner}
+      </p>
+      <div className="today2-rich-description">
+        {task.description || 'No additional detail has been added yet.'}
+      </div>
+      <div className="today2-rich-footer">
+        <button type="button" className="today2-rich-edit" onClick={onEdit}>Edit task</button>
+        <SessionFooter
+          task={task}
+          localMode={localMode}
+          activeRunCount={activeRunCount}
+          onStart={onStart}
+          onRetry={onRetry}
+        />
+      </div>
+    </ModalScrim>
   );
 }
 
@@ -396,6 +487,8 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
   const [gridOpen, setGridOpen] = useState(false);
   const [gridClosing, setGridClosing] = useState(false);
   const [detailTaskId, setDetailTaskId] = useState<string>();
+  const [richTaskId, setRichTaskId] = useState<string>();
+  const [richReturnFocus, setRichReturnFocus] = useState<HTMLElement | null>(null);
   const [secondCurrentOpen, setSecondCurrentOpen] = useState(false);
   const [wakeOpen, setWakeOpen] = useState(false);
   const [displayDoneCount, setDisplayDoneCount] = useState(model.doneCount);
@@ -514,6 +607,7 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
       ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, ...(target ? { target } : {}) }
       : undefined;
     setDetailTaskId(undefined);
+    setRichTaskId(undefined);
     setGridClosing(false);
     setGridOpen(true);
   }, [gridOpen]);
@@ -1065,12 +1159,13 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
                     activeRunCount={model.activeRunCount}
                     onSelect={() => callbacks.onFocusTask(task.id)}
                     onToggleDetail={() => setDetailTaskId((current) => current === task.id ? undefined : task.id)}
-                    onComplete={() => void handleCompleteTask(task, index)}
-                    onStart={(owner) => {
-                      setDetailTaskId(undefined);
-                      callbacks.onStartSession(task.id, owner);
+                    onMore={(returnFocus) => {
+                      setRichReturnFocus(returnFocus);
+                      setRichTaskId(task.id);
                     }}
-                    onRetry={(owner) => callbacks.onRetrySession(task.id, owner)}
+                    onComplete={() => void handleCompleteTask(task, index)}
+                    onStart={(mode) => callbacks.onStartSession(task.id, mode)}
+                    onRetry={(mode) => callbacks.onRetrySession(task.id, mode)}
                   />
                 </div>
               ))}
@@ -1101,6 +1196,26 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
           </button>
         </section>
       </div>
+
+      {richTaskId && taskById.get(richTaskId) && (
+        <FocusRichSheet
+          task={taskById.get(richTaskId)!}
+          returnFocus={richReturnFocus}
+          localMode={model.localMode}
+          activeRunCount={model.activeRunCount}
+          onClose={() => {
+            setRichTaskId(undefined);
+            setDetailTaskId(undefined);
+          }}
+          onEdit={() => {
+            const taskId = richTaskId;
+            setRichTaskId(undefined);
+            window.requestAnimationFrame(() => callbacks.onEditTask(taskId));
+          }}
+          onStart={(mode) => callbacks.onStartSession(richTaskId, mode)}
+          onRetry={(mode) => callbacks.onRetrySession(richTaskId, mode)}
+        />
+      )}
 
       {gridOpen && (
         <DayRitualLayer
@@ -1167,6 +1282,14 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
                     })}
                   </div>
                   <p>drag to reorder · drag onto Focus to swap · esc to close</p>
+                  <button
+                    type="button"
+                    className="today2-grid-close today2-round-close"
+                    aria-label="Close Focus Grid"
+                    onClick={closeGrid}
+                  >
+                    ×
+                  </button>
                 </div>
               </header>
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>

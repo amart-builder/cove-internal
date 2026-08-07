@@ -2,6 +2,7 @@
 
 import type {
   LaunchTaskSessionInput,
+  TaskSessionLaunchMode,
   TaskSessionOwner,
   TaskSessionRun,
 } from '@/lib/task-sessions/types';
@@ -10,8 +11,16 @@ import {
   TASK_SESSION_STATUS_LABELS,
 } from '@/lib/task-sessions/types';
 
-function ownerLabel(owner: TaskSessionOwner): string {
-  return owner === 'claude' ? 'Claude' : 'Together';
+function modeLabel(mode: TaskSessionLaunchMode): string {
+  return mode === 'planning' ? 'Planning' : 'Auto';
+}
+
+function modeForOwner(owner: TaskSessionOwner): TaskSessionLaunchMode {
+  return owner === 'together' ? 'planning' : 'auto';
+}
+
+function ownerForMode(mode: TaskSessionLaunchMode): TaskSessionOwner {
+  return mode === 'planning' ? 'together' : 'claude';
 }
 
 function stopPointer(event: React.SyntheticEvent) {
@@ -27,6 +36,13 @@ export function taskSessionOwnerButtons(
   return preferredOwner ? [preferredOwner] : ['claude', 'together'];
 }
 
+export function taskSessionModeButtons(
+  run: Pick<TaskSessionRun, 'status'> | undefined,
+  preferredOwner: TaskSessionOwner | undefined,
+): TaskSessionLaunchMode[] {
+  return taskSessionOwnerButtons(run, preferredOwner).map(modeForOwner);
+}
+
 export function TaskSessionLauncher({
   input,
   run,
@@ -36,7 +52,7 @@ export function TaskSessionLauncher({
   activeRunCount = 0,
   onLaunch,
 }: {
-  input: Omit<LaunchTaskSessionInput, 'owner'>;
+  input: Omit<LaunchTaskSessionInput, 'owner' | 'mode'>;
   run?: TaskSessionRun;
   busy?: boolean;
   preferredOwner?: TaskSessionOwner;
@@ -44,9 +60,9 @@ export function TaskSessionLauncher({
   activeRunCount?: number;
   onLaunch: (input: LaunchTaskSessionInput) => void | Promise<unknown>;
 }) {
-  const owners = taskSessionOwnerButtons(run, preferredOwner);
+  const modes = taskSessionModeButtons(run, preferredOwner);
   const baseClass = compact
-    ? 'min-h-7 rounded-full border px-2 text-[10px] font-medium'
+    ? 'min-h-8 rounded-full border px-2 text-[12px] font-medium'
     : 'min-h-9 rounded-full border px-3 text-xs font-medium';
 
   if (run && ACTIVE_TASK_SESSION_STATUSES.has(run.status)) {
@@ -59,7 +75,7 @@ export function TaskSessionLauncher({
         onMouseDown={stopPointer}
         onClick={stopPointer}
       >
-        {ownerLabel(run.owner)} · {TASK_SESSION_STATUS_LABELS[run.status]}
+        {modeLabel(run.permissionMode === 'plan' ? 'planning' : 'auto')} · {TASK_SESSION_STATUS_LABELS[run.status]}
       </a>
     );
   }
@@ -71,8 +87,8 @@ export function TaskSessionLauncher({
       onMouseDown={stopPointer}
       onClick={stopPointer}
     >
-      {activeRunCount >= 3 && owners.length > 0 && (
-        <span className="text-[10px] leading-snug text-muted-foreground">
+      {activeRunCount >= 3 && modes.length > 0 && (
+        <span className="text-[12px] leading-snug text-muted-foreground">
           More parallel sessions can increase Claude usage.
         </span>
       )}
@@ -86,21 +102,25 @@ export function TaskSessionLauncher({
             onMouseDown={stopPointer}
             onClick={stopPointer}
           >
-            {ownerLabel(run.owner)} · {TASK_SESSION_STATUS_LABELS[run.status]}
+            {modeLabel(run.permissionMode === 'plan' ? 'planning' : 'auto')} · {TASK_SESSION_STATUS_LABELS[run.status]}
           </a>
         )}
-        {owners.map((owner) => (
+        {modes.map((mode) => (
           <button
-            key={owner}
+            key={mode}
             type="button"
             disabled={busy}
             className={`${baseClass} press-scale border-border/70 bg-background/55 text-muted-foreground hover:text-foreground disabled:opacity-50`}
             onClick={(event) => {
               event.stopPropagation();
-              void Promise.resolve(onLaunch({ ...input, owner })).catch(() => undefined);
+              void Promise.resolve(onLaunch({
+                ...input,
+                owner: ownerForMode(mode),
+                mode,
+              })).catch(() => undefined);
             }}
           >
-            {busy ? 'Starting…' : ownerLabel(owner)}
+            {busy ? 'Starting…' : modeLabel(mode)}
           </button>
         ))}
       </span>
@@ -118,7 +138,7 @@ export function TaskSessionPanel({
   onLaunch,
 }: {
   run?: TaskSessionRun;
-  input: Omit<LaunchTaskSessionInput, 'owner'>;
+  input: Omit<LaunchTaskSessionInput, 'owner' | 'mode'>;
   busy?: boolean;
   preferredOwner?: TaskSessionOwner;
   activeRunCount?: number;
@@ -133,10 +153,10 @@ export function TaskSessionPanel({
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {run?.hint ?? (
               preferredOwner === 'together'
-                ? 'Together opens this task in plan mode.'
+                ? 'Planning opens this task in plan mode.'
                 : preferredOwner === 'claude'
-                  ? 'Claude opens this task in auto-edits mode.'
-                  : 'Choose Claude for auto-edits or Together for plan mode.'
+                  ? 'Auto opens this task in auto-edits mode.'
+                  : 'Choose Planning for plan mode or Auto for auto-edits.'
             )}
           </p>
         </div>
@@ -156,7 +176,7 @@ export function TaskSessionPanel({
               {run.resultSummary}
             </p>
           )}
-          <p className="mt-2 break-all text-[11px] leading-relaxed text-muted-foreground">
+          <p className="mt-2 break-all text-[12px] leading-relaxed text-muted-foreground">
             Outputs: {run.outputDir}
           </p>
         </>

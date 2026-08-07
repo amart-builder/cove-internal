@@ -950,7 +950,7 @@ function KanbanBoardContent({
 
   return (
     <div className="water-workspace all-work-surface flex h-full flex-col">
-      <header className="water-toolbar all-work-toolbar border-b px-5">
+      <header className="water-toolbar all-work-toolbar border-b px-5 pt-[62px]">
         <div className="all-work-toolbar-row flex items-center gap-3">
           <h1 className="water-workspace-title shrink-0">All Work</h1>
 

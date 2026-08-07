@@ -93,6 +93,12 @@ import TodayRiverStageV2, {
   type TodayRiverStageV2MotionHandle,
   type TodayRiverTaskV2,
 } from './TodayRiverStageV2';
+import {
+  CURRENT_DAY_ARC,
+  TODAY2_DAY_ARC,
+  getDayProgress,
+  pointOnCubicDayArc,
+} from './day-arc';
 
 type TaskStatus = ArrivalTaskStatus;
 type ColumnData = ArrivalColumn;
@@ -159,6 +165,7 @@ function taskSessionInput(
       detail: item.outcome || item.title,
       outcome: item.outcome,
       definitionOfDone: item.definitionOfDone,
+      whyToday: item.brief?.whyToday ?? item.whyToday,
       project: item.project,
       dueAt: item.dueAt,
     },
@@ -319,33 +326,6 @@ function getGreeting(hour: number): string {
   if (hour < 12) return "Good morning. Let’s build something meaningful.";
   if (hour < 17) return 'Good afternoon. Keep the current clear.';
   return 'Good evening. Bring the day to a close.';
-}
-
-function getDayProgress(date: Date): number {
-  const minutes = date.getHours() * 60 + date.getMinutes();
-  const start = 6 * 60;
-  const end = 22 * 60;
-  return Math.max(0, Math.min(1, (minutes - start) / (end - start)));
-}
-
-function cubicPoint(progress: number): { x: number; y: number } {
-  const inverse = 1 - progress;
-  const start = { x: 18, y: 112 };
-  const controlOne = { x: 116, y: 116 };
-  const controlTwo = { x: 244, y: 76 };
-  const end = { x: 306, y: 18 };
-  return {
-    x:
-      inverse ** 3 * start.x +
-      3 * inverse ** 2 * progress * controlOne.x +
-      3 * inverse * progress ** 2 * controlTwo.x +
-      progress ** 3 * end.x,
-    y:
-      inverse ** 3 * start.y +
-      3 * inverse ** 2 * progress * controlOne.y +
-      3 * inverse * progress ** 2 * controlTwo.y +
-      progress ** 3 * end.y,
-  };
 }
 
 function applyPatch(task: TaskData, patch: UpdateTaskInput): TaskData {
@@ -1929,7 +1909,7 @@ function TodayExperience({
     y,
   }));
   const progress = getDayProgress(now);
-  const dayPoint = cubicPoint(progress);
+  const dayPoint = pointOnCubicDayArc(progress, CURRENT_DAY_ARC);
   const greeting = getGreeting(now.getHours());
   const waterTone = now.getHours() < 11 ? 'morning' : now.getHours() < 17 ? 'day' : 'evening';
   const morningArrivalUnavailableReason = !dayRitual.plan
@@ -2174,8 +2154,9 @@ function TodayExperience({
       itemId: item.id,
       title: task.title,
       description: task.description || item.outcome,
+      project: item.project,
+      dueLabel: item.dueAt ? formatArrivalDueDate(item.dueAt) : undefined,
       owner: todayOwnerLabel(item.owner),
-      provenance: "From this morning's plan",
       run: localMode ? taskSessions.latestByTaskId.get(task._id) : undefined,
       sessionBusy: taskSessions.launchingTaskIds.has(task._id),
     })),
@@ -2192,10 +2173,10 @@ function TodayExperience({
       })),
     [jarvisTasks],
   );
-  const today2SunPoint = useMemo(() => ({
-    x: dayPoint.x * (290 / 324),
-    y: dayPoint.y * (120 / 132),
-  }), [dayPoint.x, dayPoint.y]);
+  const today2SunPoint = useMemo(
+    () => pointOnCubicDayArc(progress, TODAY2_DAY_ARC),
+    [progress],
+  );
 
   const changeToday2FocusCount = useCallback(async (count: 1 | 2 | 3) => {
     if (!localMode || focusCountBusy || count === focusCount) return;
@@ -2220,14 +2201,15 @@ function TodayExperience({
 
   const launchToday2Session = useCallback(async (
     taskId: string,
-    owner: LaunchTaskSessionInput['owner'],
+    mode: NonNullable<LaunchTaskSessionInput['mode']>,
   ) => {
     const plan = dayRitual.plan;
     const entry = today2PlanEntries.find((candidate) => candidate.task._id === taskId);
     if (!localMode || !plan || !entry || taskSessions.activeRuns.length >= 6) return;
     await taskSessions.launch({
       ...taskSessionInput(plan.id, entry.item),
-      owner,
+      owner: mode === 'planning' ? 'together' : 'claude',
+      mode,
     }).catch(() => undefined);
   }, [dayRitual.plan, localMode, taskSessions, today2PlanEntries]);
 
@@ -2250,7 +2232,7 @@ function TodayExperience({
             <div className="current-day-arc" aria-hidden="true">
               <svg viewBox="0 0 324 132">
                 <path d="M 18 112 C 116 116, 244 76, 306 18" />
-                <circle cx="162" cy="88" r="6" />
+                <circle cx={dayPoint.x} cy={dayPoint.y} r="6" />
                 <g className="current-sun" transform="translate(306 18)">
                   <circle r="9" />
                 </g>
@@ -2377,6 +2359,7 @@ function TodayExperience({
             onFocusCountChange: (count) => void changeToday2FocusCount(count),
             onGridOpenChange: setToday2GridOpen,
             onOpenSecondCurrentItem: (item) => setDetailTaskId(item.id),
+            onEditTask: (taskId) => setDetailTaskId(taskId),
             onMotionDataFailure: () => {
               setCompletingTaskId(null);
               setSurfaceError("Cove couldn't finish completing that task. Refresh the current to confirm its state, then try again.");
@@ -2744,7 +2727,7 @@ function TodayExperience({
               <div key={task._id}>
                 {task._id === ifYouHaveTimeTaskId && (
                   <p
-                    className="absolute left-1/2 z-10 -translate-x-1/2 rounded-full border border-border/50 bg-background/75 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground backdrop-blur"
+                    className="absolute left-1/2 z-10 -translate-x-1/2 rounded-full border border-border/50 bg-background/75 px-3 py-1 text-[10.5px] font-[650] uppercase tracking-[0.24em] text-muted-foreground backdrop-blur"
                     style={{ top: y - 54 }}
                   >
                     If you have time
@@ -3038,7 +3021,7 @@ function TodayExperience({
                     className="quiet-search-result"
                   >
                     <span className="min-w-0 flex-1 truncate text-left">{task.title}</span>
-                    <span className="text-[10px] text-muted-foreground">
+                    <span className="text-[12px] font-medium text-muted-foreground">
                       {withJarvis ? 'Held by Cove' : brief ? 'Email needs you' : inCurrent ? 'In current' : 'Outside today'}
                     </span>
                   </button>

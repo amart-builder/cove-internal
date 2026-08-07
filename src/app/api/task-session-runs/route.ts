@@ -10,6 +10,7 @@ import {
 } from "@/lib/task-sessions/manager";
 import type {
   LaunchTaskSessionInput,
+  TaskSessionLaunchMode,
   TaskSessionOwner,
   TaskSessionPromptSnapshot,
 } from "@/lib/task-sessions/types";
@@ -52,6 +53,7 @@ function promptSnapshot(value: unknown): TaskSessionPromptSnapshot {
       "definitionOfDone",
       4_000,
     ),
+    whyToday: optionalText(prompt.whyToday, "whyToday", 4_000),
     project: optionalText(prompt.project, "project", 300),
     dueAt: optionalText(prompt.dueAt, "dueAt", 100),
   };
@@ -60,6 +62,14 @@ function promptSnapshot(value: unknown): TaskSessionPromptSnapshot {
 function owner(value: unknown): TaskSessionOwner {
   if (value !== "claude" && value !== "together") {
     throw new TaskSessionRequestError("owner must be Claude or Together.");
+  }
+  return value;
+}
+
+function launchMode(value: unknown): TaskSessionLaunchMode | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (value !== "planning" && value !== "auto") {
+    throw new TaskSessionRequestError("mode must be planning or auto.");
   }
   return value;
 }
@@ -139,6 +149,7 @@ export async function handleTaskSessionRunsPost(
       dayPlanId: optionalText(object.dayPlanId, "dayPlanId", 240),
       itemId: optionalText(object.itemId, "itemId", 240),
       owner: owner(object.owner),
+      mode: launchMode(object.mode),
       promptSnapshot: promptSnapshot(object.promptSnapshot),
     };
     return NextResponse.json({ run: manager.launch(input) }, { status: 201 });

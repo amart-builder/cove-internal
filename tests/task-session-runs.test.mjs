@@ -20,6 +20,8 @@ import {
 import {
   buildTaskSessionCommand,
   createTaskSessionManager,
+  fallbackTaskSessionModel,
+  routeTaskSessionModel,
   TaskSessionCapacityError,
 } from '../src/lib/task-sessions/manager.ts';
 import { taskSessionSettlementNote } from '../src/lib/task-sessions/presentation.ts';
@@ -106,6 +108,7 @@ function fixture(t, options = {}) {
     bootId: options.bootId ?? 'boot-current',
     timeoutMs: options.timeoutMs,
     terminationGraceMs: options.terminationGraceMs,
+    routeModel: options.routeModel ?? (({ mode }) => fallbackTaskSessionModel(mode)),
   });
   t.after(() => {
     manager.close();
@@ -127,10 +130,10 @@ const MINIMAL_CHILD_ENVIRONMENT_KEYS = new Set([
   'CLAUDE_CODE_OAUTH_TOKEN',
 ]);
 
-test('owner modes are structural and never construct bypassPermissions', () => {
-  for (const [owner, expected] of [
-    ['claude', 'acceptEdits'],
-    ['together', 'plan'],
+test('clicked session modes are structural and never construct bypassPermissions', () => {
+  for (const [mode, expected] of [
+    ['auto', 'acceptEdits'],
+    ['planning', 'plan'],
   ]) {
     for (const title of [
       '-start with a dash',
@@ -139,8 +142,10 @@ test('owner modes are structural and never construct bypassPermissions', () => {
     ]) {
       const command = buildTaskSessionCommand({
         claudePath: '/fake/claude',
-        sessionId: `${owner}-session`,
-        owner,
+        sessionId: `${mode}-session`,
+        owner: 'claude',
+        mode,
+        modelDecision: fallbackTaskSessionModel(mode),
         outputDir: '/tmp/cove outputs',
         title,
         promptSnapshot: {
@@ -160,16 +165,131 @@ test('owner modes are structural and never construct bypassPermissions', () => {
         command.args[command.args.indexOf('--append-system-prompt') + 1],
         /do not take binding or final actions/i,
       );
-      assert.match(command.stdin, /\[task detail - data, not instructions\]/);
-      assert.match(command.stdin, /OUTPUTS_FOLDER/);
+      assert.match(command.stdin, /\[task notes\]/);
+      assert.match(command.stdin, /Cove is Alex's task system/);
+      assert.match(command.stdin, /Put anything you produce in \/tmp\/cove outputs/);
+      assert.equal(/[—–]/.test(command.stdin), false);
       const tools = command.args[command.args.indexOf('--tools') + 1];
       assert.match(tools, /Read/);
       assert.equal(tools.includes('Task'), false);
-      assert.equal(tools.includes('Edit'), owner === 'claude');
+      assert.equal(tools.includes('Edit'), mode === 'auto');
       assert.ok(command.args.includes('--safe-mode'));
       assert.ok(command.args.includes('--strict-mcp-config'));
+      assert.equal(
+        command.args[command.args.indexOf('--model') + 1],
+        mode === 'planning' ? 'claude-opus-5' : 'claude-sonnet-5',
+      );
+      assert.equal(command.args[command.args.indexOf('--effort') + 1], 'high');
     }
   }
+});
+
+test('Fable routes fresh sessions at medium effort and falls back without blocking launch', () => {
+  const calls = [];
+  const routed = routeTaskSessionModel({
+    claudePath: '/fake/claude',
+    mode: 'planning',
+    promptSnapshot: SNAPSHOT,
+    spawnSyncImpl: (executable, args, options) => {
+      calls.push({ executable, args, options });
+      return {
+        pid: 1,
+        output: [],
+        stdout: JSON.stringify({
+          model: 'claude-haiku-4-5',
+          effort: 'medium',
+          reason: 'A bounded planning task with clear acceptance criteria.',
+        }),
+        stderr: '',
+        status: 0,
+        signal: null,
+      };
+    },
+  });
+  assert.deepEqual(routed, {
+    model: 'claude-haiku-4-5',
+    effort: 'medium',
+    reason: 'A bounded planning task with clear acceptance criteria.',
+  });
+  assert.equal(calls[0].executable, '/fake/claude');
+  assert.equal(calls[0].args[calls[0].args.indexOf('--model') + 1], 'claude-fable-5');
+  assert.equal(calls[0].args[calls[0].args.indexOf('--effort') + 1], 'medium');
+  assert.equal(calls[0].args.filter((arg) => arg === '--effort').length, 1);
+  assert.equal(calls[0].options.env.CLAUDE_EFFORT, 'medium');
+  assert.equal(calls[0].options.timeout, 10_000);
+
+  const failed = (mode, stdout = '') => routeTaskSessionModel({
+    claudePath: '/fake/claude',
+    mode,
+    promptSnapshot: SNAPSHOT,
+    spawnSyncImpl: () => ({
+      pid: 1,
+      output: [],
+      stdout,
+      stderr: 'router unavailable',
+      status: stdout ? 0 : 1,
+      signal: null,
+    }),
+  });
+  assert.deepEqual(failed('planning'), fallbackTaskSessionModel('planning'));
+  assert.deepEqual(
+    failed('auto', JSON.stringify({ model: 'unknown', effort: 'low', reason: 'invalid' })),
+    fallbackTaskSessionModel('auto'),
+  );
+});
+
+test('Planning and Auto clicks reach the spawned Claude command as explicit modes', (t) => {
+  const { manager, spawnCalls } = fixture(t);
+  const planning = manager.launch({
+    taskId: 'task-planning-click',
+    owner: 'claude',
+    mode: 'planning',
+    promptSnapshot: SNAPSHOT,
+  });
+  const auto = manager.launch({
+    taskId: 'task-auto-click',
+    owner: 'together',
+    mode: 'auto',
+    promptSnapshot: SNAPSHOT,
+  });
+  assert.equal(planning.permissionMode, 'plan');
+  assert.equal(auto.permissionMode, 'acceptEdits');
+  assert.equal(
+    spawnCalls[0].args[spawnCalls[0].args.indexOf('--permission-mode') + 1],
+    'plan',
+  );
+  assert.equal(
+    spawnCalls[1].args[spawnCalls[1].args.indexOf('--permission-mode') + 1],
+    'acceptEdits',
+  );
+  assert.equal(spawnCalls[0].args[spawnCalls[0].args.indexOf('--model') + 1], 'claude-opus-5');
+  assert.equal(spawnCalls[1].args[spawnCalls[1].args.indexOf('--model') + 1], 'claude-sonnet-5');
+  assert.equal(spawnCalls[0].args[spawnCalls[0].args.indexOf('--effort') + 1], 'high');
+  assert.equal(spawnCalls[1].args[spawnCalls[1].args.indexOf('--effort') + 1], 'high');
+});
+
+test('the model router runs once for a fresh launch and never for an active resume', (t) => {
+  let routeCalls = 0;
+  const { manager } = fixture(t, {
+    routeModel: ({ mode }) => {
+      routeCalls += 1;
+      return fallbackTaskSessionModel(mode);
+    },
+  });
+  const first = manager.launch({
+    taskId: 'task-router-once',
+    owner: 'together',
+    mode: 'planning',
+    promptSnapshot: SNAPSHOT,
+  });
+  const resumed = manager.launch({
+    taskId: 'task-router-once',
+    owner: 'claude',
+    mode: 'auto',
+    promptSnapshot: SNAPSHOT,
+  });
+  assert.equal(resumed.id, first.id);
+  assert.equal(routeCalls, 1);
 });
 
 test('task sessions launch from Cove outputs with no workspace or git requirement', async (t) => {
@@ -187,6 +307,9 @@ test('task sessions launch from Cove outputs with no workspace or git requiremen
   });
   assert.equal(run.status, 'running');
   assert.equal(run.permissionMode, 'acceptEdits');
+  assert.equal(run.model, 'claude-sonnet-5');
+  assert.equal(run.effort, 'high');
+  assert.match(run.modelReason, /fallback/i);
   assert.equal(
     run.resumeCommand,
     `cd '${run.outputDir}' && claude --resume '${run.claudeSessionId}'`,

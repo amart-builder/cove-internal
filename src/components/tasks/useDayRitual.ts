@@ -1078,11 +1078,13 @@ export default function useDayRitual({
                 dayPlanId: result.plan.id,
                 itemId: item.id,
                 owner: item.owner === 'together' ? 'together' : 'claude',
+                mode: item.owner === 'together' ? 'planning' : 'auto',
                 promptSnapshot: {
                   title: item.title,
                   detail: item.outcome || item.title,
                   outcome: item.outcome,
                   definitionOfDone: item.definitionOfDone,
+                  whyToday: item.brief?.whyToday ?? item.whyToday,
                   project: item.project,
                   dueAt: item.dueAt,
                 },

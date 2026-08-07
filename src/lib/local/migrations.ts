@@ -1290,6 +1290,22 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       }
     },
   },
+  {
+    version: 15,
+    name: "task-session-model-routing",
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE cove_task_session_runs
+          ADD COLUMN model TEXT NOT NULL DEFAULT 'claude-opus-5'
+          CHECK (model IN ('claude-opus-5','claude-sonnet-5','claude-haiku-4-5'));
+        ALTER TABLE cove_task_session_runs
+          ADD COLUMN effort TEXT NOT NULL DEFAULT 'high'
+          CHECK (effort IN ('medium','high'));
+        ALTER TABLE cove_task_session_runs
+          ADD COLUMN model_reason TEXT NOT NULL DEFAULT 'Legacy session created before model routing.';
+      `);
+    },
+  },
 ];
 
 function migrationTableExists(db: Database.Database, name: string): boolean {

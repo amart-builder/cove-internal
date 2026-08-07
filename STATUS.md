@@ -18,13 +18,28 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-08-06T10:27:45-0700
-- **task:** Round 5 verify+ship
+- **since:** 2026-08-06T16:40:51-0700
+- **task:** Round 6 verify
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-08-06 morning (Round 5 consolidated review fixes complete)
+**Last updated:** 2026-08-06 evening (Round 6 verified live and committed; Opus review pending)
+
+## 2026-08-06 Round 6 owner-approved demo changes (DONE, COMMITTED)
+
+- Replaced Today V2's hover detail with a click-open inline detail card and a centered rich sheet, kept session actions visible below clamped copy, made focus cards fixed-height with reserved inline session status, and added the Focus Grid close control.
+- Merged Today and All Work into the fixed main top bar. The bar auto-hides after 2.5 seconds, reveals from the top edge, waits 700ms after exit, stays open for focus or menus, and respects reduced motion. Page headers now clear the overlay.
+- Made Planning and Auto explicit launch modes through the UI, API, manager, and spawned Claude argv. Added a bounded Fable 5 medium-effort router for fresh launches, safe Opus/Sonnet fallbacks, and persisted model, effort, and reason on session runs.
+- Rewrote Cove's task-session prompt as a plain-language brief with task notes isolated as untrusted data, and aligned the parallel Claude execution prompt. Fixed both Today sun dots to evaluate the exact cubic curve used by their SVG paths.
+- Verification: TypeScript and scoped ESLint clean; full suite 902/902; Today V2 type-floor audit clean; `git diff --check` clean. No server, commit, production code under `src/lib/day-plan`, or intentional data write was performed.
+- Driver live verification on the demo-dev server, with four driver fixes applied on top of the build:
+  - Verified live: click-open detail card matches the approved mockup (eyebrow, More, 3-line clamp, meta, hairline footer with filled Planning pill); Escape, click-away, More-to-rich-sheet, sheet X, and Edit task wiring all work; all three focus cards hold exactly 158px with and without a live status; top bar merges the centered Today/All Work pill (tasks page only), reveals from the 24px hot zone and on keyboard focus, holds 700ms before hiding; People and All Work lay out cleanly under the overlay; grid X (28px round, top-right, plus the trigger morphing to a close) closes the Focus Grid; sun dot sits 0.11px off its rendered path; Planning launch spawned argv with `--permission-mode plan` and read-only tools; Auto run recorded `acceptEdits`; the new prompt reads as the approved Alex brief with the untrusted-notes guard.
+  - Fix 1: day-arc points now round to 2 decimals; raw float math drifted in the last digit between server and client and tripped React hydration (console error plus dev-overlay crash). Verified clean after fix.
+  - Fix 2: focus-card completion orb was top-aligned (34px above center); mockup centers it. `align-self: center` on `.today2-check-orb`. Verified 0px offset live.
+  - Fix 3: the model router capped its own claude call at $0.25, but a Fable 5 CLI call costs ~$0.26 minimum (fixed system prompt), so every launch silently fell back. Raised to $1.00; live Auto launch then recorded router-chosen claude-sonnet-5 high with a real reason line in the DB.
+  - Fix 4: with a finished run, the detail-card footer (Ready chip + Planning + Auto) overlapped the "Start with Claude" label; the label now hides in that state. Verified no overlap live.
+  - Full suite re-run after fixes: 902/902.
 
 ## 2026-08-06 Round 5 consolidated review fixes (DONE, COMMITTED)
 

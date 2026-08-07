@@ -52,7 +52,7 @@ export default function GuidePage() {
   const copy = guideCopyForRuntime(getRuntimeMode());
   return (
     <div className="h-full overflow-y-auto bg-background">
-      <div className="relative mx-auto max-w-4xl px-5 py-10 sm:px-8 sm:py-14">
+      <div className="relative mx-auto max-w-4xl px-5 pb-10 pt-[72px] sm:px-8 sm:pb-14 sm:pt-[80px]">
         <div
           className="pointer-events-none absolute inset-x-8 top-5 h-64 rounded-full bg-accent-blue/5 blur-3xl"
           aria-hidden="true"
