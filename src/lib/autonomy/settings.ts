@@ -42,19 +42,25 @@ function validateSettings(value: unknown): CoveAutonomySettings {
     throw new Error("cove_autonomy_invalid");
   }
   const row = value as Record<string, unknown>;
+  const firstGroundworkAt = row.first_groundwork_at === undefined
+    ? null
+    : row.first_groundwork_at;
+  const checkinAnswered = row.checkin_answered === undefined
+    ? false
+    : row.checkin_answered;
   const presentedCount = row.checkin_presented_count === undefined
     ? 0
     : row.checkin_presented_count;
   if (
     (row.level !== "off" && row.level !== "groundwork") ||
     (
-      row.first_groundwork_at !== null &&
+      firstGroundworkAt !== null &&
       (
-        typeof row.first_groundwork_at !== "string" ||
-        !Number.isFinite(Date.parse(row.first_groundwork_at))
+        typeof firstGroundworkAt !== "string" ||
+        !Number.isFinite(Date.parse(firstGroundworkAt))
       )
     ) ||
-    typeof row.checkin_answered !== "boolean" ||
+    typeof checkinAnswered !== "boolean" ||
     !Number.isInteger(presentedCount) ||
     Number(presentedCount) < 0 ||
     Number(presentedCount) > 3
@@ -63,8 +69,8 @@ function validateSettings(value: unknown): CoveAutonomySettings {
   }
   return {
     level: row.level,
-    first_groundwork_at: row.first_groundwork_at,
-    checkin_answered: row.checkin_answered,
+    first_groundwork_at: firstGroundworkAt,
+    checkin_answered: checkinAnswered,
     checkin_presented_count: Number(presentedCount),
   };
 }
