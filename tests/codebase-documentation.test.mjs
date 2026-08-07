@@ -21,6 +21,39 @@ test("the public entry points lead coding agents to the canonical codebase guide
   assert.match(exporter, /"CODEBASE_GUIDE\.md"/);
 });
 
+test("the public setup docs preserve the Basic Mode experience contract", () => {
+  const readme = read("README.md");
+  const setup = read("SETUP.md");
+  const agents = read("AGENTS.md");
+  const exporter = read("scripts/export-cove-client.mjs");
+
+  assert.match(readme, /\[SETUP\.md\]\(SETUP\.md#basic-mode\)/);
+  assert.match(readme, /one ongoing Claude Code session/i);
+  assert.match(agents, /Basic Mode/);
+  assert.match(agents, /Claude Mac app/);
+  assert.match(agents, /parallel task\s+store/);
+
+  for (const marker of [
+    "8:00 AM: Morning Brief",
+    "8:30 AM: Morning email triage",
+    "2:00 PM: Afternoon email triage",
+    "5:00 PM: Daily closeout",
+    "goals.md",
+    "meeting notes",
+    "same conversation",
+    "Drafts remain drafts",
+    "Basic Mode acceptance",
+  ]) {
+    assert.match(setup, new RegExp(marker, "i"), `SETUP.md is missing: ${marker}`);
+  }
+
+  assert.match(setup, /without using Terminal or the Cove website/i);
+  assert.match(setup, /SQLite\s+database remains the durable source of truth/i);
+  assert.match(exporter, /"AGENTS\.md"/);
+  assert.match(exporter, /"README\.md"/);
+  assert.match(exporter, /"SETUP\.md"/);
+});
+
 test("the codebase guide accounts for every server domain directory", () => {
   const guide = read("CODEBASE_GUIDE.md");
   const domains = readdirSync(path.join(repoRoot, "src", "lib"), {

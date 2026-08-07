@@ -21,6 +21,28 @@ People, Buddy, a real Morning Brief, Close My Day, and a verified local backup.
 Email, meeting-note ingestion, and text-message reminders can wait. Skipping an
 optional integration does not make the core install incomplete.
 
+### Start with Basic Mode
+
+Basic Mode puts Cove inside one ongoing Claude Code session in the Claude Mac
+app. The same local task database, goals, email, meeting-note context, and
+safety rules run underneath it, but the user does not need to open the Cove
+website or use Terminal in daily life.
+
+At 8:00 AM Cove talks through the Morning Brief. At 8:30 AM and 2:00 PM it
+triages email, prepares drafts, and separates urgent work from useful context
+and noise. At 5:00 PM it closes the day, records progress, and carries unfinished
+work forward. Every moment returns to the same conversation so the user can
+reply naturally and Cove can maintain one continuous working relationship.
+
+To request it, add this sentence to the setup note above:
+
+> Set me up in Basic Mode. Use one ongoing Cove session in the Claude Mac app as my only daily surface. Follow the Basic Mode experience contract in SETUP.md and use the best supported Claude capabilities to deliver it.
+
+The canonical Basic Mode experience and acceptance criteria are in
+[SETUP.md](SETUP.md#basic-mode). It is a different interface over the same Cove
+system, so the user can open the full visual Cove later without moving their
+data.
+
 ---
 
 ## Using Cove
