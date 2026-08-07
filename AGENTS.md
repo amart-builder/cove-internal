@@ -2,14 +2,20 @@
 
 Changing Cove itself rather than installing it? Read `CODEBASE_GUIDE.md` first.
 
-If a user sends you this repository and asks you to install or set up Cove, read
-`README.md` and all of `SETUP.md` before changing the machine. Follow the setup
-playbook in order. Do not improvise a different runtime or infer that an
-optional integration was requested.
+If a user sends you this repository or its GitHub link and says "Set me up with
+Cove," "install Cove," or the equivalent, treat that as the complete setup
+request. Do not ask them to restate the long technical instructions. Read
+`README.md` and all of `SETUP.md` before changing the machine, then begin with
+the outcome-led explanation required there. Follow the setup playbook in order.
+Do not improvise a different runtime or infer that an optional integration was
+requested.
 
 For a person's first Cove install:
 
 - Default to the assisted first-day rollout in `SETUP.md`.
+- If the user did not request Basic Mode, use Full Cove. Explain the two
+  experience choices briefly and let them switch before installation without
+  making them design the setup themselves.
 - If the user asks for Basic Mode, treat the `Basic Mode` section of `SETUP.md`
   as the user-experience and acceptance contract. Deliver only two scheduled
   Claude Mac app rituals: a Morning Brief and an end-of-day conversation. Put

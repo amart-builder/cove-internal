@@ -1,6 +1,68 @@
 # Cove setup (for Claude or Codex)
 
-The user sent you this repository and asked you to set up Cove. Follow these steps in order. Walk the user through the parts that need their input. Do the rest yourself and report as you go. The same product behavior and safety rules apply whether you are Claude or Codex.
+The user sent you this repository or its GitHub link and asked you to set up
+Cove. "Set me up with Cove" is a complete request. Do not require the user to
+copy a longer technical prompt, read this file, or choose implementation
+details. Read this entire playbook yourself, follow the steps in order, walk the
+user through the parts that need their input, and do the rest yourself. The
+same product behavior and safety rules apply whether you are Claude or Codex.
+
+## Start by explaining Cove
+
+Do this before running a command or asking the user to choose an experience.
+The first thing the user should understand is the life they are setting up, not
+the software being installed. Use your own natural voice, but cover this simple
+promise:
+
+> Cove is an AI-native task organizer that acts like a chief of staff for your
+> life and work. Its job is to make staying organized feel effortless: capture
+> what you owe, keep anything important from falling through the cracks, and
+> help you focus on the right work each day. It learns your goals, people,
+> responsibilities, and working style so its advice is calibrated to you.
+
+Explain the outcomes the user can add:
+
+- **Never drop a commitment.** The user can tell Claude or Codex about work in
+  plain language. Cove keeps accepted tasks and follow-ups in durable local
+  state so a new session or a restart does not erase them.
+- **Stay at inbox zero.** For the Gmail account the user deliberately
+  connects, Cove can identify what needs a reply, prepare an in-thread draft in
+  the user's voice, surface other actions, and file mail that no longer needs
+  attention. The user reviews and sends every reply. Cove never sends one.
+- **Be fully present in calls.** With a supported meeting-note source, Cove can
+  turn explicit promises and follow-ups into durable work. A sentence such as
+  "I'll get you that proposal by Friday" should not depend on the user taking
+  notes or remembering it later. Inferences remain suggestions until accepted.
+- **Know what matters today.** The Morning Brief combines goals, current work,
+  people, and recent context into a specific recommendation, including what can
+  wait. Closeout carries progress and unfinished work into tomorrow.
+- **Become more useful over time.** The setup interview and later operator
+  questions teach Cove what success means to this person. Useful learning is
+  saved deliberately and can be corrected later.
+
+Then set expectations in plain language: Cove runs locally on this Mac, there
+is no Cove account, and connections are optional. Setup starts with the core
+task and daily-planning loop. Add email, meeting notes, reminders, or messaging
+one at a time only when the user wants the outcome and can stay for its live
+check.
+
+Tell the user what will happen next and why:
+
+1. You will check the Mac and repository so Cove can run reliably.
+2. You will learn the user's goals, responsibilities, people, and failure
+   points so Cove's first advice is not generic.
+3. You will capture real open work before starting the worker so nothing begins
+   with an empty or fake task list.
+4. You will offer optional connections one at a time, explain the benefit and
+   boundary of each, and leave unchosen sources off.
+5. You will generate and review one real Morning Brief, practice the daily
+   loop, verify restart persistence, and create a backup before calling setup
+   complete.
+
+Throughout setup, lead every phase with three things: the outcome it unlocks,
+what you are about to do and why, and any moment that needs the user. Summarize
+technical output instead of narrating terminal mechanics. Stop and explain a
+failed gate rather than burying it in command output.
 
 > Cove is a local, single-Mac product. Do not configure Tailscale, Supabase, Convex, or a login. Use one local SQLite database with no account and no authentication. If the user needs multi-device access, record that as a product requirement rather than assembling an unsupported storage mode.
 
@@ -21,6 +83,12 @@ Basic Mode is an experience profile, not a smaller or temporary database. A
 user can move to Full Cove later without migrating their work. The setup agent
 may use Terminal or the local website privately to install, inspect, and test
 the system, but neither belongs in the Basic Mode user's daily workflow.
+
+If the user asked only to be set up, recommend Full Cove and proceed with its
+assisted first-day rollout. Mention that Basic Mode is available for someone
+who wants only the two Claude rituals and no daily website. Let the user switch
+with one plain-language answer, but do not make them choose technical pieces or
+delay preflight while they design a custom mode.
 
 ### Basic Mode
 
@@ -182,6 +250,11 @@ and its actual state. Do not describe an untested or skipped lane as ready.
 
 ## Step 0: Preflight the Mac
 
+**What to tell the user:** "I am checking that this Mac can run Cove reliably
+and that we will not collide with an older install. I will handle the checks.
+I will only pause if macOS needs a click or password, or if I find something
+that needs your decision."
+
 Check the Mac before cloning. Run every command you can for the user. The user should only need to click a macOS dialog or type a password when macOS asks. Explain those moments first.
 
 1. Run `xcode-select -p`. If it fails, run `xcode-select --install`. Tell the user to click Install and that an administrator account is needed. Wait, then run the check again.
@@ -216,6 +289,10 @@ checkout or port conflict is resolved.
 
 ## Step 1: Clone and install packages
 
+**What to tell the user:** "I am installing a clean, verified copy of Cove and
+running its complete self-check before it touches your real workflow. If any
+check fails, I will stop and explain it instead of building on a bad base."
+
 ```bash
 set -euo pipefail
 git clone https://github.com/amart-builder/cove.git ~/cove
@@ -235,6 +312,11 @@ production build passing. Do not start Cove if it fails. Do not run any
 
 ## Step 2: Get to know the user
 
+**What to tell the user:** "This conversation is what turns Cove from a generic
+task app into your chief of staff. I will ask one question at a time so the
+first plan understands your goals, responsibilities, people, and the things you
+most need help not dropping."
+
 The morning brief is only as useful as this conversation. Ask one question at a time. Reflect the important parts back. Follow up whenever you would still have to guess tomorrow.
 
 1. "What are the main things you are responsible for right now, at work and outside it?"
@@ -253,6 +335,11 @@ The morning brief is only as useful as this conversation. Ask one question at a 
 **Hard checkpoint.** Privately draft tomorrow's brief. Do not show it yet. Every generic line or guess marks a gap. Ask about those gaps. If a second private draft still sounds generic, the interview is not done.
 
 ## Step 3: Connect the tools
+
+**What to tell the user:** "Connections let Cove catch work where it already
+appears, but they are optional. I will explain the payoff and safety boundary
+of each one, and I will connect only the sources you choose and can test with
+me now."
 
 Ask what the user wants before connecting anything. Email, contacts, and meeting notes are optional. Nothing in this step may send mail or messages.
 
@@ -333,6 +420,11 @@ Keep the two-day watcher window. The scheduled inbox check catches up after long
 The installer in Step 5 follows `scripts/lib/cove-lane-ownership.mjs`. This Mac may claim `meeting_watch` only if another Mac does not own it. After install, verify `data/cove-lane-owners.json`, `data/intake/installed-lanes.json`, and one `node scripts/cove-meeting-watch.mjs --once` run. If another Mac owns the work, verify that Mac. Do not steal the lane.
 
 ## Step 4: Load the person's real data
+
+**What to tell the user:** "Now we are giving Cove your real open loops. This
+is why your first brief can be useful on day one instead of starting with an
+empty board or fake sample tasks. You will review what is captured before any
+worker starts."
 
 Write these private, gitignored files and capture the real tasks and People
 record before Cove's supervised worker starts. It is safe to run the web app by
@@ -420,6 +512,11 @@ The next worker start must see the finished first-day data.
 
 ## Step 5: Build and run a quiet smoke test
 
+**What to tell the user:** "Your real context is ready, so I am turning on Cove
+and proving the core system can think, save, restart, and back itself up. This
+is a supervised first run. I will not present a test artifact as your real
+Morning Brief."
+
 ```bash
 npm run build
 COVE_BRIEF_WRITER=claude bash scripts/install-cove-local.sh
@@ -482,6 +579,11 @@ Run `system_profiler SPHardwareDataType | grep "Model Name"` and state the truth
 
 ## Step 6: Review the real morning brief
 
+**What to tell the user:** "This is the moment we test whether Cove actually
+understands you. We will review one brief grounded in your real goals and work.
+If it sounds generic, setup is not done and I will name what context is
+missing."
+
 Everything the user selected should now be loaded: goals, real tasks, people,
 and any optional inbox or meeting context they chose. Open Arrival and review
 the successful candidate brief from Step 5 together. Do not request a second
@@ -507,6 +609,11 @@ npm run check:brief-writer -- --expect claude --expect-local-sources
 ```
 
 ## Step 7: Practice one morning and close
+
+**What to tell the user:** "We are practicing the small daily loop that keeps
+Cove accurate: choose the day, update what happened, and carry the right
+context forward. The goal is to prove tomorrow works without you maintaining
+the system by hand."
 
 For Basic Mode, practice the two rituals in the Claude Mac app instead of
 teaching the website:
@@ -544,6 +651,10 @@ state in place and tell the user exactly what happened.
 For tasks, email, People, meeting notes, and the brief, answer out loud: "Can Cove run this well tomorrow? If not, what is missing?" Name every gap.
 
 ## Step 8: Leave the user a clear way back in
+
+**What to tell the user:** "The system is useful only if it feels easy after I
+leave. I will show you the normal way back in, how to ask for help, and exactly
+which background connections are on or still off."
 
 For Basic Mode, show the user where the two scheduled Claude rituals appear and
 how to start either one manually if they want it early. Do not require a Cove

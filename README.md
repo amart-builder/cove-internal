@@ -1,6 +1,18 @@
 # Cove
 
-Your shared working surface with Jarvis: a calm view of what matters now, what may matter next, and what your AI is carrying. Cove runs on your own Mac. Email stays where it already lives: in Gmail.
+Cove is an AI-native task organizer that acts like a chief of staff for your
+life and work. It helps you stay organized without constantly maintaining a
+system: it catches commitments, keeps follow-ups from disappearing, recommends
+what matters today, and learns how your goals and responsibilities fit
+together.
+
+You can tell Claude or Codex about a task in plain language. If you choose to
+connect Gmail, Cove helps keep you at inbox zero, prepares reply drafts in
+your voice, and surfaces the messages that need your attention. If you connect
+your meeting notes, a promise such as "I'll get you that proposal by Friday"
+can become a durable follow-up without you stopping the conversation to write
+it down. Cove interviews you about your goals and working style so its daily
+recommendations become specific to you rather than generic productivity advice.
 
 Cove is local-first. Your data lives in a single file on your laptop. There is no account to create and no login screen. Your board stays in that file on your laptop; only the text a model needs to write your brief or triage an email is sent to the model provider. You open it like any website, by bookmarking a page, but it runs on your own computer and is always on.
 
@@ -8,11 +20,21 @@ Cove is local-first. Your data lives in a single file on your laptop. There is n
 
 ## Get Cove set up
 
-You do not set this up by hand. Send this repository's link to your AI agent with this note:
+You do not set this up by hand. Send this repository's GitHub link to Claude or
+Codex and say:
 
-> Set up Cove on this Mac using my signed-in Claude Code subscription. Read AGENTS.md and the complete SETUP.md before doing anything. Use the assisted first-day rollout. Do not use demo data or `--mini`. Capture my real open work before making the first Morning Brief. Ask before connecting email, meeting notes, Telegram, or iMessage, and keep all model-based attention lanes in shadow mode. Stop and explain any failed check instead of bypassing it.
+> Set me up with Cove.
 
-Your assistant follows the playbook in [SETUP.md](SETUP.md): it checks the Mac, verifies this exact checkout, interviews you one question at a time about your responsibilities, goals, day, work sources, and delegation boundaries, builds your first current with you, and then offers optional email, CRM, reminder, and voice-note connections.
+That is enough. The repository tells the agent how to begin the assisted setup,
+which safety checks it must preserve, and when it needs your input. You should
+not have to translate the install guide or paste a long technical prompt.
+
+Before running commands, your assistant explains what Cove will do for you and
+what the setup will involve. It then follows [SETUP.md](SETUP.md): checks the
+Mac, verifies the checkout, interviews you one question at a time, captures
+your real open work, and offers each optional connection in terms of the
+outcome it unlocks. Email, meeting notes, reminders, and messaging stay off
+unless you choose them and remain present for a live check.
 
 When it is done, Cove is running at `http://localhost:3200` on your Mac.
 
@@ -44,7 +66,7 @@ conversations.
 
 To request it, add this sentence to the setup note above:
 
-> Set me up in Basic Mode. Put Cove's backend together, then give me only two daily rituals in the Claude Mac app: a Morning Brief and an end-of-day conversation that captures what I completed, lets me talk through notes, and asks one useful question each day to understand me better. Follow the Basic Mode experience contract in SETUP.md and use the best supported Claude capabilities to deliver it.
+> Set me up with Cove in Basic Mode.
 
 The canonical Basic Mode experience and acceptance criteria are in
 [SETUP.md](SETUP.md#basic-mode). It is a different interface over the same Cove

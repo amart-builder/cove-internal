@@ -66,6 +66,47 @@ test("the public setup docs preserve the Basic Mode experience contract", () => 
   assert.match(exporter, /"SETUP\.md"/);
 });
 
+test("the GitHub handoff starts an outcome-led setup without a technical prompt", () => {
+  const readme = read("README.md");
+  const setup = read("SETUP.md");
+  const agents = read("AGENTS.md");
+  const explanation = setup.match(
+    /## Start by explaining Cove\n([\s\S]*?)\n> Cove is a local, single-Mac product/,
+  )?.[1];
+
+  assert.match(readme, /> Set me up with Cove\./);
+  assert.match(readme, /That is enough\./);
+  assert.match(readme, /Before running commands/);
+  assert.match(agents, /GitHub link/);
+  assert.match(agents, /treat that as the complete setup\s+request/i);
+  assert.match(agents, /outcome-led explanation/i);
+
+  assert.ok(explanation, "SETUP.md needs a bounded explanation before machine work");
+  assert.ok(
+    setup.indexOf("## Start by explaining Cove") < setup.indexOf("## Step 0: Preflight the Mac"),
+    "the product explanation must precede preflight",
+  );
+  for (const marker of [
+    "chief of staff",
+    "Never drop a commitment",
+    "Stay at inbox zero",
+    "Cove never sends one",
+    "Be fully present in calls",
+    "Know what matters today",
+    "Become more useful over time",
+    "the outcome it unlocks",
+    "what you are about to do and why",
+    "needs the user",
+  ]) {
+    assert.match(explanation, new RegExp(marker, "i"), `SETUP.md is missing: ${marker}`);
+  }
+  assert.equal(
+    setup.match(/\*\*What to tell the user:\*\*/g)?.length,
+    9,
+    "every numbered setup step must explain its user-facing purpose",
+  );
+});
+
 test("the codebase guide accounts for every server domain directory", () => {
   const guide = read("CODEBASE_GUIDE.md");
   const domains = readdirSync(path.join(repoRoot, "src", "lib"), {
