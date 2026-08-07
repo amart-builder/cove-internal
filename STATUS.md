@@ -24,7 +24,33 @@
 
 ---
 
-**Last updated:** 2026-08-07 morning (simplified Basic Mode published and anonymously reverified)
+**Last updated:** 2026-08-07 late morning (outcome-led setup handoff published and anonymously reverified)
+
+## 2026-08-07 outcome-led GitHub setup handoff (DONE, PUBLISHED)
+
+- Reframed the public README around Cove's user outcomes: a chief of staff that
+  catches commitments, helps keep a deliberately connected Gmail account at
+  inbox zero, turns explicit meeting promises into follow-ups, prioritizes the
+  day, and learns the user's goals and working style.
+- Reduced the public handoff to one instruction: send the GitHub link to Claude
+  or Codex and say "Set me up with Cove." `AGENTS.md` and `SETUP.md` now treat
+  that as the complete trigger, default to the assisted Full Cove rollout when
+  Basic Mode was not requested, and preserve the existing opt-in and shadow
+  safety boundaries.
+- Added a required outcome-led explanation before preflight, a five-part preview
+  of the setup journey, and a user-facing purpose statement for each of Steps 0
+  through 8. Basic Mode remains available through the one-line "Set me up with
+  Cove in Basic Mode" request.
+- Private source commit: `c2c5ccd05208f812e9e820217338f2a29b2fd69e`.
+  The sanitized public mirror remains `PUBLIC` at
+  `7374abada7f66dedaf131bbdce53e5a853e933a5`; all 421 manifest hashes bind that
+  mirror to the private source SHA.
+- Verification: the private source passed TypeScript, zero-warning ESLint, all
+  960 tests, and the production build. The clean public export installed under
+  Node 24.14.0 with zero npm vulnerabilities, passed TypeScript, zero-warning
+  ESLint, 958 tests with the two expected `lsof`-dependent skips, and the
+  production build. A fresh credential-free HTTPS clone reverified all 421
+  hashes and passed all 13 focused documentation and handoff tests.
 
 ## 2026-08-07 simplified Basic Mode contract (DONE, PUBLISHED)
 
