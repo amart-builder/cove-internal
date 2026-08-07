@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -703,8 +703,9 @@ test('installer provisions a supervised watch worker without enabling autonomy',
     installer.indexOf('# (Re)load all agents'),
   );
   assert.doesNotMatch(miniProfile, /COVE_NOTIFY/);
-  assert.match(miniProfile, /<key>COVE_BRIEF_WRITER<\/key>\s*<string>codex<\/string>/);
-  assert.match(miniProfile, /<key>COVE_CODEX_BIN<\/key>\s*<string>\/opt\/homebrew\/bin\/codex<\/string>/);
+  assert.match(installer, /BRIEF_WRITER="\$\{COVE_BRIEF_WRITER:-claude\}"/);
+  assert.match(miniProfile, /<key>COVE_BRIEF_WRITER<\/key>\s*<string>\$BRIEF_WRITER<\/string>/);
+  assert.match(miniProfile, /\$CODEX_PLIST_ENTRY/);
   assert.match(miniProfile, /COVE_BRIEF_OPERATOR_PROFILE_PATH/);
   assert.match(miniProfile, /COVE_BRIEF_LEADUP_PATH/);
   assert.match(miniProfile, /if \[ "\$MINI" = "1" \]; then[\s\S]*SAFETY GATE/);
@@ -714,6 +715,10 @@ test('installer provisions a supervised watch worker without enabling autonomy',
   assert.match(installer, /\$\{COVE_SUPERNOVA_DIR:-\}/);
   assert.doesNotMatch(installer, /SUPERNOVA_PRIMARY|SUPERNOVA_SECONDARY/);
   assert.doesNotMatch(installer, /Projects\/[a-z-]*engine/);
+  assert.match(workerProfile, /<key>COVE_BRIEF_WRITER<\/key>\s*<string>\$BRIEF_WRITER<\/string>/);
+  assert.match(workerProfile, /\$CODEX_PLIST_ENTRY/);
+  assert.match(serverProfile, /<key>COVE_BRIEF_WRITER<\/key>\s*<string>\$BRIEF_WRITER<\/string>/);
+  assert.doesNotMatch(installer, /<string>\/opt\/homebrew\/bin\/codex<\/string>/);
   // & is the whole-match reference in a sed replacement, so one backslash
   // escapes it. Two would write a literal backslash into the plist value.
   assert.match(installer, /SUPERNOVA_XML_DIR=.*sed[\s\S]*s\/&\/\\&amp;\/g/);
@@ -747,6 +752,61 @@ test('installer provisions a supervised watch worker without enabling autonomy',
   assert.match(workerProfile, /\$SUPERNOVA_PLIST_ENTRY/);
   assert.match(workerProfile, /<key>COVE_CONTENT_QUOTA_POSTS<\/key>\s*<string>2<\/string>/);
   assert.doesNotMatch(installer, /<key>COVE_CLAUDE_EXECUTION_ENABLED<\/key>/);
+});
+
+test('installer renders the selected writer into both brief worker plists', (t) => {
+  const installer = readFileSync(
+    new URL('../scripts/install-cove-local.sh', import.meta.url),
+    'utf8',
+  );
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cove-installer-writer-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  const templates = [
+    {
+      name: 'worker',
+      start: 'cat > "$WORKER_PLIST" <<EOF\n',
+      end: '\nEOF\n\n# --- Morning Brief on this Mac ---',
+    },
+    {
+      name: 'mini',
+      start: '  cat > "$MINI_BRIEF_PLIST" <<EOF\n',
+      end: '\nEOF\n  "$NODE_REAL" "$LANE_PLIST_RENDERER"',
+    },
+  ];
+  for (const template of templates) {
+    const start = installer.indexOf(template.start);
+    assert.notEqual(start, -1, `${template.name} template start`);
+    const bodyStart = start + template.start.length;
+    const bodyEnd = installer.indexOf(template.end, bodyStart);
+    assert.notEqual(bodyEnd, -1, `${template.name} template end`);
+    const body = installer.slice(bodyStart, bodyEnd);
+    const renderScript = path.join(dir, `render-${template.name}.sh`);
+    writeFileSync(renderScript, [
+      '#!/bin/bash',
+      'set -e',
+      'BRIEF_WRITER="${COVE_BRIEF_WRITER:-claude}"',
+      'CODEX_PLIST_ENTRY=""',
+      'SUPERNOVA_PLIST_ENTRY=""',
+      'cat > "$1" <<EOF',
+      body,
+      'EOF',
+      '',
+    ].join('\n'));
+
+    for (const writer of ['claude', 'codex']) {
+      const output = path.join(dir, `${template.name}-${writer}.plist`);
+      execFileSync('/bin/bash', [renderScript, output], {
+        env: { ...process.env, COVE_BRIEF_WRITER: writer },
+      });
+      const rendered = readFileSync(output, 'utf8');
+      assert.match(
+        rendered,
+        new RegExp(`<key>COVE_BRIEF_WRITER</key>\\s*<string>${writer}</string>`),
+      );
+      assert.doesNotMatch(rendered, /\$[A-Z_]{3,}/);
+    }
+  }
 });
 
 test('standalone worker script compiles before launchd supervision', () => {

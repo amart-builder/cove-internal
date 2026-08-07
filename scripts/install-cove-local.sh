@@ -104,6 +104,38 @@ if [ -z "$CLAUDE_BIN" ] || [ ! -x "$CLAUDE_BIN" ]; then
   echo "Claude Code is required for Cove execution. Install it or set COVE_CLAUDE_BIN." >&2
   exit 1
 fi
+BRIEF_WRITER="${COVE_BRIEF_WRITER:-claude}"
+case "$BRIEF_WRITER" in
+  claude|codex) ;;
+  *)
+    echo "COVE_BRIEF_WRITER must be 'claude' or 'codex'." >&2
+    exit 1
+    ;;
+esac
+CODEX_BIN="${COVE_CODEX_BIN:-$(command -v codex 2>/dev/null || true)}"
+if [ -z "$CODEX_BIN" ] && [ -x "$HOME/.local/bin/codex" ]; then
+  CODEX_BIN="$HOME/.local/bin/codex"
+fi
+if [ -z "$CODEX_BIN" ] && [ -x "/opt/homebrew/bin/codex" ]; then
+  CODEX_BIN="/opt/homebrew/bin/codex"
+fi
+if [ -z "$CODEX_BIN" ] && [ -x "/usr/local/bin/codex" ]; then
+  CODEX_BIN="/usr/local/bin/codex"
+fi
+if [ "$BRIEF_WRITER" = "codex" ] && { [ -z "$CODEX_BIN" ] || [ ! -x "$CODEX_BIN" ]; }; then
+  echo "COVE_BRIEF_WRITER=codex requires an executable Codex CLI. Install it or set COVE_CODEX_BIN." >&2
+  exit 1
+fi
+CODEX_PLIST_ENTRY=""
+if [ -n "$CODEX_BIN" ]; then
+  CODEX_XML_BIN="$(printf '%s' "$CODEX_BIN" | sed \
+    -e 's/&/\&amp;/g' \
+    -e 's/</\&lt;/g' \
+    -e 's/>/\&gt;/g')"
+  printf -v CODEX_PLIST_ENTRY \
+    '    <key>COVE_CODEX_BIN</key>\n    <string>%s</string>' \
+    "$CODEX_XML_BIN"
+fi
 
 mkdir -p "$LOG_DIR" "$LA_DIR"
 if [ ! -e "$REPO_DIR/.env.local" ]; then
@@ -225,9 +257,8 @@ STIGNORE_BLOCK
     <key>COVE_BRIEF_REQUIRE_SOURCE_CHECKPOINT</key>
     <string>1</string>
     <key>COVE_BRIEF_WRITER</key>
-    <string>codex</string>
-    <key>COVE_CODEX_BIN</key>
-    <string>/opt/homebrew/bin/codex</string>
+    <string>$BRIEF_WRITER</string>
+$CODEX_PLIST_ENTRY
     <key>COVE_BRIEF_GOALS_PATH</key>
     <string>$ATLAS_ROOT/brain/GOALS.md</string>
     <key>COVE_BRIEF_OPERATOR_PROFILE_PATH</key>
@@ -464,6 +495,8 @@ cat > "$SERVER_PLIST" <<EOF
     <string>$BUDDY_APP_URL</string>
     <key>COVE_CLAUDE_WORKER_AVAILABLE</key>
     <string>1</string>
+    <key>COVE_BRIEF_WRITER</key>
+    <string>$BRIEF_WRITER</string>
     <key>COVE_PROGRESS_RELAY_CONSUMER</key>
     <string>1</string>
 $SUPERNOVA_PLIST_ENTRY
@@ -517,6 +550,9 @@ cat > "$WORKER_PLIST" <<EOF
     <string>$BUDDY_DEEPLINKS</string>
     <key>COVE_BRIEF_WEB_BASE</key>
     <string>http://127.0.0.1:3200</string>
+    <key>COVE_BRIEF_WRITER</key>
+    <string>$BRIEF_WRITER</string>
+$CODEX_PLIST_ENTRY
 $SUPERNOVA_PLIST_ENTRY
     <key>COVE_CONTENT_QUOTA_POSTS</key>
     <string>2</string>
@@ -525,13 +561,11 @@ $SUPERNOVA_PLIST_ENTRY
 </plist>
 EOF
 
-# --- Morning Brief on the MBP ---
-# There is intentionally no 7:30 one-shot agent here anymore: the always-on Mac
-# Mini owns scheduled generation (install it there with `--mini`) and relays the
-# artifact over Syncthing. The MBP still covers itself two ways with no agent:
-# the arrival's on-demand backfill (the watch worker drains the brief lane) and
-# the post-settlement evening trigger. Any previously installed com.cove.morning-brief
-# agent is booted out below.
+# --- Morning Brief on this Mac ---
+# There is intentionally no 7:30 one-shot agent in the standard laptop profile.
+# The arrival's on-demand backfill and the post-settlement trigger both feed the
+# supervised watch worker. Any previously installed com.cove.morning-brief agent
+# is booted out below.
 
 # --- Daily database backup at 3:30am ---
 cat > "$BACKUP_PLIST" <<EOF

@@ -6,6 +6,28 @@ The user sent you this repository and asked you to set up Cove. Follow these ste
 
 **Machine paths.** Never assume this Mac has the same folders as another Mac. Find each needed path or ask the user. Record it only in the local config files named below. Do not hard-code a person's folders in the repo.
 
+## Choose the rollout before touching the Mac
+
+For a person's first Cove install, default to an assisted first-day rollout.
+The user stays present for the first brief and the acceptance checks. The safe
+baseline is:
+
+- the person's profile and goals;
+- five or more real open tasks, including the work they most fear dropping;
+- the local task board, People, Buddy, Morning Arrival, and Close My Day;
+- a Morning Brief written through the user's signed-in Claude Code subscription;
+- a successful local backup, restart, and health check.
+
+Email, meeting-note ingestion, Telegram, iMessage, and voice notes are optional
+expansions. Do not connect or schedule them during the baseline unless the user
+explicitly chooses one and stays for its live acceptance check. Keep
+`data/attention-sweep.json` at `{"shadow":true,"email_shadow":true}`. Do not
+enable either model lane from a setup request.
+
+At the start, tell the user which rollout you are doing and which optional
+integrations you are leaving off. At the end, list every loaded background lane
+and its actual state. Do not describe an untested or skipped lane as ready.
+
 ## Step 0: Preflight the Mac
 
 Check the Mac before cloning. Run every command you can for the user. The user should only need to click a macOS dialog or type a password when macOS asks. Explain those moments first.
@@ -17,19 +39,47 @@ Check the Mac before cloning. Run every command you can for the user. The user s
    - Check Node again in a fresh shell.
 3. Run `git --version`. Fix the command line tools if it fails.
 4. Run `claude --version` in a plain shell. The Claude app is not enough. If needed, run `npm install -g @anthropic-ai/claude-code`, then check again. If it is already installed globally, run the same command to update it because task sessions use current CLI flags. Sign-in is tested in Step 5.
+5. Check for an existing checkout and port conflict before cloning:
 
-Do not continue until every check passes.
+   ```bash
+   if [ -e "$HOME/cove" ]; then echo "existing checkout: $HOME/cove"; else echo "checkout path clear"; fi
+   lsof -nP -iTCP:3200 -sTCP:LISTEN || echo "port 3200 clear"
+   ```
+
+   Never delete, replace, or reset an existing checkout or database. If either
+   exists, inspect it and ask the user which installation is authoritative.
+6. Check for an older background install even if port 3200 is currently quiet:
+
+   ```bash
+   ls "$HOME/Library/LaunchAgents" 2>/dev/null | grep -i cove || true
+   launchctl list | grep -i cove || true
+   ```
+
+   If either command finds Cove, inspect the checkout paths in those plist
+   files. Do not install a second copy or remove the first copy without the
+   user's explicit choice.
+
+Do not continue until every required tool check passes and any existing
+checkout or port conflict is resolved.
 
 ## Step 1: Clone and install packages
 
 ```bash
+set -euo pipefail
 git clone https://github.com/amart-builder/cove.git ~/cove
 cd ~/cove
+test "$(git remote get-url origin)" = "https://github.com/amart-builder/cove.git"
+test "$(git branch --show-current)" = "main"
+test -z "$(git status --porcelain)"
+git rev-parse HEAD
 npm ci
 node -e "require('better-sqlite3'); console.log('sqlite ok')"
+npm run verify
 ```
 
-Do not build or start Cove yet. First learn the user and connect the tools they chose.
+`npm run verify` must finish with type checking, lint, all tests, and the
+production build passing. Do not start Cove if it fails. Do not run any
+`demo:*` command. First learn the user and connect only the tools they choose.
 
 ## Step 2: Get to know the user
 
@@ -53,6 +103,11 @@ The morning brief is only as useful as this conversation. Ask one question at a 
 ## Step 3: Connect the tools
 
 Ask what the user wants before connecting anything. Email, contacts, and meeting notes are optional. Nothing in this step may send mail or messages.
+
+For the assisted first-day baseline, skip the optional connections in this
+step unless the user deliberately adds one. Continue to Step 4 and return to a
+specific integration later. Superhuman or another email client can remain the
+user's only email surface while Cove starts with the core daily loop.
 
 ### Email
 
@@ -164,7 +219,7 @@ The profile helps Cove explain and rank suggestions. It does not grant permissio
 
 ### Tasks and people
 
-Import or capture only real open promises from the source the user named. Confirm the mapping before a bulk import. Ask which one item belongs in Now. Do not choose it for them. Offer no more than three well-supported pale suggestions.
+Import or capture only real open promises from the source the user named. Confirm the mapping before a bulk import. Before the first real brief, capture at least five real open tasks or explicitly record that the user has fewer. Include the follow-ups and promises the user most fears dropping. Ask which one item belongs in Now. Do not choose it for them. Offer no more than three well-supported pale suggestions.
 
 If they have a people export, run the `cove-contact` import flow after the local skills are installed in Step 5. Confirm the first rows and dedupe by email. Ask for one real person they met, capture the person, note, and next step, then show the result on People.
 
@@ -174,10 +229,19 @@ Groundwork is opt-in. It lets Claude do one bounded read-only research or drafti
 
 ```bash
 npm run build
-bash scripts/install-cove-local.sh
+COVE_BRIEF_WRITER=claude bash scripts/install-cove-local.sh
 ```
 
-The installer adds the task and contact skills, starts Cove at `http://localhost:3200`, starts it at login, restarts it after a crash, checks reminders each minute, and makes a daily database backup. Cove binds to `localhost` only.
+The first production build passed in Step 1. Build again after writing the
+user's private configuration, then run the installer. The installer writes the
+chosen brief writer into the supervised worker, adds the task and contact
+skills, starts Cove at `http://localhost:3200`, starts it at login, restarts it
+after a crash, checks reminders each minute, and makes a daily database backup.
+Cove binds to `localhost` only.
+
+The supervised worker consumes Cove's private local queue. It may write the
+Morning Brief and prepare bounded task results only after the user assigns that
+work. It cannot send, publish, purchase, or expose Cove to the network.
 
 The installer replaces any existing `~/.claude/skills/cove-*` and Codex `cove-*` skill folders with this repo's versions.
 
@@ -189,11 +253,13 @@ Do not show the first test brief as the user's brief.
 2. Confirm `data/brief/goals.md` is more than a few hundred characters and holds real priorities. A thin file can make a generic brief without an error. Go back to the interview if needed.
 3. Run `claude -p "say ok" --output-format json`. A worker that starts but cannot think is not ready.
 4. Trigger one morning-brief run from start to finish. Check only that it completes. Say: "I ran a quiet test of the brief. The real one comes at the end."
-5. Run the `cove-voice` skill against 30 to 60 days of sent mail. Tune sample drafts for two or three rounds.
-6. Run the `cove-email` skill once. Show one Gmail draft and the one email card. The user must send any real reply.
-7. Run `bash scripts/install-cove-local.sh` again so the saved inbox-check times and meeting-note settings are installed.
+5. If email was deliberately connected, run the `cove-voice` skill against 30 to 60 days of sent mail. Tune sample drafts for two or three rounds.
+6. If email was deliberately connected, run the `cove-email` skill once. Show one Gmail draft and the one email card. The user must send any real reply.
+7. If email or meeting notes were deliberately configured, run `COVE_BRIEF_WRITER=claude bash scripts/install-cove-local.sh` again so the saved schedules are installed.
 8. If a people import is waiting, run it now. Capture and show one real person.
-9. Check `http://localhost:3200`, the daily backup receipt, the inbox-check schedule, and the meeting-note lane owner.
+9. Check `http://localhost:3200`, the daily backup receipt, and every integration the user chose. Confirm skipped integrations stayed unconfigured.
+10. Read `data/attention-sweep.json`, which the installer creates on a fresh
+    install, and confirm both shadow values are still `true`.
 
 Tell the user: "Cove is running on this Mac. There is no Cove account or login."
 
@@ -219,9 +285,22 @@ Run `system_profiler SPHardwareDataType | grep "Model Name"` and state the truth
 
 ## Step 6: Generate the real morning brief
 
-Everything real should now be loaded: goals, tasks, inbox context, people, and meeting notes. Trigger a new morning brief. Do not reuse the quiet smoke test. Tell the user it takes about two minutes, wait, then open Arrival and read it together.
+Everything the user selected should now be loaded: goals, real tasks, people,
+and any optional inbox or meeting context they chose. Trigger a new Morning
+Brief. Do not reuse the quiet smoke test. Tell the user it takes about two
+minutes, wait, then open Arrival and read it together.
 
 Ask whether it sounds like it knows the user, their money, their people, and their week. If it sounds generic, fix the profile or goals and generate another brief. Do not call setup done while the brief could describe anyone.
+
+Prove which writer produced the successful brief without printing its contents,
+then confirm the installed worker carries the same choice:
+
+```bash
+npm run check:brief-writer -- --expect claude
+/usr/libexec/PlistBuddy -c \
+  "Print :EnvironmentVariables:COVE_BRIEF_WRITER" \
+  "$HOME/Library/LaunchAgents/com.cove.claude-worker.plist"
+```
 
 ## Step 7: Practice one morning and close
 
@@ -236,7 +315,11 @@ Guide the user through one five-minute practice:
 6. Tell Buddy: "New urgent thing, reshuffle my afternoon." Buddy now handles this directly. Review the proposed changes and tap Apply. Buddy never applies the preview by itself.
 7. Open Closing your day. Mark one item Progress with a note and another Carry.
 
-Reset the practice honestly. If the plan is useful for today's real work, leave it. Otherwise close the practice cleanly so pretend work does not reach tomorrow. Tell the user what you left in place.
+Ask the user to reset the practice in Cove's browser UI. Never use an API call
+or edit `data/cove.db` to make a practice look clean. If the plan is useful for
+today's real work, leave it. Otherwise have the user undo the practice actions
+through the UI. If Cove cannot restore a state through the UI, leave the visible
+state in place and tell the user exactly what happened.
 
 For tasks, email, People, meeting notes, and the brief, answer out loud: "Can Cove run this well tomorrow? If not, what is missing?" Name every gap.
 
@@ -252,6 +335,55 @@ Tell them:
 - "Say 'send feedback: ...' to make a Gmail draft to support. You review and send it. If email is not connected, Cove gives you a message to copy."
 - "Solid work is committed. Pale work is a suggestion. Looking at pale work never accepts it."
 - "Inbox checks only prepare drafts and file mail. Cove never sends, deletes, or forwards."
+
+## Final acceptance record
+
+Before declaring setup complete, report the evidence for each line below:
+
+- the exact checkout path and current Git commit;
+- the Node and Claude Code versions, plus a successful signed-in Claude probe;
+- `npm run verify` passed in this checkout;
+- the profile name and timezone are correct, without printing private contents;
+- at least five real tasks were captured, or the user confirmed there are fewer;
+- one task was created, edited, completed, undone, and still correct after restart;
+- the real Morning Brief completed through the selected writer and was reviewed;
+- Close My Day was practiced and any pretend changes were reset through the UI;
+- a backup exists, `PRAGMA integrity_check` returns `ok`, and restart persistence passed;
+- the Issues page is clear, or every remaining issue is named;
+- both attention shadow values remain `true`;
+- every loaded LaunchAgent is listed, and skipped integrations remain unconfigured.
+
+Create the acceptance backup and check the live database read-only:
+
+```bash
+bash scripts/cove-backup.sh
+node - <<'NODE'
+const Database = require("better-sqlite3");
+const db = new Database("data/cove.db", { readonly: true, fileMustExist: true });
+const result = db.pragma("integrity_check", { simple: true });
+db.close();
+if (result !== "ok") throw new Error(`SQLite integrity check failed: ${result}`);
+console.log("SQLite integrity_check: ok");
+NODE
+```
+
+For the restart check, restart the supervised app process, wait for Cove to
+return, then have the user re-open the task they changed in the browser:
+
+```bash
+launchctl kickstart -k "gui/$(id -u)/com.cove.local"
+ready=0
+for attempt in $(seq 1 30); do
+  if curl -fsS http://127.0.0.1:3200/tasks >/dev/null; then ready=1; break; fi
+  sleep 2
+done
+test "$ready" = "1"
+```
+
+If any line fails, setup is not complete. Preserve the user's data, name the
+exact failure, and give the safest next step. Do not fix a red check by deleting
+the database, replacing the checkout, weakening a safety boundary, or enabling
+an integration the user did not request.
 
 ## Supported storage
 

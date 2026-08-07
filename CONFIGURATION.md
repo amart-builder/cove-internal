@@ -12,7 +12,7 @@ The default is local SQLite with no account or cloud database. Configuration is 
 | `COVE_CODEX_BIN` | Codex CLI path for briefs | discovered from PATH |
 | `COVE_CLAUDE_WORKER_ENABLED` | Enable supervised background execution | installer-managed |
 | `COVE_BRIEF_TIMEZONE` | Morning Brief target timezone | operator timezone |
-| `COVE_BRIEF_WRITER` | `codex` or explicit legacy `claude` writer | `codex` |
+| `COVE_BRIEF_WRITER` | `claude` or `codex`; the setup playbook and fresh installs use the signed-in Claude subscription | `claude` |
 
 ## Optional integrations
 

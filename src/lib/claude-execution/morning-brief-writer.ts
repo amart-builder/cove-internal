@@ -9,7 +9,7 @@ export type MorningBriefWriter = "codex" | "claude";
 export function configuredMorningBriefWriter(
   env: NodeJS.ProcessEnv = process.env,
 ): MorningBriefWriter {
-  return coveEnv("BRIEF_WRITER", env)?.trim().toLowerCase() === "claude" ? "claude" : "codex";
+  return coveEnv("BRIEF_WRITER", env)?.trim().toLowerCase() === "codex" ? "codex" : "claude";
 }
 
 export function resolveCodexBinary(options: {

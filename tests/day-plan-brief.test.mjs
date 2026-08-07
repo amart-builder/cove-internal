@@ -73,6 +73,7 @@ import {
   knownTaskIdsFromSections,
   parseBacktestArgs,
 } from '../scripts/brief-backtest.mjs';
+import { checkLatestBriefWriter } from '../scripts/cove-check-brief-writer.mjs';
 
 const CLOCK = '2026-07-14T13:00:00.000Z';
 const ArrivalStepBriefComponent = ArrivalStepBrief.default ?? ArrivalStepBrief;
@@ -1326,6 +1327,23 @@ function succeededArtifact(store, briefJson, date = '2026-07-14') {
   return store.completeMorningBrief(artifact.id, briefJson);
 }
 
+test('the setup writer check reads the latest successful artifact without exposing it', (t) => {
+  const { dir, store } = briefFixture(t);
+  assert.throws(
+    () => checkLatestBriefWriter({ dbPath: path.join(dir, 'cove.db'), expected: 'claude' }),
+    /No successful Morning Brief exists yet/,
+  );
+  succeededArtifact(store, JSON.stringify({ headline: 'Private brief', writer: 'claude' }));
+  assert.deepEqual(
+    checkLatestBriefWriter({ dbPath: path.join(dir, 'cove.db'), expected: 'claude' }),
+    { writer: 'claude', dbPath: path.join(dir, 'cove.db') },
+  );
+  assert.throws(
+    () => checkLatestBriefWriter({ dbPath: path.join(dir, 'cove.db'), expected: 'codex' }),
+    /Expected Morning Brief writer codex, found claude/,
+  );
+});
+
 test('ensure consumes a valid brief: ranking, rationale, and owner overlay with deterministic backfill', (t) => {
   const { store } = briefFixture(t);
   const { brief } = validateMorningBrief(WIRE_BRIEF);
@@ -1679,8 +1697,9 @@ test('brief input retention keeps only the newest sixty private snapshots', (t) 
 });
 
 test('the Codex writer command uses a private read-only temp workspace', () => {
-  assert.equal(configuredMorningBriefWriter({}), 'codex');
+  assert.equal(configuredMorningBriefWriter({}), 'claude');
   assert.equal(configuredMorningBriefWriter({ COVE_BRIEF_WRITER: 'claude' }), 'claude');
+  assert.equal(configuredMorningBriefWriter({ COVE_BRIEF_WRITER: 'codex' }), 'codex');
   assert.equal(resolveCodexBinary({
     env: { COVE_CODEX_BIN: '/custom/codex' },
     exists: (candidate) => candidate === '/custom/codex',
