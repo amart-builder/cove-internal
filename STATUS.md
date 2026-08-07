@@ -16,15 +16,24 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** codex
-- **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-08-06T20:24:57-0700
-- **task:** Gary mandatory release candidate, clean-tree QA, and public mirror refresh
+- **system:** none
+- **device:** —
+- **since:** —
+- **task:** —
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-08-06 evening (phase-1 reliability review fixes and judgment layer locally verified, not installed)
+**Last updated:** 2026-08-06 late evening (Gary release candidate verified and public mirror refreshed)
+
+## 2026-08-06 Gary mandatory release candidate and public mirror refresh (DONE)
+
+- Committed and pushed the previously local attention, notification, email, installer, and Buddy-orb work to private `cove-internal` main. Release source SHA: `7b83b7935f563a7636dbac4007b5a63d8aaa0035`.
+- Fixed two real first-user browser findings: a fresh install can now generate its first Morning Brief without an impossible prior closeout, and Morning Brief failures keep internal error codes out of Issues. Both fixes have dedicated regressions.
+- Built a clean allowlist export with 410 files, no live data, a passing secret scan, and a manifest whose 410 hashes all verify. Refreshed the public `amart-builder/cove` mirror at `dd48b13ab8cbd11a5adb64d89720c818322b1fbc`.
+- Fresh-cloned the public HTTPS mirror and ran the complete Node 24 gate from that clone: zero npm vulnerabilities, TypeScript clean, ESLint zero warnings, 939/939 tests, and production build passed. The six existing Turbopack dynamic-filesystem tracing warnings remain non-fatal.
+- Ran a disposable Gary single-Mac rehearsal with explicitly isolated DB, data directory, profile, goals, lead-up, sprint memo, and brief source URL. Verified a grounded first Opus brief, task validation/create/edit metadata, Buddy's thinking orb and guarded capture, empty-day closeout, clean Issues, People validation/create/edit/activity, restart persistence, official backup, official restore, and SQLite `integrity_check = ok`.
+- Rollout decision: safe for an assisted first-user pilot, not an unattended handoff. Capture Gary's initial real tasks before opening Morning Arrival, confirm Node and resolved Cove/Atlas paths, generate the first brief while Alex is present, and keep attention notifications plus email urgency in shadow mode. A physical second-Mac install, live notification/email transport, and an observed overnight cycle remain unproven.
 
 ## 2026-08-06 notification upgrade: shipped and installed (DONE, NOT COMMITTED)
 
