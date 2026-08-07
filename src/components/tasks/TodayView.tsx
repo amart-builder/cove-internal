@@ -1,5 +1,15 @@
 'use client';
 
+/**
+ * Browser coordinator for Cove's Today surface.
+ *
+ * This component joins task-board data, Quiet Current, recurring work, the day
+ * ritual, and task-session status. It may stage optimistic UI, but durable
+ * transitions stay in server domain modules and every failed write must restore
+ * or refresh authoritative state. New product rules should usually live in a
+ * pure presentation helper or server module instead of growing this component.
+ */
+
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useDataChanged } from '@/lib/data/refresh-bus';
 import { retryBoardRequest } from '@/lib/data/board-refresh';

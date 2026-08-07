@@ -1,3 +1,12 @@
+/**
+ * Fixed-capability Google Workspace gateway.
+ *
+ * Provider credentials stay behind this module. Callers receive typed methods
+ * for the small set of reads and mutations Cove supports, not a generic Google
+ * request primitive. Most importantly, the mail interface has no send, trash,
+ * delete, forward, or settings method. Responses are size-bounded and parsed as
+ * untrusted provider data before they reach product logic.
+ */
 import type {
   CalendarEvent,
   MailHeader,

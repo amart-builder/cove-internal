@@ -38,8 +38,44 @@ flowchart LR
 | Reliability | `src/lib/reliability`, `src/lib/health` | jobs, receipts, failures, backups, readiness |
 | Google Workspace | `src/lib/workspace` | non-secret local config plus secrets in macOS Keychain |
 
+For a file-level ownership map, request traces, and test seams, see
+`CODEBASE_GUIDE.md`.
+
+## Process boundaries
+
+Cove has three kinds of process, each with different authority:
+
+1. The loopback web process serves UI and API requests. It may make validated
+   synchronous product changes.
+2. Scheduled deterministic scripts observe time or provider state and enqueue
+   or complete bounded work.
+3. Model workers receive a narrow context envelope and return a proposal. They
+   do not receive an ambient shell, an unrestricted MCP configuration, or a
+   direct database or provider write path.
+
+The durable queue sits between a request and background model work. Claims,
+leases, retries, and receipts survive a worker restart. A process exit code is
+never treated as proof that the intended product effect occurred.
+
+## Read and write paths
+
+Browser components call typed adapters in `src/lib/data`, which call local API
+routes. Routes authorize and validate input, then call domain modules in
+`src/lib`. Server modules own SQLite access and outside effects. React state may
+optimistically reflect a change, but it must reconcile or roll back against the
+server result.
+
+Background scripts use the same domain modules where possible. They do not
+create an alternate schema or write ad hoc JSON when a durable database owner
+already exists.
+
 ## Supported deployment
 
 The supported product is one Mac, one operator, local SQLite, and a localhost-only web process. Old Forge names, Supabase branches, relays, and retired multi-machine notes are migration history, not the product architecture. Compatibility code must never create a second source of truth.
 
-The meeting and progress LaunchAgent plists are templates under `scripts/launchd/`; `scripts/install-cove-local.sh` generates five more agents on a default install, plus an email-triage agent once Gmail is configured. `--mini` is a separate profile: it installs the Mini brief agent and the two rendered lane plists, then stops.
+The meeting and progress LaunchAgent plists are templates under
+`scripts/launchd/`; `scripts/install-cove-local.sh` renders the remaining agents
+from discovered machine paths and enabled integrations. See the Background
+processes table in `CODEBASE_GUIDE.md` for the authoritative labels and
+conditions. `--mini` is a separate legacy profile: it installs the Mini brief
+agent and the two rendered lane plists, then stops.

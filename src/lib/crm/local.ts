@@ -1,3 +1,11 @@
+/**
+ * Transactional local CRM backend.
+ *
+ * Identity resolution prefers exact normalized email, then a weaker normalized
+ * full name. Ambiguity is a result for the caller to resolve, never permission
+ * to guess or create a duplicate. Activity append and last-contact updates share
+ * one transaction.
+ */
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import type { Contact, ContactActivity } from "../data/types";

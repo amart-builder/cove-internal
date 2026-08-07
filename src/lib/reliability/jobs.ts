@@ -1,3 +1,11 @@
+/**
+ * Durable scheduler for background work.
+ *
+ * Jobs are claimed with leases, retried with bounds, and deduplicated by an
+ * idempotency key. A dead job becomes a visible failure instead of disappearing.
+ * Handlers run outside the claim transaction and must make their own outside
+ * effects replay-safe.
+ */
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { openLocalDatabase } from "../local/database";

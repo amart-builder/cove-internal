@@ -1,3 +1,11 @@
+/**
+ * Canonical Cove state machine for one Gmail thread.
+ *
+ * Message claims are keyed by Gmail message ID and the user-facing item is keyed
+ * by thread ID. This module decides workflow state and enqueues provider
+ * operations, but it does not call Gmail. Keeping those steps separate makes a
+ * crash between local intent and provider confirmation recoverable.
+ */
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { openLocalDatabase } from "../local/database";

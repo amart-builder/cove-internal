@@ -1,3 +1,12 @@
+/**
+ * Lifecycle manager for user-visible Claude Code sessions opened from tasks.
+ *
+ * This is not the unattended background execution lane. It derives permission
+ * mode from Cove's owner semantics, fences task text as untrusted data, records
+ * the exact prompt and process identity, and exposes only a safe public status.
+ * Process cleanup is conservative because killing an unrelated reused PID is
+ * worse than leaving a questionable child for the operator to inspect.
+ */
 import {
   execFileSync,
   spawn,

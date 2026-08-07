@@ -1,3 +1,16 @@
+/**
+ * Durable state machine for Cove's daily ritual.
+ *
+ * This module owns plan creation, Morning Arrival, starting the day, closing
+ * the day, snapshots, execution state, and repair. Callers should use its
+ * versioned mutations rather than composing table writes. The transaction and
+ * event ledger are part of the product contract: browser optimism, model
+ * output, and stale workers never outrank the newest durable plan version.
+ *
+ * Keep pure selection and display rules in sibling modules when possible. The
+ * state transitions stay together here because they share invariants across
+ * plan rows, items, events, task mutations, and receipts.
+ */
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";

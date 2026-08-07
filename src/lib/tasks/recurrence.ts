@@ -1,3 +1,11 @@
+/**
+ * Deterministic recurring-task calendar and occurrence lifecycle.
+ *
+ * A model or parser may recognize recurrence language, but only a confirmed
+ * template creates future occurrences. Template ID plus operator-local date is
+ * the dedupe boundary. Misses expire instead of accumulating stale daily tasks,
+ * while occurrence history remains available to the Morning Brief.
+ */
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { localDateInTimezone } from "../day-plan/brief";

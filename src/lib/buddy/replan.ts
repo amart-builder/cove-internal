@@ -1,3 +1,11 @@
+/**
+ * Builds and validates Buddy's mid-day replan preview.
+ *
+ * The model returns the same bounded operation vocabulary used by Morning
+ * Arrival. Cove applies those operations to an in-memory preview first. A user
+ * must review and apply the resulting proof before the server changes the live
+ * plan, and stale proofs fail closed.
+ */
 import os from "node:os";
 import path from "node:path";
 import type { ClaudeCommand } from "../claude-execution/commands";

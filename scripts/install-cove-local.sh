@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# Cove's installer is a renderer and reconciler for one local Mac.
+#
+# Its phases are intentionally ordered: resolve real machine paths, validate the
+# runtime, render private LaunchAgent files, retire conflicting legacy agents,
+# load the new agents, and prove readiness. It is safe to rerun because it owns
+# only Cove-labeled plist files and preserves the database and user config.
+# Never turn a failed check into a warning merely to finish an installation.
 # Set up Cove to run locally and start automatically on login.
 #   - Serves http://localhost:3200 (bound to localhost only; never exposed to the network)
 #   - Restarts itself if it crashes or the Mac reboots

@@ -1,3 +1,11 @@
+/**
+ * Pure presentation rules for the day-plan read model.
+ *
+ * Keep view labels, focus selection, polling decisions, and display fallbacks
+ * here when they can be expressed without I/O. The browser and route layers can
+ * then share the same decision and the test suite can verify it without mounting
+ * the full Today surface.
+ */
 import type { MorningBriefGenerationState } from './brief';
 import type {
   DayPlan,

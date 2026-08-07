@@ -1,5 +1,14 @@
 'use client';
 
+/**
+ * Network and polling adapter for the daily ritual.
+ *
+ * The hook translates browser intent into versioned server mutations, keeps
+ * Morning Brief attachment and execution polling bounded, and reconciles task
+ * mutations back into UI state. It does not define transition authority. The
+ * server store remains authoritative whenever local state and a response differ.
+ */
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   acknowledgeDayPlanReconciliation,

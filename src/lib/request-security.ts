@@ -1,3 +1,11 @@
+/**
+ * Local HTTP request boundary shared by Cove's API routes.
+ *
+ * Host and Origin validation prevent DNS rebinding and unsafe proxy forwarding.
+ * They are not user authentication. Loopback mode is safe only when the server
+ * is actually bound to loopback or reached through an already-authenticated
+ * local proxy. Mutating routes layer Cove's CSRF token on top of this check.
+ */
 import { timingSafeEqual } from 'node:crypto';
 import { coveEnv } from "./env";
 

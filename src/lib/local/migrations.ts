@@ -1,3 +1,12 @@
+/**
+ * Ordered, append-only schema history for Cove's local SQLite database.
+ *
+ * Fresh databases and upgraded databases both pass through this list. Never
+ * rewrite an applied version to change history. Add a new migration and cover
+ * both starting shapes in tests. Some legacy table rebuilds temporarily change
+ * foreign-key behavior; those exceptions are declared on the migration rather
+ * than hidden inside generic migration code.
+ */
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import {

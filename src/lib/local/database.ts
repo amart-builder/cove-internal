@@ -1,3 +1,11 @@
+/**
+ * Canonical SQLite connection factory.
+ *
+ * `openSqliteDatabase` applies connection safety settings but deliberately does
+ * not migrate. Migration and recovery code use it when timing matters.
+ * `openLocalDatabase` is the normal product entry point and always brings the
+ * schema current before returning the connection.
+ */
 import Database from "better-sqlite3";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
@@ -8,6 +16,8 @@ export function localDatabasePath(): string {
   const configured = coveEnv("DB_PATH");
   if (configured) return configured;
   const canonical = path.join(process.cwd(), "data", "cove.db");
+  // Pre-rename installs may still own data/forge.db. This fallback exists only
+  // to migrate that one store forward; new features and docs use cove.db.
   const legacy = path.join(process.cwd(), "data", "forge.db");
   return existsSync(canonical) || !existsSync(legacy) ? canonical : legacy;
 }

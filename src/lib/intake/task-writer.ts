@@ -1,3 +1,10 @@
+/**
+ * Final deterministic write boundary for model-triaged inbound work.
+ *
+ * The model proposes a task shape. This module resolves columns, preserves
+ * source provenance, applies recurrence and autonomy defaults, performs the
+ * actual REST write, and degrades to a safe fallback task when triage fails.
+ */
 import { ensureCoveAutonomySettings } from "../autonomy/settings";
 import type { InboundEvent, Task } from "../data/types";
 import { localDateInTimezone } from "../day-plan/brief";

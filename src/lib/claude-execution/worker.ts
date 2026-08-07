@@ -1,3 +1,15 @@
+/**
+ * Supervises Cove's durable background model queues.
+ *
+ * The worker claims one bounded unit of work, starts a process group with a
+ * minimal environment and explicit tools, captures bounded diagnostics,
+ * validates the structured result, and only then asks the store to complete
+ * the run. It also records enough child identity to recover stale process
+ * groups without killing an unrelated process whose PID was reused.
+ *
+ * A zero exit code is not success by itself. Every lane has its own schema,
+ * evidence checks, timeout, retry policy, and terminal store transition.
+ */
 import {
   execFileSync,
   spawn,

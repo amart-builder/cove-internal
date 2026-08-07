@@ -1,3 +1,11 @@
+/**
+ * Audit receipts for effects Cove actually observed.
+ *
+ * Receipts are user-facing evidence, not a queue or a substitute for provider
+ * reconciliation. A partial receipt must name the unfinished remainder. Receipt
+ * recording failures surface through the failure inbox rather than changing a
+ * successful product effect into a silent one.
+ */
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { openLocalDatabase } from "../local/database";

@@ -1,3 +1,11 @@
+/**
+ * Durable conversation and receipt state for Buddy.
+ *
+ * Model text and confirmed tool receipts are stored separately. Reconciliation
+ * trusts the receipt shape, not the assistant's claim about what changed. The
+ * store also preserves the session head needed for one continuous conversation
+ * while allowing a failed resume to recover safely.
+ */
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import path from "node:path";

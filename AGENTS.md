@@ -1,5 +1,7 @@
 # Cove agent handoff
 
+Changing Cove itself rather than installing it? Read `CODEBASE_GUIDE.md` first.
+
 If a user sends you this repository and asks you to install or set up Cove, read
 `README.md` and all of `SETUP.md` before changing the machine. Follow the setup
 playbook in order. Do not improvise a different runtime or infer that an

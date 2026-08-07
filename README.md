@@ -82,3 +82,15 @@ To start fresh: stop Cove, **move** `data/cove.db` aside (rename it, don't delet
 - Local data: SQLite via `better-sqlite3` (the default). No login.
 - Email, Calendar, and Google Docs: direct restricted Google API gateway using the user's own OAuth connection. Email is draft-only by application design.
 - Supported runtime: one Mac, local SQLite, no login. See [ARCHITECTURE.md](ARCHITECTURE.md), [DATA.md](DATA.md), [SECURITY_AND_INTEGRATIONS.md](SECURITY_AND_INTEGRATIONS.md), [OPERATIONS.md](OPERATIONS.md), and [CONFIGURATION.md](CONFIGURATION.md).
+
+## For coding agents and contributors
+
+Start with [CODEBASE_GUIDE.md](CODEBASE_GUIDE.md). It maps the pages, API
+routes, domain modules, background processes, durable state, trust boundaries,
+and test suites. Then read [ARCHITECTURE.md](ARCHITECTURE.md) and the reference
+document closest to the behavior you are changing.
+
+The main rule is simple: models may interpret and propose, but deterministic
+Cove code authorizes and writes. SQLite owns product state. Gmail owns email.
+New code must preserve those boundaries and include a regression test for the
+invariant it changes.

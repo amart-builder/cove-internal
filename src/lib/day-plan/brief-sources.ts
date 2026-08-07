@@ -1,3 +1,12 @@
+/**
+ * Collects the exact evidence envelope used to write a Morning Brief.
+ *
+ * Each source is resolved through an explicit policy, normalized, bounded,
+ * labeled with freshness and coverage, and recorded in the manifest. Optional
+ * sources degrade honestly. Required sources may be trimmed but must never
+ * disappear silently. Source text is untrusted data even when it came from the
+ * operator's own files.
+ */
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";

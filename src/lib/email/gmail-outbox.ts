@@ -1,3 +1,11 @@
+/**
+ * Executes the durable Gmail operation outbox.
+ *
+ * Every retry first re-observes the exact thread or message so an uncertain
+ * draft or archive is reconciled instead of duplicated. Provider success is
+ * finalized in SQLite only after the observed Gmail state satisfies the claimed
+ * operation. The gateway type intentionally exposes no send operation.
+ */
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import path from "node:path";

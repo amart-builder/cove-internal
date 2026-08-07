@@ -1,4 +1,12 @@
 #!/usr/bin/env node
+/**
+ * Builds bounded, read-only evidence about project progress.
+ *
+ * Git state, saved status, and redacted assistant wrap-ups are observations, not
+ * authority to complete a task. The model may propose `none`, `some`, or
+ * `likely_done`; Cove publishes that as a suggestion and requires corroboration
+ * before any committed task state changes.
+ */
 import { spawn } from "node:child_process";
 import {
   closeSync,

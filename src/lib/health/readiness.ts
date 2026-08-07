@@ -1,3 +1,10 @@
+/**
+ * Factual readiness projection for the Current and `/api/health`.
+ *
+ * Configuration, first-run evidence, freshness, and hard failure are separate
+ * states. This module reports what Cove can prove from local records and files;
+ * it never turns the presence of a config file into a healthy integration.
+ */
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { openLocalDatabase } from "../local/database";

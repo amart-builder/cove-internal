@@ -1,4 +1,12 @@
 #!/usr/bin/env node
+/**
+ * Builds the public Cove repository from an explicit allowlist.
+ *
+ * The internal checkout is never copied wholesale. Every exported file is
+ * selected, scanned, hashed, and written into a new empty directory. Keep this
+ * boundary strict: adding a root document or source directory requires an
+ * intentional allowlist change and an export regression test.
+ */
 import { isUtf8 } from "node:buffer";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -67,6 +75,7 @@ const rootFiles = new Set([
   "AGENT_CONTRACT.md",
   "AGENTS.md",
   "ARCHITECTURE.md",
+  "CODEBASE_GUIDE.md",
   "CLAUDE.md",
   "CONFIGURATION.md",
   "DATA.md",

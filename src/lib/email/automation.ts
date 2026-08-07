@@ -1,3 +1,11 @@
+/**
+ * Deterministic coordinator between Gmail observations and Cove email state.
+ *
+ * Model classification happens elsewhere. This module re-observes provider
+ * state, records durable claims and operations, updates the rolling Email card,
+ * captures grounded commitments and relationship context, and emits receipts
+ * or visible failures. Gmail remains authoritative for Inbox and sent state.
+ */
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { createCRMBackend } from "../crm";

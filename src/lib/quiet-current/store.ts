@@ -1,3 +1,10 @@
+/**
+ * Durable pencil layer for inferred work and returned agent results.
+ *
+ * Suggestions expire, defer, reopen, and record human decisions without
+ * becoming committed task state on their own. File updates use atomic replace
+ * so a process interruption cannot leave half-written JSON.
+ */
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";

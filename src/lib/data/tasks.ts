@@ -1,3 +1,11 @@
+/**
+ * Browser-safe task API adapter.
+ *
+ * Components use this module instead of knowing whether a response came from
+ * the local SQLite route or a retired compatibility runtime. Compatibility for
+ * an older missing `project` column is bounded and periodically re-probed so it
+ * cannot permanently hide a completed migration.
+ */
 import { coveRest } from "../supabase/rest";
 import { getRuntimeMode } from "../runtime/mode";
 import type { Task, TaskColumn } from "./types";

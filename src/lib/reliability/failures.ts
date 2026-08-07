@@ -1,3 +1,10 @@
+/**
+ * Visible failure inbox for work that needs attention.
+ *
+ * Failures are deduplicated by source identity and resolved explicitly when the
+ * underlying condition clears. This store is not a generic log. Record only a
+ * safe message and bounded diagnostic details that help an operator recover.
+ */
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { openLocalDatabase } from "../local/database";

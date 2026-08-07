@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+/**
+ * Release gate for the exact checkout being shipped.
+ *
+ * Every child uses this process's Node runtime so native modules, TypeScript,
+ * tests, and the production build agree about the environment. Add a new gate
+ * here only when it is deterministic and required for every supported install.
+ */
 import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 import path from "node:path";

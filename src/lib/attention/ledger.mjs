@@ -1,3 +1,11 @@
+/**
+ * Shared allocation ledger for every Cove attention lane.
+ *
+ * Daily caps, cooldowns, shadow observations, and the reserved deterministic
+ * floor slot are enforced here so independent scripts cannot overspend the same
+ * notification budget. Shadow rows are evidence only and never suppress a live
+ * alert.
+ */
 import { randomUUID } from "node:crypto";
 
 export const ATTENTION_LIMITS = Object.freeze({
@@ -12,6 +20,10 @@ const SHADOW_AWARE_LEVELS = [...DELIVERED_LEVELS, "shadow"];
 const LEVEL_RANK = Object.freeze({ board: 0, banner: 1, text: 2 });
 
 function localDayBounds(now) {
+  // Attention quotas currently reset on the Mac's local day, unlike product
+  // scheduling, which uses the operator profile's IANA timezone. Supported
+  // single-Mac installs normally align those zones; keep this distinction
+  // explicit if remote-host operation returns.
   const start = new Date(now);
   start.setHours(0, 0, 0, 0);
   const end = new Date(start);

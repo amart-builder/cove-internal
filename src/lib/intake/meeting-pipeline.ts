@@ -1,3 +1,11 @@
+/**
+ * Idempotent meeting-note pipeline shared by watcher and email fallback paths.
+ *
+ * The Gmail message ID is the claim boundary. Follow-ups are consolidated,
+ * operator-owned work enters normal intake, other-party work becomes waiting-on
+ * context, and CRM activities use the same resolved identity. Partial failures
+ * renew or fail the claim visibly so a retry cannot double-create the meeting.
+ */
 import { createHash } from "node:crypto";
 import {
   createCRMBackend,

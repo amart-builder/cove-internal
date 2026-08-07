@@ -1,3 +1,12 @@
+/**
+ * Source-to-task intake coordinator.
+ *
+ * Chat, voice, meeting, and email text first become a durable inbound event.
+ * A tool-free model may propose bounded triage JSON, but deterministic code
+ * validates project, recurrence, urgency, and task shape before writing. Stable
+ * source IDs make replay safe and keep one source occurrence from creating
+ * duplicate work.
+ */
 import {
   spawn,
   type ChildProcess,

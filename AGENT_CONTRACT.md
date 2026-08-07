@@ -2,6 +2,16 @@
 
 Claude and Codex use the same local HTTP contract. Cove normally runs at `http://localhost:3200`.
 
+## Engineering orientation
+
+When changing Cove itself, read `CODEBASE_GUIDE.md` before tracing an API call
+or editing a subsystem. It maps each public route to its domain owner and names
+the state, trust, replay, and test boundaries that must survive the change.
+
+When operating Cove for a user, the behavioral contract below is authoritative.
+Do not infer a write path from an implementation detail or bypass the documented
+route because the local database is easy to reach.
+
 ## Authority rule
 
 - An explicit user request may become a task directly.

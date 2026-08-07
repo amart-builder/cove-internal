@@ -1,3 +1,11 @@
+/**
+ * Validated file transport retained for historical split-host Brief operation.
+ *
+ * The supported product is one Mac, but existing relay artifacts must remain
+ * safely importable. Relay files are size-bounded, checksummed, versioned,
+ * identity-bound, and treated as untrusted peer input. A relay can transport an
+ * artifact; it never makes a second SQLite database authoritative.
+ */
 import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,

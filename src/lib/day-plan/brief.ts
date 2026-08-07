@@ -1,3 +1,11 @@
+/**
+ * Morning Brief artifact contract and deterministic validation.
+ *
+ * This module defines what a model may propose, how the exact evidence envelope
+ * is hashed, which artifacts are eligible, and how private content becomes a
+ * bounded public read model. Artifacts are immutable. Version changes are the
+ * explicit migration boundary for prompt or schema behavior.
+ */
 import { createHash } from "node:crypto";
 import { resolveClaudeModel } from "../claude-execution/commands";
 import type {
