@@ -3,11 +3,11 @@ import { rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { attachBuddyRun, prepareBuddyRecentTurns } from '../src/app/api/buddy/turn/route.ts';
+import { attachBuddyRun, prepareBuddyRecentTurns } from '../src/app/api/buddy/turn/implementation.ts';
 import {
   BUDDY_STALE_TURN_MS,
   prepareBuddySessionReset,
-} from '../src/app/api/buddy/session/route.ts';
+} from '../src/app/api/buddy/session/implementation.ts';
 import { createBuddyStore } from '../src/lib/buddy/store.ts';
 import { BUDDY_MAX_TURN_MS } from '../src/lib/buddy/timing.ts';
 

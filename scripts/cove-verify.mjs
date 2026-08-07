@@ -23,7 +23,10 @@ const steps = [
   [process.execPath, [packageBin("typescript/bin/tsc"), "--noEmit"]],
   [process.execPath, [packageBin("eslint/bin/eslint.js"), "--max-warnings=0"]],
   [process.execPath, ["--import", "tsx", "--test", ...tests]],
-  [process.execPath, [packageBin("next/dist/bin/next"), "build"]],
+  // Turbopack's CSS worker binds an internal port, which managed coding-agent
+  // sandboxes can reject. Webpack is a supported Next build path and keeps the
+  // public release gate deterministic in the exact Claude/Codex setup flow.
+  [process.execPath, [packageBin("next/dist/bin/next"), "build", "--webpack"]],
 ];
 
 for (const [command, args] of steps) {

@@ -7,7 +7,7 @@ import { NextRequest } from 'next/server';
 import {
   POST,
   deterministicCreateId,
-} from '../src/app/api/day-plan/assistant-apply/route.ts';
+} from '../src/app/api/day-plan/assistant-apply/implementation.ts';
 import {
   BUDDY_STORE_API_VERSION,
   createBuddyStore,

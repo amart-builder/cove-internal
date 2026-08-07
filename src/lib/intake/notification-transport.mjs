@@ -1,3 +1,8 @@
+import { existsSync } from "node:fs";
+
+export const COVE_NOTIFICATION_ICON_RELATIVE_PATH =
+  "public/cove-notification-icon.png";
+
 export function appleScriptLiteral(value) {
   return `"${String(value)
     .replace(/\\/g, "\\\\")
@@ -57,4 +62,50 @@ export function nativeNotificationArgs(
       sound ? `sound name ${appleScriptLiteral(sound)}` : undefined,
     ].filter(Boolean).join(" "),
   ];
+}
+
+/**
+ * Build one native macOS notification command without putting user-controlled
+ * text through a shell. Cove's installed sender app supplies the real macOS
+ * identity and icon; AppleScript remains the no-dependency fallback if that
+ * helper is unavailable.
+ *
+ * @param {string} message
+ * @param {{title?: string, subtitle?: string, sound?: string, group?: string, openUrl?: string}} [options]
+ * @param {{notificationAppPath?: string, osascriptPath?: string, exists?: (candidate: string) => boolean}} [dependencies]
+ * @returns {{executable: string, args: string[]}}
+ */
+export function nativeNotificationCommand(
+  message,
+  {
+    title = "Cove",
+    subtitle,
+    sound,
+    group,
+    openUrl,
+  } = {},
+  {
+    notificationAppPath,
+    osascriptPath = "osascript",
+    exists = existsSync,
+  } = {},
+) {
+  const notificationApp = notificationAppPath?.trim();
+  if (notificationApp && exists(notificationApp)) {
+    return {
+      executable: notificationApp,
+      args: [
+        "--title", title,
+        "--message", String(message),
+        ...(subtitle ? ["--subtitle", subtitle] : []),
+        ...(sound ? ["--sound", sound] : []),
+        ...(group ? ["--group", group] : []),
+        ...(openUrl ? ["--open-url", openUrl] : []),
+      ],
+    };
+  }
+  return {
+    executable: osascriptPath,
+    args: nativeNotificationArgs(message, { title, subtitle, sound }),
+  };
 }

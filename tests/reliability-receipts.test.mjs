@@ -8,7 +8,7 @@ import {
   GET,
   POST,
   parseFailureDismissBody,
-} from '../src/app/api/failures/route.ts';
+} from '../src/app/api/failures/implementation.ts';
 import {
   dismissFailure,
   listFailures,

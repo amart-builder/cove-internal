@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   localIMessageArgs,
-  nativeNotificationArgs,
+  nativeNotificationCommand,
   remoteIMessageArgs,
 } from "../intake/notification-transport.mjs";
 import { coveConfigPath, coveEnv } from "../env-runtime.mjs";
@@ -40,11 +40,16 @@ export function createAttentionTransport(input = {}) {
   const token = input.telegramToken ?? telegramToken();
   return {
     banner(message, subtitle = "Attention check") {
-      execute("osascript", nativeNotificationArgs(message, {
+      const command = nativeNotificationCommand(message, {
         title: "Cove",
         subtitle,
         sound: "Glass",
-      }));
+      }, {
+        notificationAppPath: input.notificationAppPath ??
+          coveEnv("NOTIFICATION_APP"),
+        exists: input.exists,
+      });
+      execute(command.executable, command.args);
     },
     text(message) {
       if (config?.channel === "telegram" && token && config.telegram_chat_id) {

@@ -30,13 +30,14 @@ function input(overrides = {}) {
   };
 }
 
-test('terminal-notifier receives sanitized values as separate argv and dedupes a transition', async () => {
+test('Cove sender app receives sanitized values as separate argv and dedupes a transition', async () => {
   const calls = [];
   const logs = [];
+  const notificationApp = '/Users/test/Applications/Cove Notifications.app/Contents/MacOS/CoveNotifier';
   const notify = createExecutionNotifier({
-    env: { COVE_NOTIFY: '1' },
+    env: { COVE_NOTIFY: '1', COVE_NOTIFICATION_APP: notificationApp },
     processStartedAt: PROCESS_STARTED_AT,
-    exists: (candidate) => candidate === '/opt/homebrew/bin/terminal-notifier',
+    exists: (candidate) => candidate === notificationApp,
     spawnImpl: (executable, args, options) => {
       calls.push({ executable, args, options });
       return closingChild();
@@ -48,12 +49,12 @@ test('terminal-notifier receives sanitized values as separate argv and dedupes a
   await notify(input());
 
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].executable, '/opt/homebrew/bin/terminal-notifier');
+  assert.equal(calls[0].executable, notificationApp);
   assert.deepEqual(calls[0].args, [
-    '-title', 'Cove needs you',
-    '-message', 'Plan ready: Finish launch brief. Claude has questions only you can answer.',
-    '-group', 'cove-run-123',
-    '-open', 'claude://resume?session=session%20with%20spaces',
+    '--title', 'Cove needs you',
+    '--message', 'Plan ready: Finish launch brief. Claude has questions only you can answer.',
+    '--group', 'cove-run-123',
+    '--open-url', 'claude://resume?session=session%20with%20spaces',
   ]);
   assert.deepEqual(calls[0].options, { detached: true, stdio: 'ignore', shell: false });
   assert.deepEqual(logs, ['run-123 plan_ready delivered']);
@@ -135,12 +136,13 @@ test('osascript fallback keeps user text in argv and has no click action', async
   assert.equal(calls[0].args.includes('http://127.0.0.1:3200/tasks'), false);
 });
 
-test('terminal-notifier opens the Cove board when a session reference is absent', async () => {
+test('Cove sender app opens the Cove board when a session reference is absent', async () => {
   const calls = [];
+  const notificationApp = '/Users/test/Applications/Cove Notifications.app/Contents/MacOS/CoveNotifier';
   const notify = createExecutionNotifier({
-    env: { COVE_NOTIFY: '1' },
+    env: { COVE_NOTIFY: '1', COVE_NOTIFICATION_APP: notificationApp },
     processStartedAt: PROCESS_STARTED_AT,
-    exists: () => true,
+    exists: (candidate) => candidate === notificationApp,
     spawnImpl: (executable, args, options) => {
       calls.push({ executable, args, options });
       return closingChild();
@@ -148,9 +150,9 @@ test('terminal-notifier opens the Cove board when a session reference is absent'
     logger: () => undefined,
   });
   await notify(input({ claudeSessionId: undefined }));
-  assert.deepEqual(calls[0].args.slice(-2), [
-    '-open',
-    'http://127.0.0.1:3200/tasks',
+  const openIndex = calls[0].args.indexOf('--open-url');
+  assert.deepEqual(calls[0].args.slice(openIndex, openIndex + 2), [
+    '--open-url', 'http://127.0.0.1:3200/tasks',
   ]);
 });
 

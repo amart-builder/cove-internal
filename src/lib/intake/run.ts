@@ -47,7 +47,9 @@ import {
   inboundTaskExists,
   type InboundTaskWriterOptions,
 } from "./task-writer";
-import { nativeNotificationArgs } from "./notification-transport.mjs";
+import {
+  nativeNotificationCommand,
+} from "./notification-transport.mjs";
 import { coveEnv, coveEnvTrimmed } from "../env";
 import {
   detectRecurrenceIntent,
@@ -150,6 +152,8 @@ function minimumChildEnvironment(): NodeJS.ProcessEnv {
     "CLAUDE_CONFIG_DIR",
     "ANTHROPIC_API_KEY",
     "CLAUDE_CODE_OAUTH_TOKEN",
+    "COVE_NOTIFICATION_APP",
+    "FORGE_NOTIFICATION_APP",
   ];
   return Object.fromEntries(
     allowed.flatMap((key) =>
@@ -472,6 +476,12 @@ async function defaultNotifyNow(
   options: CoveIntakeOptions,
 ): Promise<void> {
   const repoDir = options.repoDir ?? MODULE_REPO_DIR;
+  const notificationCommand = nativeNotificationCommand(title, {
+    title: "Cove",
+    subtitle: "Needs attention",
+  }, {
+    notificationAppPath: coveEnvTrimmed("NOTIFICATION_APP"),
+  });
   const [channelDelivered, nativeDelivered] = await Promise.all([
     runBestEffort(
       process.execPath,
@@ -480,11 +490,8 @@ async function defaultNotifyNow(
     ),
     process.platform === "darwin"
       ? runBestEffort(
-          "osascript",
-          nativeNotificationArgs(title, {
-            title: "Cove",
-            subtitle: "Needs attention",
-          }),
+          notificationCommand.executable,
+          notificationCommand.args,
           options,
         )
       : Promise.resolve(),
@@ -500,12 +507,15 @@ async function notifyNativeOnly(
   options: CoveIntakeOptions,
 ): Promise<void> {
   if (process.platform !== "darwin") return;
+  const command = nativeNotificationCommand(title, {
+    title: "Cove",
+    subtitle: "Needs attention",
+  }, {
+    notificationAppPath: coveEnvTrimmed("NOTIFICATION_APP"),
+  });
   await runBestEffort(
-    "osascript",
-    nativeNotificationArgs(title, {
-      title: "Cove",
-      subtitle: "Needs attention",
-    }),
+    command.executable,
+    command.args,
     options,
   );
 }

@@ -176,7 +176,7 @@ test('the brief writer, codex binary, notify gate, and dump writer read FORGE_ t
   const notify = createExecutionNotifier({
     env: { FORGE_NOTIFY: '1' },
     processStartedAt: new Date('2026-07-16T17:59:00.000Z'),
-    exists: (candidate) => candidate === '/opt/homebrew/bin/terminal-notifier',
+    exists: () => false,
     spawnImpl: (executable, args) => {
       spawned.push({ executable, args });
       const child = new EventEmitter();

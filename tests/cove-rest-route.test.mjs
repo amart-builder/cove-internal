@@ -10,7 +10,7 @@ import {
   POST,
   targetsSpecificRows,
   DELETE,
-} from '../src/app/api/cove-rest/[table]/route.ts';
+} from '../src/app/api/cove-rest/[table]/implementation.ts';
 import { getQuietCurrentCsrfToken } from '../src/lib/quiet-current/store.ts';
 import { handleLocalRest } from '../src/lib/local/db.ts';
 import { LocalCRMBackend } from '../src/lib/crm/index.ts';

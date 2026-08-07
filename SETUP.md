@@ -264,7 +264,11 @@ Check the Mac before cloning. Run every command you can for the user. The user s
    - Check Node again in a fresh shell.
 3. Run `git --version`. Fix the command line tools if it fails.
 4. Run `claude --version` in a plain shell. The Claude app is not enough. If needed, run `npm install -g @anthropic-ai/claude-code`, then check again. If it is already installed globally, run the same command to update it because task sessions use current CLI flags. Sign-in is tested in Step 5.
-5. Check for an existing checkout and port conflict before cloning:
+5. Run `xcrun --find swiftc`. The installer uses Apple's compiler to build a
+   tiny local `Cove Notifications.app`, which gives native banners Cove's real
+   icon and sender name. If it fails after Command Line Tools were installed,
+   stop and repair that installation before continuing.
+6. Check for an existing checkout and port conflict before cloning:
 
    ```bash
    if [ -e "$HOME/cove" ]; then echo "existing checkout: $HOME/cove"; else echo "checkout path clear"; fi
@@ -273,7 +277,7 @@ Check the Mac before cloning. Run every command you can for the user. The user s
 
    Never delete, replace, or reset an existing checkout or database. If either
    exists, inspect it and ask the user which installation is authoritative.
-6. Check for an older background install even if port 3200 is currently quiet:
+7. Check for an older background install even if port 3200 is currently quiet:
 
    ```bash
    ls "$HOME/Library/LaunchAgents" 2>/dev/null | grep -i cove || true
@@ -554,12 +558,27 @@ Do not show the first test brief as the user's brief.
 9. Check `http://localhost:3200`, the daily backup receipt, and every integration the user chose. Confirm skipped integrations stayed unconfigured.
 10. Read `data/attention-sweep.json`, which the installer creates on a fresh
     install, and confirm both shadow values are still `true`.
+11. Send one supervised preview through Cove's installed sender app:
+
+    ```bash
+    "$HOME/Applications/Cove Notifications.app/Contents/MacOS/CoveNotifier" \
+      --title "Cove" --subtitle "Setup check" \
+      --message "Your Cove notifications are ready." --sound Glass \
+      --group cove-setup-check --open-url http://127.0.0.1:3200/tasks
+    ```
+
+    On a first install, macOS may register Cove with notifications off. If the
+    command reports that permission is not enabled, open System Settings >
+    Notifications > Cove and have the user turn on Allow notifications. Repeat
+    the preview and ask the user to confirm that the blue Cove droplet appears
+    instead of a generic script icon. Do not describe branded notifications as
+    verified until the user sees this check.
 
 Tell the user: "Cove is running on this Mac. There is no Cove account or login."
 
 ### Reminders and voice notes
 
-Ask whether the user wants native Mac reminders only, or also Telegram or iMessage. Native reminders work while this Mac is awake.
+Ask whether the user wants native Mac reminders only, or also Telegram or iMessage. Native reminders work while this Mac is awake. Every native Cove banner uses the blue Cove icon and opens the relevant Cove or Claude destination when clicked.
 
 For Telegram or iMessage setup, use the matching official channel flow and write the private `data/cove-reminders.json`:
 

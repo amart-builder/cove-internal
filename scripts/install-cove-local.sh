@@ -144,6 +144,69 @@ if [ -n "$CODEX_BIN" ]; then
     "$CODEX_XML_BIN"
 fi
 
+# Build Cove's tiny local notification sender. macOS chooses a notification's
+# icon from the sender app, so a real app bundle is the only reliable branded
+# path across supported macOS releases. AppleScript remains the runtime fallback
+# if the installed helper is ever moved or damaged.
+NOTIFICATION_ICON_PATH="$REPO_DIR/public/cove-notification-icon.png"
+if [ ! -f "$NOTIFICATION_ICON_PATH" ]; then
+  echo "Cove's notification icon is missing at $NOTIFICATION_ICON_PATH." >&2
+  exit 1
+fi
+SWIFTC="$(xcrun --find swiftc 2>/dev/null || true)"
+if [ -z "$SWIFTC" ] || [ ! -x "$SWIFTC" ]; then
+  echo "Cove's branded notification helper requires the Xcode command line tools. Run xcode-select --install, then re-run this script." >&2
+  exit 1
+fi
+MACOS_SDK="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)"
+if [ -z "$MACOS_SDK" ] || [ ! -d "$MACOS_SDK" ]; then
+  echo "Cove could not find the macOS SDK required to build its notification helper. Run xcode-select --install, then re-run this script." >&2
+  exit 1
+fi
+NOTIFICATION_BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cove-notifier.XXXXXX")"
+trap 'rm -rf "$NOTIFICATION_BUILD_DIR"' EXIT
+NOTIFICATION_ICONSET="$NOTIFICATION_BUILD_DIR/Cove.iconset"
+mkdir -p "$NOTIFICATION_ICONSET"
+sips -z 16 16 "$NOTIFICATION_ICON_PATH" --out "$NOTIFICATION_ICONSET/icon_16x16.png" >/dev/null
+sips -z 32 32 "$NOTIFICATION_ICON_PATH" --out "$NOTIFICATION_ICONSET/icon_16x16@2x.png" >/dev/null
+sips -z 32 32 "$NOTIFICATION_ICON_PATH" --out "$NOTIFICATION_ICONSET/icon_32x32.png" >/dev/null
+sips -z 64 64 "$NOTIFICATION_ICON_PATH" --out "$NOTIFICATION_ICONSET/icon_32x32@2x.png" >/dev/null
+sips -z 128 128 "$NOTIFICATION_ICON_PATH" --out "$NOTIFICATION_ICONSET/icon_128x128.png" >/dev/null
+sips -z 256 256 "$NOTIFICATION_ICON_PATH" --out "$NOTIFICATION_ICONSET/icon_128x128@2x.png" >/dev/null
+sips -z 256 256 "$NOTIFICATION_ICON_PATH" --out "$NOTIFICATION_ICONSET/icon_256x256.png" >/dev/null
+sips -z 512 512 "$NOTIFICATION_ICON_PATH" --out "$NOTIFICATION_ICONSET/icon_256x256@2x.png" >/dev/null
+sips -z 512 512 "$NOTIFICATION_ICON_PATH" --out "$NOTIFICATION_ICONSET/icon_512x512.png" >/dev/null
+sips -z 1024 1024 "$NOTIFICATION_ICON_PATH" --out "$NOTIFICATION_ICONSET/icon_512x512@2x.png" >/dev/null
+iconutil -c icns "$NOTIFICATION_ICONSET" -o "$NOTIFICATION_BUILD_DIR/Cove.icns"
+case "$(uname -m)" in
+  arm64) NOTIFICATION_TARGET="arm64-apple-macosx13.0" ;;
+  x86_64) NOTIFICATION_TARGET="x86_64-apple-macosx13.0" ;;
+  *) echo "Unsupported Mac architecture for Cove notifications: $(uname -m)" >&2; exit 1 ;;
+esac
+"$SWIFTC" -parse-as-library -O -target "$NOTIFICATION_TARGET" -sdk "$MACOS_SDK" \
+  -framework AppKit -framework UserNotifications \
+  "$REPO_DIR/scripts/cove-notifier.swift" \
+  -o "$NOTIFICATION_BUILD_DIR/CoveNotifier"
+NOTIFICATION_APP="$HOME/Applications/Cove Notifications.app"
+NOTIFICATION_APP_EXECUTABLE="$NOTIFICATION_APP/Contents/MacOS/CoveNotifier"
+mkdir -p "$NOTIFICATION_APP/Contents/MacOS" "$NOTIFICATION_APP/Contents/Resources"
+install -m 755 "$NOTIFICATION_BUILD_DIR/CoveNotifier" "$NOTIFICATION_APP_EXECUTABLE"
+install -m 644 "$REPO_DIR/scripts/launchd/CoveNotifications-Info.plist" \
+  "$NOTIFICATION_APP/Contents/Info.plist"
+install -m 644 "$NOTIFICATION_BUILD_DIR/Cove.icns" \
+  "$NOTIFICATION_APP/Contents/Resources/Cove.icns"
+/usr/bin/codesign --force --deep --sign - "$NOTIFICATION_APP" >/dev/null
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+  -f "$NOTIFICATION_APP"
+/usr/bin/codesign --verify --deep --strict "$NOTIFICATION_APP"
+NOTIFICATION_APP_XML="$(printf '%s' "$NOTIFICATION_APP_EXECUTABLE" | sed \
+  -e 's/&/\&amp;/g' \
+  -e 's/</\&lt;/g' \
+  -e 's/>/\&gt;/g')"
+printf -v NOTIFICATION_PLIST_ENTRY \
+  '    <key>COVE_NOTIFICATION_APP</key>\n    <string>%s</string>' \
+  "$NOTIFICATION_APP_XML"
+
 mkdir -p "$LOG_DIR" "$LA_DIR"
 if [ ! -e "$REPO_DIR/.env.local" ]; then
   install -m 600 /dev/null "$REPO_DIR/.env.local"
@@ -266,6 +329,7 @@ STIGNORE_BLOCK
     <key>COVE_BRIEF_WRITER</key>
     <string>$BRIEF_WRITER</string>
 $CODEX_PLIST_ENTRY
+$NOTIFICATION_PLIST_ENTRY
     <key>COVE_BRIEF_GOALS_PATH</key>
     <string>$ATLAS_ROOT/brain/GOALS.md</string>
     <key>COVE_BRIEF_OPERATOR_PROFILE_PATH</key>
@@ -506,6 +570,7 @@ cat > "$SERVER_PLIST" <<EOF
     <string>$BRIEF_WRITER</string>
     <key>COVE_PROGRESS_RELAY_CONSUMER</key>
     <string>1</string>
+$NOTIFICATION_PLIST_ENTRY
 $SUPERNOVA_PLIST_ENTRY
     <key>COVE_CONTENT_QUOTA_POSTS</key>
     <string>2</string>
@@ -551,6 +616,7 @@ cat > "$WORKER_PLIST" <<EOF
     <string>1</string>
     <key>COVE_NOTIFY</key>
     <string>1</string>
+$NOTIFICATION_PLIST_ENTRY
     <key>COVE_CLAUDE_BIN</key>
     <string>$CLAUDE_BIN</string>
     <key>COVE_BUDDY_DEEPLINKS</key>
@@ -641,6 +707,7 @@ cat > "$JOBS_PLIST" <<EOF
     <string>$HOME</string>
     <key>COVE_NOTIFY</key>
     <string>1</string>
+$NOTIFICATION_PLIST_ENTRY
   </dict>
 </dict>
 </plist>
@@ -675,6 +742,7 @@ cat > "$REMINDERS_PLIST" <<EOF
   <dict>
     <key>PATH</key>
     <string>$NODE_BIN:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+$NOTIFICATION_PLIST_ENTRY
   </dict>
 </dict>
 </plist>
@@ -712,6 +780,7 @@ cat > "$ATTENTION_SWEEP_PLIST" <<EOF
     <string>$NODE_BIN:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
     <key>HOME</key>
     <string>$HOME</string>
+$NOTIFICATION_PLIST_ENTRY
   </dict>
 </dict>
 </plist>
@@ -772,6 +841,7 @@ $TRIAGE_CAL_XML
     <string>$HOME</string>
     <key>COVE_NOTIFY</key>
     <string>1</string>
+$NOTIFICATION_PLIST_ENTRY
   </dict>
 </dict>
 </plist>
@@ -844,7 +914,13 @@ launchctl bootstrap "gui/$UID_NUM" "$JOBS_PLIST"
 launchctl bootstrap "gui/$UID_NUM" "$REMINDERS_PLIST"
 launchctl bootstrap "gui/$UID_NUM" "$ATTENTION_SWEEP_PLIST"
 WORKER_START_EPOCH="$(date +%s)"
-launchctl bootstrap "gui/$UID_NUM" "$WORKER_PLIST"
+if ! launchctl bootstrap "gui/$UID_NUM" "$WORKER_PLIST" 2>/dev/null; then
+  # A KeepAlive worker can still be exiting for a moment after bootout. Give
+  # launchd one bounded grace period, then preserve the normal fail-closed exit.
+  echo "Waiting for Cove's worker to finish its previous shutdown..."
+  sleep 1
+  launchctl bootstrap "gui/$UID_NUM" "$WORKER_PLIST"
+fi
 if [ "$INSTALL_MEETING_LANE" = "1" ]; then
   launchctl bootstrap "gui/$UID_NUM" "$MEETING_PLIST"
   mark_lane_installed meeting_watch

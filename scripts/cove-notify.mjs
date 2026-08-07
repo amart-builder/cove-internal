@@ -20,7 +20,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import {
   localIMessageArgs,
-  nativeNotificationArgs,
+  nativeNotificationCommand,
   remoteIMessageArgs,
 } from "../src/lib/intake/notification-transport.mjs";
 import { coveConfigPath, coveEnv } from "../src/lib/env-runtime.mjs";
@@ -92,10 +92,14 @@ function sendRemoteIMessage(remoteHost, to, text) {
 }
 
 function notifyNative(text) {
-  execFileSync(
-    "osascript",
-    nativeNotificationArgs(text, { title: "Cove", sound: "Glass" }),
+  const command = nativeNotificationCommand(
+    text,
+    { title: "Cove", sound: "Glass" },
+    {
+      notificationAppPath: coveEnv("NOTIFICATION_APP"),
+    },
   );
+  execFileSync(command.executable, command.args);
 }
 
 const config = loadReminderConfig();

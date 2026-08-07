@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { guideCopyForRuntime } from '../src/app/guide/page.tsx';
+import { guideCopyForRuntime } from '../src/app/guide/content.tsx';
 
 test('the guide advertises local-only features only in local mode', () => {
   const local = guideCopyForRuntime('local');

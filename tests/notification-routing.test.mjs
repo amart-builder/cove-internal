@@ -516,25 +516,27 @@ test('notifyHardFailure uses the native banner path only when COVE_NOTIFY=1', ()
   ]);
 });
 
-test('terminal-notifier accepts a hard-failure group without an open URL', () => {
+test('Cove sender app accepts a hard-failure group without an open URL', () => {
   const calls = [];
+  const notificationApp = '/Users/test/Applications/Cove Notifications.app/Contents/MacOS/CoveNotifier';
   spawnNativeNotification({
     title: 'Cove needs attention',
     body: 'job:backup: Backup retries exhausted.',
     group: 'cove-hard-failure-job:backup',
   }, {
-    exists: () => true,
+    env: { COVE_NOTIFICATION_APP: notificationApp },
+    exists: (candidate) => candidate === notificationApp,
     spawnImpl: (executable, args, options) => {
       calls.push({ executable, args, options });
       return { unref: () => undefined };
     },
   });
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].executable, '/opt/homebrew/bin/terminal-notifier');
+  assert.equal(calls[0].executable, notificationApp);
   assert.deepEqual(calls[0].args, [
-    '-title', 'Cove needs attention',
-    '-message', 'job:backup: Backup retries exhausted.',
-    '-group', 'cove-hard-failure-job:backup',
+    '--title', 'Cove needs attention',
+    '--message', 'job:backup: Backup retries exhausted.',
+    '--group', 'cove-hard-failure-job:backup',
   ]);
-  assert.equal(calls[0].args.includes('-open'), false);
+  assert.equal(calls[0].args.includes('--open-url'), false);
 });

@@ -32,7 +32,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import {
   localIMessageArgs,
-  nativeNotificationArgs,
+  nativeNotificationCommand,
   remoteIMessageArgs,
 } from "../src/lib/intake/notification-transport.mjs";
 import {
@@ -52,6 +52,9 @@ const DIRECT_AUTHOR_SOURCES = new Set([
   "day-plan",
 ]);
 const CONTENT_FREE_REMINDER = "Cove reminder: open the board";
+const nativeNotificationDependencies = {
+  notificationAppPath: coveEnv("NOTIFICATION_APP"),
+};
 
 function floorText(count) {
   return `Cove: ${count} ${count === 1 ? "thing needs" : "things need"} a look. Open the board.`;
@@ -90,36 +93,30 @@ function telegramToken() {
 }
 
 function notifyNative(taskTitle) {
-  execFileSync(
-    "osascript",
-    nativeNotificationArgs(taskTitle, {
-      title: "Cove",
-      subtitle: "Task due",
-      sound: "Glass",
-    }),
-  );
+  const command = nativeNotificationCommand(taskTitle, {
+    title: "Cove",
+    subtitle: "Task due",
+    sound: "Glass",
+  }, nativeNotificationDependencies);
+  execFileSync(command.executable, command.args);
 }
 
 function notifyAttentionBanner(message, subtitle = "Attention check") {
-  execFileSync(
-    "osascript",
-    nativeNotificationArgs(message, {
-      title: "Cove",
-      subtitle,
-      sound: "Glass",
-    }),
-  );
+  const command = nativeNotificationCommand(message, {
+    title: "Cove",
+    subtitle,
+    sound: "Glass",
+  }, nativeNotificationDependencies);
+  execFileSync(command.executable, command.args);
 }
 
 function notifyTextFailure(taskTitle) {
-  execFileSync(
-    "osascript",
-    nativeNotificationArgs(`Text failed: ${taskTitle}`, {
-      title: "Cove",
-      subtitle: "Reminder delivery failed",
-      sound: "Glass",
-    }),
-  );
+  const command = nativeNotificationCommand(`Text failed: ${taskTitle}`, {
+    title: "Cove",
+    subtitle: "Reminder delivery failed",
+    sound: "Glass",
+  }, nativeNotificationDependencies);
+  execFileSync(command.executable, command.args);
 }
 
 function notifyTelegram(token, chatId, message) {

@@ -7,7 +7,7 @@ import { NextRequest } from 'next/server';
 import {
   handleTaskSettingsGet,
   handleTaskSettingsPatch,
-} from '../src/app/api/task-settings/route.ts';
+} from '../src/app/api/task-settings/implementation.ts';
 import { getQuietCurrentCsrfToken } from '../src/lib/quiet-current/store.ts';
 import {
   readTaskSettings,

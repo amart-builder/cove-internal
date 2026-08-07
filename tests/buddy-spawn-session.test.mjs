@@ -9,7 +9,7 @@ import { NextRequest } from 'next/server';
 import {
   handleSpawnSessionGet,
   handleSpawnSessionPost,
-} from '../src/app/api/buddy/spawn-session/route.ts';
+} from '../src/app/api/buddy/spawn-session/implementation.ts';
 import { seedBuddySession } from '../src/lib/buddy/spawn-session.ts';
 import { isBuddySpawnedSessionOpenable } from '../src/lib/buddy/spawned-session-state.ts';
 import { createBuddyStore } from '../src/lib/buddy/store.ts';

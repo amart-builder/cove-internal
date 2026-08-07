@@ -62,7 +62,7 @@ test('archive, undo, Recently deleted, and recurrence affordances are local-mode
   const detail = readFileSync(path.join(root, 'src/components/tasks/TaskDetail.tsx'), 'utf8');
   const board = readFileSync(path.join(root, 'src/components/tasks/KanbanBoard.tsx'), 'utf8');
   const today = readFileSync(path.join(root, 'src/components/tasks/TodayView.tsx'), 'utf8');
-  const route = readFileSync(path.join(root, 'src/app/api/cove-rest/[table]/route.ts'), 'utf8');
+  const route = readFileSync(path.join(root, 'src/app/api/cove-rest/[table]/implementation.ts'), 'utf8');
   const quietRoute = readFileSync(path.join(root, 'src/app/api/quiet-current/route.ts'), 'utf8');
   const brief = readFileSync(path.join(root, 'src/lib/day-plan/brief-sources.ts'), 'utf8');
 

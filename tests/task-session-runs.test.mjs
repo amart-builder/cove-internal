@@ -16,7 +16,7 @@ import { NextRequest } from 'next/server';
 import {
   handleTaskSessionRunsGet,
   handleTaskSessionRunsPost,
-} from '../src/app/api/task-session-runs/route.ts';
+} from '../src/app/api/task-session-runs/implementation.ts';
 import {
   buildTaskSessionCommand,
   createTaskSessionManager,

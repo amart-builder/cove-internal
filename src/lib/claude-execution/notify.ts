@@ -1,9 +1,11 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import type { DayPlanExecutionRunStatus } from "../day-plan/types";
-import { coveEnv } from "../env";
+import { coveEnv, coveEnvTrimmed } from "../env";
+import {
+  nativeNotificationCommand,
+} from "../intake/notification-transport.mjs";
 
-const TERMINAL_NOTIFIER = "/opt/homebrew/bin/terminal-notifier";
 const OSASCRIPT = "/usr/bin/osascript";
 const COVE_BOARD_URL = "http://127.0.0.1:3200/tasks";
 const DELIVERY_TIMEOUT_MS = 3_000;
@@ -34,6 +36,7 @@ type SpawnNotification = (
 export type NativeNotificationDependencies = {
   spawnImpl?: SpawnNotification;
   exists?: (path: string) => boolean;
+  env?: NodeJS.ProcessEnv;
 };
 
 export type NativeNotificationInput = {
@@ -58,22 +61,31 @@ export function spawnNativeNotification(
 ): ChildProcess {
   const spawnImpl = dependencies.spawnImpl ?? spawn;
   const exists = dependencies.exists ?? existsSync;
-  const useTerminalNotifier = exists(TERMINAL_NOTIFIER);
-  const executable = useTerminalNotifier ? TERMINAL_NOTIFIER : OSASCRIPT;
-  const args = useTerminalNotifier
-    ? [
-        "-title", input.title,
-        "-message", input.body,
-        ...(input.group ? ["-group", input.group] : []),
-        ...(input.openUrl ? ["-open", input.openUrl] : []),
-      ]
-    : [
-        "-e", "on run argv",
-        "-e", "display notification (item 2 of argv) with title (item 1 of argv)",
-        "-e", "end run",
-        "--", input.title, input.body,
-      ];
-  const child = spawnImpl(executable, args, {
+  const env = dependencies.env ?? process.env;
+  const configuredApp = coveEnvTrimmed("NOTIFICATION_APP", env);
+  const notificationAppPath = configuredApp && exists(configuredApp)
+    ? configuredApp
+    : undefined;
+  const command = notificationAppPath
+    ? nativeNotificationCommand(input.body, {
+        title: input.title,
+        group: input.group,
+        openUrl: input.openUrl,
+      }, {
+        notificationAppPath,
+        osascriptPath: OSASCRIPT,
+        exists,
+      })
+    : {
+        executable: OSASCRIPT,
+        args: [
+          "-e", "on run argv",
+          "-e", "display notification (item 2 of argv) with title (item 1 of argv)",
+          "-e", "end run",
+          "--", input.title, input.body,
+        ],
+      };
+  const child = spawnImpl(command.executable, command.args, {
     detached: true,
     stdio: "ignore",
     shell: false,
@@ -188,6 +200,7 @@ export function createExecutionNotifier(dependencies: ExecutionNotifierDependenc
       }, {
         spawnImpl,
         exists,
+        env,
       });
       await waitForDelivery(child, input, logger);
     } catch {

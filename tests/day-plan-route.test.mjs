@@ -15,7 +15,7 @@ import {
   GET,
   POST,
   parseDayPlanPostBody,
-} from '../src/app/api/day-plan/route.ts';
+} from '../src/app/api/day-plan/implementation.ts';
 import { hasDayPlanRouteAccess, isLoopbackCoveRequest } from '../src/lib/request-security.ts';
 import { getQuietCurrentCsrfToken } from '../src/lib/quiet-current/store.ts';
 import { openLocalDatabase } from '../src/lib/local/database.ts';

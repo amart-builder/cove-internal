@@ -309,6 +309,14 @@ be returned to the user rather than resolved by guessing.
 transport allocation, and shadow-mode model protocols. The deterministic floor
 and model judgment lanes share a budget but have different authority.
 
+`src/lib/intake/notification-transport.mjs` is the shared native-notification
+command boundary. It keeps message text out of a shell and routes banners
+through the local sender built from `scripts/cove-notifier.swift` and
+`public/cove-notification-icon.png`. AppleScript is the last-resort fallback if
+the installed sender app is unavailable. New banner paths must go through this
+boundary so reminders, intake, attention, and worker failures keep one sender
+identity.
+
 `src/lib/health/` collects factual readiness. Never report an integration as
 healthy merely because configuration exists. Distinguish not configured, waiting
 for first run, healthy, stale, and failed.

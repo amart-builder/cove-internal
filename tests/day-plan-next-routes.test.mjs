@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseExecutionPostBody } from '../src/app/api/day-plan/execution/route.ts';
+import { parseExecutionPostBody } from '../src/app/api/day-plan/execution/implementation.ts';
 
 test('execution route accepts configure and kickoff enums without paths or CLI flags', () => {
   const configured = parseExecutionPostBody({

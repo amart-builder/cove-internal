@@ -40,6 +40,7 @@ test('the public setup checks real release commands and keeps judgment shadowed'
   );
   assert.match(verifyScript, /process\.execPath/);
   assert.match(verifyScript, /path\.dirname\(process\.execPath\)/);
+  assert.match(verifyScript, /"build", "--webpack"/);
   assert.doesNotMatch(verifyScript, /\["npx", \["tsx"/);
   assert.match(
     installer,

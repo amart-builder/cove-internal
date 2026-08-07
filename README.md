@@ -110,7 +110,7 @@ Cove keeps workflow state in its durable local ledger. Gmail stays simple: Inbox
 ## How it runs (for the curious)
 
 - **One small program**, started by a macOS LaunchAgent named `com.cove.local`, serving `http://localhost:3200`, bound to localhost only (never exposed to the network).
-- **A reminder checker** (`com.cove.reminders`) wakes once a minute, looks for tasks whose time has come, and fires the notification (and a text, if you set one up). Logs to `~/Library/Logs/cove-reminders.log`.
+- **A reminder checker** (`com.cove.reminders`) wakes once a minute, looks for tasks whose time has come, and fires a Cove-branded notification (and a text, if you set one up). The installer builds a tiny local `Cove Notifications.app` so macOS shows the blue Cove icon and a real Cove sender name. Logs to `~/Library/Logs/cove-reminders.log`.
 - **An email triage job** (`com.cove.email-triage`) runs at your two chosen times and does the inbox pass described above. Logs to `~/Library/Logs/cove-email-triage.log`. It only ever creates drafts and moves labels; sending is always you.
 - **One file of data**: `data/cove.db`, backed up every day to `data/backups/` (the last 14 days are kept), so restarting or rebooting never loses anything.
 - **Your board data stays on the Mac.** Email triage is the one feature that talks to the internet: it reads your Gmail and writes drafts through your own connected account, which you can disconnect any time.
