@@ -91,6 +91,9 @@ export function resolveBriefFileSourcePolicy(
   const homeDir = options.homeDir ?? homedir();
   const legacyGoals = legacyBrainPath(homeDir, "GOALS.md");
   const clientGoals = path.join(dataDir, "brief", "goals.md");
+  const clientSprintMemo = path.join(dataDir, "brief", "sprint-memo.md");
+  const clientOperatorProfile = path.join(dataDir, "brief", "operator-profile.md");
+  const clientLeadup = path.join(dataDir, "brief", "leadup.md");
   const legacySprintMemo = legacyBrainPath(homeDir, "path-to-30k-2026-07.md");
   const legacyOperatorProfile = legacyBrainPath(homeDir, "operator-profile.md");
   const legacyLeadup = legacyBrainPath(homeDir, "brief-leadup.md");
@@ -106,7 +109,11 @@ export function resolveBriefFileSourcePolicy(
   const envLeadup = nonEmptyEnv("COVE_BRIEF_LEADUP_PATH");
 
   const operatorPath = explicitOperatorProfile || envOperatorProfile ||
-    (existsSync(legacyOperatorProfile) ? legacyOperatorProfile : jsonProfile);
+    (existsSync(clientOperatorProfile)
+      ? clientOperatorProfile
+      : existsSync(legacyOperatorProfile)
+        ? legacyOperatorProfile
+        : jsonProfile);
 
   return {
     goals: {
@@ -115,7 +122,8 @@ export function resolveBriefFileSourcePolicy(
       required: true,
     },
     sprint_memo: {
-      path: explicitSprintMemo || envSprintMemo || legacySprintMemo,
+      path: explicitSprintMemo || envSprintMemo ||
+        (existsSync(clientSprintMemo) ? clientSprintMemo : legacySprintMemo),
       required: Boolean(explicitSprintMemo || envSprintMemo),
     },
     operator_profile: {
@@ -126,7 +134,8 @@ export function resolveBriefFileSourcePolicy(
         : {}),
     },
     leadup: {
-      path: explicitLeadup || envLeadup || legacyLeadup,
+      path: explicitLeadup || envLeadup ||
+        (existsSync(clientLeadup) ? clientLeadup : legacyLeadup),
       required: false,
     },
   };
