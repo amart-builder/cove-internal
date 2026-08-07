@@ -8,11 +8,6 @@ export default function BuddyDock() {
     <div data-buddy-root>
       <BuddyPanel />
       <BuddyLauncher />
-      <style>{`
-        @keyframes buddy-shimmer { 0%,100% { opacity: .38 } 50% { opacity: .85 } }
-        .buddy-thinking { animation: buddy-shimmer 1.2s ease-in-out infinite; }
-        @media (prefers-reduced-motion: reduce) { .buddy-thinking { animation: none; } }
-      `}</style>
     </div>
   );
 }

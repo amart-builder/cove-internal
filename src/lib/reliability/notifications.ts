@@ -1,11 +1,43 @@
+import {
+  sanitizeNotificationText,
+  spawnNativeNotification,
+  type NativeNotificationDependencies,
+} from "../claude-execution/notify";
+import { coveEnv } from "../env";
+
+type HardFailureNotificationDependencies = NativeNotificationDependencies & {
+  env?: NodeJS.ProcessEnv;
+  logError?: (...values: unknown[]) => void;
+};
+
 export function notifyHardFailure(input: {
   source: string;
   message: string;
   details?: unknown;
-}): void {
-  console.error("Cove hard failure:", {
+}, dependencies: HardFailureNotificationDependencies = {}): void {
+  const logError = dependencies.logError ?? console.error;
+  logError("Cove hard failure:", {
     source: input.source,
     message: input.message,
     details: input.details,
   });
+  if (coveEnv("NOTIFY", dependencies.env ?? process.env) !== "1") return;
+
+  const source = sanitizeNotificationText(input.source) || "background work";
+  const message = sanitizeNotificationText(input.message) || "A background job failed.";
+  try {
+    const child = spawnNativeNotification({
+      title: "Cove needs attention",
+      body: `${source}: ${message}`.slice(0, 200),
+      group: `cove-hard-failure-${source}`.slice(0, 120),
+    }, dependencies);
+    child.once("error", (error) => {
+      logError("Cove hard failure notification failed:", error.message);
+    });
+  } catch (error) {
+    logError(
+      "Cove hard failure notification failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }

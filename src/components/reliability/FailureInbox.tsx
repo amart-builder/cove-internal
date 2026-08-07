@@ -49,6 +49,7 @@ function readableSource(value: string): string {
     "meeting-watch": "Meeting notes",
     "email-triage": "Inbox check",
     "email-triage-contact-resolution": "Inbox check",
+    "reminder-delivery": "Reminder delivery",
     "stale-task-watchdog": "Old task check",
   };
   return labels[value] ?? value.replace(/[-_]+/g, " ").replace(/\b\w/g, (letter) =>

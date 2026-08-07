@@ -1,0 +1,42 @@
+{
+  "snapshot": {
+    "now": "2026-08-06T18:30:00.000Z",
+    "localDate": "2026-08-06",
+    "tasks": [
+      {
+        "id": "task-client-deadline",
+        "title": "Send client revision",
+        "dueAt": "2026-08-06",
+        "sourceType": "manual",
+        "inboundSource": "chat"
+      },
+      {
+        "id": "task-later",
+        "title": "Review long-range notes",
+        "dueAt": "2026-08-20",
+        "sourceType": "manual",
+        "inboundSource": null
+      }
+    ],
+    "commitments": [
+      {
+        "id": "commitment-follow-up",
+        "title": "Follow up with Jordan",
+        "dueAt": "2026-08-06",
+        "sourceKind": "manual",
+        "sourceRef": null
+      }
+    ],
+    "recentActionLog": [],
+    "recentPlanEvents": [],
+    "dayPlan": null
+  },
+  "expected": {
+    "minimumNudges": 0,
+    "maximumNudges": 2,
+    "allowedRefs": [
+      "task:task-client-deadline",
+      "commitment:commitment-follow-up"
+    ]
+  }
+}

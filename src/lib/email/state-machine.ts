@@ -118,6 +118,10 @@ export function observeInboundMessage(input: {
   receivedAt?: string | null;
   dbPath?: string;
   now?: Date;
+  // The five-minute incremental lane passes false so a permanently failed
+  // classification cannot restart its retry ladder every tick. Catch-up
+  // remains the scheduled runner's job.
+  resurrectFailed?: boolean;
 }): {
   inserted: boolean;
   newer: boolean;
@@ -136,7 +140,10 @@ export function observeInboundMessage(input: {
       ).get(messageId) as { email_item_id: string; state: string } | undefined;
       if (existingMessage) {
         const thread = currentThread(db, threadId);
-        if (existingMessage.state === "failed" && thread) {
+        if (
+          existingMessage.state === "failed" && thread &&
+          input.resurrectFailed !== false
+        ) {
           db.prepare(
             `UPDATE cove_email_messages
              SET state = 'observed', last_error = NULL, updated_at = ?

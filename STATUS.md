@@ -16,15 +16,46 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** cowork
+- **system:** codex
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-08-06T16:40:51-0700
-- **task:** Round 6 verify
+- **since:** 2026-08-06T20:24:57-0700
+- **task:** Gary mandatory release candidate, clean-tree QA, and public mirror refresh
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-08-06 evening (Round 6 shipped through the Opus review; deployed to the live app)
+**Last updated:** 2026-08-06 evening (phase-1 reliability review fixes and judgment layer locally verified, not installed)
+
+## 2026-08-06 notification upgrade: shipped and installed (DONE, NOT COMMITTED)
+
+Two review rounds (fresh-context Opus on the code, then Sol read-only cross-review) found 15 findings across the layers below. All were fixed. Full suite 936/936, TypeScript and ESLint clean, installer run, all nine agents loaded.
+
+- **Floor batching (was the worst bug).** The noon floor sent one text per due item: it fired three identical texts at 18:00 today and spent the entire daily text budget. It now sends exactly ONE content-free summary ("Cove: N things need a look. Open the board.") counted over owner-authored items only, and that text is allocated BEFORE the per-item banners so a heavy day cannot spend the banner budget and leave the off-machine signal unsent. Model lanes stop one banner short until the floor text has gone, so the reserved slot cannot be stolen by an 11:30 sweep.
+- **Retry loop.** A failed text finalized as `suppressed`, which starts no cooldown, so the every-minute agent retried a broken channel forever with a fallback banner each pass. `deliverTextReminder` now returns `text` / `fallback_banner` / `none`, and a successful fallback banner is recorded as a real delivery.
+- **Shadow rows no longer suppress live nudges.** `attentionCooldown` ignores shadow rows for real allocations (a shadow row interrupted nobody); only shadow requests see prior shadow rows. Same fix applied to the urgent-email dedupe, which previously let a shadow row silence the real alert forever once urgency went live.
+- **Provenance is now uniform.** The classic due-task lane joins `inbound_events` like the floor does: non-direct titles are sanitized and labelled on banners and never texted. Tasks with no inbound event (typed into Cove by the operator) now count as owner-authored, which they did not before; that alone was excluding manual tasks from the floor text. The floor task query moved from `= today` to `<= today` so an overdue item is not dropped after the Mac sleeps through its due date.
+- **Injection hardening.** Sweep banner prose is sanitized even for direct items, because the reason is written by a model that just read untrusted board text. Angle brackets are stripped from snapshot fields so board text cannot forge the untrusted-snapshot fence. The snapshot trims whole items to fit its budget instead of slicing serialized JSON mid-string.
+- **Urgent email that fails to alert** now writes a `urgent-email` Failure Inbox row instead of only stderr. The five-minute lane passes `resurrectFailed: false` so a permanently failed classification cannot restart its retry ladder every tick.
+- **Email urgency backtest now has a real control arm** (same email, same run, prompt with and without the urgency lines; `COVE_BACKTEST_ARMS=aa` measures the noise floor). Result: control-vs-control 2 of 13 bucket shifts, control-vs-urgency 3 of 13, and no shifted case was urgent-flagged. The urgency lines sit inside model run-to-run variation, so there is no evidence they degrade classification. Both model lanes remain shadow-only in `data/attention-sweep.json` (`shadow` and `email_shadow` both true) until the operator reviews shadow precision.
+- **Installed.** `install-cove-local.sh` hit the known `Input/output error` bootstrap quirk; claude-worker, email-triage, meeting-watch, and progress were booted out and bootstrapped individually. Verified: reminders now run through the tsx loader (the plain-node plist silently lost the Quiet Current suppression line), sweep scheduled 11:30 and 16:00, `COVE_NOTIFY` on jobs/email-triage/worker and absent from the web server, wake canary removed. Since deploy: zero deliveries, suppression rows converging, web server responding.
+- **Wake canary settled.** Five nights of logs show it never ran Claude once (`CLAUDE_BIN` default path does not exist and the plist set no PATH), so it never measured the question it existed for. What it did show: a 6-minute script took 63 minutes on AC power and over 4 hours on battery. Scheduled dark wakes are not sufficient. Recommend `sudo pmset -c disablesleep 1`, which the operator must run.
+- **Residual, deliberately not fixed:** a hard kill between claim and send can still drop one reminder (safer than a duplicate text); a cap-suppressed urgent email is not reconsidered later; there is no durable attention outbox; the 9:00/15:00 runner still resurrects dead classify jobs twice daily.
+
+## 2026-08-06 phase-1 reminder reliability review fixes (SUPERSEDED by the entry above)
+
+- Due-task reminders now claim once with a single autocommit `notified_at` update, then run native, iMessage, Telegram, and SSH delivery outside every SQLite transaction. The deliberate hard-kill trade is documented in the script: a kill between claim and send can drop one reminder, which is safer than retrying an uncertain text.
+- Native-only scheduled and task reminder failures now write `reminder-delivery` Failure Inbox rows while preserving terminal behavior: scheduled files are deleted and task claims stay stamped. Unconfigured text channels are skipped quietly; configured but broken channels still record the failure before attempting the fallback banner.
+- The email-triage LaunchAgent now enables hard-failure notifications alongside the five-minute jobs agent. The web-server plist remains notification-free. The Failure Inbox renders `reminder-delivery` as `Reminder delivery`.
+- Verification: focused reminder, attention-floor, notifier, and installer tests clean; a child-process SQLite write succeeded during a failing SSH delivery; full suite 929/929; TypeScript clean; full ESLint clean; shell and script syntax clean; `git diff --check` clean. No `launchctl`, real notification, commit, or push was run.
+
+## 2026-08-06 judgment layer: attention floor, shadow sweep, and shadow email urgency (SUPERSEDED by the entry above)
+
+- Migration 16 adds the shared `cove_attention_ledger`. Code owns the 3-text and 6-banner daily caps across all judgment lanes, preserves one model-inaccessible floor text slot, records suppression, and applies 24-hour, 48-hour, then weekly same-ref backoff.
+- The every-minute reminders tick now runs a deterministic noon floor for due-today open tasks and overdue dated promises/follow-ups with counterparties. It re-reads state before delivery, joins task provenance through `inbound_events`, prevents meeting/email-derived texts, sanitizes non-direct banners, and records every decision.
+- `cove-attention-sweep.mjs` runs at 11:30 and 16:00 through a 240-second, tool-free, empty-MCP Claude boundary. It is shadow-first, validates every ref against its board snapshot, re-reads completion state, writes Quiet Current markers, and stays silent on speculative failures until the third consecutive failed run.
+- Email classification adds fail-soft `urgent` and `urgency_reason` fields under model version `claude-opus-5:tool-free-v3-urgency`. Urgent alerts are shadow-first, dedupe forever by message id, use a punycode-normalized safe sender domain for live text, and share the global ledger. New inbox observation moved cleanly into the five-minute jobs tick; 9:00/15:00 triage retains catch-up, reconciliation, drafting, and digest work.
+- The installer creates private shadow settings, installs the attention schedule, and no longer includes the settled wake canary. No `launchctl`, server, real notification, commit, or push was run.
+- Verification: TypeScript clean; full ESLint clean; shell and script syntax clean; `git diff --check` clean; full suite 925/925. A fresh-context review found transport reservations that could survive failed delivery and a retired LaunchAgent plist that existing installs would retain; both are fixed and covered. The held-out classifier backtest assembled 13 cases (five fixtures plus two recent stored rows per bucket), baseline reply/action/fyi/noise = 3/4/3/3, but inference could not start because the installed Claude CLI is logged out. Next action: run `claude /login`, rerun `node --import tsx scripts/cove-email-urgency-backtest.mjs`, review shadow precision, then rerun the installer when ready.
 
 ## 2026-08-06 Round 6 Opus review disposition (DONE, COMMITTED)
 
@@ -418,7 +449,7 @@ Alex's install now matches a client install exactly: local mode, one Mac, one SQ
 - Reminders read the SQLite file directly (`scripts/cove-reminders.mjs` opens `data/cove.db` with better-sqlite3), and owner chips spawn `claude` as a child process of the web server (`src/lib/task-sessions/manager.ts`). Both fire on whichever machine runs Cove. Hosting on the Mini put Alex's notifications and Claude sessions on a machine in a cabinet that he never touches.
 - Supabase does not fix that either. Day plans, the morning brief, brain dumps and Buddy history are stored in local SQLite in **both** runtime modes (`src/lib/day-plan/store.ts` always calls `openSqliteDatabase`; `getRuntimeMode` only gates behavior). A brief generated on a second machine lands in that machine's database and is invisible on the laptop. Supabase mode would also switch off everything the build wave shipped, since it is all local-gated.
 - Net: Cove is single-machine by design. The only way to split the always-on jobs from the interactive surfaces is to build a bridge (laptop-side agent for reminders and session spawn), which is roughly a day of Alex-only code. Not built, deliberately.
-- The always-on gap is being solved on the hardware instead: a scheduled wake so the closed laptop runs its 7:30 brief and 9:00 triage on time. `scripts/cove-wake-canary.sh` + `com.cove.wake-canary` (03:02) measure whether a dark wake stays up long enough for a multi-minute job. If it does not, the fallback is `sudo pmset -c disablesleep 1` (never sleep while on power). Delete the canary script and agent once that question is settled.
+- Historical note: the always-on gap was tested with a 03:02 wake canary. That experiment is settled. The canary script is deleted, and the current installer explicitly unloads and removes its old plist on the next owner-run install.
 
 - **What moved.** All 11 `cove_*` tables exported to JSON and imported into SQLite: 108 tasks, 5 columns, 14 companies, 38 contacts, 49 activities, 161 email items, 6 drafts, 52 action-log rows, 22 triage runs, 25 commitments, 8 inbound events. Plus a one-time Attio import (489 people, 306 companies) because supabase mode's People tab read Attio and local mode has no Attio path. Final: 519 contacts, 317 companies. Day plans, briefs, dumps and Buddy history were already local and were carried over intact on the MacBook's database file (11 day plans, 174 events, 13 Buddy turns).
 - **Two mapping decisions worth remembering.** Supabase's 5 columns were mapped onto local mode's canonical 4 by name (Waiting folds into In Flight / Waiting) instead of imported, or the board would have shown 9 lists. Attio lets a person or company exist with only an email or domain (198 people, 36 companies here), and local requires a name, so those import with the email or domain as the display name, which is what Attio itself shows.

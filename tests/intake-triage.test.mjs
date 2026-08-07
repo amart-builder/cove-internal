@@ -614,6 +614,7 @@ test('scheduled triage writes a reminder entry and task writes retry without a l
   const reminder = JSON.parse(
     readFileSync(path.join(dir, 'reminders', reminderFiles[0]), 'utf8'),
   );
+  assert.equal(reminder.source, 'email');
   assert.equal(reminder.surface_at, scheduled.surface_at);
 
   const posts = [];

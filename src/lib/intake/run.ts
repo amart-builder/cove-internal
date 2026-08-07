@@ -390,6 +390,7 @@ function writeScheduledReminder(
   dataDir: string | undefined,
   taskId: string,
   triage: TriageOutput,
+  source: IntakeSource,
   now: Date,
 ): void {
   if (triage.surface === "board") return;
@@ -407,6 +408,7 @@ function writeScheduledReminder(
       id: taskId,
       task_id: taskId,
       title: triage.title,
+      source,
       surface: triage.surface,
       surface_at: surfaceAt,
       created_at: now.toISOString(),
@@ -601,7 +603,13 @@ export async function triageRecordedEvent(
     ),
     event.source,
   );
-  writeScheduledReminder(runtimeOptions.dataDir, event.id, policy.triage, now);
+  writeScheduledReminder(
+    runtimeOptions.dataDir,
+    event.id,
+    policy.triage,
+    event.source as IntakeSource,
+    now,
+  );
   const taskId = await createTriagedInboundTask(
     event,
     policy.triage,

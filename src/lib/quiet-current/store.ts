@@ -8,7 +8,8 @@ export type SuggestionKind =
   | "create_task"
   | "returned_work"
   | "observed_progress"
-  | "stale_task";
+  | "stale_task"
+  | "attention_nudge";
 
 export type SuggestionState =
   | "proposed"

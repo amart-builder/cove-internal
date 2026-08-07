@@ -1,5 +1,6 @@
 'use client';
 
+import { ThinkingOrb } from 'thinking-orbs';
 import type { BuddyTurnView } from './BuddyProvider';
 import { isClaudeNotSignedIn } from '@/lib/buddy/errors';
 import PendingDeleteCard from './PendingDeleteCard';
@@ -46,10 +47,16 @@ export default function BuddyMessage({ turn, thinking, hostname, deepLinksEnable
           </div>
         ) : turn.assistant_text ? (
           <p className="whitespace-pre-wrap">{turn.assistant_text}</p>
-        ) : thinking ? (
-          <p className="buddy-thinking text-muted-foreground">thinking…</p>
-        ) : turn.state === 'running' ? (
-          <p className="text-muted-foreground">Working…</p>
+        ) : thinking || turn.state === 'running' ? (
+          <div className="flex min-w-44 items-center gap-3 py-0.5 pr-2 text-[15.5px] text-muted-foreground">
+            <ThinkingOrb
+              state="composing"
+              size={64}
+              aria-hidden="true"
+              className="shrink-0"
+            />
+            <span>Thinking…</span>
+          </div>
         ) : (
           <p className="text-muted-foreground">Buddy was interrupted.</p>
         )}

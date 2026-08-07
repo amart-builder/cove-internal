@@ -694,6 +694,14 @@ test('installer provisions a supervised watch worker without enabling autonomy',
     installer.indexOf('# --- Server:'),
     installer.indexOf('# --- Claude worker'),
   );
+  const jobsProfile = installer.slice(
+    installer.indexOf('# --- Reliability jobs:'),
+    installer.indexOf('# --- Reminders:'),
+  );
+  const triageProfile = installer.slice(
+    installer.indexOf('# --- Email triage:'),
+    installer.indexOf('# (Re)load all agents'),
+  );
   assert.doesNotMatch(miniProfile, /COVE_NOTIFY/);
   assert.match(miniProfile, /<key>COVE_BRIEF_WRITER<\/key>\s*<string>codex<\/string>/);
   assert.match(miniProfile, /<key>COVE_CODEX_BIN<\/key>\s*<string>\/opt\/homebrew\/bin\/codex<\/string>/);
@@ -717,6 +725,25 @@ test('installer provisions a supervised watch worker without enabling autonomy',
   assert.match(serverProfile, /\$SUPERNOVA_PLIST_ENTRY/);
   assert.match(serverProfile, /<key>COVE_CONTENT_QUOTA_POSTS<\/key>\s*<string>2<\/string>/);
   assert.match(workerProfile, /<key>COVE_NOTIFY<\/key>\s*<string>1<\/string>/);
+  assert.match(jobsProfile, /<key>COVE_NOTIFY<\/key>\s*<string>1<\/string>/);
+  assert.match(triageProfile, /<key>COVE_NOTIFY<\/key>\s*<string>1<\/string>/);
+  assert.doesNotMatch(serverProfile, /COVE_NOTIFY/);
+  // Every lane that imports a .ts module must boot through the tsx loader.
+  // Plain node strips types without resolving extensionless imports, which
+  // fails at run time in a way no test under tsx can see.
+  const remindersProfile = installer.slice(
+    installer.indexOf('# --- Reminders:'),
+    installer.indexOf('# --- Judgment sweep:'),
+  );
+  const sweepProfile = installer.slice(
+    installer.indexOf('# --- Judgment sweep:'),
+    installer.indexOf('# --- Email triage:'),
+  );
+  for (
+    const profile of [remindersProfile, sweepProfile, jobsProfile, triageProfile, workerProfile]
+  ) {
+    assert.match(profile, /tsx\/dist\/loader\.mjs|\$TSX_BIN|cove-email-triage\.sh/);
+  }
   assert.match(workerProfile, /\$SUPERNOVA_PLIST_ENTRY/);
   assert.match(workerProfile, /<key>COVE_CONTENT_QUOTA_POSTS<\/key>\s*<string>2<\/string>/);
   assert.doesNotMatch(installer, /<key>COVE_CLAUDE_EXECUTION_ENABLED<\/key>/);

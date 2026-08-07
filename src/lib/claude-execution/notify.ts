@@ -31,6 +31,18 @@ type SpawnNotification = (
   options: { detached: true; stdio: "ignore"; shell: false },
 ) => ChildProcess;
 
+export type NativeNotificationDependencies = {
+  spawnImpl?: SpawnNotification;
+  exists?: (path: string) => boolean;
+};
+
+export type NativeNotificationInput = {
+  title: string;
+  body: string;
+  group?: string;
+  openUrl?: string;
+};
+
 export type ExecutionNotifierDependencies = {
   env?: NodeJS.ProcessEnv;
   processStartedAt?: Date;
@@ -39,6 +51,36 @@ export type ExecutionNotifierDependencies = {
   logger?: (line: string) => void;
   deliveredTransitions?: Set<string>;
 };
+
+export function spawnNativeNotification(
+  input: NativeNotificationInput,
+  dependencies: NativeNotificationDependencies = {},
+): ChildProcess {
+  const spawnImpl = dependencies.spawnImpl ?? spawn;
+  const exists = dependencies.exists ?? existsSync;
+  const useTerminalNotifier = exists(TERMINAL_NOTIFIER);
+  const executable = useTerminalNotifier ? TERMINAL_NOTIFIER : OSASCRIPT;
+  const args = useTerminalNotifier
+    ? [
+        "-title", input.title,
+        "-message", input.body,
+        ...(input.group ? ["-group", input.group] : []),
+        ...(input.openUrl ? ["-open", input.openUrl] : []),
+      ]
+    : [
+        "-e", "on run argv",
+        "-e", "display notification (item 2 of argv) with title (item 1 of argv)",
+        "-e", "end run",
+        "--", input.title, input.body,
+      ];
+  const child = spawnImpl(executable, args, {
+    detached: true,
+    stdio: "ignore",
+    shell: false,
+  });
+  child.unref();
+  return child;
+}
 
 export function rememberNotificationTransition(
   transitions: Set<string>,
@@ -137,27 +179,15 @@ export function createExecutionNotifier(dependencies: ExecutionNotifierDependenc
     const openUrl = input.claudeSessionId
       ? `claude://resume?session=${encodeURIComponent(input.claudeSessionId)}`
       : COVE_BOARD_URL;
-    const useTerminalNotifier = exists(TERMINAL_NOTIFIER);
-    const executable = useTerminalNotifier ? TERMINAL_NOTIFIER : OSASCRIPT;
-    const args = useTerminalNotifier
-      ? [
-          "-title", copy.title,
-          "-message", copy.body,
-          "-group", `cove-${input.runId}`,
-          "-open", openUrl,
-        ]
-      : [
-          "-e", "on run argv",
-          "-e", "display notification (item 2 of argv) with title (item 1 of argv)",
-          "-e", "end run",
-          "--", copy.title, copy.body,
-        ];
-
     try {
-      const child = spawnImpl(executable, args, {
-        detached: true,
-        stdio: "ignore",
-        shell: false,
+      const child = spawnNativeNotification({
+        title: copy.title,
+        body: copy.body,
+        group: `cove-${input.runId}`,
+        openUrl,
+      }, {
+        spawnImpl,
+        exists,
       });
       await waitForDelivery(child, input, logger);
     } catch {

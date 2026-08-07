@@ -23,6 +23,7 @@ const KINDS = new Set<SuggestionKind>([
   "returned_work",
   "observed_progress",
   "stale_task",
+  "attention_nudge",
 ]);
 const PRIORITIES = new Set<SuggestionPriority>(["low", "medium", "high"]);
 const RESOLUTION_STATES = new Set<SuggestionState>([

@@ -2928,7 +2928,11 @@ function TodayExperience({
                       {suggestion.kind === 'returned_work' && suggestion.reviewMaterial && <details className="quiet-returned-work"><summary>Read Cove&apos;s work</summary><pre>{suggestion.reviewMaterial}</pre></details>}
                       <small>Source: {suggestion.source}</small>
                       <div className="current-tributary-actions">
-                        <button type="button" onClick={() => void commitSuggestion(suggestion, 'explicit_accept')} className="quiet-pencil-action is-primary">
+                        {suggestion.kind === 'attention_nudge' ? (
+                          <button type="button" onClick={() => void dismissSuggestion(suggestion, 'acknowledged')} className="quiet-pencil-action is-primary">
+                            Seen
+                          </button>
+                        ) : <><button type="button" onClick={() => void commitSuggestion(suggestion, 'explicit_accept')} className="quiet-pencil-action is-primary">
                           {suggestion.kind === 'observed_progress'
                             ? 'Mark done'
                             : suggestion.kind === 'stale_task'
@@ -2952,6 +2956,7 @@ function TodayExperience({
                             ))}
                           </div>}
                         </div>
+                        </>}
                       </div>
                     </>
                   )}

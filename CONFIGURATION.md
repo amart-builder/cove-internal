@@ -21,6 +21,16 @@ The default is local SQLite with no account or cloud database. Configuration is 
 - `COVE_SUPERNOVA_DIR` is an owner-only content integration, and client installs must leave it unset.
 - Task-session workspaces require an explicit allowlisted workspace configuration.
 
+## Judgment shadow modes
+
+The installer creates private `data/attention-sweep.json` settings with both judgment model lanes in shadow mode:
+
+```json
+{"shadow":true,"email_shadow":true}
+```
+
+Set `shadow` to `false` only after the 11:30 and 16:00 attention sweep has shown acceptable precision in Quiet Current. Set `email_shadow` to `false` only after urgent-email classifications have shown acceptable precision. The deterministic noon floor is live regardless of these settings.
+
 ## Compatibility
 
 `FORGE_*` names are accepted only for migration from older installations. New documentation, scripts, and configuration must use `COVE_*`. Supabase, Convex, and multi-machine relay settings are not part of the supported single-Mac product.

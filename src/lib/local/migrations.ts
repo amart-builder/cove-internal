@@ -1306,6 +1306,34 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       `);
     },
   },
+  {
+    version: 16,
+    name: "attention-ledger",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS cove_attention_ledger (
+          id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL
+            CHECK (kind IN ('sweep_nudge','floor_nudge','urgent_email')),
+          ref_kind TEXT NOT NULL
+            CHECK (ref_kind IN ('task','commitment','email')),
+          ref_id TEXT NOT NULL,
+          level TEXT NOT NULL
+            CHECK (level IN ('text','banner','board','suppressed','shadow')),
+          reason TEXT NOT NULL,
+          delivered_at TEXT,
+          suppressed_reason TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS cove_attention_ledger_ref_idx
+          ON cove_attention_ledger(ref_kind, ref_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS cove_attention_ledger_budget_idx
+          ON cove_attention_ledger(level, delivered_at);
+        CREATE INDEX IF NOT EXISTS cove_attention_ledger_kind_idx
+          ON cove_attention_ledger(kind, created_at DESC);
+      `);
+    },
+  },
 ];
 
 function migrationTableExists(db: Database.Database, name: string): boolean {

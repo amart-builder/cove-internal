@@ -111,6 +111,13 @@ if [ ! -e "$REPO_DIR/.env.local" ]; then
   echo "Created a private empty .env.local. Add optional Cove settings there when needed."
 fi
 LANE_DATA_DIR="${COVE_DATA_DIR:-$REPO_DIR/data}"
+mkdir -p "$LANE_DATA_DIR"
+ATTENTION_CONFIG="$LANE_DATA_DIR/attention-sweep.json"
+if [ ! -e "$ATTENTION_CONFIG" ]; then
+  install -m 600 /dev/null "$ATTENTION_CONFIG"
+  printf '%s\n' '{"shadow":true,"email_shadow":true}' > "$ATTENTION_CONFIG"
+  echo "Created private shadow-mode attention settings at $ATTENTION_CONFIG"
+fi
 LANE_OWNERSHIP_SCRIPT="$REPO_DIR/scripts/lib/cove-lane-ownership.mjs"
 LANE_PLIST_RENDERER="$REPO_DIR/scripts/lib/render-lane-plist.mjs"
 claim_lane() {
@@ -412,6 +419,7 @@ SERVER_PLIST="$LA_DIR/com.cove.local.plist"
 BACKUP_PLIST="$LA_DIR/com.cove.local.backup.plist"
 JOBS_PLIST="$LA_DIR/com.cove.jobs.plist"
 REMINDERS_PLIST="$LA_DIR/com.cove.reminders.plist"
+ATTENTION_SWEEP_PLIST="$LA_DIR/com.cove.attention-sweep.plist"
 TRIAGE_PLIST="$LA_DIR/com.cove.email-triage.plist"
 WORKER_PLIST="$LA_DIR/com.cove.claude-worker.plist"
 
@@ -587,7 +595,11 @@ cat > "$JOBS_PLIST" <<EOF
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>$NODE_BIN:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    <string>$NODE_BIN:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    <key>HOME</key>
+    <string>$HOME</string>
+    <key>COVE_NOTIFY</key>
+    <string>1</string>
   </dict>
 </dict>
 </plist>
@@ -606,6 +618,8 @@ cat > "$REMINDERS_PLIST" <<EOF
   <key>ProgramArguments</key>
   <array>
     <string>$NODE_REAL</string>
+    <string>--import</string>
+    <string>$REPO_DIR/node_modules/tsx/dist/loader.mjs</string>
     <string>$REPO_DIR/scripts/cove-reminders.mjs</string>
   </array>
   <key>RunAtLoad</key>
@@ -620,6 +634,43 @@ cat > "$REMINDERS_PLIST" <<EOF
   <dict>
     <key>PATH</key>
     <string>$NODE_BIN:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+  </dict>
+</dict>
+</plist>
+EOF
+
+# --- Judgment sweep: shadow-tested attention ranking at 11:30 and 16:00 ---
+cat > "$ATTENTION_SWEEP_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.cove.attention-sweep</string>
+  <key>WorkingDirectory</key>
+  <string>$REPO_DIR</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$NODE_REAL</string>
+    <string>--import</string>
+    <string>$REPO_DIR/node_modules/tsx/dist/loader.mjs</string>
+    <string>$REPO_DIR/scripts/cove-attention-sweep.mjs</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>11</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>16</integer><key>Minute</key><integer>0</integer></dict>
+  </array>
+  <key>StandardOutPath</key>
+  <string>$LOG_DIR/cove-attention-sweep.log</string>
+  <key>StandardErrorPath</key>
+  <string>$LOG_DIR/cove-attention-sweep.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>$NODE_BIN:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    <key>HOME</key>
+    <string>$HOME</string>
   </dict>
 </dict>
 </plist>
@@ -678,6 +729,8 @@ $TRIAGE_CAL_XML
     <string>$NODE_BIN:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
     <key>HOME</key>
     <string>$HOME</string>
+    <key>COVE_NOTIFY</key>
+    <string>1</string>
   </dict>
 </dict>
 </plist>
@@ -692,6 +745,7 @@ retire_legacy_agent local
 retire_legacy_agent local.backup
 retire_legacy_agent jobs
 retire_legacy_agent reminders
+retire_legacy_agent attention-sweep
 retire_legacy_agent email-triage
 retire_legacy_agent claude-worker
 retire_legacy_agent meeting-watch
@@ -705,6 +759,7 @@ launchctl bootout "gui/$UID_NUM/com.cove.local" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.local.backup" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.jobs" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.reminders" 2>/dev/null || true
+launchctl bootout "gui/$UID_NUM/com.cove.attention-sweep" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.email-triage" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.claude-worker" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.meeting-watch" 2>/dev/null || true
@@ -713,6 +768,10 @@ launchctl bootout "gui/$UID_NUM/com.cove.progress" 2>/dev/null || true
 # removal): the Mini owns scheduled generation now.
 launchctl bootout "gui/$UID_NUM/com.cove.morning-brief" 2>/dev/null || true
 rm -f "$LA_DIR/com.cove.morning-brief.plist"
+# The wake canary experiment is retired. Clean up the installed agent without
+# recreating or loading it.
+launchctl bootout "gui/$UID_NUM/com.cove.wake-canary" 2>/dev/null || true
+rm -f "$LA_DIR/com.cove.wake-canary.plist"
 
 # Move machine-private pre-Cove data only after every writer is stopped.
 # Never overwrite a canonical file: two copies means the operator must decide
@@ -742,6 +801,7 @@ launchctl bootstrap "gui/$UID_NUM" "$SERVER_PLIST"
 launchctl bootstrap "gui/$UID_NUM" "$BACKUP_PLIST"
 launchctl bootstrap "gui/$UID_NUM" "$JOBS_PLIST"
 launchctl bootstrap "gui/$UID_NUM" "$REMINDERS_PLIST"
+launchctl bootstrap "gui/$UID_NUM" "$ATTENTION_SWEEP_PLIST"
 WORKER_START_EPOCH="$(date +%s)"
 launchctl bootstrap "gui/$UID_NUM" "$WORKER_PLIST"
 if [ "$INSTALL_MEETING_LANE" = "1" ]; then
@@ -756,6 +816,7 @@ if [ -f "$TRIAGE_PLIST" ]; then launchctl bootstrap "gui/$UID_NUM" "$TRIAGE_PLIS
 launchctl enable "gui/$UID_NUM/com.cove.local" 2>/dev/null || true
 launchctl enable "gui/$UID_NUM/com.cove.claude-worker" 2>/dev/null || true
 launchctl enable "gui/$UID_NUM/com.cove.jobs" 2>/dev/null || true
+launchctl enable "gui/$UID_NUM/com.cove.attention-sweep" 2>/dev/null || true
 if [ "$INSTALL_MEETING_LANE" = "1" ]; then
   launchctl enable "gui/$UID_NUM/com.cove.meeting-watch" 2>/dev/null || true
 fi
@@ -797,6 +858,7 @@ if [ -n "$UP" ]; then
   echo "Server logs: $LOG_DIR/cove.log"
   echo "Daily database backups: $REPO_DIR/data/backups"
   echo "Reliability jobs: bounded scheduler supervised by com.cove.jobs"
+  echo "Attention sweep: shadow mode at 11:30 and 16:00"
   echo "Claude worker: supervised by com.cove.claude-worker"
   if [ -n "$WORKER_UP" ]; then
     echo "Claude worker status: ok"

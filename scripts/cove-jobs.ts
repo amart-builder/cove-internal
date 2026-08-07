@@ -27,6 +27,7 @@ import {
 } from "../src/lib/email/classification-job";
 import { createGoogleWorkspaceGateway, workspaceConfigPath } from "../src/lib/workspace";
 import { readWorkspaceConfig } from "../src/lib/workspace";
+import { observeIncrementalInbox } from "../src/lib/email/incremental-intake";
 
 function localDateKey(date: Date): string {
   const year = date.getFullYear();
@@ -154,10 +155,27 @@ async function main(): Promise<number> {
 
   const scheduler = schedulerWithHandlers(dbPath, backupDir, dataDir);
   try {
+    let incrementalEmail: Awaited<ReturnType<typeof observeIncrementalInbox>> | undefined;
     if (command === "run") {
       if (getRuntimeMode() === "local") {
         enqueueDailyTaskMaintenance(scheduler);
         enqueueDueHealthCollection(scheduler, { dbPath });
+      }
+      if (existsSync(workspaceConfigPath(dataDir))) {
+        try {
+          const workspace = readWorkspaceConfig(dataDir);
+          const gateway = createGoogleWorkspaceGateway({ dataDir });
+          incrementalEmail = await observeIncrementalInbox({
+            gateway: gateway.mail,
+            accountEmail: workspace.accountEmail,
+            dbPath,
+          });
+        } catch (error) {
+          console.warn(
+            "Incremental email intake could not poll this tick:",
+            error instanceof Error ? error.message : String(error),
+          );
+        }
       }
     }
     if (command === "enqueue-backup") {
@@ -176,7 +194,7 @@ async function main(): Promise<number> {
     }
     const result = await scheduler.runAvailable({ concurrency: 1, maxJobs: 25 });
     reconcileDeadEmailJobs({ dbPath });
-    process.stdout.write(`${JSON.stringify(result)}\n`);
+    process.stdout.write(`${JSON.stringify({ ...result, incrementalEmail })}\n`);
     return 0;
   } finally {
     scheduler.close();
