@@ -182,7 +182,10 @@ The installer in Step 5 follows `scripts/lib/cove-lane-ownership.mjs`. This Mac 
 
 ## Step 4: Load the person's real data
 
-Write these private, gitignored files before Cove starts.
+Write these private, gitignored files and capture the real tasks and People
+record before Cove's supervised worker starts. It is safe to run the web app by
+itself for this step. Do not run the installer or start
+`scripts/cove-claude-worker.ts` until the checkpoint at the end of this step.
 
 ### Profile
 
@@ -221,9 +224,35 @@ The profile helps Cove explain and rank suggestions. It does not grant permissio
 
 Import or capture only real open promises from the source the user named. Confirm the mapping before a bulk import. Before the first real brief, capture at least five real open tasks or explicitly record that the user has fewer. Include the follow-ups and promises the user most fears dropping. Ask which one item belongs in Now. Do not choose it for them. Offer no more than three well-supported pale suggestions.
 
+For a first install without an existing import adapter, use Cove's visible UI.
+Start only the already-built web app in a dedicated terminal:
+
+```bash
+./node_modules/.bin/next start -H 127.0.0.1 -p 3200
+```
+
+Open `http://localhost:3200/tasks`, capture and review the real tasks, then open
+People and add the first person, note, and next step. The app may queue a brief
+request while you browse, but no brief can be written because the supervised
+worker is not running yet. Once the real data is present, stop this temporary
+web process with Control-C and confirm the port is clear:
+
+```bash
+lsof -nP -iTCP:3200 -sTCP:LISTEN || echo "port 3200 clear"
+```
+
+Do not leave the temporary web process running beside the installer. Two web
+processes against one local database make restart and acceptance evidence
+ambiguous.
+
 If they have a people export, run the `cove-contact` import flow after the local skills are installed in Step 5. Confirm the first rows and dedupe by email. Ask for one real person they met, capture the person, note, and next step, then show the result on People.
 
 Groundwork is opt-in. It lets Claude do one bounded read-only research or drafting pass and add a marked draft to the user's task. It never sends, but it changes task text. Leave `data/cove-autonomy.json` at `"level": "off"` unless the user says yes to `"groundwork"`.
+
+**Worker-start checkpoint.** Before continuing, confirm the profile and goals
+files exist, the real task count is correct, the first People record is visible,
+the temporary web process is stopped, and no Cove worker process is running.
+The next worker start must see the finished first-day data.
 
 ## Step 5: Build and run a quiet smoke test
 
@@ -252,7 +281,11 @@ Do not show the first test brief as the user's brief.
 1. Confirm `data/cove-profile.json` parses and has a real name and timezone.
 2. Confirm `data/brief/goals.md` is more than a few hundred characters and holds real priorities. A thin file can make a generic brief without an error. Go back to the interview if needed.
 3. Run `claude -p "say ok" --output-format json`. A worker that starts but cannot think is not ready.
-4. Trigger one morning-brief run from start to finish. Check only that it completes. Say: "I ran a quiet test of the brief. The real one comes at the end."
+4. Trigger one Morning Brief run from start to finish after the real data is
+   loaded. Check the writer, schema, and completion state without reading it
+   aloud yet. This successful artifact is the candidate real brief reviewed in
+   Step 6. Do not create a disposable same-date brief first: identical inputs
+   are deliberately deduplicated.
 5. If email was deliberately connected, run the `cove-voice` skill against 30 to 60 days of sent mail. Tune sample drafts for two or three rounds.
 6. If email was deliberately connected, run the `cove-email` skill once. Show one Gmail draft and the one email card. The user must send any real reply.
 7. If email or meeting notes were deliberately configured, run `COVE_BRIEF_WRITER=claude bash scripts/install-cove-local.sh` again so the saved schedules are installed.
@@ -283,14 +316,21 @@ Run `system_profiler SPHardwareDataType | grep "Model Name"` and state the truth
 - On a laptop, Cove can run background work only while the Mac is open and awake. If the lid is closed, work waits and catches up after wake. Keep `always_on:false`.
 - On an always-on Mac Mini or VPS, reminders and background work can run all day. Set `always_on:true`.
 
-## Step 6: Generate the real morning brief
+## Step 6: Review the real morning brief
 
 Everything the user selected should now be loaded: goals, real tasks, people,
-and any optional inbox or meeting context they chose. Trigger a new Morning
-Brief. Do not reuse the quiet smoke test. Tell the user it takes about two
-minutes, wait, then open Arrival and read it together.
+and any optional inbox or meeting context they chose. Open Arrival and review
+the successful candidate brief from Step 5 together. Do not request a second
+same-date brief merely to relabel the first run: Cove deduplicates identical
+evidence, and the first run was intentionally made only after the real inputs
+were complete.
 
-Ask whether it sounds like it knows the user, their money, their people, and their week. If it sounds generic, fix the profile or goals and generate another brief. Do not call setup done while the brief could describe anyone.
+Ask whether it sounds like it knows the user, their money, their people, and
+their week. If it sounds generic, do not call setup done. Correct the profile,
+goals, or missing tasks, record that the first-day acceptance failed, and plan a
+supervised fresh brief for the next local day. Do not edit the database or
+pretend the stale artifact refreshed: Cove does not currently expose a safe
+same-day refresh after a successful brief.
 
 Prove which writer produced the successful brief without printing its contents,
 then confirm the installed worker carries the same choice:
