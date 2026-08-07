@@ -275,7 +275,7 @@ export default function DaySettlement({
                             </p>
                           )}
 
-                          <fieldset className="mt-4" disabled={anyDecisionSaving || closing}>
+                          <fieldset className="mt-4" disabled={closing}>
                             <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">What happens next?</legend>
                             <div className="mt-2 grid gap-2 sm:grid-cols-2">
                               {DECISIONS.map((decision) => (
@@ -292,7 +292,7 @@ export default function DaySettlement({
                                     name={`settlement-${view.item.id}`}
                                     value={decision.value}
                                     checked={decisions[view.item.id] === decision.value}
-                                    disabled={decision.value === 'defer' && !canDefer}
+                                    disabled={saving || (decision.value === 'defer' && !canDefer)}
                                     onChange={() => void chooseDecision(view.item.id, decision.value)}
                                     className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--accent-blue)]"
                                   />
