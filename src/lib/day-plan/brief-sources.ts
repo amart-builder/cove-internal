@@ -2712,7 +2712,8 @@ export async function collectMorningBriefSources(
   // snapshots. An empty local state (the Mini, whose DB no longer syncs) is
   // never treated as "no settlements"; it falls back to the relay file the MBP
   // publishes, whose as_of drives the same staleness threshold. Newest valid
-  // source wins; if neither is available the source records missing.
+  // source wins. If neither is available, state that truth explicitly so a
+  // first-ever brief does not require a closeout that could not exist yet.
   const settlementThreshold = staleThresholdHours("settlement_summary", 96);
   let settlementContent: string | undefined;
   let settlementAsOf: string | undefined;
@@ -2755,7 +2756,7 @@ export async function collectMorningBriefSources(
           required: true,
           maxChars: 6000,
           priority: 8,
-          note: "settlement_summary_unavailable",
+          content: buildSettlementSummary([]).content,
         },
   );
 

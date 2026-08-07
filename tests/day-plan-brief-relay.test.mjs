@@ -492,7 +492,7 @@ test('a brain dump older than the relay window is dropped rather than presented 
   assert.equal(dump.note, 'day_dump_unavailable');
 });
 
-test('an empty local store with no relay records the settlement source as missing', async (t) => {
+test('an empty local store with no relay gives a first-use settlement fact', async (t) => {
   const { dir } = fixture(t);
   const collected = await collectMorningBriefSources({
     store: { listRecentSnapshots: () => [] },
@@ -502,8 +502,9 @@ test('an empty local store with no relay records the settlement source as missin
     fetchImpl: async () => ({ ok: true, json: async () => [] }),
   });
   const settlement = collected.sources.find((source) => source.id === 'settlement_summary');
-  assert.equal(settlement.content, undefined);
-  assert.equal(settlement.note, 'settlement_summary_unavailable');
+  assert.equal(settlement.required, true);
+  assert.equal(settlement.content, 'No settlement snapshots exist yet.');
+  assert.equal(settlement.note, undefined);
 });
 
 test('buildSettlementSummary labels progress, not-moved carry, and carry streaks', () => {
