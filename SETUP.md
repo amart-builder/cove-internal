@@ -351,7 +351,8 @@ Guide the user through one five-minute practice:
 3. Assign one owner.
    The Claude chip opens a task-working session with automatic file edits, while Together opens a planning session; neither can send, publish, or purchase.
 4. Tap "Start my day."
-5. Switch focus, mark a demo item done, undo it, hold it for Cove, and bring it back.
+5. Open Focus Grid, switch one item into Focus, mark a demo item done, and
+   undo it. Confirm the original item, order, and owner return.
 6. Tell Buddy: "New urgent thing, reshuffle my afternoon." Buddy now handles this directly. Review the proposed changes and tap Apply. Buddy never applies the preview by itself.
 7. Open Closing your day. Mark one item Progress with a note and another Carry.
 
