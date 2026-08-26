@@ -264,6 +264,25 @@ export function reorderDayPlanItems<T extends DayPlanItem>(
   return withNormalizedPositions(next);
 }
 
+export function focusCountAfterArrivalDrag<T extends Pick<DayPlanItem, 'id'>>(
+  items: readonly T[],
+  activeId: string,
+  overId: string,
+  focusCount: 1 | 2 | 3,
+): 1 | 2 | 3 {
+  const activeIndex = items.findIndex((item) => item.id === activeId);
+  const overIndex = items.findIndex((item) => item.id === overId);
+  if (activeIndex < 0 || overIndex < 0) return focusCount;
+
+  if (activeIndex >= focusCount && overIndex < focusCount) {
+    return Math.min(3, focusCount + 1) as 1 | 2 | 3;
+  }
+  if (activeIndex < focusCount && overIndex >= focusCount) {
+    return Math.max(1, focusCount - 1) as 1 | 2 | 3;
+  }
+  return focusCount;
+}
+
 export function selectRecommendedHumanFocus<T extends DayPlanItem>(
   items: readonly T[],
   preferredItemId?: string,

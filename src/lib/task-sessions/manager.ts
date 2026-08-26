@@ -24,6 +24,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { Writable } from "node:stream";
+import { resolveProjectDirectory } from "../atlas-projects";
 import { coveEnv } from "../env";
 import { openLocalDatabase } from "../local/database";
 import { coveDataDir } from "../operator";
@@ -92,6 +93,7 @@ type TaskSessionRunRow = {
   server_pid: number;
   server_generation: string;
   output_dir: string;
+  workspace_path: string | null;
   resume_url: string;
   prompt_json: string;
   result_summary: string | null;
@@ -219,6 +221,7 @@ export function buildTaskSessionCommand(input: {
   mode: TaskSessionLaunchMode;
   modelDecision: TaskSessionModelDecision;
   outputDir: string;
+  workspacePath?: string;
   title: string;
   promptSnapshot: TaskSessionPromptSnapshot;
 }): TaskSessionCommand {
@@ -226,7 +229,7 @@ export function buildTaskSessionCommand(input: {
   const title = input.title.replace(/\s+/g, " ").trim();
   return {
     executable: input.claudePath,
-    cwd: input.outputDir,
+    cwd: input.workspacePath ?? input.outputDir,
     args: [
       "-p",
       "--session-id",
@@ -236,7 +239,7 @@ export function buildTaskSessionCommand(input: {
       "--append-system-prompt",
       SESSION_SYSTEM_PROMPT,
       "--permission-mode",
-      permission,
+      input.mode === "auto" ? "auto" : permission,
       "--safe-mode",
       "--tools",
       input.mode === "auto" ? AUTONOMOUS_SESSION_TOOLS : PLANNING_SESSION_TOOLS,
@@ -420,12 +423,23 @@ function fromRow(row: TaskSessionRunRow): TaskSessionRun {
       ? {
           claudeSessionId: row.claude_session_id,
           resumeCommand: buildClaudeResumeCommand(
-            row.output_dir,
+            row.workspace_path ?? row.output_dir,
             row.claude_session_id,
+            {
+              permissionMode: row.permission_mode === "plan" ? "plan" : "auto",
+              safeMode: true,
+              tools: row.permission_mode === "plan"
+                ? PLANNING_SESSION_TOOLS
+                : AUTONOMOUS_SESSION_TOOLS,
+              settingsPath: path.join(process.cwd(), "scripts", "cove-empty-settings.json"),
+              mcpConfigPath: path.join(process.cwd(), "scripts", "cove-empty-mcp.json"),
+              noChrome: true,
+            },
           ),
         }
       : {}),
     outputDir: row.output_dir,
+    workspacePath: row.workspace_path ?? undefined,
     resumeUrl: row.resume_url,
     promptSnapshot: parsePrompt(row.prompt_json),
     resultSummary: row.result_summary ?? undefined,
@@ -519,6 +533,7 @@ export type TaskSessionManagerDependencies = {
     mode: TaskSessionLaunchMode;
     promptSnapshot: TaskSessionPromptSnapshot;
   }) => TaskSessionModelDecision;
+  resolveProjectDirectory?: (hint: string) => string | null;
 };
 
 export function createTaskSessionManager(
@@ -534,6 +549,7 @@ export function createTaskSessionManager(
   const signalGroup = dependencies.signalGroup ?? stopProcessGroup;
   const markSession = dependencies.markSession ?? markCoveOrchestratorSession;
   const randomId = dependencies.randomId ?? randomUUID;
+  const projectDirectoryResolver = dependencies.resolveProjectDirectory ?? resolveProjectDirectory;
   const timeoutMs = dependencies.timeoutMs ?? 45 * 60 * 1000;
   const terminationGraceMs = dependencies.terminationGraceMs ?? 2_000;
   const dataDir = coveDataDir(dependencies.dataDir ?? path.dirname(dependencies.dbPath));
@@ -690,10 +706,12 @@ export function createTaskSessionManager(
       return current;
     }
     const success = result.exitCode === 0 && !result.errorCode;
+    const modeLabel = current.permissionMode === "plan" ? "Plan" : "Auto";
+    const workspaceLabel = path.basename(current.workspacePath ?? current.outputDir);
     const run = transition(runId, {
       status: success ? "output_ready" : "failed",
       hint: success
-        ? "Results and the resumable Claude session are ready."
+        ? `Finished in ${modeLabel} mode from ${workspaceLabel}. Claude Desktop may reopen an imported background session in Manual; switch it back to ${modeLabel} before continuing.`
         : "Open the failed run in Cove Issues, then resume or start it again.",
       errorCode: success ? undefined : result.errorCode ?? "claude_failed",
       exitCode: result.exitCode,
@@ -829,15 +847,24 @@ export function createTaskSessionManager(
     );
     mkdirSync(outputDir, { recursive: true, mode: 0o700 });
     chmodSync(outputDir, 0o700);
+    let workspacePath: string | undefined;
+    const projectHints = new Set([
+      input.promptSnapshot.project?.trim(),
+      input.promptSnapshot.title.trim(),
+    ].filter((value): value is string => Boolean(value)));
+    for (const hint of projectHints) {
+      workspacePath = projectDirectoryResolver(hint) ?? undefined;
+      if (workspacePath) break;
+    }
     const resumeUrl = `claude://resume?session=${encodeURIComponent(sessionId)}`;
     const permission = permissionMode(mode);
     db.prepare(
       `INSERT INTO cove_task_session_runs
        (id, task_id, day_plan_id, item_id, owner, permission_mode, model, effort,
         model_reason, status,
-        claude_session_id, pid, server_pid, server_generation, output_dir,
+        claude_session_id, pid, server_pid, server_generation, output_dir, workspace_path,
         resume_url, prompt_json, hint, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       runId,
       input.taskId,
@@ -852,9 +879,10 @@ export function createTaskSessionManager(
       serverPid,
       serverGeneration,
       outputDir,
+      workspacePath ?? null,
       resumeUrl,
       JSON.stringify(input.promptSnapshot),
-      "Claude may be waiting for approval. Open the session to check.",
+      `Running in ${mode === "planning" ? "Plan" : "Auto"} mode from ${path.basename(workspacePath ?? outputDir)}.`,
       createdAt,
       createdAt,
     );
@@ -865,6 +893,7 @@ export function createTaskSessionManager(
       mode,
       modelDecision,
       outputDir,
+      workspacePath,
       title: input.promptSnapshot.title,
       promptSnapshot: input.promptSnapshot,
     });

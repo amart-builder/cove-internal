@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { reduceFocusSeats } from '../src/lib/tasks/focus-seats.ts';
+import {
+  reconcileFocusSeatTaskChanges,
+  reduceFocusSeats,
+  shouldSurfaceTodayOrderError,
+} from '../src/lib/tasks/focus-seats.ts';
 
 const ORDER = ['a', 'b', 'c', 'd', 'e', 'f'];
 
@@ -81,4 +85,49 @@ test('reapplying a task event is idempotent after the task is gone', () => {
   const vanished = { type: 'task_vanished', taskId: 'e' };
   const withoutTask = reduceFocusSeats(ORDER, 3, vanished);
   assert.deepEqual(reduceFocusSeats(withoutTask, 3, vanished), withoutTask);
+});
+
+test('a proposed day resets vanished cards without persisting a Today reorder', () => {
+  assert.deepEqual(
+    reconcileFocusSeatTaskChanges(
+      ['a', 'b', 'c', 'd'],
+      ['a', 'c', 'd'],
+      2,
+      false,
+    ),
+    {
+      orderedTaskIds: ['a', 'c', 'd'],
+      shouldPersist: false,
+    },
+  );
+});
+
+test('an active day persists the same vanished focus-seat repair', () => {
+  assert.deepEqual(
+    reconcileFocusSeatTaskChanges(
+      ['a', 'b', 'c', 'd'],
+      ['a', 'c', 'd'],
+      2,
+      true,
+    ),
+    {
+      orderedTaskIds: ['a', 'c', 'd'],
+      shouldPersist: true,
+    },
+  );
+});
+
+test('a late reorder error cannot cross into a different or proposed plan', () => {
+  assert.equal(
+    shouldSurfaceTodayOrderError('yesterday', { id: 'today', state: 'active' }),
+    false,
+  );
+  assert.equal(
+    shouldSurfaceTodayOrderError('today', { id: 'today', state: 'proposed' }),
+    false,
+  );
+  assert.equal(
+    shouldSurfaceTodayOrderError('today', { id: 'today', state: 'active' }),
+    true,
+  );
 });

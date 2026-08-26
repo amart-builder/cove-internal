@@ -108,6 +108,7 @@ function fixture(t, options = {}) {
     bootId: options.bootId ?? 'boot-current',
     timeoutMs: options.timeoutMs,
     terminationGraceMs: options.terminationGraceMs,
+    resolveProjectDirectory: options.resolveProjectDirectory,
     routeModel: options.routeModel ?? (({ mode }) => fallbackTaskSessionModel(mode)),
   });
   t.after(() => {
@@ -132,7 +133,7 @@ const MINIMAL_CHILD_ENVIRONMENT_KEYS = new Set([
 
 test('clicked session modes are structural and never construct bypassPermissions', () => {
   for (const [mode, expected] of [
-    ['auto', 'acceptEdits'],
+    ['auto', 'auto'],
     ['planning', 'plan'],
   ]) {
     for (const title of [
@@ -284,7 +285,7 @@ test('Planning and Auto clicks reach the spawned Claude command as explicit mode
   );
   assert.equal(
     spawnCalls[1].args[spawnCalls[1].args.indexOf('--permission-mode') + 1],
-    'acceptEdits',
+    'auto',
   );
   assert.equal(spawnCalls[0].args[spawnCalls[0].args.indexOf('--model') + 1], 'claude-opus-5');
   assert.equal(spawnCalls[1].args[spawnCalls[1].args.indexOf('--model') + 1], 'claude-sonnet-5');
@@ -316,7 +317,7 @@ test('the model router runs once for a fresh launch and never for an active resu
   assert.equal(routeCalls, 1);
 });
 
-test('task sessions launch from Cove outputs with no workspace or git requirement', async (t) => {
+test('task sessions fall back to Cove outputs when no Atlas project resolves', async (t) => {
   const previousGithubToken = process.env.GITHUB_TOKEN;
   process.env.GITHUB_TOKEN = 'sol-test-sentinel';
   t.after(() => {
@@ -334,10 +335,14 @@ test('task sessions launch from Cove outputs with no workspace or git requiremen
   assert.equal(run.model, 'claude-sonnet-5');
   assert.equal(run.effort, 'high');
   assert.match(run.modelReason, /fallback/i);
-  assert.equal(
+  assert.match(
     run.resumeCommand,
-    `cd '${run.outputDir}' && claude --resume '${run.claudeSessionId}'`,
+    new RegExp(`^cd '${run.outputDir.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}' && claude --resume '${run.claudeSessionId}' --permission-mode auto --safe-mode`),
   );
+  assert.match(run.resumeCommand, /--tools 'Bash,Edit,Glob,Grep,Read,Skill,WebFetch,WebSearch,Write'/);
+  assert.match(run.resumeCommand, /--strict-mcp-config --mcp-config '[^']+\/scripts\/cove-empty-mcp\.json'/);
+  assert.match(run.resumeCommand, /--settings '[^']+\/scripts\/cove-empty-settings\.json'/);
+  assert.match(run.resumeCommand, /--no-chrome$/);
   assert.match(run.outputDir, new RegExp(`^${dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/outputs/`));
   assert.equal(existsSync(run.outputDir), true);
   assert.equal(spawnCalls[0].options.cwd, run.outputDir);
@@ -369,6 +374,38 @@ test('task sessions launch from Cove outputs with no workspace or git requiremen
     { manager, runtimeMode: 'local' },
   );
   assert.equal((await response.json()).runs[0].resumeCommand, run.resumeCommand);
+});
+
+test('task sessions resolve a project from the title and launch from that workspace', (t) => {
+  const projectDir = '/Users/alexanderjmartin/Atlas/Projects/slipstream';
+  const hints = [];
+  const { manager, spawnCalls } = fixture(t, {
+    resolveProjectDirectory: (hint) => {
+      hints.push(hint);
+      return hint.includes('Slipstream') ? projectDir : null;
+    },
+  });
+  const run = manager.launch({
+    taskId: 'task-slipstream',
+    owner: 'together',
+    mode: 'planning',
+    promptSnapshot: {
+      ...SNAPSHOT,
+      title: 'Finish Slipstream newsletter issues 2 and 3',
+    },
+  });
+
+  assert.deepEqual(hints, ['Finish Slipstream newsletter issues 2 and 3']);
+  assert.equal(run.workspacePath, projectDir);
+  assert.equal(spawnCalls[0].options.cwd, projectDir);
+  assert.match(
+    run.resumeCommand,
+    new RegExp(`^cd '${projectDir}' && claude --resume '${run.claudeSessionId}' --permission-mode plan --safe-mode`),
+  );
+  assert.match(run.resumeCommand, /--tools 'Glob,Grep,Read,Skill,WebFetch,WebSearch'/);
+  assert.match(run.resumeCommand, /--strict-mcp-config/);
+  assert.match(run.resumeCommand, /--no-chrome$/);
+  assert.notEqual(run.outputDir, run.workspacePath);
 });
 
 test('task session run payload omits resumeCommand without a Claude session id', async (t) => {

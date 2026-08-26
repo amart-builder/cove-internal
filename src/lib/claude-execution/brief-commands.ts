@@ -45,14 +45,18 @@ export function chiefOfStaffMandate(): string {
 // Strict wire contract for the Morning Brief session (snake_case, mirrored by
 // validateMorningBrief). Claude returns exactly this object and never touches
 // storage; Cove validates and persists.
-const boardActionBaseProperties = {
-  task_id: { type: "string", maxLength: 200 },
+const groundedBoardActionProperties = {
   why: { type: "string", maxLength: 600 },
   evidence_refs: {
     type: "array",
     maxItems: 8,
     items: { type: "string", maxLength: 300 },
   },
+};
+
+const boardActionBaseProperties = {
+  ...groundedBoardActionProperties,
+  task_id: { type: "string", maxLength: 200 },
 };
 
 export const MORNING_BRIEF_JSON_SCHEMA = JSON.stringify({
@@ -129,6 +133,32 @@ export const MORNING_BRIEF_JSON_SCHEMA = JSON.stringify({
       maxItems: 15,
       items: {
         oneOf: [
+          {
+            type: "object",
+            additionalProperties: false,
+            required: [
+              "op",
+              "title",
+              "description",
+              "priority",
+              "due_local_date",
+              "why",
+              "evidence_refs",
+            ],
+            properties: {
+              ...groundedBoardActionProperties,
+              op: { const: "create_task" },
+              title: { type: "string", minLength: 8, maxLength: 240 },
+              description: { type: "string", minLength: 20, maxLength: 4000 },
+              priority: { enum: ["high", "medium", "low"] },
+              due_local_date: {
+                anyOf: [
+                  { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+                  { type: "null" },
+                ],
+              },
+            },
+          },
           {
             type: "object",
             additionalProperties: false,
@@ -275,7 +305,7 @@ export function buildMorningBriefPrompt(input: {
     "SOURCE_MANIFEST tells you exactly what you can see and how fresh it is.",
     "Every evidence_refs entry must name a source from SOURCE_MANIFEST, as source or source:detail (for example sprint_memo:gio). Cove drops any watch_item whose refs cite anything else.",
     "existing_task_candidates: choose the day's true top priorities against the operator's goals from the ENTIRE OPEN_TASKS pool marked candidate_ok, not merely Today or In Flight. Return up to 8, ranked. The first 3 are the day's focus. Rows without candidate_ok are context only, never candidates. Never invent tasks there.",
-    "board_actions: act as chief of staff over the whole candidate_ok board. Use at most 15 moves that materially improve today's board. You may move columns, change priority or grounded due dates, clarify titles or descriptions, archive stale work, and archive duplicates into a named survivor. Retitles and description edits may clarify existing facts only; never add a fact, commitment, deadline, or scope that the sources do not establish. Every set_due needs resolving evidence_refs. Mention material intended archives or duplicate consolidations once in the narrative, phrased as intent because Cove applies actions later and conflicts may leave them alone.",
+    "board_actions: act as chief of staff over the whole candidate_ok board. Use at most 15 actions that materially improve today's board. You may move columns, change priority or grounded due dates, clarify titles or descriptions, archive stale work, and archive duplicates into a named survivor. You may also create at most 3 Today tasks when the brief tells the operator to take a concrete action that is not already represented by candidate_ok work. A create_task must have an action-led title, a useful description, and resolving evidence_refs from concrete work context; GOALS, OPERATOR_PROFILE, and prior brief prose alone never authorize task creation. Never create a task for monitoring, waiting, a vague idea, or work already on the board. Retitles and description edits may clarify existing facts only; never add a fact, commitment, deadline, or scope that the sources do not establish. Every set_due needs resolving evidence_refs. Mention material intended archives or duplicate consolidations once in the narrative, phrased as intent because Cove applies actions later and conflicts may leave them alone.",
     "watch_items are the never-drop checks: stale leads over 3 days, promised follow-ups, invoices, call prep, the Friday scoreboard. At most five, ranked by what actually costs the operator something if nobody touches it today; a long list reads as noise and they stop reading it. Each evidence value must be one finished human sentence with no source citations. Keep last_seen_state and evidence_refs grounded for storage, but never write citation language into the sentence.",
     "Do not invent facts, deadlines, contacts, or commitments. Do not use em dashes anywhere.",
     `JSON_SCHEMA=${MORNING_BRIEF_JSON_SCHEMA}`,

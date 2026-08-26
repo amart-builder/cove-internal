@@ -36,6 +36,7 @@ export type TaskSessionRun = {
   status: TaskSessionRunStatus;
   claudeSessionId?: string;
   outputDir: string;
+  workspacePath?: string;
   resumeUrl: string;
   resumeCommand?: string;
   promptSnapshot: TaskSessionPromptSnapshot;

@@ -1343,6 +1343,16 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       `);
     },
   },
+  {
+    version: 17,
+    name: "task-session-workspace-path",
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE cove_task_session_runs
+          ADD COLUMN workspace_path TEXT;
+      `);
+    },
+  },
 ];
 
 function migrationTableExists(db: Database.Database, name: string): boolean {

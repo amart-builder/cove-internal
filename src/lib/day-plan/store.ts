@@ -76,6 +76,7 @@ import { arrivalAdditionOutcomeKey } from "./arrival-addition";
 import {
   isWeekendLocalDate,
   morningBriefFromArtifact,
+  morningBriefCreatedTaskId,
   morningBriefWriterFromJson,
   overlayBriefOnCandidates,
   MORNING_BRIEF_PROMPT_VERSION,
@@ -2696,7 +2697,7 @@ export function createDayPlanStore(options: {
           actionIndex,
           opJson,
           actionHash,
-          action.expectedTaskUpdatedAt,
+          "expectedTaskUpdatedAt" in action ? action.expectedTaskUpdatedAt : "",
           stagedState,
           action.why,
           stagedState === "skipped_late" ? stagedAt : null,
@@ -2794,6 +2795,10 @@ export function createDayPlanStore(options: {
     );
   }
 
+  function normalizedManagedTaskTitle(value: string): string {
+    return value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+  }
+
   function activateBriefBoardActions(targetLocalDate: string, activationNow: Date = now()) {
     const hasStagedActions = db.prepare(
       `SELECT 1 FROM day_plan_brief_actions actions
@@ -2858,7 +2863,9 @@ export function createDayPlanStore(options: {
       const originalTasks = new Map<string, ManagedTaskRow | undefined>();
       for (const row of rows) {
         const action = JSON.parse(row.op_json) as MorningBriefBoardAction;
-        if (!originalTasks.has(action.taskId)) originalTasks.set(action.taskId, managedTask(action.taskId));
+        if (action.op !== "create_task" && !originalTasks.has(action.taskId)) {
+          originalTasks.set(action.taskId, managedTask(action.taskId));
+        }
       }
       let applied = 0;
       let skippedConflict = 0;
@@ -2871,12 +2878,56 @@ export function createDayPlanStore(options: {
       );
       for (const row of rows) {
         const action = JSON.parse(row.op_json) as MorningBriefBoardAction;
-        const original = originalTasks.get(action.taskId);
-        const before = managedTask(action.taskId);
+        const taskId = action.op === "create_task"
+          ? morningBriefCreatedTaskId(artifact.id, row.action_index)
+          : action.taskId;
+        let resolvedTaskId = taskId;
+        const original = action.op === "create_task" ? undefined : originalTasks.get(taskId);
+        const before = managedTask(taskId);
         const beforeSnapshot = managedTaskSnapshot(before);
         const beforeJson = beforeSnapshot ? JSON.stringify(beforeSnapshot) : null;
         let state: MorningBriefActionRow["state"];
-        if (
+        if (action.op === "create_task") {
+          const title = managedText(action.title, 240).trim();
+          const description = managedText(action.description, 4_000, { preserveFormatting: true });
+          const normalizedTitle = normalizedManagedTaskTitle(title);
+          const duplicate = title
+            ? (db.prepare("SELECT id, title FROM tasks WHERE status = 'open'").all() as Array<{ id: string; title: string }>)
+                .find((task) => normalizedManagedTaskTitle(task.title) === normalizedTitle)
+            : undefined;
+          const columnId = columnIds.get("today");
+          if (before || duplicate) {
+            if (duplicate) resolvedTaskId = duplicate.id;
+            state = "skipped_conflict";
+            skippedConflict += 1;
+          } else if (!title || !columnId || !managedDueLocalDate(action.dueLocalDate)) {
+            state = "skipped_offlimits";
+            skippedOfflimits += 1;
+          } else {
+            const position = (db.prepare(
+              "SELECT COALESCE(MAX(position), -1) + 1 AS position FROM tasks WHERE column_id = ? AND status = 'open'",
+            ).get(columnId) as { position: number }).position;
+            db.prepare(
+              `INSERT INTO tasks
+                (id, column_id, title, description, priority, due_at, due_date,
+                 tags, project, position, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, '[]', 'Atlas', ?, 'open', ?, ?)`,
+            ).run(
+              taskId,
+              columnId,
+              title,
+              description,
+              action.priority,
+              action.dueLocalDate,
+              action.dueLocalDate,
+              position,
+              terminalAt,
+              terminalAt,
+            );
+            state = "applied";
+            applied += 1;
+          }
+        } else if (
           !original ||
           !row.expected_task_updated_at ||
           !original.updated_at ||
@@ -2959,7 +3010,7 @@ export function createDayPlanStore(options: {
             }
           }
         }
-        const after = managedTask(action.taskId);
+        const after = managedTask(resolvedTaskId);
         const afterSnapshot = managedTaskSnapshot(after);
         const afterJson = afterSnapshot ? JSON.stringify(afterSnapshot) : null;
         finish.run(state, beforeJson, afterJson, terminalAt, artifact.id, row.action_index);
@@ -2967,7 +3018,7 @@ export function createDayPlanStore(options: {
           actionIndex: row.action_index,
           actionHash: row.action_hash,
           op: action.op,
-          taskId: action.taskId.slice(0, 200),
+          taskId: resolvedTaskId.slice(0, 200),
           ...(action.op === "archive_duplicate"
             ? { duplicateOfTaskId: action.duplicateOfTaskId.slice(0, 200) }
             : {}),
@@ -3017,6 +3068,36 @@ export function createDayPlanStore(options: {
         skippedOfflimits,
       };
     });
+  }
+
+  function morningBriefCreatedTaskPicks(
+    artifactId: string,
+  ): Array<{ taskId: string; whyToday: string }> {
+    const rows = db.prepare(
+      `SELECT op_json, after_json FROM day_plan_brief_actions
+       WHERE artifact_id = ? AND state IN ('applied', 'skipped_conflict')
+       ORDER BY action_index`,
+    ).all(artifactId) as Array<{ op_json: string; after_json: string | null }>;
+    const picks: Array<{ taskId: string; whyToday: string }> = [];
+    const seen = new Set<string>();
+    for (const row of rows) {
+      try {
+        const action = JSON.parse(row.op_json) as MorningBriefBoardAction;
+        if (action.op !== "create_task" || !row.after_json) continue;
+        const task = JSON.parse(row.after_json) as Partial<ManagedTaskRow>;
+        if (
+          typeof task.id !== "string" ||
+          !task.id ||
+          task.status !== "open" ||
+          seen.has(task.id)
+        ) continue;
+        seen.add(task.id);
+        picks.push({ taskId: task.id, whyToday: action.why });
+      } catch {
+        // A malformed receipt snapshot never becomes plan authority.
+      }
+    }
+    return picks;
   }
 
   function morningBriefManagementSummary(artifactId: string): string | undefined {
@@ -4818,6 +4899,7 @@ export function createDayPlanStore(options: {
     completeMorningBrief,
     stageMorningBriefBoardActions,
     activateBriefBoardActions,
+    morningBriefCreatedTaskPicks,
     morningBriefManagementSummary,
     failMorningBrief,
     importMorningBrief,

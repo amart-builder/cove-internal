@@ -202,8 +202,17 @@ export default function TaskSheet({
       describedBy={description ? descriptionId : undefined}
       returnFocus={returnFocus}
       onClose={onClose}
-      panelClassName="panel-pop-in w-full max-w-[520px] rounded-[22px] border bg-card px-7 py-7 text-foreground shadow-2xl outline-none sm:px-9 sm:pb-7 sm:pt-8 dark:border-white/10"
+      panelClassName="panel-pop-in relative w-full max-w-[520px] rounded-[22px] border bg-card px-7 py-7 text-foreground shadow-2xl outline-none sm:px-9 sm:pb-7 sm:pt-8 dark:border-white/10"
     >
+      <button
+        type="button"
+        data-modal-initial-focus
+        aria-label="Close task details"
+        className="press-scale absolute right-4 top-4 grid size-9 place-items-center rounded-full text-lg leading-none text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40 sm:right-5 sm:top-5"
+        onClick={onClose}
+      >
+        <span aria-hidden="true">×</span>
+      </button>
       <p className="text-[10.5px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
         {detail.kind === 'today'
           ? (detail.focusNumber ? `Focus ${detail.focusNumber}` : 'Today')
@@ -241,46 +250,35 @@ export default function TaskSheet({
         </p>
       )}
 
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t pt-5">
+      <div className={`mt-6 flex flex-wrap items-center gap-3 border-t pt-5 ${today ? 'justify-start' : 'justify-between'}`}>
         {today ? (
-          <>
-            <div className="flex items-center gap-5">
-              <button
-                type="button"
-                disabled={actionBusy}
-                className="press-scale min-h-9 text-[13px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-40"
-                onClick={() => void runTodayAction('remove', () => onRemove(
-                    today.item.id,
-                    today.title,
-                    today.item.sourceRefs.some(
-                      (source) => source.sourceType === 'task' && source.recordId === today.item.taskId,
-                    ),
-                  ))}
-              >
-                {pendingAction === 'remove' ? 'Moving…' : 'Not today'}
-              </button>
-              <button
-                type="button"
-                disabled={actionBusy}
-                className="press-scale min-h-9 text-[13px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-40"
-                onClick={() => void runTodayAction(
-                  'complete',
-                  () => onComplete(today.item.id, today.title),
-                )}
-              >
-                {pendingAction === 'complete' ? 'Completing…' : 'Already done'}
-              </button>
-            </div>
+          <div className="flex items-center gap-5">
             <button
               type="button"
-              data-modal-initial-focus
               disabled={actionBusy}
-              className="press-scale min-h-10 rounded-xl border bg-card px-4 text-[13.5px] font-medium text-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-40"
-              onClick={onClose}
+              className="press-scale min-h-9 text-[13px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-40"
+              onClick={() => void runTodayAction('remove', () => onRemove(
+                today.item.id,
+                today.title,
+                today.item.sourceRefs.some(
+                  (source) => source.sourceType === 'task' && source.recordId === today.item.taskId,
+                ),
+              ))}
             >
-              {detail.kind === 'today' && detail.focusNumber ? 'Keep in focus' : 'Keep for today'}
+              {pendingAction === 'remove' ? 'Moving…' : 'Not today'}
             </button>
-          </>
+            <button
+              type="button"
+              disabled={actionBusy}
+              className="press-scale min-h-9 text-[13px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-40"
+              onClick={() => void runTodayAction(
+                'complete',
+                () => onComplete(today.item.id, today.title),
+              )}
+            >
+              {pendingAction === 'complete' ? 'Completing…' : 'Already done'}
+            </button>
+          </div>
         ) : task ? (
           <>
             <button

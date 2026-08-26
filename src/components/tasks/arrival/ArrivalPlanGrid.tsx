@@ -14,25 +14,32 @@ import {
   PointerSensor,
   TouchSensor,
   closestCenter,
+  pointerWithin,
   useDraggable,
   useDroppable,
   useSensor,
   useSensors,
+  type Announcements,
+  type CollisionDetection,
   type DragEndEvent,
+  type ScreenReaderInstructions,
 } from '@dnd-kit/core';
-import {
-  SortableContext,
-  rectSortingStrategy,
-  sortableKeyboardCoordinates,
-  useSortable,
-} from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { MorningArrivalBoardTask, MorningArrivalItem, MorningArrivalProps } from '../MorningArrival';
 import AllWorkPicker, { TODAY_TAG_CLASS } from './AllWorkPicker';
 import TaskSheet, { type TaskSheetDetail } from './TaskSheet';
 
-export const TODAY_ZONE_ID = 'arrival-today-zone';
+export const INITIAL_PRIORITY_ZONE_ID = 'arrival-initial-priorities-zone';
+export const ALSO_TODAY_ZONE_ID = 'arrival-also-today-zone';
+export const NOT_TODAY_ZONE_ID = 'arrival-not-today-zone';
+// Kept as an alias for older callers that treated all of Today as one zone.
+export const TODAY_ZONE_ID = ALSO_TODAY_ZONE_ID;
 const BOARD_TASK_LIMIT = 7;
+
+const bucketCollisionDetection: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args);
+  return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
+};
 
 type OpenTaskSheet = {
   detail: TaskSheetDetail;
@@ -57,19 +64,63 @@ export function addNotTodayDropToToday(
   addTask: (task: MorningArrivalBoardTask) => boolean | Promise<boolean>,
 ): boolean {
   if (!activeId.startsWith('not-today:')) return false;
-  if (overId !== TODAY_ZONE_ID && !overId.startsWith('today:')) return true;
+  if (overId !== INITIAL_PRIORITY_ZONE_ID && overId !== ALSO_TODAY_ZONE_ID) return true;
   const task = notTodayTasks.find((candidate) => candidate.id === activeId.slice(10));
   if (task) void Promise.resolve(addTask(task)).catch(() => undefined);
   return true;
 }
 
-function TodayDropZone({ children }: { children: ReactNode }) {
-  const { setNodeRef, isOver } = useDroppable({ id: TODAY_ZONE_ID });
+export async function persistArrivalPriorityDrag({
+  itemId,
+  title,
+  originalPosition,
+  nextPosition,
+  focusCount,
+  nextFocusCount,
+  onMoveToPosition,
+  onFocusCountChange,
+}: {
+  itemId: string;
+  title: string;
+  originalPosition: number;
+  nextPosition: number;
+  focusCount: 1 | 2 | 3;
+  nextFocusCount: 1 | 2 | 3;
+  onMoveToPosition: (itemId: string, position: number, title: string) => void | Promise<void>;
+  onFocusCountChange: (count: 1 | 2 | 3) => void | Promise<void>;
+}) {
+  const moved = nextPosition !== originalPosition;
+  if (moved) await onMoveToPosition(itemId, nextPosition, title);
+  try {
+    if (nextFocusCount !== focusCount) await onFocusCountChange(nextFocusCount);
+  } catch (error) {
+    if (moved) await onMoveToPosition(itemId, originalPosition, title);
+    throw error;
+  }
+}
+
+function ArrivalDropBucket({
+  id,
+  label,
+  dragActive,
+  children,
+}: {
+  id: string;
+  label: string;
+  dragActive: boolean;
+  children: ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id });
   return (
     <div
       ref={setNodeRef}
-      className={`min-h-[134px] rounded-[20px] outline outline-2 outline-offset-4 transition-colors duration-150 ${
-        isOver ? 'outline-accent-blue/50' : 'outline-transparent'
+      aria-label={`${label} drop area`}
+      className={`min-h-[134px] rounded-[20px] border-2 p-2 transition-[border-color,background-color,box-shadow] duration-150 ${
+        isOver
+          ? 'border-accent-blue/70 bg-accent-blue/[0.07] shadow-[0_0_0_4px_rgb(90_141_238_/_0.12)]'
+          : dragActive
+            ? 'border-dashed border-muted-foreground/35 bg-muted/15'
+            : 'border-transparent'
       }`}
     >
       {children}
@@ -97,7 +148,7 @@ function KeyboardDragHandle({
       {...attributes}
       aria-label={`Drag ${title}`}
       disabled={disabled}
-      className="pointer-events-none absolute right-2 top-2 z-20 grid size-8 -translate-y-1 place-items-center rounded-full border bg-card text-sm text-muted-foreground opacity-0 shadow-sm outline-none transition-[opacity,transform] duration-150 focus-visible:pointer-events-auto focus-visible:translate-y-0 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-0"
+      className="pointer-events-none absolute bottom-2 right-2 z-20 grid size-8 translate-y-1 place-items-center rounded-full border bg-card text-sm text-muted-foreground opacity-0 shadow-sm outline-none transition-[opacity,transform] duration-150 focus-visible:pointer-events-auto focus-visible:translate-y-0 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-0"
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
@@ -110,16 +161,54 @@ function KeyboardDragHandle({
   );
 }
 
+function CompletionButton({
+  title,
+  busy,
+  inverted = false,
+  onComplete,
+}: {
+  title: string;
+  busy: boolean;
+  inverted?: boolean;
+  onComplete: () => void | Promise<void>;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={`Mark ${title} complete`}
+      title="Mark complete"
+      disabled={busy}
+      className={`press-scale absolute right-2.5 top-2.5 z-20 grid size-8 place-items-center rounded-full border opacity-0 outline-none transition-[opacity,border-color,background-color,color] duration-150 focus-visible:opacity-100 focus-visible:ring-2 group-hover:opacity-100 disabled:opacity-0 ${
+        inverted
+          ? 'border-white/20 bg-white/10 text-white/75 hover:border-white/45 hover:bg-white/15 hover:text-white focus-visible:ring-white/35'
+          : 'border-border bg-card text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground focus-visible:ring-accent-blue/40'
+      }`}
+      onClick={(event) => {
+        event.stopPropagation();
+        void Promise.resolve(onComplete()).catch(() => undefined);
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onTouchStart={(event) => event.stopPropagation()}
+    >
+      <svg aria-hidden="true" viewBox="0 0 16 16" className="size-3.5" fill="none">
+        <path d="m3.25 8.1 2.85 2.85 6.65-6.65" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  );
+}
+
 function FocusCard({
   view,
   focusNumber,
   busy,
   onOpen,
+  onComplete,
 }: {
   view: MorningArrivalItem;
   focusNumber: number;
   busy: boolean;
   onOpen: (trigger: HTMLElement) => void;
+  onComplete: () => void | Promise<void>;
 }) {
   const {
     attributes,
@@ -127,9 +216,8 @@ function FocusCard({
     setNodeRef,
     setActivatorNodeRef,
     transform,
-    transition,
     isDragging,
-  } = useSortable({ id: `today:${view.item.id}`, disabled: busy });
+  } = useDraggable({ id: `today:${view.item.id}`, disabled: busy });
   const suppressClickRef = useRef(false);
   const preview = firstPreview(view.summary, view.whyToday, view.description);
 
@@ -148,8 +236,8 @@ function FocusCard({
   return (
     <li
       ref={setNodeRef}
-      style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={isDragging ? 'relative z-30 h-full opacity-80' : 'relative h-full'}
+      style={{ transform: CSS.Translate.toString(transform) }}
+      className={isDragging ? 'group relative z-30 h-full opacity-80' : 'group relative h-full'}
     >
       <article
         role="button"
@@ -181,6 +269,7 @@ function FocusCard({
           {preview ?? '\u00a0'}
         </p>
       </article>
+      <CompletionButton title={view.title} busy={busy} inverted onComplete={onComplete} />
       <KeyboardDragHandle
         title={view.title}
         disabled={busy}
@@ -196,10 +285,12 @@ function AlsoTodayCard({
   view,
   busy,
   onOpen,
+  onComplete,
 }: {
   view: MorningArrivalItem;
   busy: boolean;
   onOpen: (trigger: HTMLElement) => void;
+  onComplete: () => void | Promise<void>;
 }) {
   const {
     attributes,
@@ -207,9 +298,8 @@ function AlsoTodayCard({
     setNodeRef,
     setActivatorNodeRef,
     transform,
-    transition,
     isDragging,
-  } = useSortable({ id: `today:${view.item.id}`, disabled: busy });
+  } = useDraggable({ id: `today:${view.item.id}`, disabled: busy });
   const suppressClickRef = useRef(false);
 
   useEffect(() => {
@@ -227,8 +317,8 @@ function AlsoTodayCard({
   return (
     <li
       ref={setNodeRef}
-      style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={isDragging ? 'relative z-30 h-full opacity-80' : 'relative h-full'}
+      style={{ transform: CSS.Translate.toString(transform) }}
+      className={isDragging ? 'group relative z-30 h-full opacity-80' : 'group relative h-full'}
     >
       <article
         role="button"
@@ -252,6 +342,7 @@ function AlsoTodayCard({
           {view.title}
         </h3>
       </article>
+      <CompletionButton title={view.title} busy={busy} onComplete={onComplete} />
       <KeyboardDragHandle
         title={view.title}
         disabled={busy}
@@ -267,12 +358,12 @@ function BenchCard({
   task,
   busy,
   onOpen,
-  onAdd,
+  onComplete,
 }: {
   task: MorningArrivalBoardTask;
   busy: boolean;
   onOpen: (trigger: HTMLElement) => void;
-  onAdd: () => void;
+  onComplete: () => void | Promise<void>;
 }) {
   const {
     attributes,
@@ -323,15 +414,7 @@ function BenchCard({
           {task.title}
         </h3>
       </article>
-      <button
-        type="button"
-        aria-label={`Add ${task.title} to today`}
-        disabled={busy}
-        className="press-scale absolute right-2.5 top-2.5 grid size-[26px] place-items-center rounded-full border bg-card text-[13px] text-muted-foreground opacity-0 outline-none transition-opacity duration-150 hover:border-muted-foreground/50 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent-blue/40 group-hover:opacity-100 disabled:opacity-0"
-        onClick={onAdd}
-      >
-        <span aria-hidden="true">↑</span>
-      </button>
+      <CompletionButton title={task.title} busy={busy} onComplete={onComplete} />
       <KeyboardDragHandle
         title={task.title}
         disabled={busy}
@@ -348,34 +431,41 @@ export default function ArrivalPlanGrid({
   notTodayTasks,
   focusCount,
   busy,
+  completingTaskId,
   escapeRef,
   onInteract,
   onOwnerChange,
-  onDragReorder,
+  onMoveToPosition,
+  onFocusCountChange,
   onRemove,
   onComplete,
+  onCompleteBoardTask,
   onAddTask,
 }: {
   todayItems: MorningArrivalItem[];
   notTodayTasks: MorningArrivalBoardTask[];
   focusCount: 1 | 2 | 3;
   busy: boolean;
+  completingTaskId?: string | null;
   escapeRef?: RefObject<(() => void) | null>;
   onInteract?: () => void;
   onOwnerChange: MorningArrivalProps['onOwnerChange'];
-  onDragReorder: MorningArrivalProps['onDragReorder'];
+  onMoveToPosition: MorningArrivalProps['onMoveToPosition'];
+  onFocusCountChange: MorningArrivalProps['onFocusCountChange'];
   onRemove: MorningArrivalProps['onRemove'];
   onComplete: MorningArrivalProps['onComplete'];
+  onCompleteBoardTask: MorningArrivalProps['onCompleteBoardTask'];
   onAddTask: MorningArrivalProps['onAddTask'];
 }) {
   const [openSheet, setOpenSheet] = useState<OpenTaskSheet>();
   const [pickerTrigger, setPickerTrigger] = useState<HTMLElement | null>(null);
-  const [capacityNote, setCapacityNote] = useState(false);
+  const [dropNote, setDropNote] = useState<string>();
+  const [activeDragId, setActiveDragId] = useState<string>();
   const pendingAddIdsRef = useRef(new Set<string>());
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 3 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 140, tolerance: 8 } }),
+    useSensor(KeyboardSensor),
   );
   const orderedToday = useMemo(
     () => [...todayItems].sort((left, right) => left.item.position - right.item.position),
@@ -383,9 +473,10 @@ export default function ArrivalPlanGrid({
   );
   const focusViews = orderedToday.slice(0, focusCount);
   const alsoTodayViews = orderedToday.slice(focusCount);
-  const focusGridClass = focusCount === 1
+  const visibleFocusCount = Math.max(1, focusViews.length);
+  const focusGridClass = visibleFocusCount === 1
     ? 'sm:grid-cols-1'
-    : focusCount === 2
+    : visibleFocusCount === 2
       ? 'sm:grid-cols-2'
       : 'sm:grid-cols-3';
   const boardTasks = notTodayTasks.slice(0, BOARD_TASK_LIMIT);
@@ -417,45 +508,194 @@ export default function ArrivalPlanGrid({
     onInteract?.();
     if (pendingAddIdsRef.current.has(task.id)) return true;
     if (orderedToday.length + pendingAddIdsRef.current.size >= 10) {
-      setCapacityNote(true);
+      setDropNote('Today is full at 10. Move one task down before adding another.');
       return false;
     }
-    setCapacityNote(false);
+    setDropNote(undefined);
     pendingAddIdsRef.current.add(task.id);
     try {
-      await onAddTask(task.id, task.title);
-      return true;
+      const result = await onAddTask(task.id, task.title);
+      return result ?? true;
     } catch (error) {
       pendingAddIdsRef.current.delete(task.id);
       throw error;
     }
   }
 
-  function handleDragEnd(event: DragEndEvent) {
+  async function applyDragEnd(event: DragEndEvent) {
     const activeId = String(event.active.id);
     const overId = event.over ? String(event.over.id) : undefined;
     if (!overId) return;
     onInteract?.();
-    if (addNotTodayDropToToday(activeId, overId, notTodayTasks, addTask)) return;
-    if (!activeId.startsWith('today:') || !overId.startsWith('today:')) return;
-    if (activeId === overId) return;
-    void onDragReorder(activeId.slice(6), overId.slice(6));
+    setDropNote(undefined);
+
+    if (activeId.startsWith('not-today:')) {
+      const task = notTodayTasks.find((candidate) => candidate.id === activeId.slice(10));
+      if (!task || overId === NOT_TODAY_ZONE_ID) return;
+      if (overId !== INITIAL_PRIORITY_ZONE_ID && overId !== ALSO_TODAY_ZONE_ID) return;
+      if (overId === INITIAL_PRIORITY_ZONE_ID && focusCount >= 3) {
+        setDropNote('Initial priorities are full at three. Move one down first.');
+        return;
+      }
+      const result = await addTask(task);
+      if (!result || overId !== INITIAL_PRIORITY_ZONE_ID || typeof result === 'boolean') return;
+      const addedItem = result.plan.items.find((item) => item.taskId === task.id);
+      if (!addedItem) return;
+      const originalPosition = result.plan.items
+        .filter((item) => item.decision === 'pending' || item.decision === 'preselected' || item.decision === 'accepted')
+        .sort((left, right) => left.position - right.position)
+        .findIndex((item) => item.id === addedItem.id);
+      if (originalPosition < 0) return;
+      try {
+        await persistArrivalPriorityDrag({
+          itemId: addedItem.id,
+          title: task.title,
+          originalPosition,
+          nextPosition: focusCount,
+          focusCount,
+          nextFocusCount: (focusCount + 1) as 2 | 3,
+          onMoveToPosition,
+          onFocusCountChange,
+        });
+      } catch (error) {
+        try {
+          await onRemove(addedItem.id, task.title, true);
+        } catch {
+          // Preserve the original promotion failure. The normal surface error
+          // still reports any rollback failure from the queued mutation path.
+        }
+        throw error;
+      }
+      return;
+    }
+    if (!activeId.startsWith('today:')) return;
+
+    const activeItemId = activeId.slice(6);
+    const activeView = orderedToday.find((view) => view.item.id === activeItemId);
+    const originalPosition = orderedToday.findIndex((view) => view.item.id === activeItemId);
+    if (!activeView || originalPosition < 0) return;
+    const startedInFocus = originalPosition < focusCount;
+
+    if (overId === NOT_TODAY_ZONE_ID) {
+      const nextFocusCount = startedInFocus && focusCount > 1
+        ? (focusCount - 1) as 1 | 2
+        : focusCount;
+      if (nextFocusCount !== focusCount) await onFocusCountChange(nextFocusCount);
+      try {
+        await onRemove(activeItemId, activeView.title, Boolean(activeView.item.taskId));
+      } catch (error) {
+        if (nextFocusCount !== focusCount) await onFocusCountChange(focusCount);
+        throw error;
+      }
+      return;
+    }
+
+    if (overId === INITIAL_PRIORITY_ZONE_ID) {
+      if (startedInFocus) return;
+      if (focusCount >= 3) {
+        setDropNote('Initial priorities are full at three. Move one down first.');
+        return;
+      }
+      await persistArrivalPriorityDrag({
+        itemId: activeItemId,
+        title: activeView.title,
+        originalPosition,
+        nextPosition: focusCount,
+        focusCount,
+        nextFocusCount: (focusCount + 1) as 2 | 3,
+        onMoveToPosition,
+        onFocusCountChange,
+      });
+      return;
+    }
+
+    if (overId !== ALSO_TODAY_ZONE_ID || !startedInFocus) return;
+    if (focusCount <= 1) {
+      setDropNote('Keep at least one initial priority.');
+      return;
+    }
+
+    await persistArrivalPriorityDrag({
+      itemId: activeItemId,
+      title: activeView.title,
+      originalPosition,
+      nextPosition: orderedToday.length - 1,
+      focusCount,
+      nextFocusCount: (focusCount - 1) as 1 | 2,
+      onMoveToPosition,
+      onFocusCountChange,
+    });
   }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setActiveDragId(undefined);
+    void applyDragEnd(event).catch(() => undefined);
+  }
+
+  const dragAccessibility = useMemo(() => {
+    const itemLabel = (id: string | number) => {
+      const value = String(id);
+      if (value.startsWith('today:')) {
+        return orderedToday.find((view) => view.item.id === value.slice(6))?.title ?? 'Today task';
+      }
+      if (value.startsWith('not-today:')) {
+        return notTodayTasks.find((task) => task.id === value.slice(10))?.title ?? 'Not today task';
+      }
+      return 'Task';
+    };
+    const bucketLabel = (id: string | number | undefined) => {
+      if (id === INITIAL_PRIORITY_ZONE_ID) return 'Initial priorities';
+      if (id === ALSO_TODAY_ZONE_ID) return 'Also today';
+      if (id === NOT_TODAY_ZONE_ID) return 'Not today';
+      return undefined;
+    };
+    const announcements: Announcements = {
+      onDragStart: ({ active }) =>
+        `Picked up ${itemLabel(active.id)}. Move to Initial priorities, Also today, or Not today.`,
+      onDragOver: ({ active, over }) => {
+        const bucket = bucketLabel(over?.id);
+        return bucket ? `${itemLabel(active.id)} is over ${bucket}.` : undefined;
+      },
+      onDragEnd: ({ active, over }) => {
+        const bucket = bucketLabel(over?.id);
+        return bucket
+          ? `Dropped ${itemLabel(active.id)} in ${bucket}.`
+          : `${itemLabel(active.id)} was not moved.`;
+      },
+      onDragCancel: ({ active }) => `Stopped moving ${itemLabel(active.id)}.`,
+    };
+    const screenReaderInstructions: ScreenReaderInstructions = {
+      draggable: 'Press Space to pick up a task. Use the arrow keys to choose a section, then press Space again to drop it. Press Escape to cancel.',
+    };
+    return { announcements, screenReaderInstructions };
+  }, [notTodayTasks, orderedToday]);
 
   return (
     <section className="w-full px-6 pb-2 pt-10 sm:px-10 lg:px-16 lg:pt-11" aria-label="Plan your day">
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragStart={() => onInteract?.()}
+        accessibility={dragAccessibility}
+        collisionDetection={bucketCollisionDetection}
+        onDragStart={(event) => {
+          setActiveDragId(String(event.active.id));
+          setDropNote(undefined);
+          onInteract?.();
+        }}
+        onDragCancel={() => setActiveDragId(undefined)}
         onDragEnd={handleDragEnd}
       >
-        <SortableContext
-          items={orderedToday.map((view) => `today:${view.item.id}`)}
-          strategy={rectSortingStrategy}
-        >
-          <section aria-label="Today focus">
-            <TodayDropZone>
+          <section aria-labelledby="arrival-initial-priorities-title">
+            <h2
+              id="arrival-initial-priorities-title"
+              className="mb-[18px] text-[10.5px] font-semibold uppercase tracking-[0.24em] text-muted-foreground"
+            >
+              Initial priorities
+            </h2>
+            <ArrivalDropBucket
+              id={INITIAL_PRIORITY_ZONE_ID}
+              label="Initial priorities"
+              dragActive={Boolean(activeDragId)}
+            >
               <ol className={`grid grid-cols-1 gap-[18px] ${focusGridClass}`}>
                 {focusViews.map((view, index) => (
                   <FocusCard
@@ -463,6 +703,7 @@ export default function ArrivalPlanGrid({
                     view={view}
                     focusNumber={index + 1}
                     busy={busy}
+                    onComplete={() => onComplete(view.item.id, view.title)}
                     onOpen={(returnFocus) => {
                       onInteract?.();
                       setOpenSheet({
@@ -473,33 +714,42 @@ export default function ArrivalPlanGrid({
                   />
                 ))}
               </ol>
-            </TodayDropZone>
+            </ArrivalDropBucket>
           </section>
 
-          {alsoTodayViews.length > 0 && (
-            <section className="mt-12" aria-labelledby="arrival-also-today-title">
+          <section className="mt-12" aria-labelledby="arrival-also-today-title">
               <h2
                 id="arrival-also-today-title"
                 className="mb-[18px] text-[10.5px] font-semibold uppercase tracking-[0.24em] text-muted-foreground"
               >
                 Also today
               </h2>
-              <ol className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+            <ArrivalDropBucket
+              id={ALSO_TODAY_ZONE_ID}
+              label="Also today"
+              dragActive={Boolean(activeDragId)}
+            >
+              <ol className="grid min-h-24 grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
                 {alsoTodayViews.map((view) => (
                   <AlsoTodayCard
                     key={view.item.id}
                     view={view}
                     busy={busy}
+                    onComplete={() => onComplete(view.item.id, view.title)}
                     onOpen={(returnFocus) => {
                       onInteract?.();
                       setOpenSheet({ returnFocus, detail: { kind: 'today', view } });
                     }}
                   />
                 ))}
+                {alsoTodayViews.length === 0 && (
+                  <li className="flex min-h-24 items-center px-2 text-[13px] leading-relaxed text-muted-foreground">
+                    Drop tasks here to keep them in Today without making them an initial priority.
+                  </li>
+                )}
               </ol>
+            </ArrivalDropBucket>
             </section>
-          )}
-        </SortableContext>
 
         <section className="mt-12" aria-labelledby="arrival-not-today-title">
           <h2
@@ -508,17 +758,22 @@ export default function ArrivalPlanGrid({
           >
             Not today
           </h2>
-          <ul className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+          <ArrivalDropBucket
+            id={NOT_TODAY_ZONE_ID}
+            label="Not today"
+            dragActive={Boolean(activeDragId)}
+          >
+          <ul className="grid min-h-24 grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
             {boardTasks.map((task) => (
               <BenchCard
                 key={task.id}
                 task={task}
-                busy={busy}
+                busy={busy || completingTaskId === task.id}
                 onOpen={(returnFocus) => {
                   onInteract?.();
                   setOpenSheet({ returnFocus, detail: { kind: 'bench', task } });
                 }}
-                onAdd={() => void addTask(task).catch(() => undefined)}
+                onComplete={() => onCompleteBoardTask(task.id, task.title)}
               />
             ))}
             {boardTasks.length === 0 && (
@@ -542,12 +797,13 @@ export default function ArrivalPlanGrid({
               </button>
             </li>
           </ul>
+          </ArrivalDropBucket>
         </section>
       </DndContext>
 
-      {capacityNote && (
+      {dropNote && (
         <p role="status" className="mt-3 text-xs text-muted-foreground">
-          Today is full at 10. Move one task down before adding another.
+          {dropNote}
         </p>
       )}
 
@@ -560,7 +816,7 @@ export default function ArrivalPlanGrid({
           onOwnerChange={onOwnerChange}
           onRemove={onRemove}
           onComplete={onComplete}
-          onAdd={addTask}
+          onAdd={async (task) => Boolean(await addTask(task))}
         />
       )}
       {pickerTrigger && (
@@ -569,7 +825,7 @@ export default function ArrivalPlanGrid({
           boardTasks={notTodayTasks}
           busy={busy}
           returnFocus={pickerTrigger}
-          onAdd={addTask}
+          onAdd={async (task) => Boolean(await addTask(task))}
           onClose={() => setPickerTrigger(null)}
         />
       )}

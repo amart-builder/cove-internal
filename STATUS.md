@@ -16,15 +16,122 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** none
-- **device:** —
-- **since:** —
-- **task:** —
+- **system:** cowork
+- **device:** Alexanders-MacBook-Pro-2
+- **since:** 2026-08-26T10:44:58-0400
+- **task:** Commit Aug 7 uncommitted features
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-08-07 midday (branded native notifications published and anonymously reverified)
+**Last updated:** 2026-08-26 (Aug 7 local work committed and pushed after a 19-day gap)
+
+## 2026-08-07 project-aware Claude task sessions (DONE, COMMITTED)
+
+- Committed 2026-08-26: these four Aug 7 entries sat uncommitted on the MacBook for 19 days. Full suite re-run before committing: one test (brief worker target_timezone) failed only because it asserted the machine's own timezone and the laptop was on Eastern time; the assertion is now pinned to America/Los_Angeles inside that test, scoped so the timezone-precedence test still exercises the system fallback. 981/981 after the pin.
+
+- Task-owned Claude runs now resolve the closest safe Atlas project from the
+  task's explicit project or title, launch from that project directory, and
+  persist the selected workspace for later resume commands. The Slipstream
+  newsletter task resolves to `~/Atlas/Projects/slipstream`; unresolvable or
+  ambiguous work safely falls back to Cove's private output directory.
+- Planning runs continue to use Claude CLI Plan mode. Auto runs now use the
+  CLI's real `auto` permission mode instead of the older `acceptEdits` mode.
+  Output artifacts remain in Cove's private output directory even when the
+  agent works from another project.
+- Claude Desktop currently imports a CLI session in Manual mode regardless of
+  the CLI transcript's Plan or Auto permission setting. Cove's live status and
+  completion hints now report the background mode and working folder truthfully
+  and tell the user to restore that mode when continuing in Desktop.
+- Made `Planning with Claude` fit in compact focus cards, added full accessible
+  background-work status text and hover detail, and replaced the no-op `Keep in
+  focus` task-sheet control with a normal close button.
+- Fresh-context review caught that the copyable terminal fallback restored the
+  mode and folder but not the original restricted tool boundary. Resuming now
+  reapplies safe mode, the mode-specific tool allowlist, empty settings and MCP
+  files, and no-Chrome isolation.
+- Verification: the real resolver selected the Slipstream checkout. After the
+  review fix, TypeScript, zero-warning ESLint, all 981 tests, and the Webpack
+  production build passed. The local service was restarted, migration 17 added
+  `workspace_path`, and the loopback health endpoint returned ready for email,
+  writer, worker, and jobs.
+
+## 2026-08-07 guided Arrival buckets and brief-created tasks (DONE, COMMITTED)
+
+- Replaced Morning Arrival's shared sortable card list with three persistent,
+  full-section drop buckets: Initial priorities, Also Today, and Not Today.
+  Cross-bucket drops now only change membership. They never swap or displace a
+  card. Also Today remains visible when empty, pointer and touch activation are
+  faster, and every bucket gains a dashed guide while dragging plus a stronger
+  highlight when targeted.
+- Preserved the one-to-three Initial priorities behavior. Moving an Also Today
+  card up appends a new priority; moving a priority down appends it to Also
+  Today; moving a Today card to Not Today removes it without silently promoting
+  another priority. Not Today cards can be dropped directly into either Today
+  bucket. Capacity and one-priority minimum states remain explicit.
+- Added a grounded `create_task` Morning Brief board action. A brief may create
+  at most three specific Today tasks only when concrete work context supports
+  them. Goals, operator-profile text, prior brief prose, vague monitoring, and
+  already-represented work cannot create tasks. Activation uses deterministic
+  IDs, live-title deduplication, a bounded task shape, and the existing staged
+  receipt transaction.
+- Brief-created tasks are included in the successful generation's preferred
+  task IDs and reserve a Plan your day slot even when eight existing tasks were
+  already ranked. The prompt/schema boundary is now version 18 / schema 7, so
+  an older artifact is not retroactively reinterpreted as task authority.
+- Fresh-context review hardened five edge cases: synced relay actions activate
+  before planning candidates are collected and the server rebuilds their task
+  evidence ahead of a stale browser pool, a matching live task keeps its real
+  ID, a failed new-card promotion removes the partially added card, vague
+  create-task titles and descriptions fail deterministic checks, and keyboard
+  drag announcements use human task and bucket names.
+- Verification: TypeScript, zero-warning ESLint, all 979 tests, the Webpack
+  production build, and the normal Turbopack production build passed. Cove was
+  restarted and returned a healthy loopback response. Live browser QA proved a
+  drop anywhere in the Initial priorities bucket grew two priorities to three,
+  the reverse drop shrank it to two without swapping, the original exact card
+  order was restored, all three keyboard-drag guides rendered, and the browser
+  console had no errors.
+
+## 2026-08-07 dynamic Morning Arrival priorities (DONE, COMMITTED)
+
+- Renamed the top planning band to `Initial priorities` and made its size follow
+  the drag gesture. Moving an Also Today card into the band grows it from one
+  to two to three; moving a priority back down shrinks it, with one as the
+  minimum and three as the maximum. The saved focus-count setting stays in sync
+  with the existing Today Focus Grid.
+- Added hover and keyboard-focus completion checks to Initial priorities, Also
+  Today, and Not Today cards. Completing a Not Today card moves the underlying
+  task to Done. Removed the redundant hover up-arrow from Not Today while
+  preserving pointer, touch, and keyboard drag paths.
+- A fresh-context review found that a failed focus-count save could leave the
+  reorder committed by itself. The drag now remembers the exact prior position,
+  propagates the settings failure, and rolls the card back. A regression covers
+  both the successful two-write sequence and that compensating rollback.
+- Verification: focused presentation and interaction regressions, TypeScript,
+  and zero-warning lint passed. The full gate passed all 971 tests and the
+  Webpack production build. Cove was then rebuilt through its normal Turbopack
+  path, restarted, and returned a healthy loopback response.
+- Live browser verification used the real proposed day without completing any
+  task. A card drag grew the band from one to two, the reverse drag shrank it
+  back to one, and the original ordering plus persisted `focus_count: 1` were
+  restored. The hover check rendered correctly, Not Today had no up-arrows,
+  and the browser console had no warnings or errors.
+
+## 2026-08-07 Morning Arrival stale-order error (DONE, COMMITTED)
+
+- Fixed the red `Start the day before changing Today order.` message that could
+  appear after closing the previous day while the new Morning Brief loaded.
+- Root cause: Today V2's automatic vanished-card repair attempted to persist the
+  old visual order after the day-plan boundary had changed to a proposed plan.
+  Its shared surface error then leaked into the new Morning Arrival.
+- Proposed days now reset only their visual task projection. They never persist
+  Today ordering. An already-running reorder also drops its error if the plan id
+  changed or the current plan is no longer active.
+- Verification: focused typecheck, zero-warning lint, and 17 ordering and motion
+  tests passed. The full gate passed all 967 tests, zero-warning lint,
+  TypeScript, and the production build. The local Cove server was restarted and
+  returned healthy on port 3200.
 
 ## 2026-08-07 branded native notifications (DONE, PUBLISHED)
 

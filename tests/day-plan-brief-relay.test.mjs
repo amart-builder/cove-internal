@@ -344,6 +344,25 @@ test('relay import stages and activates board actions end to end', (t) => {
   db.close();
 });
 
+test('the ensure route activates imported brief actions before collecting plan candidates', () => {
+  const source = readFileSync(
+    new URL('../src/app/api/day-plan/implementation.ts', import.meta.url),
+    'utf8',
+  );
+  const scan = source.indexOf('scanAndImportBriefRelay({ store, targetLocalDate: parsed.input.localDate });');
+  const activate = source.indexOf('store.activateBriefBoardActions(parsed.input.localDate);', scan);
+  const rebuild = source.indexOf(
+    'parsed.input = includeBriefCreatedEnsureCandidates(store, parsed.input);',
+    activate,
+  );
+  const ensure = source.indexOf('store.ensureDayPlan(parsed.input)', rebuild);
+
+  assert.ok(scan >= 0);
+  assert.ok(activate > scan);
+  assert.ok(rebuild > activate);
+  assert.ok(ensure > rebuild);
+});
+
 // ---------------------------------------------------------------------------
 // Attempt-status relay: grace-period + host filtering + failed supersedes.
 // ---------------------------------------------------------------------------

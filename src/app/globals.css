@@ -1849,6 +1849,7 @@ input, textarea, select {
 .today2-card-footer { display: flex; min-height: 25px; align-items: center; justify-content: space-between; gap: 7px; margin-top: auto; }
 .today2-card-session-slot { min-width: 0; height: 25px; display: flex; flex: 1; align-items: center; justify-content: flex-end; overflow: hidden; }
 .today2-owner-chip { display: inline-flex; min-height: 18px; align-items: center; border: 1px solid rgba(72,98,96,.1); border-radius: 999px; padding: 0 7px; color: rgba(23,33,38,.61); background: rgba(255,255,255,.5); font-size: 12px; font-weight: 500; white-space: nowrap; }
+.today2-focus-card.is-compact .today2-owner-chip { padding-inline: 6px; font-size: 11px; }
 .today2-owner-chip[data-owner='Together'] { color: #6a6c56; background: rgba(246,238,201,.5); }
 .today2-owner-chip[data-owner='Claude'] { color: #316f98; background: rgba(130,200,242,.14); }
 
@@ -1894,7 +1895,8 @@ input, textarea, select {
 @keyframes today2-motion-ring { from { opacity: .95; transform: scale(.15); } to { opacity: 0; transform: scale(1); } }
 
 .today2-task-state { min-width: 0; display: flex; align-items: center; gap: 6px; margin: 0; overflow: hidden; color: rgba(45,111,153,.72); font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.today2-task-state i { width: 4px; height: 4px; border-radius: 50%; background: var(--orb-blue-1); box-shadow: 0 0 6px rgba(69,167,232,.5); animation: today2-working-dot 1.8s ease-in-out infinite; }
+.today2-task-state.is-compact { gap: 4px; font-size: 11px; letter-spacing: -.01em; }
+.today2-task-state i { flex: 0 0 4px; width: 4px; height: 4px; border-radius: 50%; background: var(--orb-blue-1); box-shadow: 0 0 6px rgba(69,167,232,.5); animation: today2-working-dot 1.8s ease-in-out infinite; }
 .today2-task-state.is-needs-you { color: #a86720; }
 @keyframes today2-working-dot { 50% { opacity: .35; transform: scale(.72); } }
 .today2-ready-button,
@@ -2056,7 +2058,7 @@ input, textarea, select {
 .today2-grid-card .today2-owner-chip { color: rgba(238,246,248,.66); background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.08); }
 .today2-grid-card .today2-owner-chip[data-owner='You'] { color: rgba(238,246,248,.82); background: rgba(255,255,255,.12); }
 .today2-grid-card .today2-owner-chip[data-owner='Together'] { color: #e4dfba; background: rgba(210,199,127,.1); }
-.today2-grid-state { overflow: hidden; color: rgba(238,246,248,.45); font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.today2-grid-state { min-width: 0; flex: 1; overflow: hidden; color: rgba(238,246,248,.45); font-size: 11.5px; font-weight: 500; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .today2-focus-grid li.is-dragging .today2-grid-card { opacity: .78; transform: rotate(1deg) scale(1.04); box-shadow: 0 22px 56px rgba(2,14,20,.38); cursor: grabbing; }
 
 .dark .today2-root {

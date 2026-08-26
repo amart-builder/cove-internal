@@ -30,8 +30,9 @@ import type {
 // 16 / schema 5: remove the retired outreach section from generation and
 // public brief projections while tolerating it as ignored legacy data.
 // 17 / schema 6: rank up to eight existing tasks, with the first three as focus.
-export const MORNING_BRIEF_PROMPT_VERSION = 17;
-export const MORNING_BRIEF_SCHEMA_VERSION = 6;
+// 18 / schema 7: a grounded concrete recommendation may create a real Today task.
+export const MORNING_BRIEF_PROMPT_VERSION = 18;
+export const MORNING_BRIEF_SCHEMA_VERSION = 7;
 
 export type MorningBriefStatus = "queued" | "running" | "succeeded" | "failed";
 
@@ -51,21 +52,32 @@ export type MorningBriefWatchItem = {
 };
 
 type MorningBriefBoardActionBase = {
-  taskId: string;
   why: string;
   evidenceRefs: string[];
+};
+
+type MorningBriefExistingTaskActionBase = MorningBriefBoardActionBase & {
+  taskId: string;
   expectedTaskUpdatedAt: string;
 };
 
-export type MorningBriefBoardAction = MorningBriefBoardActionBase & (
-  | { op: "move_column"; column: "today" | "in_flight" | "not_started" }
-  | { op: "set_priority"; priority: "high" | "medium" | "low" }
-  | { op: "set_due"; dueLocalDate: string | null }
-  | { op: "retitle"; title: string }
-  | { op: "edit_description"; description: string }
-  | { op: "archive" }
-  | { op: "archive_duplicate"; duplicateOfTaskId: string }
-);
+export type MorningBriefBoardAction =
+  | (MorningBriefExistingTaskActionBase & (
+      | { op: "move_column"; column: "today" | "in_flight" | "not_started" }
+      | { op: "set_priority"; priority: "high" | "medium" | "low" }
+      | { op: "set_due"; dueLocalDate: string | null }
+      | { op: "retitle"; title: string }
+      | { op: "edit_description"; description: string }
+      | { op: "archive" }
+      | { op: "archive_duplicate"; duplicateOfTaskId: string }
+    ))
+  | (MorningBriefBoardActionBase & {
+      op: "create_task";
+      title: string;
+      description: string;
+      priority: "high" | "medium" | "low";
+      dueLocalDate: string | null;
+    });
 
 export type MorningBrief = {
   // The day's single decisive move, as one plain sentence. Optional because
@@ -85,6 +97,14 @@ export type MorningBrief = {
   // item whose evidence refs cite no collected source). Never model-authored.
   validationNotes?: string[];
 };
+
+export function morningBriefCreatedTaskId(artifactId: string, actionIndex: number): string {
+  const digest = createHash("sha256")
+    .update(`${artifactId}:${actionIndex}`, "utf8")
+    .digest("hex")
+    .slice(0, 32);
+  return `morning-brief-${digest}`;
+}
 
 export type BriefSourceFreshness = "current" | "stale" | "missing";
 
@@ -541,6 +561,163 @@ function evidenceRefsResolve(
   return refs.every((ref) => sourceIds.has(ref.split(":", 1)[0] ?? ref));
 }
 
+function creationEvidenceIsActionable(
+  refs: readonly string[],
+  sourceIds: ReadonlySet<string> | undefined,
+): boolean {
+  if (!evidenceRefsResolve(refs, sourceIds)) return false;
+  const planningOnlySources = new Set(["goals", "operator_profile", "recent_briefs"]);
+  return refs.some((ref) => !planningOnlySources.has(ref.split(":", 1)[0] ?? ref));
+}
+
+const CREATED_TASK_ACTION_VERBS = new Set([
+  "add",
+  "analyze",
+  "approve",
+  "ask",
+  "audit",
+  "book",
+  "build",
+  "buy",
+  "call",
+  "cancel",
+  "check",
+  "clean",
+  "compare",
+  "complete",
+  "confirm",
+  "connect",
+  "contact",
+  "create",
+  "decide",
+  "deliver",
+  "deploy",
+  "design",
+  "draft",
+  "edit",
+  "email",
+  "evaluate",
+  "file",
+  "finish",
+  "fix",
+  "follow",
+  "implement",
+  "install",
+  "investigate",
+  "meet",
+  "message",
+  "nudge",
+  "order",
+  "organize",
+  "outline",
+  "pay",
+  "plan",
+  "prepare",
+  "publish",
+  "read",
+  "reconcile",
+  "record",
+  "remove",
+  "renew",
+  "reply",
+  "research",
+  "review",
+  "revise",
+  "run",
+  "schedule",
+  "send",
+  "set",
+  "share",
+  "sign",
+  "submit",
+  "summarize",
+  "test",
+  "update",
+  "verify",
+  "write",
+]);
+
+const CREATED_TASK_GENERIC_WORDS = new Set([
+  "a",
+  "about",
+  "all",
+  "an",
+  "and",
+  "any",
+  "anybody",
+  "anyone",
+  "anything",
+  "at",
+  "else",
+  "everybody",
+  "everyone",
+  "everything",
+  "for",
+  "in",
+  "it",
+  "item",
+  "items",
+  "material",
+  "materials",
+  "misc",
+  "nobody",
+  "noone",
+  "nothing",
+  "of",
+  "on",
+  "or",
+  "other",
+  "others",
+  "some",
+  "somebody",
+  "someone",
+  "something",
+  "stuff",
+  "task",
+  "tasks",
+  "that",
+  "the",
+  "them",
+  "thing",
+  "things",
+  "this",
+  "to",
+  "todo",
+  "unspecified",
+  "up",
+  "various",
+  "whatever",
+  "whichever",
+  "whoever",
+  "with",
+  "work",
+]);
+
+function createdTaskWords(value: string): string[] {
+  return value
+    .toLocaleLowerCase()
+    .split(/\s+/)
+    .map((word) => word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""))
+    .filter(Boolean);
+}
+
+function createdTaskTitleIsConcrete(title: string): boolean {
+  const words = createdTaskWords(title);
+  if (title.trim().length < 8 || words.length < 2) return false;
+  if (!CREATED_TASK_ACTION_VERBS.has(words[0] ?? "")) return false;
+  return words.slice(1).some((word) => !CREATED_TASK_GENERIC_WORDS.has(word));
+}
+
+function createdTaskDescriptionIsUseful(description: string): boolean {
+  const words = createdTaskWords(description);
+  if (description.trim().length < 20 || words.length < 5) return false;
+  return words.some(
+    (word) =>
+      !CREATED_TASK_GENERIC_WORDS.has(word) &&
+      !CREATED_TASK_ACTION_VERBS.has(word),
+  );
+}
+
 // Strict validation of the model's structured output. Structural violations
 // throw; a candidate that references a task that no longer exists is dropped
 // with a warning (rehydration would drop it anyway). Legacy
@@ -658,12 +835,81 @@ export function validateMorningBrief(
   }
 
   const boardActions: MorningBriefBoardAction[] = [];
+  const createdTaskTitles = new Set<string>();
+  let createdTaskCount = 0;
   for (const [index, entry] of briefArray(raw.board_actions, "board_actions", 15).entries()) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
       throw new MorningBriefInvalid(`board_action_${index}_shape`);
     }
     const action = entry as Record<string, unknown>;
     const op = briefString(action.op, `board_action_${index}_op`, 40);
+    const evidenceRefs = briefStringArray(
+      action.evidence_refs,
+      `board_action_${index}_evidence_refs`,
+      8,
+      300,
+    );
+    const why = briefString(action.why, `board_action_${index}_why`, 600);
+    if (op === "create_task") {
+      if (createdTaskCount >= 3) {
+        validationNotes.push(`dropped_board_action:${index}:create_task_limit`);
+        continue;
+      }
+      if (!creationEvidenceIsActionable(evidenceRefs, options.sourceIds)) {
+        validationNotes.push(`dropped_board_action:${index}:unresolved_creation_evidence`);
+        continue;
+      }
+      const title = briefString(action.title, `board_action_${index}_title`, 240);
+      if (!createdTaskTitleIsConcrete(title)) {
+        validationNotes.push(`dropped_board_action:${index}:vague_created_task`);
+        continue;
+      }
+      const normalizedTitle = title.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+      if (createdTaskTitles.has(normalizedTitle)) {
+        validationNotes.push(`dropped_board_action:${index}:duplicate_created_task`);
+        continue;
+      }
+      const description = briefString(
+        action.description,
+        `board_action_${index}_description`,
+        4_000,
+        { required: false },
+      );
+      if (!createdTaskDescriptionIsUseful(description)) {
+        validationNotes.push(`dropped_board_action:${index}:incomplete_created_task`);
+        continue;
+      }
+      createdTaskTitles.add(normalizedTitle);
+      const priority = action.priority;
+      if (priority !== "high" && priority !== "medium" && priority !== "low") {
+        throw new MorningBriefInvalid(`board_action_${index}_priority`);
+      }
+      const dueLocalDate = action.due_local_date;
+      if (
+        dueLocalDate !== null &&
+        (typeof dueLocalDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dueLocalDate))
+      ) {
+        throw new MorningBriefInvalid(`board_action_${index}_due_local_date`);
+      }
+      if (
+        dueLocalDate !== null &&
+        (dueLocalDate < "2024-01-01" || dueLocalDate > "2036-12-31")
+      ) {
+        validationNotes.push(`dropped_board_action:${index}:due_date_out_of_range`);
+        continue;
+      }
+      boardActions.push({
+        op,
+        title,
+        description,
+        priority,
+        dueLocalDate,
+        why,
+        evidenceRefs,
+      });
+      createdTaskCount += 1;
+      continue;
+    }
     const taskId = briefString(action.task_id, `board_action_${index}_task_id`, 200);
     if (options.knownTaskIds && !options.knownTaskIds.has(taskId)) {
       validationNotes.push(`dropped_board_action:${index}:unknown_task`);
@@ -673,15 +919,9 @@ export function validateMorningBrief(
       validationNotes.push(`dropped_board_action:${index}:recurring_task`);
       continue;
     }
-    const evidenceRefs = briefStringArray(
-      action.evidence_refs,
-      `board_action_${index}_evidence_refs`,
-      8,
-      300,
-    );
-    const base: MorningBriefBoardActionBase = {
+    const base: MorningBriefExistingTaskActionBase = {
       taskId,
-      why: briefString(action.why, `board_action_${index}_why`, 600),
+      why,
       evidenceRefs,
       expectedTaskUpdatedAt: options.taskUpdatedAtById?.get(taskId) ?? "",
     };
@@ -790,23 +1030,42 @@ export type ArrivalCandidateSelection = {
   brief?: DayPlanItemBriefAnnotation;
 };
 
-// The brief is presentation and rationale, never task evidence. Every selected
-// taskId must rehydrate against the fresh candidate pool; selections whose task
-// vanished (or was never real) are dropped, and the remaining slots backfill in
-// deterministic pool order. Only existing task candidates can rank.
+// Existing-task rankings remain annotations over the deterministic candidate
+// pool. New task creation is a separate, grounded board action that the store
+// applies before a fresh candidate pool is built.
 export function overlayBriefOnCandidates(
   pool: readonly RecommendationCandidate[],
-  brief: Pick<MorningBrief, "existingTaskCandidates"> | undefined,
+  brief: (Pick<MorningBrief, "existingTaskCandidates"> &
+    Partial<Pick<MorningBrief, "boardActions">>) | undefined,
   maximum = brief
-    ? Math.min(8, Math.max(3, brief.existingTaskCandidates.length))
+    ? Math.min(8, Math.max(
+        3,
+        brief.existingTaskCandidates.length +
+          (brief.boardActions ?? []).filter((action) => action.op === "create_task").length,
+      ))
     : 3,
 ): ArrivalCandidateSelection[] {
   const byTask = new Map(pool.map((candidate) => [candidate.taskId, candidate]));
   const used = new Set<string>();
   const selected: ArrivalCandidateSelection[] = [];
+  const normalizedTitle = (value: string) => value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+  const createdSelections = (brief?.boardActions ?? [])
+    .filter((action) => action.op === "create_task")
+    .map((action) => ({
+      action,
+      candidate: pool.find((candidate) => normalizedTitle(candidate.title) === normalizedTitle(action.title)),
+    }))
+    .filter((entry): entry is {
+      action: Extract<MorningBriefBoardAction, { op: "create_task" }>;
+      candidate: RecommendationCandidate;
+    } => Boolean(entry.candidate))
+    .filter((entry, index, entries) =>
+      entries.findIndex((candidate) => candidate.candidate.taskId === entry.candidate.taskId) === index,
+    );
+  const existingSelectionLimit = Math.max(0, maximum - createdSelections.length);
 
   for (const briefCandidate of brief?.existingTaskCandidates ?? []) {
-    if (selected.length >= maximum) break;
+    if (selected.length >= existingSelectionLimit) break;
     const candidate = byTask.get(briefCandidate.taskId);
     if (!candidate || used.has(candidate.taskId)) continue;
     used.add(candidate.taskId);
@@ -816,6 +1075,18 @@ export function overlayBriefOnCandidates(
         whyToday: briefCandidate.whyToday,
         whatClaudeCanStart: briefCandidate.whatClaudeCanStart || undefined,
         suggestedOwner: briefCandidate.suggestedOwner,
+      },
+    });
+  }
+
+  for (const { action, candidate } of createdSelections) {
+    if (selected.length >= maximum || used.has(candidate.taskId)) continue;
+    used.add(candidate.taskId);
+    selected.push({
+      candidate,
+      brief: {
+        whyToday: action.why,
+        suggestedOwner: "me",
       },
     });
   }
@@ -953,10 +1224,12 @@ export function selectMorningBriefGeneration(
       state: "succeeded",
       ...(brief
         ? {
-            pickedTasks: brief.existingTaskCandidates.map((candidate) => ({
-              taskId: candidate.taskId,
-              whyToday: candidate.whyToday,
-            })),
+            pickedTasks: [
+              ...brief.existingTaskCandidates.map((candidate) => ({
+                taskId: candidate.taskId,
+                whyToday: candidate.whyToday,
+              })),
+            ],
           }
         : {}),
     };
@@ -1081,6 +1354,26 @@ export function morningBriefFromArtifact(
     const boardActions: MorningBriefBoardAction[] = [];
     for (const entry of Array.isArray(boardRaw) ? boardRaw : []) {
       const action = storedRecord(entry);
+      if (
+        action?.op === "create_task" &&
+        storedString(action.title) &&
+        storedString(action.description) &&
+        (action.priority === "high" || action.priority === "medium" || action.priority === "low") &&
+        (action.dueLocalDate === null || storedString(action.dueLocalDate)) &&
+        storedString(action.why) &&
+        storedStringArray(action.evidenceRefs)
+      ) {
+        boardActions.push({
+          op: action.op,
+          title: action.title,
+          description: action.description,
+          priority: action.priority,
+          dueLocalDate: action.dueLocalDate,
+          why: action.why,
+          evidenceRefs: action.evidenceRefs,
+        });
+        continue;
+      }
       if (
         !action ||
         !storedString(action.op) ||

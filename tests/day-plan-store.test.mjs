@@ -1830,8 +1830,122 @@ test('brief board actions stage once, activate atomically, preserve human edits,
   assert.equal(store.activateBriefBoardActions('2026-07-10').activated, false);
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM cove_receipts WHERE source = 'morning-brief-management'").get().count, 1);
   db.close();
-  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 17);
-  assert.equal(MORNING_BRIEF_SCHEMA_VERSION, 6);
+  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 18);
+  assert.equal(MORNING_BRIEF_SCHEMA_VERSION, 7);
+});
+
+test('grounded brief task creation writes one real Today task and deduplicates live titles', (t) => {
+  const { file, store } = isolatedStore(t, '2026-07-10T16:00:00.000Z');
+  const db = new Database(file);
+  createManagedBoardTables(db);
+  const queued = store.enqueueMorningBrief('2026-07-10', {
+    modelAlias: 'opus', effort: 'high', budgetUsd: 1.5,
+  }).brief;
+  store.claimNextMorningBrief();
+  const boardActions = [
+    {
+      op: 'create_task',
+      title: "Review Asher's founders agreement",
+      description: 'Read the agreement and record the clauses that need a decision.',
+      priority: 'high',
+      dueLocalDate: '2026-07-10',
+      why: 'Concrete work from the brief.',
+      evidenceRefs: ['sprint_memo:asher'],
+    },
+    {
+      op: 'create_task',
+      title: "  review   ASHER'S founders agreement ",
+      description: 'Duplicate wording should not create another card.',
+      priority: 'medium',
+      dueLocalDate: null,
+      why: 'Duplicate test.',
+      evidenceRefs: ['sprint_memo'],
+    },
+  ];
+  const completed = store.completeMorningBrief(queued.id, JSON.stringify({
+    headline: 'Focus.', narrativeParagraphs: ['Do the work.'], lensNarrative: 'Focus.\n\nDo the work.',
+    existingTaskCandidates: [], watchItems: [], boardActions,
+  }));
+  assert.ok(completed);
+  assert.equal(store.stageMorningBriefBoardActions(completed.id), 2);
+
+  const result = store.activateBriefBoardActions(
+    '2026-07-10',
+    new Date('2026-07-10T16:00:00.000Z'),
+  );
+  assert.equal(result.applied, 1);
+  assert.equal(result.skippedConflict, 1);
+  const created = db.prepare(
+    `SELECT tasks.*, task_columns.name AS column_name
+     FROM tasks JOIN task_columns ON task_columns.id = tasks.column_id`,
+  ).all();
+  assert.equal(created.length, 1);
+  assert.match(created[0].id, /^morning-brief-[a-f0-9]{32}$/);
+  assert.equal(created[0].title, "Review Asher's founders agreement");
+  assert.equal(created[0].column_name, 'Must happen today');
+  assert.equal(created[0].priority, 'high');
+  assert.equal(created[0].due_date, '2026-07-10');
+  assert.deepEqual(
+    db.prepare('SELECT state FROM day_plan_brief_actions ORDER BY action_index').pluck().all(),
+    ['applied', 'skipped_conflict'],
+  );
+  assert.deepEqual(store.morningBriefCreatedTaskPicks(completed.id), [{
+    taskId: created[0].id,
+    whyToday: 'Concrete work from the brief.',
+  }]);
+  assert.equal(store.activateBriefBoardActions('2026-07-10').activated, false);
+  assert.equal(db.prepare('SELECT COUNT(*) FROM tasks').pluck().get(), 1);
+  db.close();
+});
+
+test('brief task creation reuses the real id of an existing matching task', (t) => {
+  const { file, store } = isolatedStore(t, '2026-07-10T16:00:00.000Z');
+  const db = new Database(file);
+  createManagedBoardTables(db);
+  db.prepare(
+    `INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, position, status, created_at, updated_at)
+     VALUES ('existing-agreement', 'col-ns', ?, '', 'medium', '[]', 0, 'open', ?, ?)`,
+  ).run(
+    "Review Asher's founders agreement",
+    '2026-07-09T16:00:00.000Z',
+    '2026-07-09T16:00:00.000Z',
+  );
+  const queued = store.enqueueMorningBrief('2026-07-10', {
+    modelAlias: 'opus', effort: 'high', budgetUsd: 1.5,
+  }).brief;
+  store.claimNextMorningBrief();
+  const completed = store.completeMorningBrief(queued.id, JSON.stringify({
+    headline: 'Focus.',
+    narrativeParagraphs: ['Review the agreement.'],
+    lensNarrative: 'Focus.\n\nReview the agreement.',
+    existingTaskCandidates: [],
+    watchItems: [],
+    boardActions: [{
+      op: 'create_task',
+      title: "Review Asher's founders agreement",
+      description: 'Read the agreement and record the clauses that need a decision.',
+      priority: 'high',
+      dueLocalDate: null,
+      why: 'The agreement needs a decision today.',
+      evidenceRefs: ['sprint_memo:asher'],
+    }],
+  }));
+  assert.ok(completed);
+  assert.equal(store.stageMorningBriefBoardActions(completed.id), 1);
+  assert.deepEqual(store.activateBriefBoardActions('2026-07-10'), {
+    activated: true,
+    artifactId: completed.id,
+    applied: 0,
+    skippedConflict: 1,
+    skippedOfflimits: 0,
+  });
+  assert.equal(db.prepare('SELECT COUNT(*) FROM tasks').pluck().get(), 1);
+  assert.deepEqual(store.morningBriefCreatedTaskPicks(completed.id), [{
+    taskId: 'existing-agreement',
+    whyToday: 'The agreement needs a decision today.',
+  }]);
+  db.close();
 });
 
 test('refused brief board activation terminal-marks actions without changing tasks', (t) => {

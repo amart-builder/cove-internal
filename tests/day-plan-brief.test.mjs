@@ -833,6 +833,9 @@ test('validation accepts the contract, normalizes it, and filters unknown tasks 
 test('validation rejects missing prose and oversized candidate lists', () => {
   const schema = JSON.parse(MORNING_BRIEF_JSON_SCHEMA);
   assert.equal(schema.properties.existing_task_candidates.maxItems, 8);
+  assert.equal(schema.properties.board_actions.items.oneOf[0].properties.op.const, 'create_task');
+  assert.equal(schema.properties.board_actions.items.oneOf[0].properties.title.minLength, 8);
+  assert.equal(schema.properties.board_actions.items.oneOf[0].properties.description.minLength, 20);
   assert.equal('suggested_additions' in schema.properties, false);
   assert.equal(schema.required.includes('suggested_additions'), false);
   // A brief with no prose at all in any shape is the one narrative failure left:
@@ -845,6 +848,105 @@ test('validation rejects missing prose and oversized candidate lists', () => {
     () => validateMorningBrief({ ...WIRE_BRIEF, existing_task_candidates: Array(9).fill(WIRE_BRIEF.existing_task_candidates[0]) }),
     /existing_task_candidates_bounds/,
   );
+});
+
+test('create_task actions require evidence, stay concrete, and deduplicate titles', () => {
+  const { brief } = validateMorningBrief({
+    ...WIRE_BRIEF,
+    board_actions: [
+      {
+        op: 'create_task',
+        title: "Review Asher's founders agreement",
+        description: 'Read the agreement and record the clauses that need a decision.',
+        priority: 'high',
+        due_local_date: '2026-07-15',
+        why: 'The brief asks for a concrete review today.',
+        evidence_refs: ['sprint_memo:asher'],
+      },
+      {
+        op: 'create_task',
+        title: "  review   asher's founders agreement ",
+        description: 'Duplicate wording.',
+        priority: 'medium',
+        due_local_date: null,
+        why: 'Duplicate.',
+        evidence_refs: ['sprint_memo'],
+      },
+      {
+        op: 'create_task',
+        title: 'Untraceable work',
+        description: '',
+        priority: 'medium',
+        due_local_date: null,
+        why: 'No real source.',
+        evidence_refs: ['ghost'],
+      },
+      {
+        op: 'create_task',
+        title: 'Profile-only work',
+        description: '',
+        priority: 'medium',
+        due_local_date: null,
+        why: 'A profile is context, not a commitment.',
+        evidence_refs: ['operator_profile'],
+      },
+      {
+        op: 'create_task',
+        title: 'Do this',
+        description: 'This description has enough characters but no useful action.',
+        priority: 'medium',
+        due_local_date: null,
+        why: 'A vague title must never become a task.',
+        evidence_refs: ['sprint_memo'],
+      },
+      {
+        op: 'create_task',
+        title: 'Review stuff',
+        description: 'Look at the material and deal with it.',
+        priority: 'medium',
+        due_local_date: null,
+        why: 'Generic nouns do not identify real work.',
+        evidence_refs: ['sprint_memo'],
+      },
+      {
+        op: 'create_task',
+        title: 'Review everything',
+        description: 'Look through everything and deal with it.',
+        priority: 'medium',
+        due_local_date: null,
+        why: 'Generic pronouns do not identify real work.',
+        evidence_refs: ['sprint_memo'],
+      },
+      {
+        op: 'create_task',
+        title: 'Call Asher about agreement',
+        description: 'Too short',
+        priority: 'medium',
+        due_local_date: null,
+        why: 'An incomplete task must never become a card.',
+        evidence_refs: ['sprint_memo'],
+      },
+    ],
+  }, { sourceIds: new Set(['sprint_memo', 'operator_profile']) });
+
+  assert.deepEqual(brief.boardActions, [{
+    op: 'create_task',
+    title: "Review Asher's founders agreement",
+    description: 'Read the agreement and record the clauses that need a decision.',
+    priority: 'high',
+    dueLocalDate: '2026-07-15',
+    why: 'The brief asks for a concrete review today.',
+    evidenceRefs: ['sprint_memo:asher'],
+  }]);
+  assert.deepEqual(brief.validationNotes, [
+    'dropped_board_action:1:duplicate_created_task',
+    'dropped_board_action:2:unresolved_creation_evidence',
+    'dropped_board_action:3:unresolved_creation_evidence',
+    'dropped_board_action:4:vague_created_task',
+    'dropped_board_action:5:vague_created_task',
+    'dropped_board_action:6:vague_created_task',
+    'dropped_board_action:7:incomplete_created_task',
+  ]);
 });
 
 test('watch items require resolvable evidence refs', () => {
@@ -1000,6 +1102,49 @@ test('brief overlay sizes Today from ranked candidates while fallback stays at t
     overlayBriefOnCandidates(pool, undefined).map((entry) => entry.candidate.taskId),
     ['task-0', 'task-1', 'task-2'],
   );
+});
+
+test('brief-created work is reserved a Plan your day slot instead of being crowded out', () => {
+  const pool = buildDayPlanCandidates({
+    localDate: '2026-07-14',
+    timezone: 'America/Los_Angeles',
+    tasks: Array.from({ length: 9 }, (_, index) => ({
+      id: `task-${index}`,
+      title: index === 8 ? "Review Asher's founders agreement" : `Task ${index}`,
+      description: `Finish task ${index}`,
+      priority: 'high',
+      position: index,
+      column: 'today',
+      status: 'open',
+      updatedAt: '2026-07-14T12:00:00.000Z',
+      refreshedAt: CLOCK,
+    })),
+  }, 10);
+  const brief = {
+    existingTaskCandidates: Array.from({ length: 8 }, (_, index) => ({
+      taskId: `task-${index}`,
+      whyToday: `Rank ${index}`,
+      suggestedOwner: 'me',
+      whatClaudeCanStart: '',
+      evidenceRefs: [],
+    })),
+    boardActions: [{
+      op: 'create_task',
+      title: "Review Asher's founders agreement",
+      description: 'Read it.',
+      priority: 'high',
+      dueLocalDate: null,
+      why: 'The agreement needs a decision.',
+      evidenceRefs: ['sprint_memo:asher'],
+    }],
+  };
+
+  const selection = overlayBriefOnCandidates(pool, brief);
+  assert.equal(selection.length, 8);
+  assert.deepEqual(selection.slice(0, 7).map((entry) => entry.candidate.taskId),
+    ['task-0', 'task-1', 'task-2', 'task-3', 'task-4', 'task-5', 'task-6']);
+  assert.equal(selection[7].candidate.taskId, 'task-8');
+  assert.equal(selection[7].brief.whyToday, 'The agreement needs a decision.');
 });
 
 // ---------------------------------------------------------------------------
@@ -1539,7 +1684,7 @@ test('ensure keeps at most three items from a larger deterministic pool', (t) =>
 // ---------------------------------------------------------------------------
 
 test('the brief command is the exact bounded toolless invocation', () => {
-  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 17);
+  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 18);
   const repoCwd = process.cwd();
   const ownerPrompt = readFileSync(path.join(repoCwd, 'prompts', 'chief-of-staff.md'), 'utf8').trimEnd();
   assert.ok(ownerPrompt.includes(
@@ -1606,7 +1751,7 @@ test('the brief command is the exact bounded toolless invocation', () => {
     'SOURCE_MANIFEST tells you exactly what you can see and how fresh it is.',
     'Every evidence_refs entry must name a source from SOURCE_MANIFEST, as source or source:detail (for example sprint_memo:gio). Cove drops any watch_item whose refs cite anything else.',
     "existing_task_candidates: choose the day's true top priorities against the operator's goals from the ENTIRE OPEN_TASKS pool marked candidate_ok, not merely Today or In Flight. Return up to 8, ranked. The first 3 are the day's focus. Rows without candidate_ok are context only, never candidates. Never invent tasks there.",
-    'board_actions: act as chief of staff over the whole candidate_ok board. Use at most 15 moves that materially improve today\'s board. You may move columns, change priority or grounded due dates, clarify titles or descriptions, archive stale work, and archive duplicates into a named survivor. Retitles and description edits may clarify existing facts only; never add a fact, commitment, deadline, or scope that the sources do not establish. Every set_due needs resolving evidence_refs. Mention material intended archives or duplicate consolidations once in the narrative, phrased as intent because Cove applies actions later and conflicts may leave them alone.',
+    'board_actions: act as chief of staff over the whole candidate_ok board. Use at most 15 actions that materially improve today\'s board. You may move columns, change priority or grounded due dates, clarify titles or descriptions, archive stale work, and archive duplicates into a named survivor. You may also create at most 3 Today tasks when the brief tells the operator to take a concrete action that is not already represented by candidate_ok work. A create_task must have an action-led title, a useful description, and resolving evidence_refs from concrete work context; GOALS, OPERATOR_PROFILE, and prior brief prose alone never authorize task creation. Never create a task for monitoring, waiting, a vague idea, or work already on the board. Retitles and description edits may clarify existing facts only; never add a fact, commitment, deadline, or scope that the sources do not establish. Every set_due needs resolving evidence_refs. Mention material intended archives or duplicate consolidations once in the narrative, phrased as intent because Cove applies actions later and conflicts may leave them alone.',
     'watch_items are the never-drop checks: stale leads over 3 days, promised follow-ups, invoices, call prep, the Friday scoreboard. At most five, ranked by what actually costs the operator something if nobody touches it today; a long list reads as noise and they stop reading it. Each evidence value must be one finished human sentence with no source citations. Keep last_seen_state and evidence_refs grounded for storage, but never write citation language into the sentence.',
     'Do not invent facts, deadlines, contacts, or commitments. Do not use em dashes anywhere.',
     `JSON_SCHEMA=${MORNING_BRIEF_JSON_SCHEMA}`,
@@ -1920,6 +2065,16 @@ test('a nonzero Codex exit fails closed without silently substituting Claude', a
 });
 
 test('the brief worker validates, filters unknown tasks, and stores the artifact', async (t) => {
+  // This test asserts target_timezone, which otherwise falls back to the
+  // machine's own zone. Pin it so the result doesn't depend on where the
+  // laptop happens to be. Scoped here because the scheduled-lane test below
+  // exercises the plan/snapshot/system precedence and needs the env unset.
+  const previousBriefTimezone = process.env.COVE_BRIEF_TIMEZONE;
+  process.env.COVE_BRIEF_TIMEZONE = 'America/Los_Angeles';
+  t.after(() => {
+    if (previousBriefTimezone === undefined) delete process.env.COVE_BRIEF_TIMEZONE;
+    else process.env.COVE_BRIEF_TIMEZONE = previousBriefTimezone;
+  });
   const { dir, store } = briefFixture(t);
   const wire = {
     ...WIRE_BRIEF,
@@ -1969,8 +2124,8 @@ test('the brief worker validates, filters unknown tasks, and stores the artifact
   assert.equal(storedInput.artifact_id, artifact.id);
   assert.equal(storedInput.target_local_date, '2026-07-14');
   assert.equal(storedInput.target_timezone, 'America/Los_Angeles');
-  assert.equal(storedInput.prompt_version, 17);
-  assert.equal(storedInput.schema_version, 6);
+  assert.equal(storedInput.prompt_version, 18);
+  assert.equal(storedInput.schema_version, 7);
   assert.deepEqual(storedInput.sections, assembleMorningBriefContext(collectedSources().sources, {
     now: new Date(CLOCK),
   }).sections);

@@ -9,6 +9,7 @@ import {
   combineSurfaceErrors,
   firstContinuingItem,
   focusBandItems,
+  focusCountAfterArrivalDrag,
   executionReadinessMessage,
   executionRestartLabel,
   executionRunStatusLabel,
@@ -78,6 +79,17 @@ test('drag reorder produces the same ordered plan without mutating input', () =>
   assert.deepEqual(reordered.map((entry) => entry.position), [0, 1, 2]);
   assert.deepEqual(original.map((entry) => entry.id), ['a', 'b', 'c']);
   assert.deepEqual(original.map((entry) => entry.position), [0, 1, 2]);
+});
+
+test('arrival drag grows and shrinks the initial-priority band between one and three', () => {
+  const items = [item('a', 'me', 0), item('b', 'me', 1), item('c', 'me', 2), item('d', 'me', 3)];
+
+  assert.equal(focusCountAfterArrivalDrag(items, 'c', 'a', 1), 2);
+  assert.equal(focusCountAfterArrivalDrag(items, 'd', 'a', 2), 3);
+  assert.equal(focusCountAfterArrivalDrag(items, 'd', 'a', 3), 3);
+  assert.equal(focusCountAfterArrivalDrag(items, 'b', 'c', 2), 1);
+  assert.equal(focusCountAfterArrivalDrag(items, 'a', 'c', 1), 1);
+  assert.equal(focusCountAfterArrivalDrag(items, 'a', 'b', 2), 2);
 });
 
 test('recommended focus is the highest ordered item involving the person', () => {
@@ -337,6 +349,17 @@ test('resume command quotes both workspace and session for the copy fallback', (
   assert.equal(
     buildClaudeResumeCommand("/tmp/Jordan Rivers's project", 'session id'),
     `cd '/tmp/Jordan Rivers'"'"'s project' && claude --resume 'session id'`,
+  );
+  assert.equal(
+    buildClaudeResumeCommand('/projects/acme-site', 'session-id', {
+      permissionMode: 'auto',
+      safeMode: true,
+      tools: 'Read,Write',
+      settingsPath: "/tmp/Cove's settings.json",
+      mcpConfigPath: '/tmp/empty-mcp.json',
+      noChrome: true,
+    }),
+    "cd '/projects/acme-site' && claude --resume 'session-id' --permission-mode auto --safe-mode --tools 'Read,Write' --settings '/tmp/Cove'\"'\"'s settings.json' --strict-mcp-config --mcp-config '/tmp/empty-mcp.json' --no-chrome",
   );
   assert.equal(executionWorkspaceLabel('/projects/acme-site'), 'Acme site');
 });

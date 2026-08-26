@@ -33,7 +33,7 @@ import type {
   TaskSessionLaunchMode,
   TaskSessionRun,
 } from '@/lib/task-sessions/types';
-import { reduceFocusSeats } from '@/lib/tasks/focus-seats';
+import { reconcileFocusSeatTaskChanges } from '@/lib/tasks/focus-seats';
 import { taskSessionModeButtons } from './TaskSessionLauncher';
 import { OpenInClaudeCode } from './ClaudeRunIndicators';
 import DayRitualLayer from './DayRitualLayer';
@@ -171,10 +171,19 @@ function SessionState({
   const run = task.run;
   if (!run) return null;
   if (run.status === 'running') {
+    const planning = run.permissionMode === 'plan';
     return (
-      <span className="today2-task-state">
+      <span
+        className={`today2-task-state ${compact ? 'is-compact' : ''}`}
+        title={run.hint ?? (planning
+          ? 'Claude is planning in the background.'
+          : 'Claude is working in the background.')}
+        aria-label={planning
+          ? 'Planning with Claude in the background'
+          : 'Claude working in the background'}
+      >
         <i aria-hidden="true" />
-        {run.permissionMode === 'plan' ? 'Planning with Claude' : 'Claude working'}
+        {planning ? 'Planning with Claude' : 'Claude working'}
       </span>
     );
   }
@@ -471,7 +480,7 @@ function SortableGridCard({
         <h3>{task.title}</h3>
         <div className="today2-grid-card-bottom">
           <span className="today2-owner-chip" data-owner={task.owner}>{task.owner}</span>
-          {state && <span className="today2-grid-state">{state}</span>}
+          {state && <span className="today2-grid-state" title={task.run?.hint ?? state}>{state}</span>}
         </div>
       </article>
     </li>
@@ -868,27 +877,22 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
   useLayoutEffect(() => {
     if (reorderPendingRef.current || motionBusyRef.current) return;
     const modelIds = model.orderedTasks.map((task) => task.id);
-    const vanishedSeatIds = visualTaskIds
-      .slice(0, model.focusCount)
-      .filter((taskId) => !taskById.has(taskId));
-    if (vanishedSeatIds.length === 0) {
+    const reconciliation = reconcileFocusSeatTaskChanges(
+      visualTaskIds,
+      modelIds,
+      model.focusCount,
+      model.reorderEnabled,
+    );
+    const next = reconciliation.orderedTaskIds;
+    if (!reconciliation.shouldPersist) {
       if (
-        visualTaskIds.length !== modelIds.length ||
-        visualTaskIds.some((taskId, index) => taskId !== modelIds[index])
+        visualTaskIds.length !== next.length ||
+        visualTaskIds.some((taskId, index) => taskId !== next[index])
       ) {
-        setVisualTaskIds(modelIds);
+        setVisualTaskIds(next);
       }
       return;
     }
-
-    let next = visualTaskIds;
-    for (const taskId of vanishedSeatIds) {
-      next = reduceFocusSeats(next, model.focusCount, { type: 'task_vanished', taskId });
-    }
-    next = [
-      ...next.filter((taskId) => taskById.has(taskId)),
-      ...modelIds.filter((taskId) => !next.includes(taskId)),
-    ];
     setVisualTaskIds(next);
     reorderPendingRef.current = true;
     void Promise.resolve()
@@ -903,7 +907,7 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
             : latest;
         });
       });
-  }, [model.focusCount, model.orderedTasks, taskById, visualTaskIds]);
+  }, [model.focusCount, model.orderedTasks, model.reorderEnabled, visualTaskIds]);
 
   useEffect(() => {
     function handlePointer(event: PointerEvent) {

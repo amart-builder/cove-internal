@@ -57,6 +57,7 @@ import {
   publicUnreadyItem,
 } from "@/lib/day-plan/public-execution";
 import { taskColumnKeyForName } from "@/lib/tasks/columns";
+import { buildDayPlanCandidates } from "@/lib/day-plan/candidates";
 import { coveEnv } from "../../../lib/env";
 import { getRuntimeMode } from "@/lib/runtime/mode";
 import { expireRecurringInstances } from "@/lib/tasks/recurrence";
@@ -629,6 +630,22 @@ function readModelBriefGeneration(
         runningStaleAfterMs: morningBriefStaleAfterMs(),
       },
     );
+    if (generation.state === "succeeded") {
+      const artifact = store.latestEligibleMorningBrief(plan.localDate);
+      const createdPicks = artifact
+        ? store.morningBriefCreatedTaskPicks(artifact.id)
+        : [];
+      if (createdPicks.length > 0) {
+        const existingIds = new Set((generation.pickedTasks ?? []).map((pick) => pick.taskId));
+        return {
+          ...generation,
+          pickedTasks: [
+            ...(generation.pickedTasks ?? []),
+            ...createdPicks.filter((pick) => !existingIds.has(pick.taskId)),
+          ],
+        };
+      }
+    }
     // Only a live run needs an estimate, and only a live run pays for the query.
     if (generation.state !== "queued" && generation.state !== "running") return generation;
     return {
@@ -691,6 +708,119 @@ async function completedPlanTaskIds(
         completedIds.has(item.taskId),
     )
     .map((item) => item.taskId);
+}
+
+export function includeBriefCreatedEnsureCandidates(
+  store: Pick<
+    DayPlanStore,
+    "latestEligibleMorningBrief" | "morningBriefCreatedTaskPicks"
+  >,
+  input: EnsureDayPlanInput,
+  dbPath?: string,
+): EnsureDayPlanInput {
+  try {
+    const artifact = store.latestEligibleMorningBrief(input.localDate);
+    if (!artifact) return input;
+    const picks = store.morningBriefCreatedTaskPicks(artifact.id);
+    if (picks.length === 0) return input;
+
+    const db = openLocalDatabase(dbPath);
+    try {
+      const refreshedAt = new Date().toISOString();
+      const selectTask = db.prepare(
+        `SELECT tasks.*, task_columns.name AS column_name
+         FROM tasks
+         LEFT JOIN task_columns ON task_columns.id = tasks.column_id
+         WHERE tasks.id = ?`,
+      );
+      const rows = picks.flatMap((pick, pickIndex) => {
+        const row = selectTask.get(pick.taskId) as {
+          id: string;
+          title: string;
+          description: string | null;
+          priority: string | null;
+          due_at: string | null;
+          due_date: string | null;
+          project: string | null;
+          position: number | null;
+          status: string | null;
+          tags: string | null;
+          recurring_template_id: string | null;
+          updated_at: string | null;
+          column_name: string | null;
+        } | undefined;
+        if (!row || row.status !== "open" || row.recurring_template_id) return [];
+        let tags: unknown = [];
+        try {
+          tags = JSON.parse(row.tags ?? "[]");
+        } catch {
+          tags = [];
+        }
+        if (
+          Array.isArray(tags) &&
+          tags.some((tag) =>
+            typeof tag === "string" &&
+            ["jarvis-held", "email-current", "recurring"].includes(
+              tag.trim().toLocaleLowerCase(),
+            )
+          )
+        ) return [];
+        const priority: "high" | "medium" | "low" =
+          row.priority === "high" || row.priority === "low"
+          ? row.priority
+          : "medium";
+        const columnKey = row.column_name
+          ? taskColumnKeyForName(row.column_name)
+          : undefined;
+        return [{
+          id: row.id,
+          title: row.title,
+          description: row.description ?? undefined,
+          outcome: row.description || row.title,
+          priority,
+          dueAt: row.due_at ?? row.due_date,
+          position: Number.isFinite(row.position) ? row.position! : pickIndex,
+          column: columnKey === "today"
+            ? "today" as const
+            : columnKey === "in-progress"
+              ? "in_flight" as const
+              : "due_backlog" as const,
+          status: "open" as const,
+          updatedAt: row.updated_at ?? refreshedAt,
+          refreshedAt,
+          project: row.project ?? undefined,
+          briefPicked: true,
+        }];
+      });
+      const createdCandidates = buildDayPlanCandidates({
+        localDate: input.localDate,
+        timezone: input.timezone,
+        tasks: rows,
+      }, 3);
+      if (createdCandidates.length === 0) return input;
+      const createdTaskIds = new Set(createdCandidates.map((candidate) => candidate.taskId));
+      const createdOutcomeKeys = new Set(
+        createdCandidates.map((candidate) => candidate.outcomeKey),
+      );
+      return {
+        ...input,
+        candidates: [
+          ...createdCandidates,
+          ...input.candidates.filter(
+            (candidate) =>
+              !createdTaskIds.has(candidate.taskId) &&
+              !createdOutcomeKeys.has(candidate.outcomeKey),
+          ),
+        ].slice(0, 10),
+      };
+    } finally {
+      db.close();
+    }
+  } catch {
+    // Candidate repair is a loopback freshness bridge, not permission to fail
+    // the whole arrival when the local board is temporarily unavailable.
+    return input;
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -810,6 +940,11 @@ export async function POST(request: NextRequest) {
     // Fail-open and only meaningful on the loopback operator surface.
     if (parsed.action === "ensure" && currentDayPlanAccessMode() === "loopback") {
       scanAndImportBriefRelay({ store, targetLocalDate: parsed.input.localDate });
+      // Imported board actions must land before candidate collection/ensure.
+      // Otherwise a create_task can miss Plan your day and become ineligible
+      // for late attachment as soon as the operator touches Arrival.
+      store.activateBriefBoardActions(parsed.input.localDate);
+      parsed.input = includeBriefCreatedEnsureCandidates(store, parsed.input);
     }
     if (parsed.action === "settlement_start") {
       const plan = store.getPlan(parsed.input.planId);

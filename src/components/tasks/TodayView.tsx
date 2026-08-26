@@ -53,7 +53,6 @@ import {
   focusBandItems,
   formatArrivalDueDate,
   helpfulProjectLabel,
-  reorderDayPlanItems,
   selectShelfTasks,
   selectBoardExecutionPresentation,
   selectCurrentExecutionRow,
@@ -83,7 +82,10 @@ import {
 import { getRuntimeMode } from '@/lib/runtime/mode';
 import type { RecurringTemplate } from '@/lib/tasks/recurrence';
 import { getTaskSettings, updateTaskSettings } from '@/lib/data/task-settings';
-import { reduceFocusSeats } from '@/lib/tasks/focus-seats';
+import {
+  reduceFocusSeats,
+  shouldSurfaceTodayOrderError,
+} from '@/lib/tasks/focus-seats';
 import RhythmManager, { cadenceDisplay } from './RhythmManager';
 import useDayRitual from './useDayRitual';
 import useTaskSessionRuns from './useTaskSessionRuns';
@@ -866,6 +868,8 @@ function TodayExperience({
     focusCount,
     onBriefPicksChange,
   });
+  const dayRitualPlanRef = useRef(dayRitual.plan);
+  dayRitualPlanRef.current = dayRitual.plan;
   const ritualView: OverlayRitualView | undefined =
     dayRitual.view === 'arrival' ||
     dayRitual.view === 'settlement'
@@ -2204,6 +2208,7 @@ function TodayExperience({
           ? nextError.message
           : "Cove couldn't save the focus count.",
       );
+      throw nextError;
     } finally {
       setFocusCountBusy(false);
     }
@@ -2358,7 +2363,12 @@ function TodayExperience({
             onStartSession: (taskId, owner) => void launchToday2Session(taskId, owner),
             onRetrySession: (taskId, owner) => void launchToday2Session(taskId, owner),
             onReorder: (orderedTaskIds) => {
+              const startingPlanId = dayRitual.plan?.id;
               return persistToday2Order(orderedTaskIds).catch((nextError) => {
+                const currentPlan = dayRitualPlanRef.current;
+                if (!shouldSurfaceTodayOrderError(startingPlanId, currentPlan)) {
+                  return;
+                }
                 setSurfaceError(
                   nextError instanceof Error
                     ? nextError.message
@@ -2366,7 +2376,7 @@ function TodayExperience({
                 );
               });
             },
-            onFocusCountChange: (count) => void changeToday2FocusCount(count),
+            onFocusCountChange: (count) => void changeToday2FocusCount(count).catch(() => undefined),
             onGridOpenChange: setToday2GridOpen,
             onOpenSecondCurrentItem: (item) => setDetailTaskId(item.id),
             onEditTask: (taskId) => setDetailTaskId(taskId),
@@ -3111,7 +3121,8 @@ function TodayExperience({
                       minute: '2-digit',
                     })}`
                   : 'Using the latest verified task evidence'}
-                busy={dayRitual.busy}
+                busy={dayRitual.busy || focusCountBusy}
+                completingTaskId={completingTaskId}
                 error={combineSurfaceErrors(dayRitual.error, surfaceError)}
                 titleId={RITUAL_TITLE_IDS.arrival}
                 descriptionId={RITUAL_DESCRIPTION_IDS.arrival}
@@ -3119,12 +3130,8 @@ function TodayExperience({
                 onPlanCanvasChange={setArrivalPlanCanvas}
                 onInteract={dayRitual.markArrivalInteraction}
                 onOwnerChange={(itemId, owner) => dayRitual.setOwner(itemId, owner)}
-                onDragReorder={async (activeId, overId) => {
-                  const next = reorderDayPlanItems(arrivalPlanItems, activeId, overId);
-                  const position = next.findIndex((item) => item.id === activeId);
-                  const title = next[position]?.title ?? 'Task';
-                  if (position >= 0) await dayRitual.reorder(activeId, position, title);
-                }}
+                onMoveToPosition={(itemId, position, title) => dayRitual.reorder(itemId, position, title)}
+                onFocusCountChange={changeToday2FocusCount}
                 onRemove={(itemId, title, taskBacked) => taskBacked
                   ? dayRitual.laterItem(itemId, title)
                   : dayRitual.dismissItem(itemId, title)}
@@ -3132,8 +3139,13 @@ function TodayExperience({
                   await dayRitual.completeItem(itemId, title);
                   await retry();
                 }}
+                onCompleteBoardTask={async (taskId) => {
+                  const task = tasks.find((candidate) => candidate._id === taskId);
+                  if (!task) throw new Error('That task is no longer available.');
+                  await completeTask(task);
+                }}
                 onAddTask={async (taskId, title) => {
-                  await dayRitual.addTask(taskId, title);
+                  return dayRitual.addTask(taskId, title);
                 }}
                 onSnooze={() => dayRitual.snooze().catch(() => undefined)}
                 onBypass={() => dayRitual.bypass().catch(() => undefined)}

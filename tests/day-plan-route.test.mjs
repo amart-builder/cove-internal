@@ -13,6 +13,7 @@ import { createDayPlanStore } from '../src/lib/day-plan/store.ts';
 import {
   assertRecurringCarryAllowed,
   GET,
+  includeBriefCreatedEnsureCandidates,
   POST,
   parseDayPlanPostBody,
 } from '../src/app/api/day-plan/implementation.ts';
@@ -50,6 +51,79 @@ test('parses a bounded task-backed ensure request', () => {
   assert.equal(parsed.action, 'ensure');
   assert.equal(parsed.input.candidates[0].taskId, 'task-a');
   assert.equal(parsed.input.creation, 'automatic');
+});
+
+test('server candidate repair inserts a just-created brief task ahead of a stale browser pool', (t) => {
+  const dir = path.join(os.tmpdir(), `cove-route-brief-created-${process.pid}-${Date.now()}`);
+  mkdirSync(dir, { recursive: true });
+  const dbPath = path.join(dir, 'cove.db');
+  const store = createDayPlanStore({ dbPath, now: () => new Date('2026-07-10T16:00:00.000Z') });
+  t.after(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const db = openLocalDatabase(dbPath);
+  db.exec(`
+    INSERT INTO task_columns (id, name, position) VALUES ('col-today', 'Must happen today', 0);
+    INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, project, position, status,
+       created_at, updated_at)
+    VALUES
+      ('created-task', 'col-today', 'Review Asher agreement',
+       'Read the agreement and record every clause that needs a decision.',
+       'high', '[]', 'Atlas', 0, 'open',
+       '2026-07-10T16:00:00.000Z', '2026-07-10T16:00:00.000Z');
+  `);
+  db.close();
+  const artifact = store.enqueueMorningBrief('2026-07-10', {
+    modelAlias: 'opus', effort: 'high', budgetUsd: 1.5,
+  }).brief;
+  store.claimNextMorningBrief();
+  store.completeMorningBrief(artifact.id, JSON.stringify({
+    headline: 'Focus.',
+    narrativeParagraphs: ['Review the agreement.'],
+    lensNarrative: 'Focus.\n\nReview the agreement.',
+    existingTaskCandidates: [],
+    watchItems: [],
+    boardActions: [{
+      op: 'create_task',
+      title: 'Review Asher agreement',
+      description: 'Read the agreement and record every clause that needs a decision.',
+      priority: 'high',
+      dueLocalDate: null,
+      why: 'A decision is needed today.',
+      evidenceRefs: ['sprint_memo:asher'],
+    }],
+  }));
+  store.stageMorningBriefBoardActions(artifact.id);
+  const actionDb = openLocalDatabase(dbPath);
+  actionDb.prepare(
+    `UPDATE day_plan_brief_actions
+     SET state = 'applied', after_json = ?, terminal_at = ?
+     WHERE artifact_id = ?`,
+  ).run(
+    JSON.stringify(actionDb.prepare('SELECT * FROM tasks WHERE id = ?').get('created-task')),
+    '2026-07-10T16:00:00.000Z',
+    artifact.id,
+  );
+  actionDb.close();
+
+  const staleBrowserCandidate = candidate();
+  const repaired = includeBriefCreatedEnsureCandidates(store, {
+    localDate: '2026-07-10',
+    timezone: 'America/Los_Angeles',
+    mutationId: 'ensure:repaired-created-task',
+    candidates: [staleBrowserCandidate],
+    creation: 'automatic',
+  }, dbPath);
+
+  assert.deepEqual(repaired.candidates.map((entry) => entry.taskId), [
+    'created-task',
+    staleBrowserCandidate.taskId,
+  ]);
+  const plan = store.ensureDayPlan(repaired).plan;
+  assert.equal(plan.briefId, artifact.id);
+  assert.ok(plan.items.some((item) => item.taskId === 'created-task'));
 });
 
 test('parses an honestly labeled due-backlog candidate', () => {

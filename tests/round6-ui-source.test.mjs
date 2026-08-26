@@ -10,6 +10,10 @@ const workspace = readFileSync(
   new URL('../src/components/tasks/TaskWorkspace.tsx', import.meta.url),
   'utf8',
 );
+const taskSheet = readFileSync(
+  new URL('../src/components/tasks/arrival/TaskSheet.tsx', import.meta.url),
+  'utf8',
+);
 const nav = readFileSync(
   new URL('../src/components/layout/TabNav.tsx', import.meta.url),
   'utf8',
@@ -23,6 +27,13 @@ test('Today focus details use the inline card and shared rich-sheet scrim', () =
   assert.doesNotMatch(stage, /today2-task-detail/);
   assert.match(css, /height:\s*158px/);
   assert.match(css, /-webkit-line-clamp:\s*3/);
+  assert.match(css, /\.today2-task-state\.is-compact\s*\{[^}]*font-size:\s*11px/);
+  assert.match(stage, /Planning with Claude in the background/);
+});
+
+test('today task details close directly without a no-op keep action', () => {
+  assert.match(taskSheet, /aria-label="Close task details"/);
+  assert.doesNotMatch(taskSheet, /Keep in focus|Keep for today/);
 });
 
 test('the task switcher lives in the fixed auto-hiding main bar only', () => {
