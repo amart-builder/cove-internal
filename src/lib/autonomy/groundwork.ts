@@ -1,7 +1,4 @@
-import {
-  spawn,
-  type ChildProcessWithoutNullStreams,
-} from "node:child_process";
+import type { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -33,6 +30,7 @@ import {
   type CoveAutonomySettings,
 } from "./settings";
 import { coveEnv } from "../env";
+import { runJob, type ModelRunnerBackend } from "../model-runner";
 
 const GROUNDWORK_TAG = "groundwork-queued";
 const RUNNING_TAG = "groundwork-running";
@@ -42,7 +40,6 @@ const HELD_TAG = "jarvis-held";
 const GROUNDWORK_HEADER = "## Groundwork (Cove)";
 const GROUNDWORK_END = "<!-- /cove-groundwork -->";
 const MAX_GROUNDWORK_SECTION = 4_000;
-const MAX_OUTPUT_BYTES = 1024 * 1024;
 const GROUNDWORK_TOOLS = "Read,Grep,Glob,WebSearch";
 const MAX_ATTEMPTS = 2;
 const CLAIM_STALE_MS = 10 * 60_000;
@@ -56,6 +53,7 @@ export type GroundworkWorkerOptions = InboundTaskWriterOptions & {
   emptyMcpConfigPath?: string;
   emptySettingsPath?: string;
   env?: NodeJS.ProcessEnv;
+  modelBackend?: ModelRunnerBackend;
   repoDir?: string;
   spawnImpl?: SpawnImpl;
   timeoutMs?: number;
@@ -379,121 +377,31 @@ export function buildGroundworkCommand(input: {
   };
 }
 
-function minimalChildEnvironment(
-  env: NodeJS.ProcessEnv,
-): NodeJS.ProcessEnv {
-  const allowed = [
-    "HOME",
-    "PATH",
-    "TMPDIR",
-    "LANG",
-    "LC_ALL",
-    "USER",
-    "LOGNAME",
-    "SHELL",
-    "NODE_ENV",
-    "XDG_CONFIG_HOME",
-    "CLAUDE_CONFIG_DIR",
-    "ANTHROPIC_API_KEY",
-    "CLAUDE_CODE_OAUTH_TOKEN",
-  ];
-  return Object.fromEntries(
-    allowed.flatMap((key) => env[key] === undefined ? [] : [[key, env[key]]]),
-  ) as NodeJS.ProcessEnv;
-}
-
-function terminateChild(child: ChildProcessWithoutNullStreams): void {
-  if (child.pid) {
-    try {
-      process.kill(-child.pid, "SIGKILL");
-      return;
-    } catch {
-      // Fall back to the direct child.
-    }
-  }
-  try {
-    child.kill("SIGKILL");
-  } catch {
-    // It may already have exited.
-  }
-}
-
-function runGroundworkCommand(
+async function runGroundworkCommand(
   prompt: string,
   command: GroundworkCommand,
   options: GroundworkWorkerOptions,
 ): Promise<string> {
-  const spawnImpl = options.spawnImpl ?? spawn;
-  return new Promise((resolve, reject) => {
-    if (options.abortSignal?.aborted) {
-      reject(new Error("groundwork_aborted"));
-      return;
-    }
-    let child: ChildProcessWithoutNullStreams;
-    try {
-      child = spawnImpl(command.executable, command.args, {
-        cwd: command.cwd,
-        shell: false,
-        detached: true,
-        stdio: ["pipe", "pipe", "pipe"],
-        env: minimalChildEnvironment(options.env ?? process.env),
-      }) as ChildProcessWithoutNullStreams;
-    } catch (error) {
-      reject(error);
-      return;
-    }
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const finish = (error?: Error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      options.abortSignal?.removeEventListener("abort", abort);
-      if (error) reject(error);
-      else resolve(stdout.trim());
-    };
-    const abort = () => {
-      terminateChild(child);
-      finish(new Error("groundwork_aborted"));
-    };
-    const timeout = setTimeout(() => {
-      terminateChild(child);
-      finish(new Error("groundwork_timeout"));
-    }, command.timeoutMs);
-    options.abortSignal?.addEventListener("abort", abort, { once: true });
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      stdout += chunk;
-      if (Buffer.byteLength(stdout, "utf8") > MAX_OUTPUT_BYTES) {
-        terminateChild(child);
-        finish(new Error("groundwork_output_too_large"));
-      }
-    });
-    child.stderr.on("data", (chunk: string) => {
-      stderr += chunk;
-      if (Buffer.byteLength(stderr, "utf8") > MAX_OUTPUT_BYTES) {
-        terminateChild(child);
-        finish(new Error("groundwork_error_output_too_large"));
-      }
-    });
-    child.once("error", (error) => finish(error));
-    child.once("close", (code) => {
-      if (code !== 0) {
-        finish(new Error(
-          `groundwork_claude_failed_${code}: ${stderr.replace(/\s+/g, " ").slice(0, 500)}`,
-        ));
-        return;
-      }
-      if (!stdout.trim()) {
-        finish(new Error("groundwork_empty_output"));
-        return;
-      }
-      finish();
-    });
-    child.stdin.end(prompt);
+  if (options.abortSignal?.aborted) throw new Error("groundwork_aborted");
+  const result = await runJob({
+    lane: "autonomy-groundwork",
+    kind: "text",
+    prompt,
+    timeoutMs: command.timeoutMs,
+    backend: options.modelBackend,
+    claudePath: options.claudePath,
+    spawnImpl: options.spawnImpl,
+    env: options.env,
+    cwd: command.cwd,
+    claudeTools: GROUNDWORK_TOOLS,
+    claudeMcpConfigPath: options.emptyMcpConfigPath,
+    claudeSettingsPath: options.emptySettingsPath,
+    claudeNoChrome: true,
+    claudeDisableSlashCommands: true,
+    claudeMaxBudgetUsd: "1.50",
   });
+  if (!result.ok) throw new Error(`${result.error.code}:${result.error.message}`);
+  return result.text.trim();
 }
 
 export function formatGroundworkSection(output: string): string {

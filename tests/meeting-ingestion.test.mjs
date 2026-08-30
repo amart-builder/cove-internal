@@ -463,10 +463,15 @@ test("normal single-Mac install registers watcher and progress lanes outside --m
   assert.ok(skillsStart > normalStart);
   const normalProfile = installer.slice(normalStart);
   assert.match(normalProfile, /com\.cove\.meeting-watch\.plist/);
+  assert.match(normalProfile, /com\.cove\.meeting-drain\.plist/);
   assert.match(normalProfile, /com\.cove\.progress\.plist/);
   assert.match(
     normalProfile,
     /launchctl bootstrap "gui\/\$UID_NUM" "\$MEETING_PLIST"/,
+  );
+  assert.match(
+    normalProfile,
+    /launchctl bootstrap "gui\/\$UID_NUM" "\$MEETING_DRAIN_PLIST"/,
   );
   assert.match(
     normalProfile,
@@ -487,7 +492,7 @@ test("normal single-Mac install registers watcher and progress lanes outside --m
   assert.match(normalProfile, /"\$NODE_REAL" "\$LANE_PLIST_RENDERER"/);
   assert.match(
     normalProfile,
-    /if \[ "\$INSTALL_MEETING_LANE" = "1" \]; then\s+echo "Meeting watcher: every 5 minutes[\s\S]*else\s+echo "Meeting watcher: skipped because \$MEETING_OWNER owns this lane"/,
+    /if \[ "\$INSTALL_MEETING_LANE" = "1" \]; then\s+echo "Meeting watcher: weekdays every 15 minutes, 08:00-18:00 local, plus login catch-up"\s+echo "Meeting analysis drain: every 15 minutes, always on"[\s\S]*else\s+echo "Meeting watcher: skipped because \$MEETING_OWNER owns this lane"\s+echo "Meeting analysis drain: skipped because \$MEETING_OWNER owns this lane"/,
   );
   assert.match(
     normalProfile,
@@ -495,5 +500,13 @@ test("normal single-Mac install registers watcher and progress lanes outside --m
   );
   assert.match(installer, /claim_lane meeting_watch mini/);
   assert.match(installer, /claim_lane progress mini/);
-  assert.match(normalProfile, /StartInterval jobs catch up when the Mac wakes/);
+  assert.match(
+    installer,
+    /Installed the Mini meeting watcher \(weekdays every 15 minutes, 08:00-18:00 local, plus login catch-up\)/,
+  );
+  assert.match(
+    installer,
+    /Installed the Mini meeting analysis drain \(every 15 minutes, always on\)/,
+  );
+  assert.match(normalProfile, /RunAtLoad provides\s+# login catch-up/);
 });

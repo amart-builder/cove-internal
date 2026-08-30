@@ -7,7 +7,7 @@
  * {
  *   "enabled": true,
  *   "query": "from:(gemini-noreply@google.com) OR subject:(\"Notes:\" OR \"Meeting notes\")",
- *   "window": "newer_than:2d",
+ *   "window": "newer_than:4d",
  *   "processed_label": "Cove/Meeting-Processed"
  * }
  *
@@ -56,6 +56,12 @@ const {
   processMeetingNotesEmail,
   writeWaitingCommitment,
 } = require("../src/lib/intake/meeting-pipeline.ts");
+const {
+  meetingAnalystEnabled,
+  parseMeetingEnvelope,
+  queueMeetingNotesEmail,
+  runMeetingAnalysisSweep,
+} = require("../src/lib/intake/meeting-analysis.ts");
 const {
   recordFailure,
 } = require("../src/lib/reliability/failures.ts");
@@ -395,6 +401,7 @@ async function fetchMessageBody(mail, _accountEmail, messageId) {
     threadId: message.threadId,
     body: message.text,
     headers: message.headers,
+    internalDate: message.internalDate,
     sender: mailHeader(message, "From"),
     subject: mailHeader(message, "Subject"),
   };
@@ -411,7 +418,66 @@ async function applyProcessedLabel(mail, _accountEmail, threadId, labelName) {
   });
 }
 
+function logArchiveFailure(options, messageId, error) {
+  const line = `Meeting watcher could not archive ${messageId}: ${boundedError(error)}`;
+  try {
+    if (options.logArchiveFailure) options.logArchiveFailure(line);
+    else process.stderr.write(`${line}\n`);
+  } catch {
+    // Archiving and its diagnostic are both best-effort after durable ingestion.
+  }
+}
+
 export { writeWaitingCommitment };
+
+export async function runMeetingAnalysisDrain(options = {}) {
+  const now = options.now ?? (() => new Date());
+  const runtimeDataDir = options.dataDir ?? defaultDataDir;
+  const dbPath = options.dbPath ||
+    coveEnvTrimmed("DB_PATH") ||
+    path.join(runtimeDataDir, "cove.db");
+  const baseUrl = options.baseUrl ??
+    coveEnvTrimmed("BRIEF_WEB_BASE") ??
+    "http://127.0.0.1:3200";
+  return (options.runMeetingAnalysisSweepImpl ?? runMeetingAnalysisSweep)({
+    dbPath,
+    dataDir: runtimeDataDir,
+    baseUrl,
+    ...(options.mail ? { mail: options.mail } : {}),
+    now,
+    fetchImpl: options.fetchImpl ?? fetch,
+    fetchTimeoutMs: options.fetchTimeoutMs ?? 10_000,
+    runJobImpl: options.runJobImpl,
+    crmBackend: options.crmBackend,
+    legacyFallback: options.legacyFallback ?? (async (envelope) => {
+      await processMeetingNotesEmail({
+        messageId: envelope.gmailMessageId,
+        threadId: envelope.threadId,
+        sender: envelope.sender,
+        subject: envelope.title,
+        body: envelope.body,
+        detectedTool: envelope.tool,
+        receivedAt: envelope.receivedAt,
+      }, {
+        sourceDoor: options.sourceDoor ?? "watcher",
+        dbPath,
+        repoDir: options.repoDir ?? repoDir,
+        dataDir: runtimeDataDir,
+        baseUrl,
+        now,
+        fetchImpl: options.fetchImpl ?? fetch,
+        fetchTimeoutMs: options.fetchTimeoutMs ?? 10_000,
+        extractFollowUps: options.extractFollowUps,
+        runIntakeImpl: options.runIntakeImpl,
+        recordEventImpl: options.recordEventImpl,
+        resolveEventImpl: options.resolveEventImpl,
+        writeCommitmentImpl: options.writeCommitmentImpl,
+        crmBackend: options.crmBackend,
+        machine: options.machine,
+      });
+    }),
+  });
+}
 
 export async function runMeetingWatch(options = {}) {
   const now = options.now ?? (() => new Date());
@@ -504,6 +570,7 @@ export async function runMeetingWatch(options = {}) {
     }
     const mail = options.gateway ??
       createGoogleWorkspaceGateway({ dataDir: runtimeDataDir }).mail;
+    const analystEnabled = options.meetingAnalystEnabled ?? meetingAnalystEnabled();
     const emailConfig = loadEmailConfig(emailConfigPath);
     const processed = new Set(state.processed_ids);
     const failures = { ...state.failures };
@@ -597,6 +664,18 @@ export async function runMeetingWatch(options = {}) {
         summary.matched += 1;
 
         if (dryRun) {
+          if (analystEnabled) {
+            parseMeetingEnvelope({
+              messageId: message.id,
+              threadId: message.threadId,
+              detectedTool: detection.tool,
+              subject: meetingTitle,
+              body,
+              sender,
+              headers: fetchedMessage.headers,
+              receivedAt: fetchedMessage.internalDate ?? undefined,
+            });
+          }
           const items = priorFailure?.zero_items === true
             ? []
             : await (options.extractFollowUps ?? extractMeetingFollowUps)(
@@ -621,8 +700,10 @@ export async function runMeetingWatch(options = {}) {
           continue;
         }
 
-        const pipeline = await (options.processMeetingEmail ??
-          processMeetingNotesEmail)(
+        const processMeeting = analystEnabled
+          ? options.queueMeetingEmail ?? options.processMeetingEmail ?? queueMeetingNotesEmail
+          : options.processMeetingEmail ?? processMeetingNotesEmail;
+        const pipeline = await processMeeting(
           {
             messageId: message.id,
             threadId: message.threadId,
@@ -630,6 +711,8 @@ export async function runMeetingWatch(options = {}) {
             subject: meetingTitle,
             body,
             detectedTool: detection.tool,
+            headers: fetchedMessage.headers,
+            receivedAt: fetchedMessage.internalDate ?? undefined,
           },
           {
             sourceDoor: options.sourceDoor ??
@@ -665,7 +748,8 @@ export async function runMeetingWatch(options = {}) {
         summary.waiting_on += pipeline.summary.waitingOn;
         if (
           pipeline.status === "skipped" &&
-          pipeline.reason === "lease-active"
+          (pipeline.reason === "lease-active" ||
+            pipeline.reason === "already-failed")
         ) {
           continue;
         }
@@ -690,6 +774,11 @@ export async function runMeetingWatch(options = {}) {
           message.threadId,
           labelId,
         );
+        try {
+          await mail.archiveMessages({ messageIds: [message.id] });
+        } catch (error) {
+          logArchiveFailure(options, message.id, error);
+        }
         processed.add(message.id);
         delete failures[message.id];
         persistState();
@@ -745,6 +834,33 @@ export async function runMeetingWatch(options = {}) {
       }
     }
 
+    if (!dryRun && analystEnabled) {
+      const sweep = await runMeetingAnalysisDrain({
+        dbPath,
+        dataDir: runtimeDataDir,
+        baseUrl: emailConfig.coveUrl,
+        mail,
+        now,
+        fetchImpl: options.fetchImpl ?? fetch,
+        fetchTimeoutMs: options.fetchTimeoutMs ?? 10_000,
+        runMeetingAnalysisSweepImpl: options.runMeetingAnalysisSweepImpl,
+        runJobImpl: options.runJobImpl,
+        crmBackend: options.crmBackend,
+        extractFollowUps: options.extractFollowUps,
+        runIntakeImpl: options.runIntakeImpl,
+        recordEventImpl: options.recordEventImpl,
+        resolveEventImpl: options.resolveEventImpl,
+        writeCommitmentImpl: options.writeCommitmentImpl,
+        machine: options.machine,
+      });
+      if (sweep.failed || sweep.dead) {
+        summary.errors += sweep.failed + sweep.dead;
+        summary.error_messages.push({
+          error: `Meeting analysis jobs failed=${sweep.failed} dead=${sweep.dead}.`,
+        });
+      }
+    }
+
     if (!dryRun) {
       persistState();
       writeMeetingHeartbeat(heartbeatPath, heartbeat(), machineIdentity);
@@ -773,12 +889,33 @@ export function shouldRecordMeetingWatchReceipt(summary) {
 }
 
 export async function main(args = process.argv.slice(2), options = {}) {
-  const unknown = args.filter((arg) => arg !== "--once" && arg !== "--dry-run");
+  const unknown = args.filter((arg) =>
+    arg !== "--once" && arg !== "--dry-run" && arg !== "--drain-only"
+  );
   if (unknown.length > 0) {
     process.stderr.write(`Unknown option: ${unknown[0]}\n`);
     return 2;
   }
   const dryRun = args.includes("--dry-run");
+  const drainOnly = args.includes("--drain-only");
+  if (drainOnly) {
+    if (dryRun) {
+      process.stderr.write("--drain-only cannot be combined with --dry-run.\n");
+      return 2;
+    }
+    try {
+      const result = await (
+        options.runMeetingAnalysisDrainImpl ?? runMeetingAnalysisDrain
+      )(options.runOptions ?? {});
+      if (result.processed || result.failed || result.dead) {
+        process.stdout.write(`${JSON.stringify(result)}\n`);
+      }
+      return 0;
+    } catch (error) {
+      process.stderr.write(`Meeting analysis drain failed: ${boundedError(error)}\n`);
+      return 1;
+    }
+  }
   const startedAt = new Date().toISOString();
   const result = await (options.runMeetingWatchImpl ?? runMeetingWatch)({
     ...(options.runOptions ?? {}),

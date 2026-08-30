@@ -41,6 +41,7 @@ import {
   hasAttentionLedger,
 } from "../src/lib/attention/ledger.mjs";
 import { coveConfigPath, coveEnv } from "../src/lib/env-runtime.mjs";
+import { operatorTimezone } from "../src/lib/operator-runtime.mjs";
 
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dbPath = coveEnv("DB_PATH") || path.join(repoDir, "data", "cove.db");
@@ -52,6 +53,7 @@ const DIRECT_AUTHOR_SOURCES = new Set([
   "day-plan",
 ]);
 const CONTENT_FREE_REMINDER = "Cove reminder: open the board";
+const NUDGE_SEND_LIMIT = 3;
 const nativeNotificationDependencies = {
   notificationAppPath: coveEnv("NOTIFICATION_APP"),
 };
@@ -218,6 +220,9 @@ function taskProvenance(task) {
   if (task.inbound_source === "meeting") {
     return { direct: false, prefix: "from meeting" };
   }
+  if (isMeetingDerivedTask(task)) {
+    return { direct: false, prefix: "from meeting" };
+  }
   // A task with no inbound event was typed into Cove by the owner, which is as
   // direct as authorship gets. Only an inbound event can carry outside content.
   if (!task.inbound_source && task.source_type !== "inbound_event") {
@@ -227,6 +232,39 @@ function taskProvenance(task) {
     direct: false,
     prefix: task.inbound_source ? `from ${task.inbound_source}` : "from unknown source",
   };
+}
+
+function isMeetingDerivedTask(task) {
+  const sourceType = String(task.source_type ?? "").trim().toLowerCase();
+  return task.inbound_source === "meeting" ||
+    sourceType === "meeting" ||
+    sourceType.startsWith("meeting_") ||
+    sourceType.startsWith("meeting-");
+}
+
+function dueLaneEnabled(task) {
+  return task.notification_policy == null ||
+    task.notification_policy === "due" ||
+    task.notification_policy === "both";
+}
+
+function nudgeLaneEnabled(task) {
+  return task.notification_policy === "predeadline" ||
+    task.notification_policy === "both";
+}
+
+function localHour(now, timezone = operatorTimezone()) {
+  const hour = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now).find((part) => part.type === "hour")?.value;
+  return Number(hour);
+}
+
+function insideNudgeDeliveryWindow(now) {
+  const hour = localHour(now);
+  return Number.isInteger(hour) && hour >= 8 && hour < 20;
 }
 
 function commitmentProvenance(commitment) {
@@ -275,6 +313,7 @@ async function runDeterministicFloor(db, config, token, now = new Date()) {
        FROM tasks
        LEFT JOIN inbound_events ON inbound_events.id = tasks.id
       WHERE tasks.status = 'open'
+        AND (tasks.notification_policy IS NULL OR tasks.notification_policy IN ('due','both'))
         AND tasks.due_at IS NOT NULL
         AND CASE
               WHEN length(tasks.due_at) = 10 THEN tasks.due_at
@@ -546,7 +585,9 @@ function fireScheduledReminders(db, config, token) {
         );
       }
       const textExpected = configuredChannelExpected(config);
-      if (textExpected) {
+      const meetingDerived = String(entry.source ?? "").toLowerCase() === "meeting" ||
+        String(entry.source_type ?? "").toLowerCase().startsWith("meeting");
+      if (textExpected && !meetingDerived) {
         const directAuthor = DIRECT_AUTHOR_SOURCES.has(entry.source);
         deliverTextReminder(db, config, token, {
           kind: "scheduled",
@@ -576,6 +617,154 @@ function fireScheduledReminders(db, config, token) {
   }
 }
 
+async function firePredeadlineNudges(db, dueTaskIds, now) {
+  const nowIso = now.toISOString();
+  const claim = db.prepare(
+    `UPDATE tasks SET nudged_at = ?
+      WHERE id = ? AND nudged_at IS NULL AND status = 'open' AND engaged_at IS NULL
+        AND remind_at IS NOT NULL
+        AND notification_policy IN ('predeadline','both')`,
+  );
+
+  // A due reminder owns a same-tick collision. Claim the nudge as suppressed so
+  // it cannot appear after the due lane has already spoken.
+  for (const id of dueTaskIds) {
+    try {
+      claim.run(nowIso, id);
+    } catch (error) {
+      console.error(`Nudge for task ${id} collision claim failed:`, errorMessage(error));
+    }
+  }
+
+  // A predeadline nudge is no longer truthful once its due moment has passed,
+  // including when policy disables the due lane. Claim those rows without send.
+  const pastDue = db.prepare(
+    `SELECT id, due_at
+       FROM tasks
+      WHERE status = 'open'
+        AND remind_at IS NOT NULL
+        AND nudged_at IS NULL
+        AND engaged_at IS NULL
+        AND julianday(remind_at) <= julianday(?)
+        AND due_at IS NOT NULL
+        AND notification_policy IN ('predeadline','both')`,
+  ).all(nowIso);
+  for (const task of pastDue) {
+    const due = dueTime(task.due_at);
+    if (Number.isNaN(due.getTime()) || due.getTime() > now.getTime()) continue;
+    try {
+      claim.run(nowIso, task.id);
+    } catch (error) {
+      console.error(`Nudge for task ${task.id} past-due claim failed:`, errorMessage(error));
+    }
+  }
+
+  if (!insideNudgeDeliveryWindow(now)) return;
+  const candidates = db.prepare(
+    `SELECT tasks.id, tasks.title, tasks.source_type,
+            tasks.notification_policy, tasks.due_at,
+            inbound_events.source AS inbound_source
+       FROM tasks
+       LEFT JOIN inbound_events ON inbound_events.id = tasks.id
+      WHERE tasks.status = 'open'
+        AND tasks.remind_at IS NOT NULL
+        AND tasks.nudged_at IS NULL
+        AND tasks.engaged_at IS NULL
+        AND julianday(tasks.remind_at) <= julianday(?)
+        AND tasks.notification_policy IN ('predeadline','both')
+        AND (
+          tasks.due_at IS NULL OR
+          CASE
+            WHEN length(tasks.due_at) = 10
+              THEN julianday(tasks.due_at || 'T09:00:00', 'utc')
+            ELSE julianday(tasks.due_at)
+          END > julianday(?)
+        )
+      ORDER BY tasks.remind_at, tasks.position, tasks.id
+      LIMIT ?`,
+  ).all(nowIso, nowIso, NUDGE_SEND_LIMIT * 4);
+  const stillEligible = db.prepare(
+    `SELECT due_at FROM tasks
+      WHERE id = ? AND status = 'open' AND engaged_at IS NULL`,
+  );
+
+  let deliveredNudges = 0;
+  for (const task of candidates) {
+    if (deliveredNudges >= NUDGE_SEND_LIMIT) break;
+    if (!nudgeLaneEnabled(task)) continue;
+    const title = plainAttentionText(task.title) || "Task";
+    const allocation = allocateAttention(db, {
+      kind: "sweep_nudge",
+      refKind: "task",
+      refId: task.id,
+      requestedLevel: "banner",
+      maximumLevel: "banner",
+      reason: `Before it is due: ${title}`,
+      now,
+    });
+    await surfaceSuppressionRows(allocation.suppressionRows, now);
+    if (!allocation.row) continue;
+    try {
+      if (claim.run(nowIso, task.id).changes !== 1) {
+        finalizeAttentionDelivery(db, {
+          id: allocation.row.id,
+          level: "suppressed",
+          suppressedReason: "nudge_claim_lost",
+          now,
+        });
+        continue;
+      }
+    } catch (error) {
+      console.error(`Nudge for task ${task.id} claim failed:`, errorMessage(error));
+      finalizeAttentionDelivery(db, {
+        id: allocation.row.id,
+        level: "suppressed",
+        suppressedReason: "nudge_claim_failed",
+        now,
+      });
+      continue;
+    }
+    const current = stillEligible.get(task.id);
+    const currentDue = current?.due_at ? dueTime(current.due_at) : null;
+    if (
+      !current ||
+      (currentDue && !Number.isNaN(currentDue.getTime()) && currentDue.getTime() <= now.getTime())
+    ) {
+      finalizeAttentionDelivery(db, {
+        id: allocation.row.id,
+        level: "suppressed",
+        suppressedReason: "nudge_no_longer_eligible",
+        now,
+      });
+      continue;
+    }
+    const provenance = taskProvenance(task);
+    const banner = provenance.direct
+      ? `Before it's due: ${title}`
+      : sanitizedNonDirectText(title, provenance.prefix);
+    let delivered = false;
+    try {
+      notifyAttentionBanner(banner, "Upcoming task");
+      delivered = true;
+    } catch (error) {
+      console.error(`Nudge for task ${task.id} native notification failed:`, errorMessage(error));
+      recordNativeOnlyFailure(db, {
+        kind: "nudge",
+        id: task.id,
+        title,
+        error: errorMessage(error),
+      });
+    }
+    finalizeAttentionDelivery(db, {
+      id: allocation.row.id,
+      level: delivered ? "banner" : "suppressed",
+      suppressedReason: delivered ? undefined : "delivery_failed",
+      now,
+    });
+    if (delivered) deliveredNudges += 1;
+  }
+}
+
 async function main() {
   const config = loadReminderConfig();
   const token = telegramToken();
@@ -589,12 +778,14 @@ async function main() {
   if (db) db.pragma("busy_timeout = 5000");
   fireScheduledReminders(db, config, token);
   if (!db) return;
-  await runDeterministicFloor(db, config, token, attentionNow());
+  const now = attentionNow();
+  await runDeterministicFloor(db, config, token, now);
 
   const due = db
     .prepare(
       `SELECT tasks.id, tasks.title, tasks.due_at, tasks.remind_native,
               tasks.remind_text, tasks.source_type,
+              tasks.notification_policy,
               inbound_events.source AS inbound_source
          FROM tasks
          LEFT JOIN inbound_events ON inbound_events.id = tasks.id
@@ -603,9 +794,13 @@ async function main() {
     )
     .all()
     .filter((t) => {
+      if (!dueLaneEnabled(t)) return false;
       const when = dueTime(t.due_at);
-      return !Number.isNaN(when.getTime()) && when.getTime() <= Date.now();
+      return !Number.isNaN(when.getTime()) && when.getTime() <= now.getTime();
     });
+
+  const dueTaskIds = new Set(due.map((task) => task.id));
+  await firePredeadlineNudges(db, dueTaskIds, now);
 
   if (due.length === 0) return;
 
@@ -616,7 +811,7 @@ async function main() {
 
   for (const task of due) {
     try {
-      if (claim.run(new Date().toISOString(), task.id).changes !== 1) continue;
+      if (claim.run(now.toISOString(), task.id).changes !== 1) continue;
     } catch (error) {
       console.error(`Reminder for task ${task.id} claim failed:`, errorMessage(error));
       continue;
@@ -625,7 +820,9 @@ async function main() {
     const title = plainAttentionText(task.title) || "Task";
     const provenance = taskProvenance(task);
     const textExpected = Boolean(
-      task.remind_text && configuredChannelExpected(config),
+      task.remind_text &&
+      configuredChannelExpected(config) &&
+      !isMeetingDerivedTask(task),
     );
     let nativeFailure = null;
     if (task.remind_native) {

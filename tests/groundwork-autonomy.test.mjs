@@ -99,6 +99,7 @@ test("groundwork invocation passes only read tools plus the timeout and intake b
     dataDir: dir,
     repoDir: dir,
     claudePath: "/fake/claude",
+    modelBackend: "claude",
     emptyMcpConfigPath: emptyMcp,
     emptySettingsPath: emptySettings,
     readSettings: () => ({
@@ -471,6 +472,7 @@ test("task-writer PATCH uses tag containment as a compare-and-swap guard", async
         patchUrl = String(url);
         assert.equal(init.method, "PATCH");
         assert.equal(init.headers["X-Cove-CSRF"], "test-token");
+        assert.equal(init.headers["X-Cove-Task-Write"], "automation");
         return Response.json([]);
       },
     },
@@ -551,6 +553,26 @@ test("dry-run analyzes one task but writes no task or setting state", async (t) 
   assert.equal(result.outcome, "dry-run");
   assert.equal(result.output, "Dry-run groundwork.");
   assert.equal(existsSync(path.join(dir, "cove-autonomy.json")), false);
+});
+
+test("a successful zero-length groundwork run keeps the groundwork_empty_output code", async (t) => {
+  const dir = fixture(t);
+  await assert.rejects(
+    runOneGroundwork({
+      dryRun: true,
+      dataDir: dir,
+      repoDir: dir,
+      readSettings: () => ({
+        level: "groundwork",
+        first_groundwork_at: null,
+        checkin_answered: false,
+        checkin_presented_count: 0,
+      }),
+      listQueuedTasks: async () => [task()],
+      runClaude: async () => "   ",
+    }),
+    { message: "groundwork_empty_output" },
+  );
 });
 
 test("two-week check-in uses exact date math and auto-closes after three briefs", (t) => {

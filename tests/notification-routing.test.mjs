@@ -26,7 +26,12 @@ function createReminderDatabase(dbPath) {
       notified_at TEXT,
       remind_native INTEGER NOT NULL DEFAULT 0,
       remind_text INTEGER NOT NULL DEFAULT 0,
-      source_type TEXT
+      source_type TEXT,
+      position INTEGER NOT NULL DEFAULT 0,
+      remind_at TEXT,
+      nudged_at TEXT,
+      engaged_at TEXT,
+      notification_policy TEXT
     );
     CREATE TABLE inbound_events (
       id TEXT PRIMARY KEY,
@@ -431,6 +436,12 @@ test('scheduled text includes titles only for direct-author sources', (t) => {
   }));
   const entries = [
     { id: 'email-task', title: 'Sensitive email title', source: 'email' },
+    {
+      id: 'meeting-task',
+      title: 'Sensitive meeting title',
+      source: 'meeting',
+      source_type: 'inbound_event',
+    },
     { id: 'legacy-task', title: 'Legacy sensitive title' },
     { id: 'chat-task', title: 'Direct chat title', source: 'chat' },
   ];
@@ -462,10 +473,11 @@ test('scheduled text includes titles only for direct-author sources', (t) => {
   }
   const sent = readFileSync(sshCalls, 'utf8');
   assert.equal(sent.match(/Cove reminder: open the board/g)?.length, 2);
-  assert.doesNotMatch(sent, /Sensitive email title|Legacy sensitive title/);
+  assert.doesNotMatch(sent, /Sensitive email title|Sensitive meeting title|Legacy sensitive title/);
   assert.match(sent, /Cove reminder: Direct chat title/);
   const banners = readFileSync(calls, 'utf8');
   assert.match(banners, /Sensitive email title/);
+  assert.match(banners, /Sensitive meeting title/);
   assert.match(banners, /Legacy sensitive title/);
 });
 

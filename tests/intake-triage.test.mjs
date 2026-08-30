@@ -75,7 +75,10 @@ function claudeSpawn(payload, calls) {
     });
     child.stdin.once('finish', () => {
       queueMicrotask(() => {
-        child.stdout.write(typeof payload === 'string' ? payload : JSON.stringify(payload));
+        const output = typeof payload === 'string' ? payload : JSON.stringify(payload);
+        const outputIndex = args.indexOf('--output-last-message');
+        if (outputIndex >= 0) writeFileSync(args[outputIndex + 1], output);
+        else child.stdout.write(output);
         child.stdout.end();
         child.stderr.end();
         child.emit('close', 0);
@@ -143,6 +146,7 @@ test('natural-language recurrence captures today once and only proposes the temp
     dataDir: dir,
     fetchImpl: coveFetch(posts),
     webBaseUrl: 'http://recurrence-proposal.test',
+    codexPath: 'codex',
     spawnImpl: claudeSpawn(validTriage({
       due_at: '2026-08-10T09:00:00-07:00',
       surface: 'board',
@@ -350,6 +354,7 @@ test('canonical intake captures first, triages once, writes project, and is idem
     repoDir: process.cwd(),
     fetchImpl: coveFetch(posts),
     webBaseUrl: 'http://triage.test',
+    codexPath: 'codex',
     spawnImpl: claudeSpawn(
       `\`\`\`json\n${JSON.stringify(validTriage())}\n\`\`\``,
       spawnCalls,
@@ -379,12 +384,13 @@ test('canonical intake captures first, triages once, writes project, and is idem
   const stored = await getEvent(result.event.id);
   assert.equal(stored.state, 'triaged');
   assert.equal(stored.task_id, result.event.id);
-  assert.equal(spawnCalls[0].args[spawnCalls[0].args.indexOf('--model') + 1], 'claude-opus-5');
-  assert.equal(spawnCalls[0].args.includes('--strict-mcp-config'), true);
-  assert.equal(
-    spawnCalls[0].args[spawnCalls[0].args.indexOf('--max-budget-usd') + 1],
-    '1.50',
-  );
+  assert.equal(spawnCalls[0].executable, 'codex');
+  assert.deepEqual(spawnCalls[0].args.slice(0, 9), [
+    'exec', '--sandbox', 'read-only', '--skip-git-repo-check',
+    '-m', 'gpt-5.6-sol', '-c', 'model_reasoning_effort=high',
+    '--output-last-message',
+  ]);
+  assert.equal(spawnCalls[0].args.includes('--output-schema'), false);
   assert.equal(spawnCalls[0].options.env.SUPABASE_SERVICE_ROLE_KEY, undefined);
   assert.deepEqual(
     JSON.parse(readFileSync(path.join(dir, 'cove-autonomy.json'), 'utf8')),
@@ -444,6 +450,7 @@ test('triage autonomy none never queues groundwork', async (t) => {
     repoDir: process.cwd(),
     fetchImpl: coveFetch(posts),
     webBaseUrl: 'http://autonomy-none.test',
+    codexPath: 'codex',
     spawnImpl: claudeSpawn(validTriage({
       autonomy: 'none',
       groundwork_notes: null,
@@ -474,6 +481,7 @@ test('the off setting suppresses a model-selected groundwork queue', async (t) =
     repoDir: process.cwd(),
     fetchImpl: coveFetch(posts),
     webBaseUrl: 'http://autonomy-off.test',
+    codexPath: 'codex',
     spawnImpl: claudeSpawn(validTriage({
       surface: 'board',
       surface_at: null,
@@ -530,6 +538,7 @@ test('a due-now surface receipt survives task creation and resumes without anoth
       dataDir: dir,
       fetchImpl,
       webBaseUrl: 'http://surface-retry.test',
+      codexPath: 'codex',
       spawnImpl: claudeSpawn(validTriage(), []),
       notifyNow: async () => {
         throw new Error('notification unavailable');
@@ -559,6 +568,7 @@ test('triage failure creates the Phase 0 fallback on the same event and records 
   const dir = fixture(t);
   const posts = [];
   const lines = [];
+  const modelCalls = [];
   const result = await runCoveIntake({
     text: 'Capture this even when Claude returns nonsense.',
     source: 'voice',
@@ -568,7 +578,8 @@ test('triage failure creates the Phase 0 fallback on the same event and records 
     repoDir: process.cwd(),
     fetchImpl: coveFetch(posts),
     webBaseUrl: 'http://fallback.test',
-    spawnImpl: claudeSpawn('not-json', []),
+    codexPath: 'codex',
+    spawnImpl: claudeSpawn('not-json', modelCalls),
     now: () => new Date('2026-07-27T18:00:00.000Z'),
     write: (line) => lines.push(line),
     writeError: () => undefined,
@@ -582,7 +593,9 @@ test('triage failure creates the Phase 0 fallback on the same event and records 
   const stored = await getEvent(result.event.id);
   assert.equal(stored.state, 'triaged');
   assert.equal(stored.task_id, stored.id);
-  assert.match(stored.error, /triage_output_invalid_json/);
+  assert.match(stored.error, /codex_invalid_output/);
+  assert.equal(modelCalls.length, 2);
+  assert.deepEqual([...new Set(modelCalls.map((call) => call.executable))], ['codex']);
   assert.match(lines[0], /^TASK /);
   assert.match(lines[0], /"fallback":true/);
 });
@@ -605,6 +618,7 @@ test('scheduled triage writes a reminder entry and task writes retry without a l
     repoDir: process.cwd(),
     fetchImpl: coveFetch(scheduledPosts),
     webBaseUrl: 'http://scheduled.test',
+    codexPath: 'codex',
     spawnImpl: claudeSpawn(scheduled, []),
     now: () => new Date('2026-07-27T18:00:00.000Z'),
     write: () => undefined,
@@ -698,6 +712,7 @@ test('board-only triage does not enqueue a reminder', async (t) => {
     dataDir: dir,
     fetchImpl: coveFetch([]),
     webBaseUrl: 'http://board-only.test',
+    codexPath: 'codex',
     spawnImpl: claudeSpawn(validTriage({
       priority: 'medium',
       surface: 'board',
@@ -724,6 +739,7 @@ test('meeting and email input cannot turn model-selected now into an immediate t
       dataDir: dir,
       fetchImpl: coveFetch(posts),
       webBaseUrl: `http://${source}-policy.test`,
+      codexPath: 'codex',
       spawnImpl: (executable, args, options) => {
         if (executable !== 'osascript') {
           return triageSpawn(executable, args, options);

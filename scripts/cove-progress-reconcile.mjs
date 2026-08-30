@@ -7,7 +7,6 @@
  * `likely_done`; Cove publishes that as a suggestion and requires corroboration
  * before any committed task state changes.
  */
-import { spawn } from "node:child_process";
 import {
   closeSync,
   existsSync,
@@ -46,6 +45,7 @@ const { openLocalDatabase } = require("../src/lib/local/database.ts");
 const {
   parseStructuredClaudeOutput,
 } = require("../src/lib/claude-execution/commands.ts");
+const { runJob } = require("../src/lib/model-runner.ts");
 const {
   progressDigestId,
   progressEvidenceFingerprint,
@@ -731,26 +731,6 @@ export async function hasOpenProjectTaskDueToday(
   return rows.some((task) => taskDueToday(task, localDateValue, timezone));
 }
 
-function minimalChildEnvironment(env) {
-  const allowed = [
-    "HOME",
-    "PATH",
-    "TMPDIR",
-    "LANG",
-    "LC_ALL",
-    "USER",
-    "LOGNAME",
-    "SHELL",
-    "XDG_CONFIG_HOME",
-    "CLAUDE_CONFIG_DIR",
-    "ANTHROPIC_API_KEY",
-    "CLAUDE_CODE_OAUTH_TOKEN",
-  ];
-  return Object.fromEntries(
-    allowed.flatMap((key) => env[key] === undefined ? [] : [[key, env[key]]]),
-  );
-}
-
 function unfenceJson(value) {
   const trimmed = value.trim();
   return /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed)?.[1] ?? trimmed;
@@ -794,82 +774,23 @@ export function progressPrompt(input) {
   ].join("\n");
 }
 
-function runClaudeProgressCommand(prompt, options = {}) {
-  const executable = options.claudePath ??
-    coveEnv("CLAUDE_BIN") ??
-    path.join(process.env.HOME ?? "", ".local", "bin", "claude");
-  const spawnImpl = options.spawnImpl ?? spawn;
-  const workingDir = options.repoDir ?? repoDir;
-  return new Promise((resolve, reject) => {
-    const child = spawnImpl(
-      executable,
-      [
-        "-p",
-        "--no-session-persistence",
-        "--permission-mode",
-        "plan",
-        "--tools",
-        "",
-        "--strict-mcp-config",
-        "--mcp-config",
-        path.join(workingDir, "scripts", "cove-empty-mcp.json"),
-        "--model",
-        "claude-opus-5",
-        "--output-format",
-        "json",
-        "--json-schema",
-        JSON.stringify(PROGRESS_JSON_SCHEMA),
-        "--max-budget-usd",
-        "1.00",
-      ],
-      {
-        cwd: workingDir,
-        env: minimalChildEnvironment(options.env ?? process.env),
-        shell: false,
-        detached: true,
-        stdio: ["pipe", "pipe", "pipe"],
-      },
-    );
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const finish = (callback) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      callback();
-    };
-    const timeout = setTimeout(() => {
-      if (child.pid) {
-        try {
-          process.kill(-child.pid, "SIGTERM");
-        } catch {
-          child.kill("SIGTERM");
-        }
-      }
-      finish(() => reject(new Error("Claude progress reconciliation timed out.")));
-    }, options.timeoutMs ?? 120_000);
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk;
-      if (stdout.length > 4 * 1024 * 1024) child.kill("SIGTERM");
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.once("error", (error) => finish(() => reject(error)));
-    child.once("close", (code) => finish(() => {
-      if (code !== 0) {
-        reject(
-          new Error(`Claude progress reconciliation failed (${code}): ${stderr.slice(0, 500)}`),
-        );
-        return;
-      }
-      resolve(stdout);
-    }));
-    child.stdin.end(prompt);
+async function runClaudeProgressCommand(prompt, options = {}) {
+  const result = await runJob({
+    lane: "progress-reconcile",
+    kind: "structured",
+    prompt,
+    schema: PROGRESS_JSON_SCHEMA,
+    timeoutMs: options.timeoutMs ?? 120_000,
+    backend: options.modelBackend,
+    codexPath: options.codexPath,
+    claudePath: options.claudePath,
+    spawnImpl: options.spawnImpl,
+    env: options.env,
+    cwd: options.repoDir ?? repoDir,
+    claudeMaxBudgetUsd: "1.00",
   });
+  if (!result.ok) throw new Error(`${result.error.code}:${result.error.message}`);
+  return result.text;
 }
 
 export function validateProgress(value, tasks, evidenceText) {

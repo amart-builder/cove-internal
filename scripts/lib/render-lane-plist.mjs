@@ -3,6 +3,8 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const NODE_PLACEHOLDER = "__COVE_NODE_REAL__";
+const JOB_RUNNER_PLACEHOLDER = "__COVE_JOB_RUNNER__";
+const CODEX_PLACEHOLDER = "__COVE_CODEX_BIN__";
 
 export function renderLanePlist({
   source,
@@ -12,6 +14,8 @@ export function renderLanePlist({
   atlasRoot,
   dataDir,
   nodePath,
+  jobRunner = "codex-sol-high",
+  codexPath = "",
 }) {
   const template = fs.readFileSync(source, "utf8");
   const templateRepo = template.match(
@@ -30,7 +34,9 @@ export function renderLanePlist({
     .replaceAll(templateRepo, repoDir)
     .replaceAll(templateAtlas, atlasRoot)
     .replaceAll(templateHome, homeDir)
-    .replaceAll(NODE_PLACEHOLDER, nodePath);
+    .replaceAll(NODE_PLACEHOLDER, nodePath)
+    .replaceAll(JOB_RUNNER_PLACEHOLDER, jobRunner)
+    .replaceAll(CODEX_PLACEHOLDER, codexPath);
 
   fs.writeFileSync(destination, rendered, { mode: 0o600 });
   return rendered;
@@ -42,12 +48,22 @@ const invokedUrl = process.argv[1]
   : undefined;
 
 if (invokedUrl === moduleUrl) {
-  const [source, destination, repoDir, homeDir, atlasRoot, dataDir, nodePath] =
+  const [source, destination, repoDir, homeDir, atlasRoot, dataDir, nodePath, jobRunner, codexPath] =
     process.argv.slice(2);
   if (!source || !destination || !repoDir || !homeDir || !atlasRoot || !dataDir || !nodePath) {
     throw new Error(
-      "Usage: render-lane-plist.mjs <source> <destination> <repo> <home> <atlas> <data> <node>",
+      "Usage: render-lane-plist.mjs <source> <destination> <repo> <home> <atlas> <data> <node> [job-runner] [codex]",
     );
   }
-  renderLanePlist({ source, destination, repoDir, homeDir, atlasRoot, dataDir, nodePath });
+  renderLanePlist({
+    source,
+    destination,
+    repoDir,
+    homeDir,
+    atlasRoot,
+    dataDir,
+    nodePath,
+    jobRunner,
+    codexPath,
+  });
 }

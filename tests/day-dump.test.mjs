@@ -163,7 +163,9 @@ function workerOptions(dir, store, overrides = {}) {
     logDir: path.join(dir, 'logs'),
     fallbackCwd: dir,
     now: () => new Date(CLOCK),
-    dumpTimeoutMs: 5_000,
+    // Parallel full-suite runs regularly spend over 5s in process startup; this
+    // is fixture headroom, not a production dump timeout change.
+    dumpTimeoutMs: 15_000,
     dumpFetchTimeoutMs: 5_000,
     webBaseUrl: 'http://cove.test',
     // Scopes the dump relay write to the fixture. Without it the write falls

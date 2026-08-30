@@ -34,6 +34,7 @@ export type MeetingFollowUp = {
   owner: string;
   title: string;
   detail: string;
+  due_at?: string;
 };
 
 export type MeetingNotesEmail = {
@@ -202,7 +203,7 @@ export async function writeWaitingCommitment(
         source_kind: "detector",
         source_quote: null,
         source_ref: `gmail:${context.sourceId}`,
-        due_at: null,
+        due_at: item.due_at ?? null,
         review_at: null,
         confidence: "high",
         confirmed: false,

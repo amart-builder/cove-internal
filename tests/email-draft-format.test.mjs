@@ -32,7 +32,7 @@ test("normalizeDraftBody joins stray line breaks but preserves paragraphs and li
   assert.equal(normalizeDraftBody("Hello 👋\nfrom Cove"), "Hello 👋 from Cove");
 });
 
-test("stripTrailingSignature removes only a matching non-empty trailing sign-off", () => {
+test("stripTrailingSignature removes a matching non-empty trailing sign-off", () => {
   const signature = "Best,\n\nAlex\nEdge AI";
   assert.equal(
     stripTrailingSignature("Useful prose.\n\nBest,\nAlex\nEdge AI", signature),
@@ -42,12 +42,43 @@ test("stripTrailingSignature removes only a matching non-empty trailing sign-off
     stripTrailingSignature("Useful prose.\r\nBest,\r\nAlex\r\nEdge AI", signature),
     "Useful prose.",
   );
+  assert.equal(stripTrailingSignature("Best,\nAlex\nEdge AI", signature), "Best,\nAlex\nEdge AI");
+});
+
+test("stripTrailingSignature also removes a model-invented sign-off variant", () => {
+  const signature = "Best,\n\nAlex\nEdge AI";
   assert.equal(
     stripTrailingSignature("Useful prose.\n\nBest regards,\nAlexander", signature),
-    "Useful prose.\n\nBest regards,\nAlexander",
+    "Useful prose.",
   );
-  assert.equal(stripTrailingSignature("Best,\nAlex\nEdge AI", signature), "Best,\nAlex\nEdge AI");
-  assert.equal(stripTrailingSignature("Useful prose.\n\nBest,", null), "Useful prose.\n\nBest,");
+  assert.equal(
+    stripTrailingSignature("Useful prose.\n\nBest,", null),
+    "Useful prose.",
+  );
+  assert.equal(
+    stripTrailingSignature("I'll send it over tomorrow.\n\nThanks,\nAlex", null),
+    "I'll send it over tomorrow.",
+  );
+  assert.equal(
+    stripTrailingSignature("Sounds good.\n\nCheers,\nAlex Martin\nFounder at Edge AI", null),
+    "Sounds good.",
+  );
+});
+
+test("stripTrailingSignature keeps prose that only resembles a sign-off", () => {
+  assert.equal(
+    stripTrailingSignature("Thanks, I'll get back to you tomorrow.", null),
+    "Thanks, I'll get back to you tomorrow.",
+  );
+  assert.equal(
+    stripTrailingSignature("See you there.\n\nThanks!", null),
+    "See you there.\n\nThanks!",
+  );
+  assert.equal(
+    stripTrailingSignature("Meet me at:\n500 Main St\nSuite 200", null),
+    "Meet me at:\n500 Main St\nSuite 200",
+  );
+  assert.equal(stripTrailingSignature("Best,\nAlex", null), "Best,\nAlex");
 });
 
 test("draftBodyToHtml uses Gmail paragraph markup and escapes all body HTML metacharacters", () => {

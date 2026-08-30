@@ -230,6 +230,7 @@ export async function updateTaskThroughCoveRest(
       headers: {
         "Content-Type": "application/json",
         "X-Cove-CSRF": token,
+        "X-Cove-Task-Write": "automation",
       },
       body: JSON.stringify(patch),
       signal: AbortSignal.timeout(timeoutMs),
@@ -252,6 +253,37 @@ export async function updateTaskThroughCoveRest(
   }
 }
 
+export async function createAnalystInboundTask(
+  event: InboundEvent,
+  input: {
+    title: string;
+    description: string;
+    brief: string;
+    dueAt: string;
+    priority: "low" | "medium" | "high";
+    notificationPolicy: "none" | "predeadline" | "due" | "both";
+    remindAt?: string | null;
+  },
+  options: InboundTaskWriterOptions = {},
+): Promise<string> {
+  if (await inboundTaskExists(event.id, options)) return event.id;
+  const targetColumn = await columnId("not-started", options);
+  return createTask(event, {
+    id: event.id,
+    column_id: targetColumn,
+    title: input.title,
+    description: input.description,
+    brief: input.brief,
+    due_at: input.dueAt,
+    priority: input.priority,
+    notification_policy: input.notificationPolicy,
+    remind_at: input.remindAt ?? null,
+    tags: ["triaged", "meeting-analyst"],
+    position: 0,
+    source_type: "inbound_event",
+  }, options);
+}
+
 async function createTask(
   event: InboundEvent,
   body: Record<string, unknown>,
@@ -270,6 +302,7 @@ async function createTask(
       headers: {
         "Content-Type": "application/json",
         "X-Cove-CSRF": token,
+        "X-Cove-Task-Write": "automation",
       },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(timeoutMs),

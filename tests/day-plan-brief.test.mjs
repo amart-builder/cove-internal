@@ -230,7 +230,9 @@ function briefWorkerOptions(dir, store, claudePath, collectBriefSources) {
     logDir: path.join(dir, 'logs'),
     fallbackCwd: dir,
     now: () => new Date(CLOCK),
-    briefTimeoutMs: 5_000,
+    // Parallel full-suite runs regularly spend over 5s in process startup; this
+    // is fixture headroom, not a production brief timeout change.
+    briefTimeoutMs: 15_000,
     briefWriter: 'claude',
     dataDir: dir,
     collectBriefSources,
@@ -1842,9 +1844,23 @@ test('brief input retention keeps only the newest sixty private snapshots', (t) 
 });
 
 test('the Codex writer command uses a private read-only temp workspace', () => {
-  assert.equal(configuredMorningBriefWriter({}), 'claude');
+  assert.equal(configuredMorningBriefWriter({}), 'codex');
   assert.equal(configuredMorningBriefWriter({ COVE_BRIEF_WRITER: 'claude' }), 'claude');
   assert.equal(configuredMorningBriefWriter({ COVE_BRIEF_WRITER: 'codex' }), 'codex');
+  assert.equal(
+    configuredMorningBriefWriter({
+      COVE_JOB_RUNNER: 'claude',
+      COVE_BRIEF_WRITER: 'codex',
+    }),
+    'claude',
+  );
+  assert.equal(
+    configuredMorningBriefWriter({
+      COVE_JOB_RUNNER: 'codex-sol-high',
+      COVE_BRIEF_WRITER: 'claude',
+    }),
+    'codex',
+  );
   assert.equal(resolveCodexBinary({
     env: { COVE_CODEX_BIN: '/custom/codex' },
     exists: (candidate) => candidate === '/custom/codex',
@@ -1961,7 +1977,7 @@ test('the preferred Codex writer retries invalid JSON once and records its prove
   const captures = readFileSync(fake.capture, 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(captures.length, 2);
   assert.equal(captures[0].cwd.includes('cove-morning-brief-'), true);
-  assert.match(captures[1].input, /Your previous output failed validation: .* Emit ONLY the JSON object\.$/s);
+  assert.match(captures[1].input, /CORRECTION: Your previous output failed validation:/);
   assert.deepEqual(captures[0].args.slice(0, 9), [
     'exec', '--sandbox', 'read-only', '--skip-git-repo-check',
     '-m', 'gpt-5.6-sol', '-c', 'model_reasoning_effort=high',
@@ -1991,6 +2007,34 @@ test('Codex console chatter cannot invalidate a valid brief artifact', async (t)
   assert.equal(artifact.status, 'succeeded');
   assert.equal(artifact.writer, 'codex');
   assert.equal(store.listMorningBriefs('2026-07-14')[0].errorCode, undefined);
+});
+
+test('a Codex response over four megabytes fails with the brief overflow code', async (t) => {
+  const { dir, store } = briefFixture(t);
+  const fake = fakeCodex(
+    dir,
+    [JSON.stringify(WIRE_BRIEF)],
+    [],
+    4 * 1024 * 1024 + 1,
+  );
+  store.enqueueMorningBrief('2026-07-14', {
+    modelAlias: 'opus',
+    effort: 'high',
+    budgetUsd: 1.5,
+  });
+  const options = briefWorkerOptions(
+    dir,
+    store,
+    path.join(dir, 'claude-must-not-run'),
+    async () => collectedSources(),
+  );
+  options.briefWriter = 'codex';
+  options.codexPath = fake.executable;
+
+  assert.equal(await runOneMorningBrief(options), true);
+  const failed = store.listMorningBriefs('2026-07-14')[0];
+  assert.equal(failed.status, 'failed');
+  assert.equal(failed.errorCode, 'brief_output_too_large');
 });
 
 test('the scheduled lane will not drain a row that was queued before the day went open', async (t) => {
@@ -2059,7 +2103,7 @@ test('a nonzero Codex exit fails closed without silently substituting Claude', a
   assert.equal(store.latestEligibleMorningBrief('2026-07-14'), undefined);
   const [artifact] = store.listMorningBriefs('2026-07-14');
   assert.equal(artifact.status, 'failed');
-  assert.equal(artifact.errorCode, 'codex_failed');
+  assert.equal(artifact.errorCode, 'runner_failed');
   assert.equal(readFileSync(codex.capture, 'utf8').trim().split('\n').length, 1);
   assert.equal(existsSync(claude.capture), false);
 });
@@ -2196,15 +2240,26 @@ test('the brief worker logs one alarm when a required source is trimmed', async 
 
 test('the brief worker fails open on invalid output and missing required sources', async (t) => {
   const { dir, store } = briefFixture(t);
-  const fake = fakeClaude(dir, JSON.stringify({ nonsense: true }));
+  const fake = fakeCodex(dir, [
+    JSON.stringify({ nonsense: true }),
+    JSON.stringify({ nonsense: true }),
+  ]);
   store.enqueueMorningBrief('2026-07-14', { modelAlias: 'opus', effort: 'high', budgetUsd: 1.5 });
+  const invalidOptions = briefWorkerOptions(
+    dir,
+    store,
+    path.join(dir, 'claude-must-not-run'),
+    async () => collectedSources(),
+  );
+  invalidOptions.briefWriter = configuredMorningBriefWriter({});
+  invalidOptions.codexPath = fake.executable;
   assert.equal(
-    await runOneMorningBrief(briefWorkerOptions(dir, store, fake.executable, async () => collectedSources())),
+    await runOneMorningBrief(invalidOptions),
     true,
   );
   const failed = store.listMorningBriefs('2026-07-14')[0];
   assert.equal(failed.status, 'failed');
-  assert.match(failed.errorCode, /brief_invalid/);
+  assert.equal(failed.errorCode, 'codex_invalid_output');
 
   // Missing required source: no session is spawned, the row fails with the name.
   store.enqueueMorningBrief('2026-07-15', { modelAlias: 'opus', effort: 'high', budgetUsd: 1.5 });
@@ -2230,6 +2285,49 @@ test('the brief worker fails open on invalid output and missing required sources
   }).plan;
   assert.equal(plan.briefId, undefined);
   assert.equal(plan.items.length, 3);
+});
+
+test('invalid Claude brief output reports the Claude runner failure code', async (t) => {
+  const { dir, store } = briefFixture(t);
+  const fake = fakeClaude(dir, 'not-json');
+  store.enqueueMorningBrief('2026-07-14', {
+    modelAlias: 'opus',
+    effort: 'high',
+    budgetUsd: 1.5,
+  });
+  const options = briefWorkerOptions(
+    dir,
+    store,
+    fake.executable,
+    async () => collectedSources(),
+  );
+  options.briefWriter = 'claude';
+  assert.equal(await runOneMorningBrief(options), true);
+  assert.equal(store.listMorningBriefs('2026-07-14')[0].errorCode, 'runner_failed');
+});
+
+test('a worker shutdown keeps the morning brief interruption code', async (t) => {
+  const { dir, store } = briefFixture(t);
+  const fake = fakeCodex(dir, [JSON.stringify(WIRE_BRIEF)]);
+  store.enqueueMorningBrief('2026-07-14', {
+    modelAlias: 'opus',
+    effort: 'high',
+    budgetUsd: 1.5,
+  });
+  const controller = new AbortController();
+  controller.abort();
+  const options = briefWorkerOptions(
+    dir,
+    store,
+    path.join(dir, 'claude-must-not-run'),
+    async () => collectedSources(),
+  );
+  options.briefWriter = 'codex';
+  options.codexPath = fake.executable;
+  options.abortSignal = controller.signal;
+  assert.equal(await runOneMorningBrief(options), true);
+  assert.equal(store.listMorningBriefs('2026-07-14')[0].errorCode, 'worker_interrupted');
+  assert.equal(existsSync(fake.capture), false);
 });
 
 // ---------------------------------------------------------------------------

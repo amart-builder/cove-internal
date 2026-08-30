@@ -3,12 +3,12 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.cove.progress</string>
+  <string>com.cove.meeting-drain</string>
   <key>ProgramArguments</key>
   <array>
     <string>__COVE_NODE_REAL__</string>
-    <string>/Users/operator/Atlas/Projects/astack/cove/scripts/cove-progress-reconcile.mjs</string>
-    <string>--once</string>
+    <string>/Users/operator/Atlas/Projects/astack/cove/scripts/cove-meeting-watch.mjs</string>
+    <string>--drain-only</string>
   </array>
   <!-- /Users/operator/Atlas/Projects/astack/cove is a placeholder layout.
        install-cove-local.sh rewrites every absolute repo/data/workspace/home
@@ -24,22 +24,20 @@
     <string>/opt/homebrew/bin:/usr/local/bin:/Users/operator/.local/bin:/usr/bin:/bin</string>
     <key>COVE_DATA_DIR</key>
     <string>/Users/operator/Atlas/Projects/astack/cove/data</string>
-    <key>COVE_ATLAS_ROOT</key>
-    <string>/Users/operator/Atlas</string>
     <key>COVE_JOB_RUNNER</key>
     <string>__COVE_JOB_RUNNER__</string>
     <key>COVE_CODEX_BIN</key>
     <string>__COVE_CODEX_BIN__</string>
   </dict>
   <key>StartInterval</key>
-  <integer>1800</integer>
+  <integer>900</integer>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <false/>
   <key>StandardOutPath</key>
-  <string>/Users/operator/Library/Logs/cove-progress-reconcile.log</string>
+  <string>/Users/operator/Library/Logs/cove-meeting-drain.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/operator/Library/Logs/cove-progress-reconcile.log</string>
+  <string>/Users/operator/Library/Logs/cove-meeting-drain.log</string>
 </dict>
 </plist>

@@ -60,9 +60,9 @@ import {
   type ClaudeCommand,
 } from "./commands";
 import {
-  buildMorningBriefCommand,
   buildMorningBriefPrompt,
   chiefOfStaffMandate,
+  MORNING_BRIEF_JSON_SCHEMA,
   morningBriefModelConfig,
   morningBriefStaleAfterMs,
   parseMorningBriefOutput,
@@ -70,15 +70,11 @@ import {
 import { writeMorningBriefInput } from "./brief-inputs";
 import {
   configuredMorningBriefWriter,
-  createCodexMorningBriefAttempt,
-  createCodexStructuredAttempt,
-  readCodexMorningBriefOutput,
-  readCodexStructuredOutput,
   type MorningBriefWriter,
 } from "./morning-brief-writer";
 import {
-  buildDayDumpCommand,
   buildDayDumpPrompt,
+  DAY_DUMP_JSON_SCHEMA,
   parseDayDumpOutput,
   validateDayDump,
   type DumpExistingCommitment,
@@ -107,6 +103,8 @@ import {
 import { coveEnv } from "../env";
 import { coveDataDir } from "../operator";
 import { recordReceipt, type ReceiptOutcome } from "../reliability/receipts";
+import { runJob, type ModelRunnerBackend } from "../model-runner";
+import { configuredJobBackend } from "../model-runner-runtime.mjs";
 
 export { fallbackInboundDueAt } from "../intake/task-writer";
 
@@ -653,7 +651,55 @@ export type InboundWorkerOptions = {
 export function configuredDayDumpWriter(
   env: NodeJS.ProcessEnv = process.env,
 ): MorningBriefWriter {
-  return coveEnv("DUMP_WRITER", env)?.trim().toLowerCase() === "claude" ? "claude" : "codex";
+  return configuredJobBackend(env, "DUMP_WRITER") === "claude" ? "claude" : "codex";
+}
+
+function backgroundJobBackend(writer?: MorningBriefWriter): ModelRunnerBackend | undefined {
+  return writer === "claude"
+    ? "claude"
+    : writer === "codex"
+      ? "codex-sol-high"
+      : undefined;
+}
+
+function backgroundFailureCode(
+  lane: "brief" | "dump",
+  code: string,
+): string {
+  if (code === "runner_interrupted") return "worker_interrupted";
+  if (code === "runner_output_too_large") return `${lane}_output_too_large`;
+  if (code === "runner_timeout") return `${lane}_timeout`;
+  return code;
+}
+
+function modelJobChildLifecycle(
+  options: ClaudeWorkerOptions,
+  lane: Extract<ClaudeChildLane, "brief" | "dump">,
+  runId: string,
+) {
+  let registrationId: string | undefined;
+  return {
+    onSpawn: (
+      child: ChildProcessWithoutNullStreams,
+      command: { executable: string },
+    ) => {
+      if (!child.pid || !options.receiptDbPath) return;
+      registrationId = registerSpawnedChild({
+        lane,
+        runId,
+        pid: child.pid,
+        executable: command.executable,
+        dbPath: options.receiptDbPath,
+        serverGeneration: options.childServerGeneration,
+        bootId: options.childBootId,
+      });
+    },
+    onSettled: () => {
+      if (!registrationId || !options.receiptDbPath) return;
+      completeSpawnedChild(options.receiptDbPath, registrationId);
+      registrationId = undefined;
+    },
+  };
 }
 
 const DUMP_KINDS = new Set([
@@ -682,13 +728,6 @@ function dumpCommitmentRow(value: unknown): DumpExistingCommitment | undefined {
     kind: row.kind as DumpExistingCommitment["kind"],
     source_quote: typeof row.source_quote === "string" ? row.source_quote : null,
   };
-}
-
-function correctionPrompt(prompt: string, error: unknown): string {
-  const reason = (error instanceof Error ? error.message : "validation failed")
-    .replace(/\s+/g, " ")
-    .slice(0, 240);
-  return `${prompt}\n\nYour previous output failed validation: ${reason}. Emit ONLY the required JSON object.`;
 }
 
 async function coveCsrfToken(
@@ -808,101 +847,30 @@ export async function runOneDayDump(
       claimed.rawText,
       { existingCommitmentIds },
     );
-    let writer = options.dumpWriter ?? configuredDayDumpWriter();
-    let validated: ReturnType<typeof validateDayDump> | undefined;
-
-    if (writer === "codex") {
-      let prompt = originalPrompt;
-      for (let attemptIndex = 0; attemptIndex < 2 && !validated; attemptIndex += 1) {
-        const attempt = createCodexStructuredAttempt({
-          prompt,
-          executable: options.codexPath,
-          tempPrefix: "cove-day-dump-",
-        });
-        if (!attempt) break;
-        try {
-          const result = await spawnCommand(attempt.command, {
-            spawnImpl: options.spawnImpl ?? spawn,
-            timeoutMs,
-            maxStdoutBytes: 1024 * 1024,
-            maxStderrBytes: 64 * 1024,
-            terminationGraceMs: options.terminationGraceMs ?? 2000,
-            abortSignal: options.abortSignal,
-            childRegistration: {
-              lane: "dump",
-              runId: claimed.id,
-              dbPath: options.receiptDbPath,
-              serverGeneration: options.childServerGeneration,
-              bootId: options.childBootId,
-            },
-          });
-          if (result.terminatedBy === "shutdown") {
-            failDump("worker_interrupted");
-            return true;
-          }
-          if (result.exitCode !== 0 || result.signal || result.terminatedBy || result.overflowed) {
-            break;
-          }
-          try {
-            validated = validateOutput(readCodexStructuredOutput(attempt));
-          } catch (error) {
-            if (attemptIndex === 0) prompt = correctionPrompt(originalPrompt, error);
-          }
-        } finally {
-          attempt.cleanup();
-        }
-      }
-      if (!validated) writer = "claude";
-    }
-
-    if (!validated) {
-      let prompt = originalPrompt;
-      for (let attemptIndex = 0; attemptIndex < 2 && !validated; attemptIndex += 1) {
-        const command = buildDayDumpCommand({
-          claudePath: options.claudePath,
-          emptyMcpConfigPath: options.emptyMcpConfigPath,
-          cwd: options.fallbackCwd,
-          prompt,
-          modelAlias: model.modelAlias,
-          effort: model.effort,
-          budgetUsd: model.budgetUsd,
-        });
-        const result = await spawnCommand(command, {
-          spawnImpl: options.spawnImpl ?? spawn,
-          timeoutMs,
-          maxStdoutBytes: 1024 * 1024,
-          maxStderrBytes: 64 * 1024,
-          terminationGraceMs: options.terminationGraceMs ?? 2000,
-          abortSignal: options.abortSignal,
-          childRegistration: {
-            lane: "dump",
-            runId: claimed.id,
-            dbPath: options.receiptDbPath,
-            serverGeneration: options.childServerGeneration,
-            bootId: options.childBootId,
-          },
-        });
-        if (result.terminatedBy || result.signal) {
-          failDump(result.terminatedBy === "timeout" ? "dump_timeout" : "worker_interrupted");
-          return true;
-        }
-        if (result.exitCode !== 0 || result.overflowed) {
-          failDump(result.overflowed ? "dump_output_too_large" : "claude_failed");
-          return true;
-        }
-        try {
-          validated = validateOutput(result.stdout);
-        } catch (error) {
-          if (attemptIndex === 0) prompt = correctionPrompt(originalPrompt, error);
-          else throw error;
-        }
-      }
-    }
-
-    if (!validated) {
-      failDump("dump_validation_failed");
+    const result = await runJob({
+      lane: "day-dump",
+      kind: "structured",
+      prompt: originalPrompt,
+      schema: JSON.parse(DAY_DUMP_JSON_SCHEMA) as Record<string, unknown>,
+      timeoutMs,
+      backend: backgroundJobBackend(options.dumpWriter ?? configuredDayDumpWriter()),
+      codexPath: options.codexPath,
+      claudePath: options.claudePath,
+      spawnImpl: options.spawnImpl,
+      abortSignal: options.abortSignal,
+      terminationGraceMs: options.terminationGraceMs,
+      cwd: options.fallbackCwd,
+      claudeMcpConfigPath: options.emptyMcpConfigPath,
+      claudeMaxBudgetUsd: String(model.budgetUsd),
+      validate: (text) => validateOutput(text),
+      ...modelJobChildLifecycle(options, "dump", claimed.id),
+    });
+    if (!result.ok) {
+      failDump(backgroundFailureCode("dump", result.error.code));
       return true;
     }
+    const writer: MorningBriefWriter = result.backend === "claude" ? "claude" : "codex";
+    const validated = result.value as ReturnType<typeof validateDayDump>;
 
     const created: Array<{ id: string; title: string }> = [];
     const failed: Array<{ title: string; error: string }> = [];
@@ -1334,113 +1302,30 @@ export async function runOneMorningBrief(
       sourceIds,
     });
     const timeoutMs = options.briefTimeoutMs ?? morningBriefModelConfig().timeoutMs;
-    const writer: MorningBriefWriter = preferredWriter;
-    let validated: ReturnType<typeof validateMorningBrief> | undefined;
-
-    if (writer === "codex") {
-      let failureCode = "codex_failed";
-      let codexPrompt = prompt;
-      for (let attemptIndex = 0; attemptIndex < 2 && !validated; attemptIndex += 1) {
-        const attempt = createCodexMorningBriefAttempt({
-          prompt: codexPrompt,
-          executable: options.codexPath,
-        });
-        if (!attempt) {
-          failureCode = "codex_unavailable";
-          break;
-        }
-        try {
-          const result = await spawnCommand(attempt.command, {
-            spawnImpl: options.spawnImpl ?? spawn,
-            timeoutMs,
-            maxStdoutBytes: 1024 * 1024,
-            maxStderrBytes: 64 * 1024,
-            // Codex writes the only output Cove consumes to outputPath.
-            // Its stdout/stderr can be much larger than the brief because it
-            // includes progress and reasoning status. Keep a bounded diagnostic
-            // prefix, discard the rest, and validate the final artifact below.
-            allowOutputOverflow: true,
-            terminationGraceMs: options.terminationGraceMs ?? 2000,
-            abortSignal: options.abortSignal,
-            childRegistration: {
-              lane: "brief",
-              runId: claimed.id,
-              dbPath: options.receiptDbPath,
-              serverGeneration: options.childServerGeneration,
-              bootId: options.childBootId,
-            },
-          });
-          if (result.terminatedBy === "shutdown") {
-            failBrief("worker_interrupted");
-            return true;
-          }
-          if (result.exitCode !== 0 || result.signal || result.terminatedBy || result.overflowed) {
-            failureCode = result.terminatedBy === "timeout"
-              ? "codex_timeout"
-              : result.overflowed
-                ? "brief_output_too_large"
-                : "codex_failed";
-            break;
-          }
-          try {
-            validated = validateOutput(readCodexMorningBriefOutput(attempt));
-          } catch (error) {
-            failureCode = "codex_invalid_output";
-            if (attemptIndex === 0) {
-              const reason = (error instanceof Error ? error.message : "validation failed")
-                .replace(/\s+/g, " ")
-                .slice(0, 240);
-              codexPrompt = `${prompt}\n\nYour previous output failed validation: ${reason}. Emit ONLY the JSON object.`;
-            }
-          }
-        } finally {
-          attempt.cleanup();
-        }
-      }
-      // Writer identity is part of the product contract. If Sol cannot produce
-      // a valid brief, surface the failure instead of silently substituting a
-      // different model whose judgment and voice may materially differ.
-      if (!validated) {
-        failBrief(failureCode);
-        return true;
-      }
+    const result = await runJob({
+      lane: "morning-brief",
+      kind: "structured",
+      prompt,
+      schema: JSON.parse(MORNING_BRIEF_JSON_SCHEMA) as Record<string, unknown>,
+      timeoutMs,
+      backend: backgroundJobBackend(preferredWriter),
+      codexPath: options.codexPath,
+      claudePath: options.claudePath,
+      spawnImpl: options.spawnImpl,
+      abortSignal: options.abortSignal,
+      terminationGraceMs: options.terminationGraceMs,
+      cwd: options.fallbackCwd,
+      claudeMcpConfigPath: options.emptyMcpConfigPath,
+      claudeMaxBudgetUsd: String(claimed.budgetUsd),
+      validate: (text) => validateOutput(text),
+      ...modelJobChildLifecycle(options, "brief", claimed.id),
+    });
+    if (!result.ok) {
+      failBrief(backgroundFailureCode("brief", result.error.code));
+      return true;
     }
-
-    if (!validated) {
-      const command = buildMorningBriefCommand({
-        claudePath: options.claudePath,
-        emptyMcpConfigPath: options.emptyMcpConfigPath,
-        cwd: options.fallbackCwd,
-        ...promptInput,
-        modelAlias: claimed.modelAlias,
-        effort: claimed.effort,
-        budgetUsd: claimed.budgetUsd,
-      });
-      const result = await spawnCommand(command, {
-        spawnImpl: options.spawnImpl ?? spawn,
-        timeoutMs,
-        maxStdoutBytes: 1024 * 1024,
-        maxStderrBytes: 64 * 1024,
-        terminationGraceMs: options.terminationGraceMs ?? 2000,
-        abortSignal: options.abortSignal,
-        childRegistration: {
-          lane: "brief",
-          runId: claimed.id,
-          dbPath: options.receiptDbPath,
-          serverGeneration: options.childServerGeneration,
-          bootId: options.childBootId,
-        },
-      });
-      if (result.terminatedBy || result.signal) {
-        failBrief(result.terminatedBy === "timeout" ? "brief_timeout" : "worker_interrupted");
-        return true;
-      }
-      if (result.exitCode !== 0 || result.overflowed) {
-        failBrief(result.overflowed ? "brief_output_too_large" : "claude_failed");
-        return true;
-      }
-      validated = validateOutput(result.stdout);
-    }
+    const writer: MorningBriefWriter = result.backend === "claude" ? "claude" : "codex";
+    const validated = result.value as ReturnType<typeof validateMorningBrief>;
     const dated = stripMorningBriefDateClaim(
       validated.brief,
       claimed.targetLocalDate,

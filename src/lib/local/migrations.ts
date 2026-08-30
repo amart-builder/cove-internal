@@ -1353,6 +1353,69 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       `);
     },
   },
+  {
+    version: 18,
+    name: "meeting-intelligence-task-fields",
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE tasks ADD COLUMN brief TEXT;
+        ALTER TABLE tasks ADD COLUMN remind_at TEXT;
+        ALTER TABLE tasks ADD COLUMN nudged_at TEXT;
+        ALTER TABLE tasks ADD COLUMN engaged_at TEXT;
+        ALTER TABLE tasks ADD COLUMN notification_policy TEXT
+          CHECK (notification_policy IS NULL OR notification_policy IN ('none','predeadline','due','both'));
+        CREATE INDEX tasks_open_nudge_candidates_idx
+          ON tasks(remind_at)
+          WHERE status = 'open' AND remind_at IS NOT NULL AND nudged_at IS NULL;
+      `);
+    },
+  },
+  {
+    version: 19,
+    name: "meeting-analysis-workflow",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE meeting_analysis_jobs (
+          id TEXT PRIMARY KEY,
+          group_key TEXT NOT NULL UNIQUE,
+          input_hash TEXT NOT NULL,
+          not_before TEXT NOT NULL,
+          lease TEXT,
+          lease_expires TEXT,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL CHECK (status IN ('pending','held','running','succeeded','failed','dead')),
+          analyst_json TEXT,
+          error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX meeting_analysis_jobs_ready_idx
+          ON meeting_analysis_jobs(status, not_before, lease_expires);
+        CREATE TABLE meeting_analysis_members (
+          job_id TEXT NOT NULL REFERENCES meeting_analysis_jobs(id) ON DELETE CASCADE,
+          gmail_message_id TEXT NOT NULL UNIQUE,
+          tool TEXT NOT NULL,
+          subject TEXT NOT NULL,
+          received_at TEXT NOT NULL,
+          envelope_json TEXT NOT NULL,
+          PRIMARY KEY (job_id, gmail_message_id)
+        );
+        CREATE INDEX meeting_analysis_members_job_idx
+          ON meeting_analysis_members(job_id, received_at, gmail_message_id);
+        CREATE TABLE meeting_analysis_actions (
+          job_id TEXT NOT NULL REFERENCES meeting_analysis_jobs(id) ON DELETE CASCADE,
+          action_key TEXT NOT NULL,
+          kind TEXT NOT NULL CHECK (kind IN ('task','commitment','crm_note','research_note')),
+          target_id TEXT,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','done','failed')),
+          error TEXT,
+          PRIMARY KEY (job_id, action_key)
+        );
+        CREATE INDEX meeting_analysis_actions_status_idx
+          ON meeting_analysis_actions(job_id, status, kind);
+      `);
+    },
+  },
 ];
 
 function migrationTableExists(db: Database.Database, name: string): boolean {

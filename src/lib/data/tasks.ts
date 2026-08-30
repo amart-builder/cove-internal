@@ -90,6 +90,11 @@ export async function createTask(input: {
   description?: string;
   priority?: "low" | "medium" | "high";
   due_at?: string | null;
+  brief?: string | null;
+  remind_at?: string | null;
+  nudged_at?: string | null;
+  engaged_at?: string | null;
+  notification_policy?: "none" | "predeadline" | "due" | "both" | null;
   tags?: string[];
   project?: string;
   position?: number;
@@ -102,6 +107,11 @@ export async function createTask(input: {
     description: input.description ?? "",
     priority: input.priority ?? "medium",
     due_at: input.due_at ?? null,
+    brief: input.brief ?? null,
+    remind_at: input.remind_at ?? null,
+    nudged_at: input.nudged_at ?? null,
+    engaged_at: input.engaged_at ?? null,
+    notification_policy: input.notification_policy ?? null,
     tags: input.tags ?? [],
     ...(input.project && shouldWriteProject()
       ? { project: input.project }

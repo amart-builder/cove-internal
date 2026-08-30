@@ -49,25 +49,63 @@ function collapsedAlphanumerics(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-export function stripTrailingSignature(text: string, signatureText?: string | null): string {
-  const body = text.replace(/\r\n?/g, "\n").trim();
-  const signature = collapsedAlphanumerics(signatureText ?? "");
-  if (!body || !signature) return body;
+const SIGN_OFF_CLOSER = new RegExp(
+  "^(?:best|best regards|best wishes|all the best|regards|kind regards|warm regards|" +
+  "warmest regards|warmly|thanks|thanks again|thanks so much|thank you|many thanks|" +
+  "cheers|sincerely|sincerely yours|yours truly|talk soon|take care|gratefully|" +
+  "respectfully|cordially),$",
+  "i",
+);
+
+// A line that plausibly belongs under a valediction: a name or company line,
+// short and without sentence-ending punctuation.
+function isSignOffNameLine(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.length > 0 && trimmed.length <= 45 && !/[.!?:;,]$/.test(trimmed);
+}
+
+// Strips a model-invented valediction ("Best,\nAlex") that survives the
+// verbatim signature match, so the appended real signature never stacks
+// under a second sign-off. Never strips the entire body.
+function stripGenericSignOff(body: string): string {
   const lines = body.split("\n");
   const nonEmpty = lines.flatMap((line, index) => line.trim() ? [index] : []);
-  const maximum = Math.min(4, nonEmpty.length);
+  const maximum = Math.min(3, nonEmpty.length - 1);
   for (let count = maximum; count >= 1; count -= 1) {
     const start = nonEmpty[nonEmpty.length - count];
-    const candidate = lines
-      .slice(start)
-      .filter((line) => line.trim())
-      .map(collapsedAlphanumerics)
-      .join("");
-    if (!candidate || !signature.startsWith(candidate)) continue;
+    const block = lines.slice(start).filter((line) => line.trim());
+    if (!SIGN_OFF_CLOSER.test(block[0]?.trim() ?? "")) continue;
+    if (!block.slice(1).every(isSignOffNameLine)) continue;
     const remainder = lines.slice(0, start).join("\n").trim();
-    return remainder || body;
+    if (remainder) return remainder;
   }
   return body;
+}
+
+export function stripTrailingSignature(text: string, signatureText?: string | null): string {
+  let body = text.replace(/\r\n?/g, "\n").trim();
+  if (!body) return body;
+  const signature = collapsedAlphanumerics(signatureText ?? "");
+  if (signature) {
+    const lines = body.split("\n");
+    const nonEmpty = lines.flatMap((line, index) => line.trim() ? [index] : []);
+    const maximum = Math.min(4, nonEmpty.length);
+    for (let count = maximum; count >= 1; count -= 1) {
+      const start = nonEmpty[nonEmpty.length - count];
+      const candidate = lines
+        .slice(start)
+        .filter((line) => line.trim())
+        .map(collapsedAlphanumerics)
+        .join("");
+      if (!candidate || !signature.startsWith(candidate)) continue;
+      const remainder = lines.slice(0, start).join("\n").trim();
+      if (remainder) {
+        body = remainder;
+        break;
+      }
+    }
+  }
+  return stripGenericSignOff(body);
 }
 
 function escapeHtml(text: string): string {

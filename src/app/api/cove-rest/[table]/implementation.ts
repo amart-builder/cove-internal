@@ -345,6 +345,10 @@ async function handleRequest(
         method,
         request.nextUrl.searchParams,
         localBody as Record<string, unknown> | unknown[] | undefined,
+        {
+          stampTaskEngagement:
+            request.headers.get("x-cove-task-write") !== "automation",
+        },
       );
       if (
         unprefixedTable === "tasks" &&

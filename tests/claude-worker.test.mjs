@@ -139,7 +139,9 @@ function workerOptions(dir, store, claudePath) {
     logDir: path.join(dir, 'logs'),
     fallbackCwd: dir,
     now: () => new Date(CLOCK),
-    timeoutMs: 5_000,
+    // Parallel full-suite runs regularly spend over 5s in process startup; this
+    // is fixture headroom, not a production worker timeout change.
+    timeoutMs: 15_000,
     markSession: () => undefined,
     openSession: () => undefined,
   };
@@ -703,8 +705,8 @@ test('installer provisions a supervised watch worker without enabling autonomy',
     installer.indexOf('# (Re)load all agents'),
   );
   assert.doesNotMatch(miniProfile, /COVE_NOTIFY/);
-  assert.match(installer, /BRIEF_WRITER="\$\{COVE_BRIEF_WRITER:-claude\}"/);
-  assert.match(miniProfile, /<key>COVE_BRIEF_WRITER<\/key>\s*<string>\$BRIEF_WRITER<\/string>/);
+  assert.match(installer, /JOB_RUNNER="\$\{COVE_JOB_RUNNER:-codex-sol-high\}"/);
+  assert.match(miniProfile, /<key>COVE_JOB_RUNNER<\/key>\s*<string>\$JOB_RUNNER<\/string>/);
   assert.match(miniProfile, /\$CODEX_PLIST_ENTRY/);
   assert.match(miniProfile, /COVE_BRIEF_OPERATOR_PROFILE_PATH/);
   assert.match(miniProfile, /COVE_BRIEF_LEADUP_PATH/);
@@ -715,9 +717,9 @@ test('installer provisions a supervised watch worker without enabling autonomy',
   assert.match(installer, /\$\{COVE_SUPERNOVA_DIR:-\}/);
   assert.doesNotMatch(installer, /SUPERNOVA_PRIMARY|SUPERNOVA_SECONDARY/);
   assert.doesNotMatch(installer, /Projects\/[a-z-]*engine/);
-  assert.match(workerProfile, /<key>COVE_BRIEF_WRITER<\/key>\s*<string>\$BRIEF_WRITER<\/string>/);
+  assert.match(workerProfile, /<key>COVE_JOB_RUNNER<\/key>\s*<string>\$JOB_RUNNER<\/string>/);
   assert.match(workerProfile, /\$CODEX_PLIST_ENTRY/);
-  assert.match(serverProfile, /<key>COVE_BRIEF_WRITER<\/key>\s*<string>\$BRIEF_WRITER<\/string>/);
+  assert.match(serverProfile, /<key>COVE_JOB_RUNNER<\/key>\s*<string>\$JOB_RUNNER<\/string>/);
   assert.doesNotMatch(installer, /<string>\/opt\/homebrew\/bin\/codex<\/string>/);
   // & is the whole-match reference in a sed replacement, so one backslash
   // escapes it. Two would write a literal backslash into the plist value.
@@ -785,7 +787,7 @@ test('installer renders the selected writer into both brief worker plists', (t) 
     writeFileSync(renderScript, [
       '#!/bin/bash',
       'set -e',
-      'BRIEF_WRITER="${COVE_BRIEF_WRITER:-claude}"',
+      'JOB_RUNNER="${COVE_JOB_RUNNER:-codex-sol-high}"',
       'CODEX_PLIST_ENTRY=""',
       'SUPERNOVA_PLIST_ENTRY=""',
       'cat > "$1" <<EOF',
@@ -794,15 +796,15 @@ test('installer renders the selected writer into both brief worker plists', (t) 
       '',
     ].join('\n'));
 
-    for (const writer of ['claude', 'codex']) {
-      const output = path.join(dir, `${template.name}-${writer}.plist`);
+    for (const runner of ['claude', 'codex-sol-high']) {
+      const output = path.join(dir, `${template.name}-${runner}.plist`);
       execFileSync('/bin/bash', [renderScript, output], {
-        env: { ...process.env, COVE_BRIEF_WRITER: writer },
+        env: { ...process.env, COVE_JOB_RUNNER: runner },
       });
       const rendered = readFileSync(output, 'utf8');
       assert.match(
         rendered,
-        new RegExp(`<key>COVE_BRIEF_WRITER</key>\\s*<string>${writer}</string>`),
+        new RegExp(`<key>COVE_JOB_RUNNER</key>\\s*<string>${runner}</string>`),
       );
       assert.doesNotMatch(rendered, /\$[A-Z_]{3,}/);
     }

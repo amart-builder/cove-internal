@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
 import { mkdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 import {
   CONSOLIDATE_MIN_ITEMS,
+  claudeMeetingFallback,
   consolidateFollowUps,
 } from "../src/lib/intake/meeting-followups.mjs";
 import {
@@ -18,6 +21,39 @@ import {
 } from "../src/lib/intake/task-writer.ts";
 
 const owned = () => true;
+
+test("the manual Claude meeting fallback keeps its 0.75 dollar cap", async () => {
+  const calls = [];
+  const result = await claudeMeetingFallback("No explicit next steps.", {
+    env: { COVE_JOB_RUNNER: "claude" },
+    claudePath: "/fake/claude",
+    spawnImpl: (executable, args) => {
+      calls.push({ executable, args });
+      const child = Object.assign(new EventEmitter(), {
+        pid: undefined,
+        stdin: new PassThrough(),
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        kill: () => true,
+      });
+      child.stdin.once("finish", () => queueMicrotask(() => {
+        child.stdout.end(JSON.stringify({ structured_output: [] }));
+        child.stderr.end();
+        child.emit("close", 0, null);
+      }));
+      return child;
+    },
+  });
+  assert.deepEqual(result, []);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(
+    calls[0].args.slice(
+      calls[0].args.indexOf("--max-budget-usd"),
+      calls[0].args.indexOf("--max-budget-usd") + 2,
+    ),
+    ["--max-budget-usd", "0.75"],
+  );
+});
 
 test("three operator items become one bundle with checklist lines", () => {
   const items = [

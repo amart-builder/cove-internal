@@ -12,7 +12,7 @@
     "start": "next start",
     "lint": "eslint --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test": "tsc --noEmit && tsx --test tests/*.test.mjs",
+    "test": "tsc --noEmit && node --import tsx --test tests/*.test.mjs",
     "verify": "node scripts/cove-verify.mjs",
     "check:brief-writer": "node scripts/cove-check-brief-writer.mjs",
     "demo:seed": "COVE_DATA_DIR=\"$PWD/data/demo\" COVE_DB_PATH=\"$PWD/data/demo/cove.db\" COVE_PROFILE_PATH=\"$PWD/data/demo/cove-profile.json\" COVE_TIMEZONE=\"America/Los_Angeles\" NEXT_PUBLIC_COVE_RUNTIME=local node --import tsx scripts/cove-demo-seed.ts",

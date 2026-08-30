@@ -1,7 +1,7 @@
 {
   "enabled": false,
   "active_tools": [],
-  "window": "newer_than:2d",
+  "window": "newer_than:4d",
   "processed_label": "Cove/Meeting-Processed",
   "custom_patterns": []
 }

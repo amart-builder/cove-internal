@@ -91,7 +91,7 @@ test("legacy Gemini config remains the default-compatible shape", (t) => {
   const legacy = {
     enabled: true,
     query: 'from:(gemini-noreply@google.com) OR subject:("Notes:" OR "Meeting notes")',
-    window: "newer_than:2d",
+    window: "newer_than:4d",
     processed_label: "Cove/Meeting-Processed",
   };
   writeFileSync(file, JSON.stringify(legacy));

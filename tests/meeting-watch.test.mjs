@@ -4,7 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  main as meetingWatchMain,
   readMeetingState,
+  runMeetingAnalysisDrain,
   runMeetingWatch,
   shouldRecordMeetingWatchReceipt,
   writeMeetingState,
@@ -29,7 +31,7 @@ function fixture(t, meeting = {}) {
   writeFileSync(configPath, JSON.stringify({
     enabled: true,
     active_tools: ["gemini"],
-    window: "newer_than:2d",
+    window: "newer_than:4d",
     processed_label: "Cove/Meeting-Processed",
     custom_patterns: [],
     ...meeting,
@@ -81,6 +83,9 @@ function gateway(overrides = {}) {
       modifyThreadLabels: async (input) => {
         calls.push(["modifyThreadLabels", input]);
       },
+      archiveMessages: async (input) => {
+        calls.push(["archiveMessages", input]);
+      },
       ...overrides,
     },
   };
@@ -104,7 +109,7 @@ function runOptions(files, mail, extra = {}) {
   };
 }
 
-test("meeting watcher reads through the restricted gateway and applies only the reserved meeting marker", async (t) => {
+test("meeting watcher labels and archives each durably processed message exactly once", async (t) => {
   const files = fixture(t);
   const google = gateway();
   const result = await runMeetingWatch(runOptions(files, google.mail, {
@@ -116,6 +121,10 @@ test("meeting watcher reads through the restricted gateway and applies only the 
   }));
   assert.equal(result.exitCode, 0);
   assert.equal(result.summary.processed, 1);
+  assert.match(
+    google.calls.find(([name]) => name === "listMessages")[1].query,
+    /newer_than:4d/,
+  );
   assert.deepEqual(
     google.calls.find(([name]) => name === "modifyThreadLabels")[1],
     {
@@ -123,7 +132,126 @@ test("meeting watcher reads through the restricted gateway and applies only the 
       addNames: ["Cove/Meeting-Processed"],
     },
   );
+  assert.deepEqual(
+    google.calls.filter(([name]) => name === "archiveMessages").map(([, input]) => input),
+    [{ messageIds: ["message-1"] }],
+  );
   assert.deepEqual(readMeetingState(files.statePath).processed_ids, ["message-1"]);
+});
+
+test("meeting drain runs only the local analysis sweep with legacy fallback wiring", async (t) => {
+  const files = fixture(t);
+  const sweeps = [];
+  const result = await runMeetingAnalysisDrain({
+    dataDir: files.dir,
+    dbPath: path.join(files.dir, "cove.db"),
+    baseUrl: "http://127.0.0.1:3200",
+    now: () => new Date("2026-07-29T18:00:00.000Z"),
+    runMeetingAnalysisSweepImpl: async (options) => {
+      sweeps.push(options);
+      return { processed: 0, failed: 0, dead: 0 };
+    },
+  });
+  assert.deepEqual(result, { processed: 0, failed: 0, dead: 0 });
+  assert.equal(sweeps.length, 1);
+  assert.equal("mail" in sweeps[0], false);
+  assert.equal(typeof sweeps[0].legacyFallback, "function");
+  assert.equal(sweeps[0].dbPath, path.join(files.dir, "cove.db"));
+});
+
+test("drain-only CLI bypasses the Gmail watcher", async () => {
+  let drainCalls = 0;
+  const code = await meetingWatchMain(["--drain-only"], {
+    runMeetingAnalysisDrainImpl: async () => {
+      drainCalls += 1;
+      return { processed: 0, failed: 0, dead: 0 };
+    },
+    runMeetingWatchImpl: async () => {
+      throw new Error("Gmail watcher must not run");
+    },
+  });
+  assert.equal(code, 0);
+  assert.equal(drainCalls, 1);
+});
+
+test("already-failed meeting re-picks remain unlabeled and in the inbox", async (t) => {
+  const files = fixture(t);
+  const google = gateway();
+  const result = await runMeetingWatch(runOptions(files, google.mail, {
+    processMeetingEmail: async () => ({
+      status: "skipped",
+      reason: "already-failed",
+      summary: { parsedItems: 0, tasks: 0, waitingOn: 0 },
+    }),
+    runMeetingAnalysisSweepImpl: async () => ({
+      processed: 0,
+      failed: 0,
+      dead: 0,
+    }),
+  }));
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.summary.processed, 0);
+  assert.equal(
+    google.calls.some(([name]) => name === "ensureCoveLabel"),
+    false,
+  );
+  assert.equal(
+    google.calls.some(([name]) => name === "modifyThreadLabels"),
+    false,
+  );
+  assert.equal(
+    google.calls.some(([name]) => name === "archiveMessages"),
+    false,
+  );
+  assert.deepEqual(readMeetingState(files.statePath).processed_ids, []);
+});
+
+test("meeting analyst is the default live pipeline and its durable sweep runs in the watcher tick", async (t) => {
+  const files = fixture(t);
+  const google = gateway();
+  const queued = [];
+  const sweeps = [];
+  const result = await runMeetingWatch(runOptions(files, google.mail, {
+    queueMeetingEmail: async (email) => {
+      queued.push(email);
+      return {
+        status: "processed",
+        summary: { parsedItems: 0, tasks: 0, waitingOn: 0 },
+        quietLine: "Meeting queued for deep analysis.",
+      };
+    },
+    runMeetingAnalysisSweepImpl: async (options) => {
+      sweeps.push(options);
+      return { processed: 1, failed: 0, dead: 0 };
+    },
+  }));
+  assert.equal(result.exitCode, 0);
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].detectedTool, "gemini");
+  assert.equal(Array.isArray(queued[0].headers), true);
+  assert.equal(sweeps.length, 1);
+});
+
+test("the analyst off switch reverts the meeting pipeline wholesale to legacy extraction", async (t) => {
+  const files = fixture(t);
+  const google = gateway();
+  let legacyCalls = 0;
+  const result = await runMeetingWatch(runOptions(files, google.mail, {
+    meetingAnalystEnabled: false,
+    processMeetingEmail: async () => {
+      legacyCalls += 1;
+      return {
+        status: "processed",
+        summary: { parsedItems: 1, tasks: 1, waitingOn: 0 },
+      };
+    },
+    runMeetingAnalysisSweepImpl: async () => {
+      throw new Error("analyst sweep must stay off");
+    },
+  }));
+  assert.equal(result.exitCode, 0);
+  assert.equal(legacyCalls, 1);
+  assert.equal(google.calls.filter(([name]) => name === "archiveMessages").length, 1);
 });
 
 test("dry run parses without labeling or changing state", async (t) => {
@@ -143,7 +271,44 @@ test("dry run parses without labeling or changing state", async (t) => {
     google.calls.some(([name]) => name === "modifyThreadLabels"),
     false,
   );
+  assert.equal(
+    google.calls.some(([name]) => name === "archiveMessages"),
+    false,
+  );
   assert.equal(readMeetingState(files.statePath).processed_ids.length, 0);
+});
+
+test("archive failure is logged without failing or retrying processed meeting mail", async (t) => {
+  const files = fixture(t);
+  const logs = [];
+  const google = gateway({
+    archiveMessages: async (input) => {
+      google.calls.push(["archiveMessages", input]);
+      throw new Error("archive offline");
+    },
+  });
+  const result = await runMeetingWatch(runOptions(files, google.mail, {
+    processMeetingEmail: async () => ({
+      status: "processed",
+      summary: { parsedItems: 1, tasks: 1, waitingOn: 0 },
+    }),
+    logArchiveFailure: (line) => logs.push(line),
+  }));
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.summary.processed, 1);
+  assert.equal(result.summary.errors, 0);
+  assert.equal(google.calls.filter(([name]) => name === "archiveMessages").length, 1);
+  assert.match(logs[0], /message-1: archive offline/);
+  assert.deepEqual(readMeetingState(files.statePath).processed_ids, ["message-1"]);
+  const second = await runMeetingWatch(runOptions(files, google.mail, {
+    processMeetingEmail: async () => {
+      throw new Error("processed mail must not re-enter ingestion");
+    },
+    logArchiveFailure: (line) => logs.push(line),
+  }));
+  assert.equal(second.exitCode, 0);
+  assert.equal(second.summary.processed, 0);
+  assert.equal(google.calls.filter(([name]) => name === "archiveMessages").length, 1);
 });
 
 test("disabled meeting watch never touches Gmail", async (t) => {

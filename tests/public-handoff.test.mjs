@@ -36,7 +36,7 @@ test('the public setup checks real release commands and keeps judgment shadowed'
   assert.match(setup, /npm run verify/);
   assert.match(
     setup,
-    /npm run check:brief-writer -- --expect claude --expect-local-sources/,
+    /npm run check:brief-writer -- --expect-configured --expect-local-sources/,
   );
   assert.match(verifyScript, /process\.execPath/);
   assert.match(verifyScript, /path\.dirname\(process\.execPath\)/);

@@ -21,6 +21,7 @@ export type TaskSessionPromptSnapshot = {
   whyToday?: string;
   project?: string;
   dueAt?: string;
+  brief?: string;
 };
 
 export type TaskSessionRun = {

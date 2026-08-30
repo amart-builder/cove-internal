@@ -12,12 +12,14 @@
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { COVE_REST_TABLES } from "../data/cove-tables";
+import { operatorTimezone } from "../operator";
 import { TASK_COLUMNS } from "../tasks/columns";
 import { syncRecurringOccurrenceForTask } from "../tasks/recurrence";
 import { recordFailureInDatabase } from "../reliability/failures";
 import { localDatabasePath, openLocalDatabase } from "./database";
 
 export type RestResult = { status: number; body?: unknown };
+export type LocalRestOptions = { stampTaskEngagement?: boolean };
 
 /** Tables the app is allowed to read/write. Mirrors the Supabase proxy. */
 const ALLOWED_TABLES = new Set<string>(COVE_REST_TABLES);
@@ -78,6 +80,42 @@ function getDb(): Database.Database {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+const NOTIFICATION_POLICIES = new Set(["none", "predeadline", "due", "both"]);
+const RFC3339_WITH_OFFSET =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
+
+function offsetForInstant(value: string, timezone: string): string {
+  const part = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    timeZoneName: "longOffset",
+  }).formatToParts(new Date(value)).find((entry) => entry.type === "timeZoneName")?.value;
+  if (!part) throw new Error("Could not resolve the operator timezone offset.");
+  const offset = part.replace(/^GMT/, "");
+  return offset === "" || offset === "+00:00" ? "Z" : offset;
+}
+
+function validateTaskTiming(row: Record<string, unknown>): void {
+  if ("notification_policy" in row) {
+    const policy = row.notification_policy;
+    if (policy !== null && (typeof policy !== "string" || !NOTIFICATION_POLICIES.has(policy))) {
+      throw new Error("notification_policy must be none, predeadline, due, both, or null.");
+    }
+  }
+  if (!("remind_at" in row) || row.remind_at === null) return;
+  if (typeof row.remind_at !== "string") {
+    throw new Error("remind_at must be an RFC 3339 timestamp with the operator timezone offset.");
+  }
+  const match = RFC3339_WITH_OFFSET.exec(row.remind_at);
+  const parsed = new Date(row.remind_at);
+  if (!match || Number.isNaN(parsed.getTime())) {
+    throw new Error("remind_at must be an RFC 3339 timestamp with the operator timezone offset.");
+  }
+  const supplied = match[1] === "+00:00" ? "Z" : match[1];
+  if (supplied !== offsetForInstant(row.remind_at, operatorTimezone())) {
+    throw new Error("remind_at must use the operator timezone offset for that date.");
+  }
 }
 
 function seedDefaults(conn: Database.Database): void {
@@ -312,6 +350,7 @@ function insertRows(table: string, payload: unknown): RestResult {
   const tx = db.transaction(() => {
     for (const raw of rows) {
       const row = encodeRow(table, { ...(raw as Record<string, unknown>) });
+      if (table === "tasks") validateTaskTiming(row);
       if (!row.id) row.id = randomUUID();
       if (row.created_at == null) row.created_at = now;
       if (row.updated_at == null) row.updated_at = now;
@@ -337,6 +376,7 @@ function updateRows(
   table: string,
   params: URLSearchParams,
   payload: unknown,
+  options: LocalRestOptions = {},
 ): RestResult {
   const db = getDb();
   const { clause, args } = parseWhere(table, params);
@@ -346,17 +386,42 @@ function updateRows(
 
   const requestedKeys = Object.keys(payload as Record<string, unknown>);
   const row = encodeRow(table, { ...(payload as Record<string, unknown>) });
+  if (table === "tasks") validateTaskTiming(row);
   delete row.id; // never reassign the primary key
   row.updated_at = nowIso();
   return db.transaction(() => {
     // Capture the matched primary keys before mutating so the returned
     // representation has PostgREST RETURNING semantics even when a filtered
     // column changes.
-    const matchedIds = (
-      db.prepare(`SELECT id FROM "${table}"${clause}`).all(...args) as {
-        id: unknown;
-      }[]
-    ).map((matched) => matched.id);
+    const matchedRows = db.prepare(`SELECT * FROM "${table}"${clause}`).all(...args) as
+      Record<string, unknown>[];
+    const matchedIds = matchedRows.map((matched) => matched.id);
+    const known = tableColumns(table);
+    let engagedIds: unknown[] = [];
+    if (table === "tasks" && matchedIds.length > 0) {
+      const operatorFields = ["title", "description", "status", "due_at", "due_date"];
+      if (options.stampTaskEngagement !== false) {
+        engagedIds = matchedRows
+          .filter((matched) => operatorFields.some(
+            (field) => known.has(field) && requestedKeys.includes(field) && matched[field] !== row[field],
+          ))
+          .map((matched) => matched.id);
+      }
+      if (
+        requestedKeys.includes("remind_at") &&
+        typeof row.remind_at === "string" &&
+        new Date(row.remind_at).getTime() > Date.now()
+      ) {
+        const placeholders = matchedIds.map(() => "?").join(", ");
+        const rescheduled = db.prepare(
+          `SELECT 1 FROM tasks
+           WHERE id IN (${placeholders})
+             AND COALESCE(remind_at, '') <> ?
+           LIMIT 1`,
+        ).get(...matchedIds, row.remind_at);
+        if (rescheduled) row.nudged_at = null;
+      }
+    }
     if (
       table === "tasks" &&
       row.status === "archived" &&
@@ -369,7 +434,6 @@ function updateRows(
          ${clause}`,
       ).run(row.updated_at, ...args);
     }
-    const known = tableColumns(table);
     const cols = Object.keys(row).filter((column) => known.has(column));
     if (cols.length) {
       const setSql = cols.map((column) => `"${column}" = ?`).join(", ");
@@ -377,6 +441,13 @@ function updateRows(
         ...cols.map((column) => row[column]),
         ...args,
       );
+    }
+    if (table === "tasks" && engagedIds.length > 0) {
+      db.prepare(
+        `UPDATE tasks SET engaged_at = ? WHERE id IN (${
+          engagedIds.map(() => "?").join(", ")
+        })`,
+      ).run(row.updated_at, ...engagedIds);
     }
     const positionOnly = requestedKeys.length === 1 &&
       requestedKeys[0] === "position";
@@ -427,6 +498,7 @@ export function handleLocalRest(
   method: string,
   params: URLSearchParams,
   body: string | Record<string, unknown> | unknown[] | undefined,
+  options: LocalRestOptions = {},
 ): RestResult {
   if (!ALLOWED_TABLES.has(table)) {
     return { status: 404, body: "Unknown Cove table." };
@@ -445,6 +517,7 @@ export function handleLocalRest(
         table,
         params,
         typeof body === "string" ? (body ? JSON.parse(body) : {}) : body ?? {},
+        options,
       );
     case "DELETE":
       return deleteRows(table, params);

@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { coveEnv } from "../src/lib/env-runtime.mjs";
+import { configuredJobBackend } from "../src/lib/model-runner-runtime.mjs";
 
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -97,6 +98,10 @@ function parseExpectedWriter(argv) {
   return value;
 }
 
+export function configuredExpectedBriefWriter(env = process.env) {
+  return configuredJobBackend(env, "BRIEF_WRITER") === "claude" ? "claude" : "codex";
+}
+
 export function checkLatestBriefWriter(options = {}) {
   const dbPath = path.resolve(
     options.dbPath ?? coveEnv("DB_PATH") ?? path.join(repoDir, "data", "cove.db"),
@@ -114,8 +119,15 @@ export function checkLatestBriefWriter(options = {}) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const expected = parseExpectedWriter(process.argv.slice(2));
-    const expectLocalSources = process.argv.includes("--expect-local-sources");
+    const argv = process.argv.slice(2);
+    const explicitExpected = parseExpectedWriter(argv);
+    if (explicitExpected && argv.includes("--expect-configured")) {
+      throw new Error("Use either --expect or --expect-configured, not both.");
+    }
+    const expected = argv.includes("--expect-configured")
+      ? configuredExpectedBriefWriter()
+      : explicitExpected;
+    const expectLocalSources = argv.includes("--expect-local-sources");
     const result = checkLatestBriefWriter({ expected, expectLocalSources });
     console.log(`Morning Brief writer: ${result.writer}`);
     if (result.localSources) {

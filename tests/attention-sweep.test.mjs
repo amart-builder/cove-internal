@@ -143,6 +143,7 @@ test("the sweep Claude seam is tool-free, empty-MCP, bounded, and minimally env-
     }, {
       repoDir: process.cwd(),
       claudePath: "/test/claude",
+      modelBackend: "claude",
       spawnImpl,
       timeoutMs: 60_000,
     });

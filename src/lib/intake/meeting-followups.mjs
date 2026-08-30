@@ -1,7 +1,20 @@
-import { spawn } from "node:child_process";
-import path from "node:path";
-import { coveEnv } from "../env-runtime.mjs";
 import { OPERATOR_NAME_FALLBACK, operatorName } from "../operator-runtime.mjs";
+import { runJob } from "../model-runner-runtime.mjs";
+
+export const MEETING_FOLLOWUPS_JSON_SCHEMA = {
+  type: "array",
+  maxItems: 8,
+  items: {
+    type: "object",
+    additionalProperties: false,
+    required: ["owner", "title", "detail"],
+    properties: {
+      owner: { type: "string", minLength: 1 },
+      title: { type: "string", minLength: 1 },
+      detail: { type: "string" },
+    },
+  },
+};
 
 function fallbackPrompt(operator = operatorName()) {
   return `Turn these meeting notes into the distinct follow-up items they imply.
@@ -20,6 +33,10 @@ Return ONLY a JSON array:
 
 BEGIN EMAIL CONTENT
 `;
+}
+
+export function buildMeetingFollowupsPrompt(text, operator) {
+  return `${fallbackPrompt(operator)}${text}\nEND EMAIL CONTENT`;
 }
 
 export function parseNextSteps(text) {
@@ -53,26 +70,6 @@ export function parseNextSteps(text) {
   return items;
 }
 
-function minimalChildEnvironment(env) {
-  const allowed = [
-    "HOME",
-    "PATH",
-    "TMPDIR",
-    "LANG",
-    "LC_ALL",
-    "USER",
-    "LOGNAME",
-    "SHELL",
-    "XDG_CONFIG_HOME",
-    "CLAUDE_CONFIG_DIR",
-    "ANTHROPIC_API_KEY",
-    "CLAUDE_CODE_OAUTH_TOKEN",
-  ];
-  return Object.fromEntries(
-    allowed.flatMap((key) => env[key] === undefined ? [] : [[key, env[key]]]),
-  );
-}
-
 function unfenceJson(value) {
   const trimmed = value.trim();
   return /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed)?.[1] ?? trimmed;
@@ -93,7 +90,7 @@ function unwrapClaudeOutput(stdout) {
   throw new Error("Claude meeting extraction returned an unexpected shape.");
 }
 
-function validFollowUps(value) {
+export function validateMeetingFollowUps(value) {
   if (!Array.isArray(value) || value.length > 20) {
     throw new Error("Meeting extraction returned an invalid follow-up list.");
   }
@@ -117,91 +114,35 @@ function validFollowUps(value) {
   });
 }
 
-function runClaudeMeetingCommand(prompt, options) {
-  const repoDir = options.repoDir ?? process.cwd();
-  const executable = options.claudePath ??
-    coveEnv("CLAUDE_BIN") ??
-    path.join(process.env.HOME ?? "", ".local", "bin", "claude");
-  const spawnImpl = options.spawnImpl ?? spawn;
-  return new Promise((resolve, reject) => {
-    const child = spawnImpl(
-      executable,
-      [
-        "-p",
-        "--no-session-persistence",
-        "--permission-mode",
-        "plan",
-        "--tools",
-        "",
-        "--strict-mcp-config",
-        "--mcp-config",
-        path.join(repoDir, "scripts", "cove-empty-mcp.json"),
-        "--model",
-        "claude-opus-5",
-        "--output-format",
-        "json",
-        "--max-budget-usd",
-        "0.75",
-      ],
-      {
-        cwd: repoDir,
-        env: minimalChildEnvironment(options.env ?? process.env),
-        shell: false,
-        detached: true,
-        stdio: ["pipe", "pipe", "pipe"],
-      },
-    );
-    let stdout = "";
-    let stderr = "";
-    const timeout = setTimeout(() => {
-      if (child.pid) {
-        try {
-          process.kill(-child.pid, "SIGTERM");
-        } catch {
-          child.kill("SIGTERM");
-        }
-      }
-      reject(new Error("Claude meeting extraction timed out."));
-    }, options.timeoutMs ?? 120_000);
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk;
-      if (stdout.length > 4 * 1024 * 1024) child.kill("SIGTERM");
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.once("error", (error) => {
-      clearTimeout(timeout);
-      reject(error);
-    });
-    child.once("close", (code) => {
-      clearTimeout(timeout);
-      if (code !== 0) {
-        reject(new Error(`Claude meeting extraction failed (${code}): ${stderr.slice(0, 500)}`));
-        return;
-      }
-      resolve(stdout);
-    });
-    child.stdin.end(prompt);
-  });
-}
-
 export async function claudeMeetingFallback(text, options = {}) {
-  const delimitedPrompt =
-    `${fallbackPrompt(options.operatorName)}${text}\nEND EMAIL CONTENT`;
-  const runCommand = options.runCommand ?? runClaudeMeetingCommand;
+  const delimitedPrompt = buildMeetingFollowupsPrompt(text, options.operatorName);
+  if (!options.runCommand) {
+    const result = await runJob({
+      lane: "meeting-followups",
+      kind: "structured",
+      prompt: delimitedPrompt,
+      schema: MEETING_FOLLOWUPS_JSON_SCHEMA,
+      timeoutMs: options.timeoutMs ?? 120_000,
+      codexPath: options.codexPath,
+      claudePath: options.claudePath,
+      spawnImpl: options.spawnImpl,
+      env: options.env,
+      claudeMaxBudgetUsd: "0.75",
+    });
+    if (!result.ok) throw new Error(`${result.error.code}:${result.error.message}`);
+    return validateMeetingFollowUps(result.value);
+  }
+  const runCommand = options.runCommand;
   let raw = await runCommand(delimitedPrompt, options);
   try {
-    return validFollowUps(unwrapClaudeOutput(raw));
+    return validateMeetingFollowUps(unwrapClaudeOutput(raw));
   } catch (firstError) {
     raw = await runCommand(
       `${delimitedPrompt}\n\nRETRY: Return ONLY the JSON array. No fences or explanation.`,
       options,
     );
     try {
-      return validFollowUps(unwrapClaudeOutput(raw));
+      return validateMeetingFollowUps(unwrapClaudeOutput(raw));
     } catch {
       throw firstError;
     }

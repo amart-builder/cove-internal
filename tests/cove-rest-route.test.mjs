@@ -188,6 +188,11 @@ test('a legacy tasks table upgrades in place instead of failing per query', asyn
       proposed_recurrence_cadence: null,
       recurring_template_id: null,
       occurrence_local_date: null,
+      brief: null,
+      remind_at: null,
+      nudged_at: null,
+      engaged_at: null,
+      notification_policy: null,
     }]);
   } finally {
     delete globalKey.__coveDb;

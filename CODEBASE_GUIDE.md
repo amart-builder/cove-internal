@@ -356,6 +356,7 @@ or broken agent.
 | `com.cove.attention-sweep` | `scripts/cove-attention-sweep.mjs` | Shadow-first attention judgment at scheduled times | Default profile, shadowed by default |
 | `com.cove.email-triage` | `scripts/cove-email-triage.sh` | Configured Gmail catch-up and triage schedule | Only when Workspace email is configured |
 | `com.cove.meeting-watch` | `scripts/cove-meeting-watch.mjs` | Configured meeting-note ingestion | Only when this Mac claims the meeting lane; the script remains disabled without meeting config |
+| `com.cove.meeting-drain` | `scripts/cove-meeting-watch.mjs --drain-only` | Always-on local meeting-analysis job drain | Only when this Mac claims the meeting lane |
 | `com.cove.progress` | `scripts/cove-progress-reconcile.mjs` | Read-only project evidence and progress suggestions | Only when this Mac claims the progress lane |
 | `com.cove.local.backup` | `scripts/cove-backup.sh` | Daily online SQLite backup | Default profile |
 | `com.cove.morning-brief` | `scripts/cove-claude-worker.ts --lane brief` | Scheduled brief generation on a legacy always-on host | `--mini` profile only |

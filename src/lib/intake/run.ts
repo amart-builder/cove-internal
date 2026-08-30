@@ -10,7 +10,6 @@
 import {
   spawn,
   type ChildProcess,
-  type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -21,11 +20,9 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { listAtlasProjectFolderNames } from "../atlas-projects";
-import { parseStructuredClaudeOutput } from "../claude-execution/commands";
 import type { InboundEvent } from "../data/types";
 import { localDateInTimezone } from "../day-plan/brief";
 import { operatorTimezone, workspaceRoot } from "../operator";
@@ -56,6 +53,7 @@ import {
   type RecurrenceCadence,
 } from "../tasks/recurrence";
 import { getRuntimeMode } from "../runtime/mode";
+import { runJob, type ModelRunnerBackend } from "../model-runner";
 
 const MODULE_REPO_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -93,7 +91,9 @@ export type CoveIntakeOptions = InboundTaskWriterOptions & {
   dataDir?: string;
   repoDir?: string;
   claudePath?: string;
+  codexPath?: string;
   emptyMcpConfigPath?: string;
+  modelBackend?: ModelRunnerBackend;
   spawnImpl?: SpawnImpl;
   write?: (line: string) => void;
   writeError?: (line: string) => void;
@@ -192,90 +192,22 @@ function runTriageCommand(
   prompt: string,
   options: CoveIntakeOptions,
 ): Promise<string> {
-  const repoDir = options.repoDir ?? MODULE_REPO_DIR;
-  const executable =
-    options.claudePath ??
-    coveEnv("CLAUDE_BIN") ??
-    path.join(os.homedir(), ".local", "bin", "claude");
-  const emptyMcpConfig =
-    options.emptyMcpConfigPath ??
-    path.join(repoDir, "scripts", "cove-empty-mcp.json");
-  const spawnImpl = options.spawnImpl ?? spawn;
-  return new Promise((resolve, reject) => {
-    let child: ChildProcessWithoutNullStreams;
-    try {
-      child = spawnImpl(
-        executable,
-        [
-          "-p",
-          "--no-session-persistence",
-          "--permission-mode",
-          "plan",
-          "--tools",
-          "",
-          "--strict-mcp-config",
-          "--mcp-config",
-          emptyMcpConfig,
-          "--model",
-          "claude-opus-5",
-          "--effort",
-          "high",
-          "--output-format",
-          "json",
-          "--json-schema",
-          TRIAGE_JSON_SCHEMA,
-          "--max-budget-usd",
-          "1.50",
-        ],
-        {
-          cwd: repoDir,
-          shell: false,
-          detached: true,
-          stdio: ["pipe", "pipe", "pipe"],
-          env: minimumChildEnvironment(),
-        },
-      ) as ChildProcessWithoutNullStreams;
-    } catch (error) {
-      reject(error);
-      return;
-    }
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const finish = (error?: Error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      if (error) reject(error);
-      else resolve(stdout);
-    };
-    const timeout = setTimeout(() => {
-      signalChild(child, "SIGTERM");
-      const kill = setTimeout(() => signalChild(child, "SIGKILL"), 2000);
-      kill.unref();
-      finish(new Error("triage_timeout"));
-    }, 120_000);
-    timeout.unref();
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
-      if (Buffer.byteLength(stdout, "utf8") > 1024 * 1024) {
-        signalChild(child, "SIGTERM");
-        finish(new Error("triage_output_too_large"));
-      }
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr = `${stderr}${chunk.toString()}`.slice(-16_000);
-    });
-    child.once("error", (error) => finish(error));
-    child.once("close", (code) => {
-      if (code !== 0) {
-        finish(new Error(`triage_claude_${code}:${stderr.trim().slice(0, 500)}`));
-        return;
-      }
-      finish();
-    });
-    child.stdin.once("error", (error) => finish(error));
-    child.stdin.end(prompt);
+  return runJob({
+    lane: "intake-triage",
+    kind: "structured",
+    prompt,
+    schema: JSON.parse(TRIAGE_JSON_SCHEMA) as Record<string, unknown>,
+    timeoutMs: 120_000,
+    backend: options.modelBackend,
+    codexPath: options.codexPath,
+    claudePath: options.claudePath,
+    spawnImpl: options.spawnImpl,
+    cwd: options.repoDir ?? MODULE_REPO_DIR,
+    claudeMcpConfigPath: options.emptyMcpConfigPath,
+    claudeMaxBudgetUsd: "1.50",
+  }).then((result) => {
+    if (!result.ok) throw new Error(`${result.error.code}:${result.error.message}`);
+    return JSON.stringify(result.value);
   });
 }
 
@@ -612,12 +544,9 @@ export async function triageRecordedEvent(
     now,
   });
   const raw = await runTriageCommand(prompt, runtimeOptions);
-  const trimmed = raw.trim();
-  const unfenced =
-    /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed)?.[1] ?? trimmed;
   const policy = enforceSurfacePolicy(
     validateTriageOutput(
-      parseStructuredClaudeOutput(unfenced, "triage"),
+      JSON.parse(raw) as unknown,
       projects,
     ),
     event.source,

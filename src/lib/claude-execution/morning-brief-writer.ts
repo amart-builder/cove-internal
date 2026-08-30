@@ -1,40 +1,18 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import path from "node:path";
 import type { ClaudeCommand } from "./commands";
-import { coveEnv } from "../env";
+import {
+  configuredJobBackend,
+  createCodexJobAttempt,
+  readCodexJobOutput,
+} from "../model-runner-runtime.mjs";
+
+export { resolveCodexBinary } from "../model-runner-runtime.mjs";
 
 export type MorningBriefWriter = "codex" | "claude";
 
 export function configuredMorningBriefWriter(
   env: NodeJS.ProcessEnv = process.env,
 ): MorningBriefWriter {
-  return coveEnv("BRIEF_WRITER", env)?.trim().toLowerCase() === "codex" ? "codex" : "claude";
-}
-
-export function resolveCodexBinary(options: {
-  env?: NodeJS.ProcessEnv;
-  exists?: (candidate: string) => boolean;
-  home?: string;
-} = {}): string | undefined {
-  const env = options.env ?? process.env;
-  const exists = options.exists ?? existsSync;
-  const configured = coveEnv("CODEX_BIN", env)?.trim();
-  if (configured) {
-    return configured.includes(path.sep) && !exists(configured) ? undefined : configured;
-  }
-
-  for (const directory of (env.PATH ?? "").split(path.delimiter).filter(Boolean)) {
-    const candidate = path.join(directory, "codex");
-    if (exists(candidate)) return candidate;
-  }
-  for (const candidate of [
-    path.join(options.home ?? homedir(), ".local", "bin", "codex"),
-    "/opt/homebrew/bin/codex",
-  ]) {
-    if (exists(candidate)) return candidate;
-  }
-  return undefined;
+  return configuredJobBackend(env, "BRIEF_WRITER") === "claude" ? "claude" : "codex";
 }
 
 export type CodexStructuredAttempt = {
@@ -49,40 +27,23 @@ export function createCodexStructuredAttempt(input: {
   env?: NodeJS.ProcessEnv;
   tempPrefix?: string;
 }): CodexStructuredAttempt | undefined {
-  const executable = input.executable ?? resolveCodexBinary({ env: input.env });
-  if (!executable) return undefined;
-  const cwd = mkdtempSync(path.join(tmpdir(), input.tempPrefix ?? "cove-morning-brief-"));
-  chmodSync(cwd, 0o700);
-  const outputPath = path.join(cwd, "last-message.json");
-  return {
-    command: {
-      executable,
-      cwd,
-      args: [
-        "exec",
-        "--sandbox",
-        "read-only",
-        "--skip-git-repo-check",
-        "-m",
-        "gpt-5.6-sol",
-        "-c",
-        "model_reasoning_effort=high",
-        "--output-last-message",
-        outputPath,
-        "-",
-      ],
-      stdin: input.prompt,
-    },
-    outputPath,
-    cleanup: () => rmSync(cwd, { recursive: true, force: true }),
-  };
+  return createCodexJobAttempt({
+    prompt: input.prompt,
+    executable: input.executable,
+    env: input.env,
+    tempPrefix: input.tempPrefix ?? "cove-morning-brief-",
+  }) as CodexStructuredAttempt | undefined;
 }
 
 export function readCodexStructuredOutput(attempt: CodexStructuredAttempt): string {
-  if (statSync(attempt.outputPath).size > 1024 * 1024) {
-    throw new Error("brief_output_too_large");
+  try {
+    return readCodexJobOutput(attempt);
+  } catch (error) {
+    if (error instanceof Error && error.message === "model_output_too_large") {
+      throw new Error("brief_output_too_large");
+    }
+    throw error;
   }
-  return readFileSync(attempt.outputPath, "utf8");
 }
 
 // Backward-compatible names keep the established Morning Brief call sites and

@@ -170,6 +170,8 @@ test('the brief writer, codex binary, notify gate, and dump writer read FORGE_ t
     await import('../src/lib/claude-execution/morning-brief-writer.ts');
   const { configuredDayDumpWriter } = await import('../src/lib/claude-execution/worker.ts');
   const { createExecutionNotifier } = await import('../src/lib/claude-execution/notify.ts');
+  const { configuredExpectedBriefWriter } =
+    await import('../scripts/cove-check-brief-writer.mjs');
 
   // FORGE_NOTIFY=1 alone must still let a notification through.
   const spawned = [];
@@ -195,16 +197,34 @@ test('the brief writer, codex binary, notify gate, and dump writer read FORGE_ t
   });
   assert.equal(spawned.length, 1);
 
+  assert.equal(configuredMorningBriefWriter({}), 'codex');
+  assert.equal(configuredExpectedBriefWriter({}), 'codex');
   assert.equal(configuredMorningBriefWriter({ FORGE_BRIEF_WRITER: 'claude' }), 'claude');
   assert.equal(
     configuredMorningBriefWriter({ COVE_BRIEF_WRITER: 'claude', FORGE_BRIEF_WRITER: 'codex' }),
     'claude',
   );
+  assert.equal(
+    configuredMorningBriefWriter({ COVE_JOB_RUNNER: 'claude', COVE_BRIEF_WRITER: 'codex' }),
+    'claude',
+  );
+  assert.equal(
+    configuredExpectedBriefWriter({ COVE_JOB_RUNNER: 'claude', COVE_BRIEF_WRITER: 'codex' }),
+    'claude',
+  );
+  assert.equal(configuredDayDumpWriter({}), 'codex');
   assert.equal(configuredDayDumpWriter({ FORGE_DUMP_WRITER: 'claude' }), 'claude');
+  assert.equal(
+    configuredDayDumpWriter({ COVE_JOB_RUNNER: 'claude', COVE_DUMP_WRITER: 'codex' }),
+    'claude',
+  );
   assert.equal(
     resolveCodexBinary({ env: { FORGE_CODEX_BIN: '/opt/homebrew/bin/codex' }, exists: () => true }),
     '/opt/homebrew/bin/codex',
   );
+  const configuration = readFileSync(new URL('../CONFIGURATION.md', import.meta.url), 'utf8');
+  assert.match(configuration, /COVE_BRIEF_WRITER/);
+  assert.match(configuration, /legacy per-lane overrides/);
 });
 
 test('the installer removes only the pre-rename orchestrator hook', () => {

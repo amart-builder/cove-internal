@@ -71,7 +71,7 @@ function insertTask(db, input) {
   }
 }
 
-test("the noon floor nudges once, drops done work, sanitizes meeting titles, and includes standalone commitments", (t) => {
+test("the noon floor excludes production meeting tasks from its direct count", (t) => {
   const { dir, bin, calls, texts, config, dbPath, db } = fixture(t);
   insertTask(db, { id: "direct-task", title: "Review launch", inboundSource: "chat" });
   insertTask(db, {
@@ -80,6 +80,10 @@ test("the noon floor nudges once, drops done work, sanitizes meeting titles, and
     inboundSource: "meeting",
   });
   insertTask(db, { id: "done-task", title: "Already done", inboundSource: "chat", status: "done" });
+  assert.equal(
+    db.prepare("SELECT source_type FROM tasks WHERE id = 'meeting-task'").pluck().get(),
+    "inbound_event",
+  );
   db.prepare(
     `INSERT INTO commitments
        (id, kind, title, counterparty, source_kind, due_at, confidence,
@@ -114,7 +118,8 @@ test("the noon floor nudges once, drops done work, sanitizes meeting titles, and
   assert.match(banners, /from meeting:/);
   assert.doesNotMatch(banners, /secret\.example|alice@example|13105551212/);
   assert.doesNotMatch(banners, /Already done/);
-  // Two direct items came due, and they cost exactly one interruption.
+  // The meeting task is source_type=inbound_event with source=meeting, so only
+  // the direct task and the manual commitment contribute to this count.
   const sent = readFileSync(texts, "utf8");
   assert.equal(sent.match(/Cove: 2 things need a look\. Open the board\./g)?.length, 1);
   assert.equal(sent.match(/Open the board\./g)?.length, 1);

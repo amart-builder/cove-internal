@@ -18,13 +18,151 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-08-26T10:44:58-0400
-- **task:** Commit Aug 7 uncommitted features
+- **since:** 2026-08-30T12:49:46-0400
+- **task:** meeting intelligence: verify + commit
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-08-26 (Aug 7 local work committed and pushed after a 19-day gap)
+**Last updated:** 2026-08-30 (always-on meeting-analysis drain complete and uncommitted; email draft hardening and Meeting Intelligence remain uncommitted)
+
+## 2026-08-30 Always-on meeting-analysis drain (DONE, UNCOMMITTED)
+
+- `com.cove.meeting-drain` runs the local analysis sweep every 15 minutes at
+  all hours without listing Gmail or touching labels. The weekday 08:00-18:00
+  Gmail watcher schedule is unchanged, and idle drain ticks invoke no model.
+- Permanently failed meeting re-picks remain labeled neither processed nor
+  archived, preserving the inbox message beside Cove's failure-inbox record.
+- Verification: clean-env suite 1,027 passed, zero failed, one gated live model
+  test skipped; zero-warning ESLint; focused watcher and installer tests 31/31;
+  both meeting plists pass `plutil -lint`; `git diff --check` is clean.
+- Next action: independent re-review, then commit the existing Meeting
+  Intelligence change set when authorized.
+- Blockers: none.
+
+## 2026-08-30 Meeting watcher schedule and archiving (DONE, UNCOMMITTED)
+
+- The shared normal and Mini meeting-watch template now uses an exact weekday
+  calendar: every 15 minutes from 08:00 through 17:45 local time, one final
+  18:00 run, and `RunAtLoad` login catch-up. Idle ticks remain model-free.
+- The meeting query window is four days in the distributed example and the
+  operator's ignored live config, preserving Friday-evening and weekend notes
+  for Monday morning.
+- After durable meeting ingestion, the watcher applies the processed label and
+  archives that exact Gmail message by removing `INBOX`. Archive failures are
+  logged and remain non-fatal; the processed label prevents retry loops. No
+  delete or read-state operation was added.
+- Verification: exact clean-env suite 1,023 passed, zero failed, one gated live
+  model test skipped; zero-warning ESLint; focused watcher/install tests 31/31;
+  plist lint and the 205-entry calendar-grid assertion passed; `git diff
+  --check` clean.
+- Next action: review and commit with the existing Meeting Intelligence change
+  set when authorized.
+- Blockers: none.
+
+## 2026-08-28 Email draft pipeline hardening (DONE, UNCOMMITTED)
+
+Closes both gaps from the 2026-08-28 read-only Gmail draft audit. MIME
+structure untouched.
+
+- `buildEmailClassifierPrompt` (`src/lib/email/classifier.ts`) now forbids
+  markdown syntax in `draft_body`, so recipients never see literal asterisks,
+  underscores, or backticks after the HTML escape in `draftBodyToHtml`.
+- `stripTrailingSignature` (`src/lib/email/draft-format.ts`) keeps the
+  verbatim cached-signature match and then also strips a model-invented
+  trailing valediction: up to 3 lines whose first line is a known closer
+  ending in a comma ("Best,", "Thanks,", "Cheers," and similar) followed by
+  short name or company lines without sentence punctuation. This prevents a
+  double sign-off above the real signature appended in
+  `src/lib/email/gmail-outbox.ts`. It never strips the entire body, and prose
+  that only resembles a sign-off ("Thanks!" without a comma, "Thanks, I'll
+  get back to you", address blocks) is preserved.
+- Tests updated and extended in `tests/email-draft-format.test.mjs`. Full
+  suite green: 1021 pass, 0 fail, 1 skipped (gated live model test), with
+  `tsc --noEmit` passing.
+
+## 2026-08-28 Meeting Intelligence Phase 2 reasoning lane (DONE, UNCOMMITTED)
+
+- Migration 19 adds durable meeting analysis jobs, normalized member envelopes,
+  and a deterministic side-effect ledger. Gmail claims now finish immediately
+  after the envelope is stored; leased jobs own model calls and replay-safe
+  writes afterward.
+- The meeting watcher defaults to the deep analyst pipeline; the separate
+  always-on drain sweeps ready jobs every 15 minutes. `COVE_MEETING_ANALYST=0`
+  or `off` restores the legacy pipeline wholesale. Five failed attempts produce
+  a visible degraded fallback receipt before the legacy extractor runs.
+- Short calls are held for two hours and merge on overlapping normalized
+  attendee email identities. The documented no-duration heuristic is a body
+  shorter than 1,200 characters. Two-process coverage proves one group leader,
+  and lone fragments carry an explicit incomplete-notes caveat.
+- The exported analyst prompt and schema produce CRM meeting summaries,
+  complete task briefs, timed due dates, explicit notification policies,
+  pre-deadline reminders, waiting-on commitments, and bounded research
+  requests. Meeting, email, and CRM-derived text is fenced as untrusted data.
+- Unknown external attendee research uses the shared Codex runner with
+  read-only sandboxing and web search enabled. Stable `research:<contact_id>`
+  source references prevent repeat research; failures do not block tasks and
+  add a research-pending marker only at task render time, leaving the persisted
+  analyst artifact and deterministic action keys immutable across replays.
+- Task writes use automation provenance, remain linked to deterministic
+  inbound events, bypass follow-up consolidation, and never stamp
+  `engaged_at`. CRM writes preserve the raw meeting row and add a synthesized
+  `meeting_summary` activity.
+- Deterministic coverage includes envelope parsing, fragment release and
+  concurrent election, persisted-artifact replay after a mid-action crash,
+  dead-job degradation, research cache and failure behavior, task contract
+  provenance, CRM dual-row writes, watcher switching, and untrusted fences.
+  The live structured-runner smoke now includes the real analyst prompt and
+  schema behind `COVE_MODEL_RUNNER_LIVE=1`; it was intentionally not run here.
+- Independent review fixes now keep failed research terminal per job, preserve
+  partial analyst task output instead of double-running legacy extraction,
+  fence and neutralize refinement data, disambiguate terminal group keys,
+  surface dead-message re-picks, guard death handling by lease ownership,
+  reject elapsed due dates, and continue past lost claims.
+- Verification: clean-env suite 1,019 passed, zero failed, one gated live smoke
+  skipped; zero-warning ESLint; TypeScript passed as part of the suite; focused
+  Phase 2 tests 20/20; `git diff --check` clean. Fixture-only subprocess
+  deadlines are 15 seconds so normal parallel suite load cannot trigger false
+  product timeout results; package test concurrency and product timeouts remain
+  unchanged.
+- Next action: independent re-review, then commit only the intended Phase 1 and
+  Phase 2 files when authorized.
+- Blockers: none.
+
+## 2026-08-28 Meeting Intelligence Phase 1 foundations (DONE, UNCOMMITTED)
+
+- Added migration 18, the task briefing and reminder contract, the pre-deadline
+  native nudge lane, server-authoritative task-session briefs, and engagement
+  tracking for manual task edits and launched Claude sessions.
+- Added the shared fail-closed background model runner, made GPT-5.6 Sol high
+  the default, migrated the requested model lanes, and propagated the runner
+  selection through installed background jobs. Interactive Buddy and task
+  sessions remain on Claude.
+- A clean-environment follow-up found the legacy morning-brief default and
+  test-launcher-dependent Claude selection still reachable in migrated lanes.
+  The brief and dump workers now resolve Codex by default, every other migrated
+  caller delegates backend selection to `COVE_JOB_RUNNER`, and explicit Claude
+  overrides remain supported.
+- Independent review hardening is complete: nudge collision and backlog claims,
+  realistic meeting provenance, attention-budget routing, automation-safe
+  engagement, local-only structured validation, bounded runner output and
+  retry ownership, preserved lane failure codes, one authoritative writer
+  selector, and bounded server briefing data all have regression coverage.
+- Re-review hardening now injects every structured schema into Codex stdin,
+  preserves split UTF-8 output, leaves due-only tasks' nudge state untouched,
+  and scans past cooldown-suppressed nudge rows without exceeding three real
+  deliveries per tick. A seven-lane real Codex smoke is available behind
+  `COVE_MODEL_RUNNER_LIVE=1` and remains skipped during ordinary verification.
+- Added focused coverage for migration, REST round trips, nudge timing and
+  at-most-once claims, meeting channel isolation, runner schema recovery, and
+  authoritative session briefs. The exact clean-environment test command now
+  passes 997 tests with one explicitly gated live-model skip and TypeScript
+  with normal parallel execution; zero-warning ESLint and the production
+  Webpack build also passed.
+- Scratch database smoke passed: migration 18 applied and two reminder ticks
+  retained the same first `nudged_at` claim.
+- Next action: review and commit the scoped implementation.
+- Blockers: none.
 
 ## 2026-08-07 project-aware Claude task sessions (DONE, COMMITTED)
 

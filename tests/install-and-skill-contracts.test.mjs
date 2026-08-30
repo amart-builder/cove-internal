@@ -18,7 +18,11 @@ test("meeting and progress plists render the absolute Node executable", async (t
   const dir = await mkdtemp(path.join(os.tmpdir(), "cove-plist-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
 
-  for (const name of ["com.cove.meeting-watch.plist", "com.cove.progress.plist"]) {
+  for (const name of [
+    "com.cove.meeting-watch.plist",
+    "com.cove.meeting-drain.plist",
+    "com.cove.progress.plist",
+  ]) {
     const destination = path.join(dir, name);
     const rendered = renderLanePlist({
       source: path.join(ROOT, "scripts", "launchd", name),
@@ -30,8 +34,13 @@ test("meeting and progress plists render the absolute Node executable", async (t
       nodePath: "/opt/homebrew/Cellar/node/24.1.0/bin/node",
     });
     assert.match(rendered, /<string>\/opt\/homebrew\/Cellar\/node\/24\.1\.0\/bin\/node<\/string>/);
-    assert.doesNotMatch(rendered, /__COVE_NODE_REAL__|<string>\/usr\/bin\/env<\/string>/);
+    assert.doesNotMatch(
+      rendered,
+      /__COVE_(?:NODE_REAL|JOB_RUNNER|CODEX_BIN)__|<string>\/usr\/bin\/env<\/string>/,
+    );
     assert.doesNotMatch(rendered, /--env-file/);
+    assert.match(rendered, /<key>COVE_JOB_RUNNER<\/key>\s*<string>codex-sol-high<\/string>/);
+    assert.doesNotMatch(rendered, /(?:BRIEF|DUMP)_WRITER/);
     assert.equal((await stat(destination)).mode & 0o777, 0o600);
     assert.equal(await readFile(destination, "utf8"), rendered);
   }
@@ -54,6 +63,64 @@ test("meeting and progress plists render the absolute Node executable", async (t
     "/opt/homebrew/bin/node",
   ]);
   assert.match(await readFile(destination, "utf8"), /<string>\/opt\/homebrew\/bin\/node<\/string>/);
+});
+
+test("meeting watcher plist renders the exact weekday working-hours grid", async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "cove-meeting-calendar-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const destination = path.join(dir, "com.cove.meeting-watch.plist");
+  renderLanePlist({
+    source: path.join(ROOT, "scripts", "launchd", "com.cove.meeting-watch.plist"),
+    destination,
+    repoDir: "/Users/client/Cove",
+    homeDir: "/Users/client",
+    atlasRoot: "/Users/client/Atlas",
+    dataDir: "/Users/client/Cove/data",
+    nodePath: "/opt/homebrew/bin/node",
+  });
+  const plist = JSON.parse(execFileSync(
+    "/usr/bin/plutil",
+    ["-convert", "json", "-o", "-", destination],
+    { encoding: "utf8" },
+  ));
+  const expected = [];
+  for (let weekday = 1; weekday <= 5; weekday += 1) {
+    for (let hour = 8; hour <= 17; hour += 1) {
+      for (const minute of [0, 15, 30, 45]) {
+        expected.push({ Weekday: weekday, Hour: hour, Minute: minute });
+      }
+    }
+    expected.push({ Weekday: weekday, Hour: 18, Minute: 0 });
+  }
+  assert.equal(plist.RunAtLoad, true);
+  assert.equal("StartInterval" in plist, false);
+  assert.deepEqual(plist.StartCalendarInterval, expected);
+});
+
+test("meeting drain plist is an always-on 15-minute local sweep", async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "cove-meeting-drain-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const destination = path.join(dir, "com.cove.meeting-drain.plist");
+  renderLanePlist({
+    source: path.join(ROOT, "scripts", "launchd", "com.cove.meeting-drain.plist"),
+    destination,
+    repoDir: "/Users/client/Cove",
+    homeDir: "/Users/client",
+    atlasRoot: "/Users/client/Atlas",
+    dataDir: "/Users/client/Cove/data",
+    nodePath: "/opt/homebrew/bin/node",
+  });
+  const plist = JSON.parse(execFileSync(
+    "/usr/bin/plutil",
+    ["-convert", "json", "-o", "-", destination],
+    { encoding: "utf8" },
+  ));
+  assert.equal(plist.Label, "com.cove.meeting-drain");
+  assert.deepEqual(plist.ProgramArguments.slice(-1), ["--drain-only"]);
+  assert.equal(plist.StartInterval, 900);
+  assert.equal(plist.RunAtLoad, true);
+  assert.equal(plist.KeepAlive, false);
+  assert.equal("StartCalendarInterval" in plist, false);
 });
 
 test("local env loading parses simple and quoted values without overriding the shell", async (t) => {
@@ -158,6 +225,7 @@ test("the distributed meeting example is disabled and the live config stays igno
   const ignore = readFileSync(path.join(ROOT, ".gitignore"), "utf8");
   assert.equal(example.enabled, false);
   assert.deepEqual(example.active_tools, []);
+  assert.equal(example.window, "newer_than:4d");
   assert.doesNotMatch(ignore, /!\/data\/cove-meetings\.json(?:\n|$)/);
   assert.match(ignore, /!\/data\/cove-meetings\.example\.json/);
 });
