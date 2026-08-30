@@ -425,6 +425,8 @@ export function applyEmailClassification(input: {
   summary: string;
   recommendedAction?: string | null;
   draftBody?: string | null;
+  voiceJudgeScore?: number | null;
+  voiceJudgeVerdict?: string | null;
   signatureText?: string | null;
   artifactPayload?: unknown;
   modelVersion: string;
@@ -567,6 +569,8 @@ export function applyEmailClassification(input: {
           payload: {
             body: draftBody,
             existingDraftId: thread.gmail_draft_id,
+            voiceJudgeScore: input.voiceJudgeScore ?? null,
+            voiceJudgeVerdict: input.voiceJudgeVerdict?.slice(0, 300) ?? null,
           },
           now,
         }).operationId;

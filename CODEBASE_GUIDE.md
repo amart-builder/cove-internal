@@ -358,6 +358,7 @@ or broken agent.
 | `com.cove.meeting-watch` | `scripts/cove-meeting-watch.mjs` | Configured meeting-note ingestion | Only when this Mac claims the meeting lane; the script remains disabled without meeting config |
 | `com.cove.meeting-drain` | `scripts/cove-meeting-watch.mjs --drain-only` | Always-on local meeting-analysis job drain | Only when this Mac claims the meeting lane |
 | `com.cove.progress` | `scripts/cove-progress-reconcile.mjs` | Read-only project evidence and progress suggestions | Only when this Mac claims the progress lane |
+| `com.cove.voice-review` | `scripts/cove-voice-review.mjs` | Weekly draft-outcome and operator-writing review | Only when this Mac claims the voice-review lane; disabled in email settings by default |
 | `com.cove.local.backup` | `scripts/cove-backup.sh` | Daily online SQLite backup | Default profile |
 | `com.cove.morning-brief` | `scripts/cove-claude-worker.ts --lane brief` | Scheduled brief generation on a legacy always-on host | `--mini` profile only |
 

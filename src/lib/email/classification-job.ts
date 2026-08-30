@@ -13,6 +13,10 @@ import {
 } from "./automation";
 import { handleUrgentEmail } from "../attention/email-urgency";
 import { recordFailure } from "../reliability/failures";
+import type { runJob } from "../model-runner";
+import { readCoveEmailSettings } from "./settings";
+import { readVoiceFingerprint } from "./voice-guide";
+import { judgeDraftVoice } from "./voice-judge";
 
 function header(message: MailMessage, name: string): string {
   return message.headers.find((item) => item.name.toLowerCase() === name.toLowerCase())
@@ -50,6 +54,7 @@ export function createEmailClassificationHandler(input: {
   gateway: RestrictedMailGateway;
   accountEmail: string;
   dbPath?: string;
+  dataDir?: string;
   repoDir?: string;
   signatureText?: string | null;
   voice?: () => string;
@@ -63,6 +68,7 @@ export function createEmailClassificationHandler(input: {
   }) => Promise<EmailClassification>;
   now?: () => Date;
   urgentHandler?: typeof handleUrgentEmail;
+  runJobImpl?: typeof runJob;
 }) {
   const classifier = input.classifier ??
     ((classificationInput) => classifyEmail({
@@ -181,6 +187,24 @@ export function createEmailClassificationHandler(input: {
       voice: input.voice?.(),
       recentContext,
     });
+    let voiceJudgeScore: number | null = null;
+    let voiceJudgeVerdict: string | null = null;
+    if (result.draftBody && input.dataDir) {
+      const settings = readCoveEmailSettings({ dataDir: input.dataDir });
+      if (settings.voiceReview.judgeEnabled) {
+        const fingerprint = readVoiceFingerprint(settings.voiceFingerprintPath);
+        if (fingerprint) {
+          const judged = await judgeDraftVoice({
+            fingerprint,
+            draftBody: result.draftBody,
+            repoDir: input.repoDir,
+            runJobImpl: input.runJobImpl,
+          });
+          voiceJudgeScore = judged?.score ?? null;
+          voiceJudgeVerdict = judged?.verdict ?? null;
+        }
+      }
+    }
     const sourceEvidence = normalizedEvidence(message.text || message.snippet);
     const groundedCommitments = (result.commitments ?? []).filter((commitment) => {
       const quote = normalizedEvidence(commitment.sourceQuote);
@@ -194,6 +218,8 @@ export function createEmailClassificationHandler(input: {
       summary: result.summary,
       recommendedAction: result.recommendedAction,
       draftBody: result.draftBody,
+      voiceJudgeScore,
+      voiceJudgeVerdict,
       signatureText: input.signatureText,
       artifactPayload: {
         messageId: message.id,

@@ -100,6 +100,9 @@ export function buildEmailClassifierPrompt(input: {
     `Subject: ${input.subject.slice(0, 2000)}`,
     input.recentContext ? `Trusted Cove context:\n${input.recentContext.slice(0, 10000)}` : "",
     input.voice ? `Trusted voice guide:\n${input.voice.slice(0, 12000)}` : "",
+    input.voice
+      ? "The voice guide's measured habits for length, greeting, and punctuation override any generic style instruction in this prompt except the factual and safety rules, the no-markdown rule, and the sign-off rule below."
+      : "",
     "Do not write any sign-off, valediction, name, company line, or contact block. The user's real signature is appended automatically. This instruction overrides anything the voice guide says about sign-offs.",
     "",
     "<untrusted_email>",

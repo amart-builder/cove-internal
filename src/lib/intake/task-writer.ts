@@ -507,6 +507,44 @@ export async function createCapturedInboundTask(
   }, options);
 }
 
+export async function createAutomationTask(
+  input: {
+    id: string;
+    title: string;
+    description: string;
+    project?: string;
+    priority?: "low" | "medium" | "high";
+    tags?: string[];
+  },
+  options: InboundTaskWriterOptions = {},
+): Promise<string> {
+  const event: InboundEvent = {
+    id: input.id,
+    source: "automation",
+    source_id: input.id,
+    raw_text: input.description,
+    machine: null,
+    state: "triaged",
+    task_id: input.id,
+    error: null,
+    attempts: 0,
+    created_at: (options.now?.() ?? new Date()).toISOString(),
+    updated_at: (options.now?.() ?? new Date()).toISOString(),
+  };
+  if (await inboundTaskExists(event.id, options)) return event.id;
+  return createTask(event, {
+    id: event.id,
+    column_id: await columnId("not-started", options),
+    title: input.title,
+    description: input.description,
+    project: input.project ?? "Cove",
+    priority: input.priority ?? "medium",
+    tags: input.tags ?? ["automation"],
+    position: 0,
+    source_type: "automation",
+  }, options);
+}
+
 export async function createTriagedInboundTask(
   event: InboundEvent,
   triage: TriageOutput,

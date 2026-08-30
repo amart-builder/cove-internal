@@ -14,12 +14,37 @@ The default is local SQLite with no account or cloud database. Configuration is 
 | `COVE_BRIEF_TIMEZONE` | Morning Brief target timezone | operator timezone |
 | `COVE_JOB_RUNNER` | Background model backend: `codex-sol-high` or the manual `claude` override | `codex-sol-high` |
 | `COVE_MEETING_ANALYST` | Deep meeting analysis workflow. Set to `0` or `off` to use legacy extraction wholesale | on |
+| `COVE_VOICE_FINGERPRINT_PATH` | Measured writing fingerprint appended to the email voice guide | unset |
+| `COVE_VOICE_REVIEW` | Enable the Sunday draft-outcome review when set to `1` | off |
+| `COVE_VOICE_JUDGE` | Measure each generated draft against the fingerprint when set to `1` | off |
 
 `COVE_JOB_RUNNER` is the supported backend selector for every non-interactive
 model lane. Older installs may still set `COVE_BRIEF_WRITER`,
 `COVE_DUMP_WRITER`, or their `FORGE_*` aliases. Cove accepts those only as
 legacy per-lane overrides when `COVE_JOB_RUNNER` is absent; the installer does
 not emit them.
+
+Email voice settings may also live in private `data/cove-email.json`. That file
+may already exist with other keys on an older install; add these keys to it
+rather than replacing it:
+
+```json
+{
+  "voiceFingerprintPath": null,
+  "voiceReview": {
+    "enabled": false,
+    "judgeEnabled": false
+  }
+}
+```
+
+The environment values above override this file. The per-draft judge only
+records a score and short verdict. It never edits a draft, but it does run
+inline during triage: each drafted email waits up to 90 seconds for its score
+before the draft is enqueued, so a triage batch with N drafts can take up to
+N x 90s longer with the judge on. The weekly
+review writes proposals under `data/voice-reviews/` and creates a board task;
+it never changes the fingerprint or writing corpus automatically.
 
 ## Optional integrations
 

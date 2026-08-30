@@ -22,6 +22,7 @@ test("meeting and progress plists render the absolute Node executable", async (t
     "com.cove.meeting-watch.plist",
     "com.cove.meeting-drain.plist",
     "com.cove.progress.plist",
+    "com.cove.voice-review.plist",
   ]) {
     const destination = path.join(dir, name);
     const rendered = renderLanePlist({
@@ -121,6 +122,39 @@ test("meeting drain plist is an always-on 15-minute local sweep", async (t) => {
   assert.equal(plist.RunAtLoad, true);
   assert.equal(plist.KeepAlive, false);
   assert.equal("StartCalendarInterval" in plist, false);
+});
+
+test("voice review plist runs Sundays at 18:00 without login catch-up", async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "cove-voice-review-calendar-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const destination = path.join(dir, "com.cove.voice-review.plist");
+  renderLanePlist({
+    source: path.join(ROOT, "scripts", "launchd", "com.cove.voice-review.plist"),
+    destination,
+    repoDir: "/Users/client/Cove",
+    homeDir: "/Users/client",
+    atlasRoot: "/Users/client/Atlas",
+    dataDir: "/Users/client/Cove/data",
+    nodePath: "/opt/homebrew/bin/node",
+  });
+  const plist = JSON.parse(execFileSync(
+    "/usr/bin/plutil",
+    ["-convert", "json", "-o", "-", destination],
+    { encoding: "utf8" },
+  ));
+  assert.equal(plist.Label, "com.cove.voice-review");
+  assert.deepEqual(plist.ProgramArguments, [
+    "/opt/homebrew/bin/node",
+    "/Users/client/Cove/scripts/cove-voice-review.mjs",
+  ]);
+  assert.deepEqual(plist.StartCalendarInterval, {
+    Weekday: 0,
+    Hour: 18,
+    Minute: 0,
+  });
+  assert.equal(plist.RunAtLoad, false);
+  assert.equal(plist.KeepAlive, false);
+  assert.equal("StartInterval" in plist, false);
 });
 
 test("local env loading parses simple and quoted values without overriding the shell", async (t) => {

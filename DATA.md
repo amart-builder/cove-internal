@@ -4,7 +4,7 @@
 
 `data/cove.db` is Cove's durable local database. It contains tasks, day plans, brief artifacts, email workflow state, CRM records, jobs, receipts, failures, health snapshots, and model-run metadata. SQLite migrations are ordered in `src/lib/local/migrations.ts`; day-plan schema compatibility is maintained by `src/lib/day-plan/store.ts`.
 
-Gmail remains authoritative for message content, drafts, sent replies, inbox membership, and archives. Cove stores only the workflow state it needs to make those actions reliable.
+Gmail remains authoritative for message content, drafts, sent replies, inbox membership, and archives. Cove stores the workflow state it needs to make those actions reliable. When voice review is enabled, it also stores the normalized pre-signature draft and matching sent body needed to measure edits; those bounded copies are review evidence, not a mailbox mirror.
 
 ## State families
 
@@ -13,7 +13,7 @@ Gmail remains authoritative for message content, drafts, sent replies, inbox mem
 | Work | tasks, meeting briefs, reminder state, columns, recurring templates and occurrences | `src/lib/local/migrations.ts`, `src/lib/tasks/` |
 | Daily ritual | day plans, items, events, snapshots, dumps | `src/lib/day-plan/store.ts` |
 | Briefs | immutable artifacts, action state, exact input metadata | `src/lib/day-plan/brief.ts`, `src/lib/claude-execution/brief-inputs.ts` |
-| Email workflow | canonical thread items, message claims, drafts, provider operation outbox | `src/lib/email/` |
+| Email workflow | canonical thread items, message claims, provider operation outbox, draft outcomes | `src/lib/email/` |
 | People | contacts, companies, relationship activities | `src/lib/crm/` |
 | Meeting intelligence | normalized meeting envelopes, analyst artifacts, replay-safe action ledger | `src/lib/intake/meeting-analysis.ts` |
 | Automation | jobs, receipts, failures, health snapshots, attention ledger | `src/lib/reliability/`, `src/lib/attention/` |
@@ -65,6 +65,22 @@ Meeting job artifacts, membership, and action rows are durable audit and replay
 state in Phase 2 and have no automatic age-based deletion. A future retention
 policy must preserve source identity, the validated artifact, and completed
 action keys before compacting them.
+
+### Email draft outcome review
+
+`email_draft_outcomes` is append-only draft history. Each verified Gmail draft
+write stores the normalized model body before the cached signature, its SHA-256
+hash, and any optional voice-judge measurement. The weekly review reconciles a
+later `SENT` message as unedited or edited, or marks a draft abandoned after 14
+days. It strips the cached or recognizable trailing signature before hashing
+and comparison. Model judge failures leave the draft unjudged and never block
+Gmail drafting.
+
+Resolved rows remain durable review evidence after `reviewed_at` is set. Weekly
+markdown digests under `data/voice-reviews/` are also retained until the
+operator removes them. There is no automatic deletion in this version because
+the review history is the evidence for proposed fingerprint changes; no rule or
+corpus candidate is applied automatically.
 
 ## Database access
 

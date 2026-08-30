@@ -325,6 +325,7 @@ export function createGmailOperationHandler(input: {
           });
         } else {
           const body = typeof payload.body === "string" ? payload.body : "";
+          const draftBodyHash = createHash("sha256").update(body).digest("hex");
           finalize.prepare(
             `UPDATE email_items
              SET workflow_state = 'open', status = 'pending',
@@ -339,7 +340,7 @@ export function createGmailOperationHandler(input: {
             // Deliberately hash only the normalized model body. The appended
             // signature can refresh independently without changing draft identity.
             draftBodyVerified
-              ? createHash("sha256").update(body).digest("hex")
+              ? draftBodyHash
               : null,
             preservedExistingDraft ? 1 : 0,
             current.expected_message_id,
@@ -348,6 +349,39 @@ export function createGmailOperationHandler(input: {
             current.email_item_id,
             current.expected_thread_version,
           );
+          if (draftBodyVerified) {
+            try {
+              const judgeScore = Number.isInteger(payload.voiceJudgeScore) &&
+                  Number(payload.voiceJudgeScore) >= 0 &&
+                  Number(payload.voiceJudgeScore) <= 100
+                ? Number(payload.voiceJudgeScore)
+                : null;
+              const judgeVerdict = typeof payload.voiceJudgeVerdict === "string"
+                ? payload.voiceJudgeVerdict.trim().slice(0, 300) || null
+                : null;
+              finalize.prepare(
+                `INSERT INTO email_draft_outcomes
+                   (email_item_id, thread_id, gmail_draft_id, draft_body,
+                    draft_body_hash, drafted_at, judge_score, judge_verdict)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              ).run(
+                current.email_item_id,
+                current.thread_id,
+                remoteId,
+                body,
+                draftBodyHash,
+                now,
+                judgeScore,
+                judgeVerdict,
+              );
+            } catch (error) {
+              (input.warn ?? console.warn)(
+                `Cove could not record the email draft outcome: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+              );
+            }
+          }
           const receipt = recordReceiptInDatabase(finalize, {
             source: "email-surfaced",
             startedAt: now,

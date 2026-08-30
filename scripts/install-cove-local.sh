@@ -471,7 +471,7 @@ if [ "$MINI" = "1" ]; then
   exit 0
 fi
 
-# --- Single-Mac background lanes: meeting watch/drain + progress reconciliation ---
+# --- Single-Mac background lanes: meeting, progress, and weekly voice review ---
 # The meeting calendar keeps weekday working hours while RunAtLoad provides
 # login catch-up. The same templates also serve the optional Mini profile above,
 # so Mini and normal installs retain identical watcher behavior.
@@ -479,8 +479,10 @@ ATLAS_ROOT="$(resolve_atlas_root)"
 MEETING_PLIST="$LA_DIR/com.cove.meeting-watch.plist"
 MEETING_DRAIN_PLIST="$LA_DIR/com.cove.meeting-drain.plist"
 PROGRESS_PLIST="$LA_DIR/com.cove.progress.plist"
+VOICE_REVIEW_PLIST="$LA_DIR/com.cove.voice-review.plist"
 INSTALL_MEETING_LANE=0
 INSTALL_PROGRESS_LANE=0
+INSTALL_VOICE_REVIEW_LANE=0
 MEETING_CLAIM="$(claim_lane meeting_watch plain)"
 case "$MEETING_CLAIM" in
   claimed:*) INSTALL_MEETING_LANE=1 ;;
@@ -497,6 +499,15 @@ case "$PROGRESS_CLAIM" in
     PROGRESS_OWNER="${PROGRESS_CLAIM#skipped:}"
     echo "Skipping progress reconciler: $PROGRESS_OWNER owns this lane."
     rm -f "$PROGRESS_PLIST"
+    ;;
+esac
+VOICE_REVIEW_CLAIM="$(claim_lane voice_review plain)"
+case "$VOICE_REVIEW_CLAIM" in
+  claimed:*) INSTALL_VOICE_REVIEW_LANE=1 ;;
+  skipped:*)
+    VOICE_REVIEW_OWNER="${VOICE_REVIEW_CLAIM#skipped:}"
+    echo "Skipping weekly voice review: $VOICE_REVIEW_OWNER owns this lane."
+    rm -f "$VOICE_REVIEW_PLIST"
     ;;
 esac
 render_lane_plist() {
@@ -516,6 +527,11 @@ if [ "$INSTALL_PROGRESS_LANE" = "1" ]; then
   render_lane_plist \
     "$REPO_DIR/scripts/launchd/com.cove.progress.plist" \
     "$PROGRESS_PLIST"
+fi
+if [ "$INSTALL_VOICE_REVIEW_LANE" = "1" ]; then
+  render_lane_plist \
+    "$REPO_DIR/scripts/launchd/com.cove.voice-review.plist" \
+    "$VOICE_REVIEW_PLIST"
 fi
 
 # --- Install Cove's skills for Claude and Codex ---
@@ -897,6 +913,7 @@ retire_legacy_agent claude-worker
 retire_legacy_agent meeting-watch
 retire_legacy_agent meeting-drain
 retire_legacy_agent progress
+retire_legacy_agent voice-review
 # com.forge.web is the pre-rename web server on this same port. Leaving it
 # loaded means com.cove.local crash-loops on EADDRINUSE while the readiness
 # probe below happily answers off the old server, so the install looks fine and
@@ -912,6 +929,7 @@ launchctl bootout "gui/$UID_NUM/com.cove.claude-worker" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.meeting-watch" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.meeting-drain" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.progress" 2>/dev/null || true
+launchctl bootout "gui/$UID_NUM/com.cove.voice-review" 2>/dev/null || true
 # Decommission the retired MBP 7:30 brief agent entirely (bootout + plist
 # removal): the Mini owns scheduled generation now.
 launchctl bootout "gui/$UID_NUM/com.cove.morning-brief" 2>/dev/null || true
@@ -967,6 +985,10 @@ if [ "$INSTALL_PROGRESS_LANE" = "1" ]; then
   launchctl bootstrap "gui/$UID_NUM" "$PROGRESS_PLIST"
   mark_lane_installed progress_reconcile
 fi
+if [ "$INSTALL_VOICE_REVIEW_LANE" = "1" ]; then
+  launchctl bootstrap "gui/$UID_NUM" "$VOICE_REVIEW_PLIST"
+  mark_lane_installed voice_review
+fi
 if [ -f "$TRIAGE_PLIST" ]; then launchctl bootstrap "gui/$UID_NUM" "$TRIAGE_PLIST"; fi
 launchctl enable "gui/$UID_NUM/com.cove.local" 2>/dev/null || true
 launchctl enable "gui/$UID_NUM/com.cove.claude-worker" 2>/dev/null || true
@@ -978,6 +1000,9 @@ if [ "$INSTALL_MEETING_LANE" = "1" ]; then
 fi
 if [ "$INSTALL_PROGRESS_LANE" = "1" ]; then
   launchctl enable "gui/$UID_NUM/com.cove.progress" 2>/dev/null || true
+fi
+if [ "$INSTALL_VOICE_REVIEW_LANE" = "1" ]; then
+  launchctl enable "gui/$UID_NUM/com.cove.voice-review" 2>/dev/null || true
 fi
 
 # Confirm the server actually came up. This catches the most common failure:
@@ -1032,6 +1057,11 @@ if [ -n "$UP" ]; then
     echo "Progress reconciler: every 30 minutes while this Mac is awake, with catch-up on wake"
   else
     echo "Progress reconciler: skipped because $PROGRESS_OWNER owns this lane"
+  fi
+  if [ "$INSTALL_VOICE_REVIEW_LANE" = "1" ]; then
+    echo "Weekly voice review: Sundays at 18:00 local"
+  else
+    echo "Weekly voice review: skipped because $VOICE_REVIEW_OWNER owns this lane"
   fi
   echo "Morning Brief: on-open backfill/post-settlement; --mini optionally adds a 7:30 always-on lane"
   echo "Day-plan batch execution remains off until COVE_CLAUDE_EXECUTION_ENABLED=1 and an allowlisted workspace config are explicitly added."

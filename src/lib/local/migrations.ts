@@ -1416,6 +1416,32 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       `);
     },
   },
+  {
+    version: 20,
+    name: "email-draft-outcomes",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE email_draft_outcomes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          email_item_id INTEGER NOT NULL,
+          thread_id TEXT NOT NULL,
+          gmail_draft_id TEXT,
+          draft_body TEXT NOT NULL,
+          draft_body_hash TEXT NOT NULL,
+          drafted_at TEXT NOT NULL,
+          judge_score INTEGER,
+          judge_verdict TEXT,
+          sent_message_id TEXT,
+          sent_at TEXT,
+          sent_body TEXT,
+          outcome TEXT NOT NULL DEFAULT 'pending',
+          reviewed_at TEXT
+        );
+        CREATE INDEX idx_edo_outcome ON email_draft_outcomes(outcome);
+        CREATE INDEX idx_edo_thread ON email_draft_outcomes(thread_id);
+      `);
+    },
+  },
 ];
 
 function migrationTableExists(db: Database.Database, name: string): boolean {

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.cove.voice-review</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__COVE_NODE_REAL__</string>
+    <string>/Users/operator/Atlas/Projects/astack/cove/scripts/cove-voice-review.mjs</string>
+  </array>
+  <!-- /Users/operator/Atlas/Projects/astack/cove is a placeholder layout.
+       install-cove-local.sh rewrites every absolute repo/data/workspace/home
+       path for the machine it runs on. Edit by hand only if you install this
+       agent without that script. -->
+  <key>WorkingDirectory</key>
+  <string>/Users/operator/Atlas/Projects/astack/cove</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/operator</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/Users/operator/.local/bin:/usr/bin:/bin</string>
+    <key>COVE_DATA_DIR</key>
+    <string>/Users/operator/Atlas/Projects/astack/cove/data</string>
+    <key>COVE_JOB_RUNNER</key>
+    <string>__COVE_JOB_RUNNER__</string>
+    <key>COVE_CODEX_BIN</key>
+    <string>__COVE_CODEX_BIN__</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key>
+    <integer>0</integer>
+    <key>Hour</key>
+    <integer>18</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>KeepAlive</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>/Users/operator/Library/Logs/cove-voice-review.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/operator/Library/Logs/cove-voice-review.log</string>
+</dict>
+</plist>
