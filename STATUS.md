@@ -16,15 +16,15 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** cowork
-- **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-08-30T12:49:46-0400
-- **task:** meeting intelligence: verify + commit
+- **system:** none
+- **device:** —
+- **since:** —
+- **task:** —
 <!-- END active-session -->
 
 ---
 
-**Last updated:** 2026-08-30 (always-on meeting-analysis drain complete and uncommitted; email draft hardening and Meeting Intelligence remain uncommitted)
+**Last updated:** 2026-08-30 (voice loop shipped as 573a64f: fingerprint in email drafts, email_draft_outcomes tracking, weekly voice-review lane; lane's launchd registration still needs one interactive `bash scripts/install-cove-local.sh` run — classifier-blocked in the cowork session. Meeting Intelligence committed as d1f4d91.)
 
 ## 2026-08-30 Always-on meeting-analysis drain (DONE, UNCOMMITTED)
 
