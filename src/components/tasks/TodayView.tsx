@@ -2125,6 +2125,7 @@ function TodayExperience({
       const task = tasks.find((candidate) => candidate._id === item.taskId);
       return {
         id: item.taskId,
+        itemId: item.id,
         title: item.title,
         sessionStatus: localMode
           ? taskSessions.latestByTaskId.get(item.taskId)?.status
@@ -3171,6 +3172,14 @@ function TodayExperience({
                     return;
                   }
                   return dayRitual.decideSettlement(itemId, disposition, progress);
+                }}
+                onComplete={async (itemId, title) => {
+                  await dayRitual.completeSettlementItem(itemId, title);
+                  await retry();
+                }}
+                onReopen={async (itemId, title) => {
+                  await dayRitual.reopenSettlementItem(itemId, title);
+                  await retry();
                 }}
                 onCancel={dayRitual.cancelSettlement}
                 onNoteChange={setSettlementNote}

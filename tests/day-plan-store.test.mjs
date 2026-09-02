@@ -1181,6 +1181,68 @@ test('settlement cancel restores a bypassed active plan with its promoted items'
   );
 });
 
+test('an accepted item can be completed and reopened while settlement is in progress', (t) => {
+  const { file, store } = isolatedStore(t);
+  const db = new Database(file);
+  createManagedBoardTables(db);
+  db.prepare(
+    `INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, position,
+       status, created_at, updated_at)
+     VALUES ('task-a', 'col-today', 'Task task-a', 'Finish task-a', 'high', '[]', 0,
+             'open', '2026-07-10T15:00:00.000Z', '2026-07-10T15:00:00.000Z')`,
+  ).run();
+  db.close();
+
+  let plan = ensure(store).plan;
+  plan = mutate(store, plan, 'arrival_open').plan;
+  plan = mutate(store, plan, 'start_day').plan;
+  plan = mutate(store, plan, 'settlement_start').plan;
+  const item = plan.items.find((candidate) => candidate.taskId === 'task-a');
+  plan = mutate(store, plan, 'settlement_decide', {
+    itemId: item.id,
+    disposition: 'carry',
+  }).plan;
+
+  plan = mutate(store, plan, 'item_complete', { itemId: item.id }).plan;
+  const completedItem = plan.items.find((candidate) => candidate.id === item.id);
+  assert.equal(completedItem.decision, 'completed');
+  assert.equal(completedItem.settlementDecision, undefined);
+  let verified = new Database(file);
+  assert.deepEqual(
+    verified.prepare("SELECT column_id, status FROM tasks WHERE id = 'task-a'").get(),
+    { column_id: 'col-done', status: 'done' },
+  );
+  verified.close();
+
+  plan = mutate(store, plan, 'item_reopen', { itemId: item.id }).plan;
+  const reopenedItem = plan.items.find((candidate) => candidate.id === item.id);
+  assert.equal(reopenedItem.decision, 'accepted');
+  assert.equal(reopenedItem.settlementDecision, undefined);
+  verified = new Database(file);
+  assert.deepEqual(
+    verified.prepare("SELECT column_id, status, position FROM tasks WHERE id = 'task-a'").get(),
+    { column_id: 'col-today', status: 'open', position: 0 },
+  );
+  verified.close();
+});
+
+test('reordering stays forbidden while settlement is in progress', (t) => {
+  const { store } = isolatedStore(t);
+  let plan = ensure(store).plan;
+  plan = mutate(store, plan, 'arrival_open').plan;
+  plan = mutate(store, plan, 'start_day').plan;
+  plan = mutate(store, plan, 'settlement_start').plan;
+
+  assert.throws(
+    () => mutate(store, plan, 'item_reorder', {
+      itemId: plan.items[1].id,
+      position: 0,
+    }),
+    (error) => error instanceof DayPlanInvalidTransition,
+  );
+});
+
 test('completion and reopen mutations are forbidden after settlement', (t) => {
   const { store } = isolatedStore(t);
   let plan = ensure(store).plan;

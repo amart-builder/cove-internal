@@ -16,13 +16,33 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** none
-- **device:** —
-- **since:** —
-- **task:** —
+- **system:** cowork
+- **device:** Alexanders-MacBook-Pro-2
+- **since:** 2026-09-02T09:11:10-0700
+- **task:** commit closeout Mark complete
 <!-- END active-session -->
 
 ---
+
+## 2026-09-02 Closing Your Day: Mark complete and Reopen (DONE, UNCOMMITTED)
+
+- Goal: let Alex mark an open item done while closing the day instead of only
+  choosing Progress, Carry, Defer, or Drop.
+- Design: reused the existing item_complete and item_reopen day-plan mutations
+  rather than adding a fifth settlement disposition. The store's ordering guard
+  (requirePlanOrdering) blocked both during `settling`; a narrower
+  requireItemCompletionEditing guard now admits an in-progress settlement for
+  those two mutations only, and completing clears any stale settlementDecision.
+- UI: DaySettlement gets a "Mark complete" button per Still open card and a
+  "Reopen" text button per Completed work item, wired through
+  completeSettlementItem / reopenSettlementItem in useDayRitual (no arrival
+  interaction side effect) followed by a board refresh.
+- Verified: npm test 1064 pass / 0 fail; held-out store script; scratch-DB
+  browser pass (complete moves the item, task goes to Done, Reopen restores,
+  Close the day snapshot lists the task). Opus 5 fresh-context review applied
+  (auto-progress race guard, aria-labels, regression test).
+- Next: commit when Alex says so; optional follow-up is a placement fallback so
+  Reopen on a task already done on the board does not un-complete it.
 
 ## 2026-09-01 Edge AI sales pipeline page (DONE, LIVE)
 

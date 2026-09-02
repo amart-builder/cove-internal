@@ -31,6 +31,7 @@ type ProgressFields = { progressNote?: string; nextStep?: string };
 
 export type SettlementCompletedItem = {
   id: string;
+  itemId: string;
   title: string;
   detail?: string;
   sessionStatus?: TaskSessionRunStatus;
@@ -62,6 +63,8 @@ interface DaySettlementProps {
     decision: SettlementDecision,
     progress?: ProgressFields,
   ) => void | Promise<void>;
+  onComplete: (itemId: string, title: string) => void | Promise<void>;
+  onReopen: (itemId: string, title: string) => void | Promise<void>;
   onCancel: () => void;
   onNoteChange: (note: string) => void;
   onCloseDay: () => void | Promise<void>;
@@ -91,6 +94,8 @@ export default function DaySettlement({
   titleId,
   descriptionId,
   onDecision,
+  onComplete,
+  onReopen,
   onCancel,
   onNoteChange,
   onCloseDay,
@@ -98,6 +103,7 @@ export default function DaySettlement({
   const noteRef = useRef<HTMLTextAreaElement>(null);
   const autoAttemptsRef = useRef(new Map<string, number>());
   const autoPostedPlanIdRef = useRef(plan.id);
+  const [completingIds, setCompletingIds] = useState<Set<string>>(() => new Set());
   const [progressDrafts, setProgressDrafts] = useState<Record<string, ProgressFields>>(() =>
     Object.fromEntries(unresolved.map(({ item }) => [item.id, {
       progressNote: item.settlementDecision?.progressNote ?? '',
@@ -162,16 +168,39 @@ export default function DaySettlement({
       autoPostedPlanIdRef.current = plan.id;
     }
     if (closing || anyDecisionSaving) return;
-    const candidate = unresolved.find(({ item }) => shouldAutoPostProgress({
-      workedToday: item.workedToday === true,
-      hasDecision: Boolean(decisions[item.id]),
-      attempts: autoAttemptsRef.current.get(item.id) ?? 0,
-    }));
+    const candidate = unresolved.find(({ item }) =>
+      !completingIds.has(item.id) && shouldAutoPostProgress({
+        workedToday: item.workedToday === true,
+        hasDecision: Boolean(decisions[item.id]),
+        attempts: autoAttemptsRef.current.get(item.id) ?? 0,
+      }));
     if (!candidate) return;
     const itemId = candidate.item.id;
     autoAttemptsRef.current.set(itemId, (autoAttemptsRef.current.get(itemId) ?? 0) + 1);
     void Promise.resolve(onDecision(itemId, 'progress')).catch(() => undefined);
-  }, [anyDecisionSaving, closing, decisions, onDecision, plan.id, unresolved]);
+  }, [anyDecisionSaving, closing, completingIds, decisions, onDecision, plan.id, unresolved]);
+
+  // Track the click itself, not just the queued save: savingItemIds fills a
+  // tick later, and that gap let the auto-progress effect or a double-click
+  // enqueue a second mutation for the same item.
+  const runPending = async (itemId: string, action: () => void | Promise<void>) => {
+    setCompletingIds((current) => new Set(current).add(itemId));
+    try {
+      await action();
+    } catch {
+      // The ritual hook already surfaced the error banner.
+    } finally {
+      setCompletingIds((current) => {
+        const next = new Set(current);
+        next.delete(itemId);
+        return next;
+      });
+    }
+  };
+  const completeItem = (itemId: string, title: string) =>
+    runPending(itemId, () => onComplete(itemId, title));
+  const reopenItem = (itemId: string, title: string) =>
+    runPending(itemId, () => onReopen(itemId, title));
 
   const chooseDecision = (itemId: string, decision: SettlementDecision) => {
     const progress = decision === 'progress' ? progressDrafts[itemId] : undefined;
@@ -229,14 +258,25 @@ export default function DaySettlement({
               {completed.length > 0 ? (
                 <ul className="mt-3 space-y-2">
                   {completed.map((item) => (
-                    <li key={item.id} className="rounded-xl border bg-card px-4 py-3">
-                      <p className="text-sm font-medium text-foreground">{item.title}</p>
-                      {item.detail && <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p>}
-                      {item.sessionStatus && (
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Claude session: {TASK_SESSION_STATUS_LABELS[item.sessionStatus]}.
-                        </p>
-                      )}
+                    <li key={item.id} className="flex items-start justify-between gap-3 rounded-xl border bg-card px-4 py-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-foreground">{item.title}</p>
+                        {item.detail && <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p>}
+                        {item.sessionStatus && (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Claude session: {TASK_SESSION_STATUS_LABELS[item.sessionStatus]}.
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        aria-label={`Reopen ${item.title}`}
+                        disabled={closing || savingItemIds.has(item.itemId) || completingIds.has(item.itemId)}
+                        className="min-h-11 shrink-0 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                        onClick={() => void reopenItem(item.itemId, item.title)}
+                      >
+                        Reopen
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -261,7 +301,18 @@ export default function DaySettlement({
                               <h3 className="mt-1 text-base font-semibold text-foreground">{view.title}</h3>
                               {view.outcome && <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{view.outcome}</p>}
                             </div>
-                            {saving && <span role="status" className="text-xs text-muted-foreground">Saving…</span>}
+                            <div className="flex shrink-0 items-center gap-2">
+                              {saving && <span role="status" className="text-xs text-muted-foreground">Saving…</span>}
+                              <button
+                                type="button"
+                                aria-label={`Mark ${view.title} complete`}
+                                disabled={saving || closing || completingIds.has(view.item.id)}
+                                className="min-h-11 rounded-xl border px-4 text-sm text-muted-foreground hover:bg-muted disabled:opacity-50"
+                                onClick={() => void completeItem(view.item.id, view.title)}
+                              >
+                                Mark complete
+                              </button>
+                            </div>
                           </div>
                           {view.item.owner === 'claude' && (
                             <p className="mt-2 text-xs text-muted-foreground">{ownerDescription('claude')}</p>
@@ -398,7 +449,7 @@ export default function DaySettlement({
               Not yet
             </button>
             {!allDecided && unresolved.length > 0 && (
-              <p role="status" className="text-xs text-muted-foreground">Choose Progress, Carry, Defer, or Drop for each open item.</p>
+              <p role="status" className="text-xs text-muted-foreground">Mark each open item complete, or choose Progress, Carry, Defer, or Drop.</p>
             )}
             <button
               type="button"

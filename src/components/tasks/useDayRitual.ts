@@ -877,6 +877,20 @@ export default function useDayRitual({
     });
   }, [enqueueMutation, markArrivalInteraction]);
 
+  const completeSettlementItem = useCallback(async (itemId: string, title: string) => {
+    return await enqueueMutation('item_complete', { itemId }, {
+      itemId,
+      announce: `${title} marked complete.`,
+    });
+  }, [enqueueMutation]);
+
+  const reopenSettlementItem = useCallback(async (itemId: string, title: string) => {
+    return await enqueueMutation('item_reopen', { itemId }, {
+      itemId,
+      announce: `${title} reopened.`,
+    });
+  }, [enqueueMutation]);
+
   const configureExecution = useCallback(async (
     itemId: string,
     mode: DayPlanExecutionMode,
@@ -1403,6 +1417,8 @@ export default function useDayRitual({
     laterItem,
     completeItem,
     reopenItem,
+    completeSettlementItem,
+    reopenSettlementItem,
     configureExecution,
     kickoffExecution,
     cancelExecution,

@@ -1150,6 +1150,17 @@ function requirePlanOrdering(plan: DayPlan): void {
   );
 }
 
+function requireItemCompletionEditing(plan: DayPlan): void {
+  if (
+    (plan.state === "proposed" && plan.arrivalState === "opened") ||
+    plan.state === "active" ||
+    (plan.state === "settling" && plan.settlementState === "in_progress")
+  ) return;
+  throw new DayPlanInvalidTransition(
+    "Today items can be completed or reopened only while arrival is open, the day is active, or settlement is in progress.",
+  );
+}
+
 function activatePlanWithoutKickoff(
   plan: DayPlan,
   mutationId: string,
@@ -4092,7 +4103,7 @@ export function createDayPlanStore(options: {
           break;
         }
         case "item_complete": {
-          requirePlanOrdering(plan);
+          requireItemCompletionEditing(plan);
           const item = requireItem(plan, input.itemId);
           requireState(
             item.decision,
@@ -4139,6 +4150,7 @@ export function createDayPlanStore(options: {
             }
           }
           item.decision = "completed";
+          delete item.settlementDecision;
           plan.items = [
             ...plan.items.filter((candidate) => candidate.id !== item.id),
             item,
@@ -4149,7 +4161,7 @@ export function createDayPlanStore(options: {
           break;
         }
         case "item_reopen": {
-          requirePlanOrdering(plan);
+          requireItemCompletionEditing(plan);
           const item = requireItem(plan, input.itemId);
           requireState(
             item.decision,
