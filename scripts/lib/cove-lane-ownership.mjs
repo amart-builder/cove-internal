@@ -12,8 +12,8 @@ import {
   resolveMachineIdentity,
 } from "../../src/lib/machine-identity.mjs";
 
-export const BACKGROUND_LANES = ["meeting_watch", "progress", "voice_review"];
-export const INSTALLED_LANES = ["meeting_watch", "progress_reconcile", "voice_review"];
+export const BACKGROUND_LANES = ["meeting_watch", "progress", "voice_review", "chief_of_staff"];
+export const INSTALLED_LANES = ["meeting_watch", "progress_reconcile", "voice_review", "chief_of_staff"];
 
 function objectValue(value) {
   return value && typeof value === "object" && !Array.isArray(value)
