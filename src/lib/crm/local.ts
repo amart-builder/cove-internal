@@ -36,17 +36,17 @@ type ContactRow = Record<string, unknown> & {
   tags: string | null;
 };
 
+// activity_type, direction, and created_at are deliberately absent: the columns
+// are nullable free text, so they stay `unknown` under the index signature and
+// have to go through decodeActivity before anything can rely on them.
 type ActivityRow = Record<string, unknown> & {
   id: string;
   contact_id: string | null;
   company_id: string | null;
   source_ref: string | null;
-  activity_type: string;
   title: string | null;
   content: string | null;
-  direction: "inbound" | "outbound" | "internal" | null;
   metadata: string | null;
-  created_at: string;
 };
 
 function parseStringArray(value: unknown): string[] {
@@ -79,17 +79,68 @@ function parseObject(value: unknown): Record<string, unknown> {
   }
 }
 
+/**
+ * SQLite is looser than the domain types. `tier`, `notes`, `activity_type`, and
+ * `created_at` are nullable columns typed as required strings, `direction` is
+ * free text typed as a three-member union, and any column a pending migration
+ * has not added yet is simply missing from `SELECT *`. Spreading a raw row into
+ * the domain type asserted all of that away, so a null or absent column reached
+ * callers as a string and failed somewhere far from the cause. These decoders
+ * build every field explicitly and fall back to the defaults the schema itself
+ * declares.
+ */
+function text(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function nullableText(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function optionalText(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function activityDirection(value: unknown): ContactActivity["direction"] {
+  return value === "inbound" || value === "outbound" || value === "internal"
+    ? value
+    : null;
+}
+
 function decodeContact(row: ContactRow): Contact {
   return {
-    ...(row as unknown as Contact),
+    id: text(row.id, ""),
+    company_id: nullableText(row.company_id),
+    name: text(row.name, ""),
+    email: nullableText(row.email),
+    phone: nullableText(row.phone),
+    role: nullableText(row.role),
+    linkedin: nullableText(row.linkedin),
+    location: nullableText(row.location),
+    how_we_met: nullableText(row.how_we_met),
+    tier: text(row.tier, "C"),
     tags: parseStringArray(row.tags),
+    notes: text(row.notes, ""),
+    last_interaction_at: nullableText(row.last_interaction_at),
+    provenance_source: nullableText(row.provenance_source),
+    created_at: optionalText(row.created_at),
+    updated_at: optionalText(row.updated_at),
   };
 }
 
 function decodeActivity(row: ActivityRow): ContactActivity {
   return {
-    ...(row as unknown as ContactActivity),
+    id: text(row.id, ""),
+    contact_id: nullableText(row.contact_id),
+    company_id: nullableText(row.company_id),
+    source_ref: nullableText(row.source_ref),
+    activity_type: text(row.activity_type, "note"),
+    title: nullableText(row.title),
+    content: nullableText(row.content),
+    direction: activityDirection(row.direction),
     metadata: parseObject(row.metadata),
+    created_at: text(row.created_at, ""),
+    updated_at: optionalText(row.updated_at),
   };
 }
 
