@@ -520,7 +520,7 @@ export default function DaySettlement({
           labelledBy={editorTitleId}
           returnFocus={editingTask.returnFocus}
           onClose={() => setEditingTask(undefined)}
-          panelClassName="panel-pop-in relative max-h-[calc(100dvh-2rem)] w-full max-w-[520px] overflow-y-auto rounded-[22px] border bg-card px-7 py-7 text-foreground shadow-2xl outline-none sm:px-9 dark:border-white/10"
+          panelClassName="panel-pop-in relative max-h-[calc(100dvh-2rem)] w-full max-w-[520px] overflow-y-auto overscroll-contain rounded-[22px] border bg-card px-7 py-7 text-foreground shadow-2xl outline-none sm:px-9 dark:border-white/10"
         >
           <button
             type="button"

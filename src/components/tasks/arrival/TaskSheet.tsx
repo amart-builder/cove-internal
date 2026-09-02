@@ -124,7 +124,7 @@ export default function TaskSheet({
       describedBy={description ? descriptionId : undefined}
       returnFocus={returnFocus}
       onClose={onClose}
-      panelClassName="panel-pop-in relative w-full max-w-[520px] rounded-[22px] border bg-card px-7 py-7 text-foreground shadow-2xl outline-none sm:px-9 sm:pb-7 sm:pt-8 dark:border-white/10"
+      panelClassName="panel-pop-in relative max-h-[calc(100dvh-2rem)] w-full max-w-[520px] overflow-y-auto overscroll-contain rounded-[22px] border bg-card px-7 py-7 text-foreground shadow-2xl outline-none sm:px-9 sm:pb-7 sm:pt-8 dark:border-white/10"
     >
       <button
         type="button"

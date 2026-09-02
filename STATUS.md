@@ -18,8 +18,8 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-09-02T10:10:15-0700
-- **task:** Chief-of-staff Phase 1: shared memory + email fix (Sol building)
+- **since:** 2026-09-02T16:16:38-0700
+- **task:** commit Arrival sheet scroll fix
 <!-- END active-session -->
 
 ---
@@ -69,6 +69,10 @@ Next: Phase 2 folds Buddy into the same session; consider driver-side reclassifi
 - Next: none planned. Possible follow-ups: a placement fallback so Reopen on a
   task already done on the board keeps its original column; a test for
   item_complete when the backing task was deleted between add and complete.
+
+- Follow-up (same day): the Arrival task sheet now caps at the viewport height and
+  scrolls inside itself (it used to clip its top at 100% zoom with a long description).
+  Both editor panels contain overscroll so the layer behind stays put.
 
 ## 2026-09-02 Closing Your Day: Mark complete and Reopen (DONE, UNCOMMITTED)
 
