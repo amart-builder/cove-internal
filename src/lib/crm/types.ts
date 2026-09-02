@@ -57,6 +57,7 @@ export type AppendContactActivityInput = {
   source: ContactProvenance;
   occurredAt?: string;
   metadata?: Record<string, unknown>;
+  updateRecency?: boolean;
 };
 
 export type ContactWithActivities = {

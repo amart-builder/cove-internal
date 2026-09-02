@@ -7,7 +7,8 @@ import {
 } from "../day-plan/brief";
 import type { ClaudeCommand } from "./commands";
 import { parseStructuredClaudeOutput, resolveClaudeModel } from "./commands";
-import { operatorName } from "../operator";
+import { coveDataDir, operatorName } from "../operator";
+import { formatOperatorPolicy, readOperatorPolicy } from "../operator-policy";
 import { coveEnv } from "../env";
 
 let cachedChiefOfStaffMandate: string | undefined;
@@ -288,8 +289,12 @@ export function buildMorningBriefPrompt(input: {
   targetTimezone: string;
   sections: ReadonlyArray<{ id: string; label: string; text: string }>;
   manifest: MorningBriefSourceManifest;
+  dataDir?: string;
 }): string {
+  const policyText = readOperatorPolicy({ dataDir: coveDataDir(input.dataDir) });
+  const policy = policyText ? formatOperatorPolicy(policyText) : undefined;
   return [
+    ...(policy ? [policy, ""] : []),
     chiefOfStaffMandate(),
     "/cove-morning-brief",
     `OPERATOR_NAME=${operatorName()}`,
@@ -329,6 +334,7 @@ export function buildMorningBriefCommand(input: {
   modelAlias: string;
   effort: string;
   budgetUsd: number;
+  dataDir?: string;
 }): ClaudeCommand {
   return {
     executable: input.claudePath,
@@ -359,6 +365,7 @@ export function buildMorningBriefCommand(input: {
       targetTimezone: input.targetTimezone,
       sections: input.sections,
       manifest: input.manifest,
+      dataDir: input.dataDir,
     }),
   };
 }

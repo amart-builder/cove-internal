@@ -12,6 +12,7 @@ import type { ClaudeCommand } from "../claude-execution/commands";
 import { resolveClaudeModel } from "../claude-execution/commands";
 import { coveDataDir, workspaceRoot } from "../operator";
 import { coveEnv } from "../env";
+import { formatOperatorPolicy, readOperatorPolicy } from "../operator-policy";
 
 export const BUDDY_REPO_ROOT = process.cwd();
 export const BUDDY_DATA_SCRIPT = path.join(BUDDY_REPO_ROOT, "scripts/cove-buddy-data.ts");
@@ -29,25 +30,33 @@ export function renderBuddyInstructionDoc(options: {
     ? workspaceRoot()
     : options.workspaceRoot;
   const template = readFileSync(BUDDY_TEMPLATE_PATH, "utf8");
+  const policyText = readOperatorPolicy({ dataDir: coveDataDir(options.dataDir) });
+  const operatorPolicy = policyText ? formatOperatorPolicy(policyText) : "";
+  const operatorPolicySection = operatorPolicy
+    ? `## Operator policy\n\n${operatorPolicy}\n\n`
+    : "";
   const templateHash = createHash("sha256")
     .update(template)
     .update("\0")
     .update(BUDDY_REPO_ROOT)
     .update("\0")
     .update(configuredWorkspace ?? "")
+    .update("\0")
+    .update(operatorPolicySection)
     .digest("hex");
   const renderedDir = path.join(coveDataDir(options.dataDir), "buddy-home");
   const renderedPath = path.join(renderedDir, "CLAUDE.md");
   const hashHeader = `<!-- COVE_BUDDY_TEMPLATE_HASH:${templateHash} -->`;
   let body = template
-    .replaceAll("{{COVE_REPO_ROOT}}", BUDDY_REPO_ROOT);
+    .replaceAll("{{COVE_REPO_ROOT}}", BUDDY_REPO_ROOT)
+    .replaceAll("{{OPERATOR_POLICY_SECTION}}", operatorPolicySection);
   body = configuredWorkspace
     ? body
         .replaceAll("{{WORKSPACE_ROOT}}", configuredWorkspace)
         .replaceAll("<!--SPAWN-->", "")
         .replaceAll("<!--/SPAWN-->", "")
     : body.replace(SPAWN_BLOCK_RE, "");
-  if (body.includes("{{COVE_REPO_ROOT}}") || body.includes("{{WORKSPACE_ROOT}}")) {
+  if (body.includes("{{COVE_REPO_ROOT}}") || body.includes("{{WORKSPACE_ROOT}}") || body.includes("{{OPERATOR_POLICY_SECTION}}")) {
     throw new Error("Buddy instruction template contains unresolved placeholders.");
   }
   const expected = `${hashHeader}\n${body}`;

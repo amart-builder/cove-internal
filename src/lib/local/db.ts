@@ -96,7 +96,7 @@ function offsetForInstant(value: string, timezone: string): string {
   return offset === "" || offset === "+00:00" ? "Z" : offset;
 }
 
-function validateTaskTiming(row: Record<string, unknown>): void {
+export function validateTaskTiming(row: Record<string, unknown>): void {
   if ("notification_policy" in row) {
     const policy = row.notification_policy;
     if (policy !== null && (typeof policy !== "string" || !NOTIFICATION_POLICIES.has(policy))) {

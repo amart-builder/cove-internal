@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.cove.chief-of-staff-drain</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__COVE_NODE_REAL__</string>
+    <string>--import</string>
+    <string>/Users/operator/Atlas/Projects/astack/cove/node_modules/tsx/dist/loader.mjs</string>
+    <string>/Users/operator/Atlas/Projects/astack/cove/scripts/cove-chief-of-staff.ts</string>
+    <string>drain</string>
+    <string>--max</string>
+    <string>3</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/operator/Atlas/Projects/astack/cove</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>/Users/operator</string>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/Users/operator/.local/bin:/usr/bin:/bin</string>
+    <key>COVE_DATA_DIR</key><string>/Users/operator/Atlas/Projects/astack/cove/data</string>
+    <key>COVE_CODEX_BIN</key><string>__COVE_CODEX_BIN__</string>
+  </dict>
+  <key>StartInterval</key><integer>300</integer>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><false/>
+  <key>StandardOutPath</key><string>/Users/operator/Library/Logs/cove-chief-of-staff-drain.log</string>
+  <key>StandardErrorPath</key><string>/Users/operator/Library/Logs/cove-chief-of-staff-drain.log</string>
+</dict>
+</plist>

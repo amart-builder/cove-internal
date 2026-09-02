@@ -103,6 +103,7 @@ import {
 import { coveEnv } from "../env";
 import { coveDataDir } from "../operator";
 import { recordReceipt, type ReceiptOutcome } from "../reliability/receipts";
+import { tryEnqueueChiefOfStaffWake } from "../chief-of-staff/hooks";
 import { runJob, type ModelRunnerBackend } from "../model-runner";
 import { configuredJobBackend } from "../model-runner-runtime.mjs";
 
@@ -1265,6 +1266,7 @@ export async function runOneMorningBrief(
       targetTimezone,
       sections: context.sections,
       manifest: context.manifest,
+      dataDir: briefDataDir,
     };
     const prompt = buildMorningBriefPrompt(promptInput);
     try {
@@ -1348,6 +1350,12 @@ export async function runOneMorningBrief(
       if (localDateInTimezone(activationNow, targetTimezone) === claimed.targetLocalDate) {
         options.store.activateBriefBoardActions(claimed.targetLocalDate, activationNow);
       }
+      tryEnqueueChiefOfStaffWake({
+        reason: "brief",
+        payload: { date: claimed.targetLocalDate, artifactId: completed.id },
+        dbPath: options.receiptDbPath,
+        now: activationNow,
+      });
     }
     recordBriefReceipt("success", "Morning brief completed.", { writer });
     console.info("Morning brief generated.", { briefId: claimed.id, writer });

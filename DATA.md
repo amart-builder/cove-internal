@@ -18,6 +18,7 @@ Gmail remains authoritative for message content, drafts, sent replies, inbox mem
 | Sales pipeline | one consulting deal per contact, stage, value, next action, follow-up date | `src/lib/crm/pipeline-store.ts` |
 | Meeting intelligence | normalized meeting envelopes, analyst artifacts, replay-safe action ledger | `src/lib/intake/meeting-analysis.ts` |
 | Automation | jobs, receipts, failures, health snapshots, attention ledger | `src/lib/reliability/`, `src/lib/attention/` |
+| Persistent chief of staff | wake jobs plus one replay-safe action row per proposed action | `src/lib/chief-of-staff/`, `chief_of_staff_actions` |
 | Agent work | execution runs, task-session runs, child-process identity | `src/lib/claude-execution/`, `src/lib/task-sessions/` |
 
 Schema ownership and code ownership are mapped in `CODEBASE_GUIDE.md`.
@@ -28,6 +29,11 @@ Schema ownership and code ownership are mapped in `CODEBASE_GUIDE.md`.
 contact deletes its deal. Stage changes and real touches are retained in
 `contact_activities`; administrative deal removal does not delete that history.
 Follow-up dates are calendar dates in `YYYY-MM-DD` form, never timestamps.
+
+`src/lib/crm/contact-context.ts` builds the shared relationship view used by
+email, meeting analysis, the brief, and Buddy. Email aliases come from
+`contact_emails`. The view includes the local pipeline deal, the last three
+meeting summaries, other recent activity, and open follow-up commitments.
 
 ### Task reminder fields
 
@@ -84,11 +90,48 @@ days. It strips the cached or recognizable trailing signature before hashing
 and comparison. Model judge failures leave the draft unjudged and never block
 Gmail drafting.
 
+When a meeting summary lands after a Cove-owned draft was written, Cove moves
+the open email item back to `observed`, increments its thread version, and
+queues the existing classifier lane. The resulting `upsert_draft` operation
+updates the known Gmail draft only when its current body still matches Cove's
+stored hash. An operator-edited draft is preserved.
+
 Resolved rows remain durable review evidence after `reviewed_at` is set. Weekly
 markdown digests under `data/voice-reviews/` are also retained until the
 operator removes them. There is no automatic deletion in this version because
 the review history is the evidence for proposed fingerprint changes; no rule or
 corpus candidate is applied automatically.
+
+### Persistent chief of staff
+
+`chief_of_staff_actions` is the action ledger for persistent-agent wakes. Its
+primary key is `(wake_job_id, content_hash)`, where the hash excludes the
+model-chosen action ID and rationale. Each row stores the proposed payload,
+the deterministic driver's result (`applied`, `rejected`, or `skipped`), an
+optional rejection reason, and the application time. Applied rows are never
+rerun when the scheduler retries a wake. Each completed wake adds a
+driver-authored journal outcome with the applied count and any rejected action
+kinds and reasons, so model-written journal claims cannot hide ledger failures.
+
+The action vocabulary can add a pipeline deal only when the contact has no
+deal and the requested stage is non-terminal. Existing deals use update or
+move actions. Client, lost, and parked additions are rejected.
+
+Runtime-private files live under `data/chief-of-staff/`. `session.json` holds
+the Codex session ID and wake counters. `agent/` is a tiny nested Git repository
+with a read-only mandate and an otherwise empty workspace. `journal/` and
+`reviews/` are driver-written audit records. `snapshots/` retains the exact
+bounded input for the latest 50 wakes. Reset archives the old session record
+under `archive/`; it does not delete the journal, ledger, snapshots, or reviews.
+
+`codex-home/` is the persistent agent's isolated Codex home. Its exact minimal
+`config.toml` disables shell, web search, and apps, and declares no MCP servers.
+Its `auth.json` is a symlink to the operator's live Codex auth file, never a
+credential copy. Agent sessions and rollouts stay under `codex-home/sessions/`
+and are not removed when `session.json` is reset.
+
+The private mandate source is `data/cove-mandate.md`. The distributable fallback
+is `prompts/chief-of-staff-mandate.md`.
 
 ## Database access
 
@@ -105,6 +148,14 @@ claim record so a crash can be reconciled against the provider before retry.
 ## Private files
 
 Machine-private files under `data/` include the database, OAuth settings, heartbeats, relays, brief inputs, logs, and live meeting configuration. They must not be committed or included in a client export. The only distributable meeting file is `data/cove-meetings.example.json`, which is disabled by default.
+
+`data/cove-policy.md` is the optional private operator policy for the brief,
+generic intake, email classifier, meeting analyst, and Buddy. Reads are capped
+at 3,000 characters. `prompts/operator-policy.template.md` is the distributable
+placeholder, not the live policy.
+
+`data/cove-mandate.md` and everything under `data/chief-of-staff/` are private
+runtime state. They must never be included in a client export or commit.
 
 ## Backups and restore
 

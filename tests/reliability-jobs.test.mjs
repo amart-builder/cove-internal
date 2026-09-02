@@ -309,9 +309,39 @@ test('scheduler ticks sweep terminal reliability history by age', async (t) => {
     ['recent-receipt'],
   );
   assert.deepEqual(
-    db.prepare('SELECT id FROM cove_failure_inbox ORDER BY id').pluck().all(),
+    db.prepare("SELECT id FROM cove_failure_inbox WHERE source <> 'jobs-unclaimed' ORDER BY id").pluck().all(),
     ['open-failure'],
   );
+  assert.equal(
+    listFailures({ dbPath }).some((failure) =>
+      failure.source === 'jobs-unclaimed' && /test/.test(failure.message)
+    ),
+    true,
+  );
+});
+
+test('queued jobs older than 24 hours surface their types and resolve when cleared', async (t) => {
+  const { dbPath, scheduler, advance } = schedulerFixture(t);
+  scheduler.register('known', () => undefined);
+  const old = scheduler.enqueue({
+    type: 'never-registered',
+    idempotencyKey: 'unclaimed:one',
+  }).job;
+  advance(24 * 60 * 60_000 + 1);
+  await scheduler.runAvailable();
+  const visible = listFailures({ dbPath }).find((failure) => failure.source === 'jobs-unclaimed');
+  assert.ok(visible);
+  assert.match(visible.message, /never-registered/);
+
+  const db = new Database(dbPath);
+  try {
+    db.prepare("UPDATE cove_jobs SET status = 'done', finished_at = ? WHERE id = ?")
+      .run('2026-07-29T12:00:00.001Z', old.id);
+  } finally {
+    db.close();
+  }
+  await scheduler.runAvailable();
+  assert.equal(listFailures({ dbPath }).some((failure) => failure.source === 'jobs-unclaimed'), false);
 });
 
 test('jobs LaunchAgent polls every five minutes', () => {

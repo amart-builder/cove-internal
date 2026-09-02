@@ -128,6 +128,46 @@ test('pipeline route derives today in the configured timezone when omitted', {
   assert.ok([before, after].includes((await response.json()).today));
 });
 
+test('contact context route returns the shared record and explicit identity failures', {
+  concurrency: false,
+}, async (t) => {
+  const { dbPath } = routeFixture(t, 'context');
+  const db = new Database(dbPath);
+  try {
+    db.exec(`PRAGMA foreign_keys = ON`);
+    // Open the route once so migrations exist before fixture rows are inserted.
+  } finally {
+    db.close();
+  }
+  await get('http://127.0.0.1:3200/api/crm?operation=list');
+  const seeded = new Database(dbPath);
+  try {
+    const now = '2026-09-02T16:00:00.000Z';
+    seeded.prepare(`INSERT INTO contacts
+      (id, name, email, normalized_email, tags, notes, created_at, updated_at)
+      VALUES ('context-person', 'Context Person', 'context@example.com', 'context@example.com', '[]', '', ?, ?)`).run(now, now);
+    seeded.prepare(`INSERT INTO contact_emails
+      (id, contact_id, email, normalized_email, is_primary, created_at)
+      VALUES ('context-alias', 'context-person', 'alias@example.com', 'alias@example.com', 0, ?)`).run(now);
+    for (const id of ['ambiguous-a', 'ambiguous-b']) {
+      seeded.prepare(`INSERT INTO contacts
+        (id, name, email, normalized_email, tags, notes, created_at, updated_at)
+        VALUES (?, ?, 'same@example.com', 'same@example.com', '[]', '', ?, ?)`).run(id, id, now, now);
+    }
+  } finally {
+    seeded.close();
+  }
+  const matched = await get('http://127.0.0.1:3200/api/crm?operation=context&email=alias%40example.com');
+  assert.equal(matched.status, 200);
+  const payload = await matched.json();
+  assert.equal(payload.context.contact.id, 'context-person');
+  assert.match(payload.rendered, /^<cove_record>/);
+  const ambiguous = await get('http://127.0.0.1:3200/api/crm?operation=context&email=same%40example.com');
+  assert.equal(ambiguous.status, 409);
+  assert.equal((await ambiguous.json()).candidates.length, 2);
+  assert.equal((await get('http://127.0.0.1:3200/api/crm?operation=context&id=missing')).status, 404);
+});
+
 test('pipeline route creates, updates, moves, logs, reads, and removes deals', {
   concurrency: false,
 }, async (t) => {

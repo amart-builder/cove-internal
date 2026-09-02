@@ -7,6 +7,7 @@ import { LocalCRMBackend } from "../src/lib/crm/index.ts";
 import { createEmailClassificationHandler } from "../src/lib/email/classification-job.ts";
 import { observeInboundMessage } from "../src/lib/email/state-machine.ts";
 import { openLocalDatabase } from "../src/lib/local/database.ts";
+import { listFailures } from "../src/lib/reliability/failures.ts";
 
 function fixture(t) {
   const dir = mkdtempSync(path.join(os.tmpdir(), "cove-email-crm-context-"));
@@ -42,9 +43,10 @@ function job(observed, messageId) {
   };
 }
 
-function handlerFor({ dbPath, messageId, threadId, from, captured }) {
+function handlerFor({ dbPath, dataDir, messageId, threadId, from, captured, reply = false }) {
   return createEmailClassificationHandler({
     dbPath,
+    dataDir,
     accountEmail: "alex@example.com",
     gateway: {
       getMessage: async () => ({
@@ -65,10 +67,10 @@ function handlerFor({ dbPath, messageId, threadId, from, captured }) {
     classifier: async (input) => {
       captured.push(input.recentContext);
       return {
-        bucket: "fyi",
+        bucket: reply ? "reply" : "fyi",
         summary: "A quick question about the pilot.",
         recommendedAction: null,
-        draftBody: null,
+        draftBody: reply ? "Thanks for checking in." : null,
         commitments: [],
         recordCorrespondence: false,
         modelVersion: "test",
@@ -88,7 +90,7 @@ test("a known sender's CRM context reaches the classifier", async (t) => {
   });
   crm.appendActivity({
     contactId: created.contact.id,
-    activityType: "meeting",
+    activityType: "meeting_summary",
     title: "Pilot kickoff",
     content: "Agreed on the scope.",
     source: "manual",
@@ -96,6 +98,13 @@ test("a known sender's CRM context reaches the classifier", async (t) => {
   crm.close();
   const db = openLocalDatabase(dbPath);
   try {
+    db.prepare(
+      `INSERT INTO pipeline_deals
+         (id, contact_id, stage, next_action, next_follow_up_at, source, notes,
+          stage_changed_at, created_at, updated_at)
+       VALUES ('deal-context', ?, 'proposal', 'Wait for approval', '2026-08-05', '', '',
+               '2026-08-03T12:00:00.000Z', '2026-08-03T12:00:00.000Z', '2026-08-03T12:00:00.000Z')`,
+    ).run(created.contact.id);
     db.prepare(
       `INSERT INTO commitments
          (id, kind, title, source_kind, contact_id, status, created_at, updated_at)
@@ -124,10 +133,11 @@ test("a known sender's CRM context reaches the classifier", async (t) => {
 
   assert.equal(result.actions.applied, true);
   assert.equal(captured.length, 1);
-  assert.match(captured[0], /Known contact: Sarah Chen \(role: CTO/);
+  assert.match(captured[0], /Cove records for Sarah Chen/);
   assert.match(captured[0], /Pilot kickoff/);
+  assert.match(captured[0], /stage=Proposal out/);
   assert.match(captured[0], /Their signed SOW/);
-  assert.ok(captured[0].length <= 4_000);
+  assert.ok(captured[0].length <= 6_000);
 });
 
 test("an unknown sender classifies without context", async (t) => {
@@ -152,7 +162,7 @@ test("an unknown sender classifies without context", async (t) => {
   assert.deepEqual(captured, [undefined]);
 });
 
-test("a CRM failure never fails the classification job", async (t) => {
+test("a CRM exception still classifies but withholds a reply draft and records a failure", async (t) => {
   const { dir, dbPath } = fixture(t);
   // An external CRM configuration makes every CRM call throw.
   writeFileSync(
@@ -165,6 +175,7 @@ test("a CRM failure never fails the classification job", async (t) => {
     internalDate: "1000",
     accountEmail: "alex@example.com",
     dbPath,
+    dataDir: dir,
   });
   const captured = [];
   const result = await handlerFor({
@@ -173,10 +184,60 @@ test("a CRM failure never fails the classification job", async (t) => {
     threadId: "t-crm-down",
     from: '"Sarah Chen" <sarah@work.com>',
     captured,
+    reply: true,
   })(job(observed, "m-crm-down"));
 
   assert.equal(result.actions.applied, true);
+  assert.equal(result.actions.bucket, "action");
   assert.deepEqual(captured, [undefined]);
+  const db = openLocalDatabase(dbPath);
+  try {
+    const item = db.prepare("SELECT bucket, draft_response, recommended_action FROM email_items").get();
+    assert.equal(item.bucket, "action");
+    assert.equal(item.draft_response, null);
+    assert.match(item.recommended_action, /Cove records were unavailable/);
+    assert.equal(db.prepare("SELECT count(*) AS count FROM cove_gmail_operations").get().count, 0);
+  } finally {
+    db.close();
+  }
+  assert.equal(listFailures({ dbPath }).some((failure) => failure.sourceId === "gmail:t-crm-down"), true);
+});
+
+test("an ambiguous sender still classifies but receives no draft and a visible failure", async (t) => {
+  const { dbPath } = fixture(t);
+  const db = openLocalDatabase(dbPath);
+  try {
+    const now = new Date().toISOString();
+    for (const id of ["duplicate-a", "duplicate-b"]) {
+      db.prepare(
+        `INSERT INTO contacts
+           (id, name, email, normalized_email, tags, notes, created_at, updated_at)
+         VALUES (?, ?, 'same@example.com', 'same@example.com', '[]', '', ?, ?)`,
+      ).run(id, id, now, now);
+    }
+  } finally {
+    db.close();
+  }
+  const observed = observeInboundMessage({
+    messageId: "m-ambiguous", threadId: "t-ambiguous", internalDate: "1000",
+    accountEmail: "alex@example.com", dbPath,
+  });
+  const captured = [];
+  const result = await handlerFor({
+    dbPath, messageId: "m-ambiguous", threadId: "t-ambiguous",
+    from: "Duplicate <same@example.com>", captured, reply: true,
+  })(job(observed, "m-ambiguous"));
+  assert.equal(result.actions.bucket, "action");
+  const check = openLocalDatabase(dbPath);
+  try {
+    const item = check.prepare("SELECT bucket, draft_response, recommended_action FROM email_items").get();
+    assert.equal(item.bucket, "action");
+    assert.equal(item.draft_response, null);
+    assert.match(item.recommended_action, /ambiguous \(2 candidates\)/);
+  } finally {
+    check.close();
+  }
+  assert.equal(listFailures({ dbPath }).some((failure) => failure.sourceId === "gmail:t-ambiguous"), true);
 });
 
 test("a missing sender address classifies without context", async (t) => {

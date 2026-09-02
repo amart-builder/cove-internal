@@ -25,7 +25,8 @@ import { fileURLToPath } from "node:url";
 import { listAtlasProjectFolderNames } from "../atlas-projects";
 import type { InboundEvent } from "../data/types";
 import { localDateInTimezone } from "../day-plan/brief";
-import { operatorTimezone, workspaceRoot } from "../operator";
+import { coveDataDir, operatorTimezone, workspaceRoot } from "../operator";
+import { formatOperatorPolicy, readOperatorPolicy } from "../operator-policy";
 import {
   readTriageProtocol,
   TRIAGE_JSON_SCHEMA,
@@ -295,8 +296,10 @@ export function buildTriagePrompt(input: {
   projects: readonly string[];
   board: BoardContext;
   now: Date;
+  policy?: string;
 }): string {
   return [
+    ...(input.policy ? [input.policy, ""] : []),
     input.protocol,
     "",
     `NOW=${input.now.toISOString()}`,
@@ -535,6 +538,10 @@ export async function triageRecordedEvent(
   const now = (runtimeOptions.now ?? (() => new Date()))();
   const projects = listAtlasProjectFolderNames();
   const prompt = buildTriagePrompt({
+    policy: (() => {
+      const value = readOperatorPolicy({ dataDir: coveDataDir(runtimeOptions.dataDir) });
+      return value ? formatOperatorPolicy(value) : undefined;
+    })(),
     protocol: readTriageProtocol(),
     rawText: event.raw_text,
     source: event.source as IntakeSource,

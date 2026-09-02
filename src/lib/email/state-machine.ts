@@ -449,7 +449,7 @@ export function applyEmailClassification(input: {
     return db.transaction(() => {
       const thread = db.prepare(
         `SELECT id, thread_id, thread_version, latest_inbound_message_id,
-                gmail_draft_id, workflow_state, status
+                gmail_draft_id, draft_body_hash, workflow_state, status
          FROM email_items WHERE id = ?`,
       ).get(input.emailItemId) as {
         id: string;
@@ -457,6 +457,7 @@ export function applyEmailClassification(input: {
         thread_version: number;
         latest_inbound_message_id: string | null;
         gmail_draft_id: string | null;
+        draft_body_hash: string | null;
         workflow_state: string;
         status: string;
       } | undefined;
@@ -485,6 +486,16 @@ export function applyEmailClassification(input: {
       if (input.bucket === "reply" && !draftBody) {
         throw new Error("Reply classification requires a draft body.");
       }
+      const olderDraftWarning = "An older Cove draft is still in Gmail; check it before sending.";
+      const baseRecommendedAction = input.recommendedAction ??
+        (input.bucket === "reply" ? "reply" : "review");
+      const recommendedAction = thread.gmail_draft_id &&
+          input.bucket === "action" &&
+          !draftBody &&
+          baseRecommendedAction.startsWith("Cove withheld the reply draft:") &&
+          !baseRecommendedAction.includes(olderDraftWarning)
+        ? `${baseRecommendedAction} ${olderDraftWarning}`
+        : baseRecommendedAction;
       db.prepare(
         `UPDATE cove_email_messages
          SET state = 'processed', classification_json = ?, model_version = ?,
@@ -494,7 +505,7 @@ export function applyEmailClassification(input: {
         JSON.stringify({
           bucket: input.bucket,
           summary: input.summary.slice(0, 4_000),
-          recommendedAction: input.recommendedAction ?? null,
+          recommendedAction,
         }),
         input.modelVersion.slice(0, 200),
         now,
@@ -512,7 +523,7 @@ export function applyEmailClassification(input: {
         input.bucket === "noise" ? "log_only" : input.bucket === "fyi" ? "tiding" : "action_item",
         input.bucket,
         input.summary.slice(0, 4_000),
-        input.recommendedAction ?? (input.bucket === "reply" ? "reply" : "review"),
+        recommendedAction,
         terminalAfterArchive ? "finalizing" : "open",
         draftBody,
         now,
@@ -569,6 +580,9 @@ export function applyEmailClassification(input: {
           payload: {
             body: draftBody,
             existingDraftId: thread.gmail_draft_id,
+            ...(thread.draft_body_hash
+              ? { existingDraftBodyHash: thread.draft_body_hash }
+              : {}),
             voiceJudgeScore: input.voiceJudgeScore ?? null,
             voiceJudgeVerdict: input.voiceJudgeVerdict?.slice(0, 300) ?? null,
           },

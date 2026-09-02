@@ -19,6 +19,7 @@ import {
   writeSourceCheckpoint,
 } from '../src/lib/day-plan/brief-relay.ts';
 import { writeProgressDigestRelay } from '../src/lib/progress/relay.ts';
+import { openLocalDatabase } from '../src/lib/local/database.ts';
 
 const NOW = new Date('2026-07-16T12:00:00.000Z');
 const MACHINE_ID = '12345678-1234-4234-8234-123456789abc';
@@ -262,7 +263,7 @@ test('operator profile falls back to a bounded readable JSON whitelist', async (
 test('calendar uses the restricted gateway, derives DST-aware bounds, and formats visible events', async (t) => {
   const { dir, options } = fixture(t);
   disableExternalSources(t, dir);
-  let requested;
+  const requested = [];
   const items = [
     {
       id: 'strategy',
@@ -339,7 +340,7 @@ test('calendar uses the restricted gateway, derives DST-aware bounds, and format
     workspaceGateway: {
       calendar: {
         listEvents: async (input) => {
-          requested = input;
+          requested.push(input);
           return items;
         },
       },
@@ -359,8 +360,9 @@ test('calendar uses the restricted gateway, derives DST-aware bounds, and format
   assert.equal(calendar.priority, 7);
   assert.equal(calendar.label, 'CALENDAR');
   assert.equal(calendar.maxChars, 5000);
-  assert.equal(requested.timeMin, '2026-11-01T00:00:00-07:00');
-  assert.equal(requested.timeMax, '2026-11-08T00:00:00-08:00');
+  const weekRequest = requested.find((entry) => entry.timeMax === '2026-11-08T00:00:00-08:00');
+  assert.equal(weekRequest.timeMin, '2026-11-01T00:00:00-07:00');
+  assert.equal(weekRequest.timeMax, '2026-11-08T00:00:00-08:00');
 });
 
 test('completed_recently keeps only done tasks from the previous 48 hours', async (t) => {
@@ -468,155 +470,105 @@ test('calendar fetch failures stay optional and leave the other sources availabl
   assert.ok(collected.sources.find((source) => source.id === 'task_snapshot').content);
 });
 
-test('CRM handles Attio value variants and formats recent and quiet contacts', async (t) => {
+test('pipeline follow-ups use local deals and calendar attendee aliases without calling Attio', async (t) => {
   const { dir, options } = fixture(t);
-  disableExternalSources(t, dir, { ATTIO_API_KEY: 'attio-test-key' });
-  writeOperatorProfile(t, dir, { self_emails: ['operator@example.com'] });
-  const daysAgo = (days) => new Date(NOW.getTime() - days * 86_400_000).toISOString();
-  const records = [
-    {
-      values: {
-        name: [{ full_name: 'Alice Adams' }],
-        last_email_interaction: [{ interacted_at: daysAgo(2), interaction_type: 'email' }],
-        // Email wins even though the general interaction is newer.
-        last_interaction: [{ interacted_at: daysAgo(1), interaction_type: 'meeting' }],
-      },
-    },
-    {
-      values: {
-        name: [{ first_name: 'Bob', last_name: 'Baker' }],
-        last_email_interaction: [{ value: { interacted_at: daysAgo(20), interaction_type: 'email' } }],
-      },
-    },
-    {
-      values: {
-        name: [{ full_name: 'Cara Cole' }],
-        last_email_interaction: [],
-        last_interaction: [{ interacted_at: daysAgo(3), interaction_type: 'call' }],
-      },
-    },
-    {
-      values: {
-        name: [{ full_name: 'Timezone Tina' }],
-        last_interaction: [{ interacted_at: '2026-07-14T02:00:00.000Z', interaction_type: 'meeting' }],
-      },
-    },
-    {
-      values: {
-        name: [],
-        email_addresses: [{ value: { email_address: 'fallback@example.com' } }],
-        last_interaction: [{ interacted_at: daysAgo(4), interaction_type: 'email' }],
-      },
-    },
-    {
-      values: {
-        name: [],
-        email_addresses: [],
-        last_interaction: [{ interacted_at: daysAgo(5), interaction_type: 'call' }],
-      },
-    },
-    {
-      values: {
-        name: [{ full_name: 'Riley Operator' }],
-        email_addresses: [
-          { email_address: 'other@example.com' },
-          // Case-insensitive match against the profile's self_emails.
-          { value: { email_address: 'Operator@Example.com' } },
-        ],
-        last_interaction: [{ interacted_at: daysAgo(1), interaction_type: 'email' }],
-      },
-    },
-    {
-      values: {
-        name: [{ full_name: 'Dormant Dana' }],
-        last_email_interaction: [{ interacted_at: daysAgo(121) }],
-      },
-    },
-    { values: { name: [{ full_name: 'No History' }], last_email_interaction: [], last_interaction: [] } },
-  ];
-  const fetchImpl = async (url, init = {}) => {
-    const cove = coveRowsResponse(url);
-    if (cove) return cove;
-    assert.equal(String(url), 'https://api.attio.com/v2/objects/people/records/query');
-    assert.deepEqual(JSON.parse(init.body), {
-      limit: 250,
-      sorts: [{ attribute: 'last_interaction', field: 'interacted_at', direction: 'desc' }],
-    });
-    assert.ok(init.signal instanceof AbortSignal);
-    return new Response(JSON.stringify({ data: { data: records } }), { status: 200 });
-  };
-  const collected = await collectMorningBriefSources({ ...options, fetchImpl });
-  const crm = collected.sources.find((source) => source.id === 'crm_last_touch');
-  assert.equal(
-    crm.content,
-    'Recent touches:\nAlice Adams: last touch 2d ago (2026-07-14, email)\nTimezone Tina: last touch 2d ago (2026-07-13, meeting)\nCara Cole: last touch 3d ago (2026-07-13, call)\nfallback@example.com: last touch 4d ago (2026-07-12, email)\nBob Baker: last touch 20d ago (2026-06-26, email)\nDormant Dana: last touch 121d ago (2026-03-17)\n\nGone quiet (>14d): Bob Baker',
-  );
-  assert.equal(crm.content.includes('fallback@example.com: last touch 4d ago'), true);
-  assert.equal(crm.content.includes('Riley Operator'), false);
-  assert.equal(crm.priority, 10);
-});
-
-test('the own-record CRM filter comes from the profile and defaults to filtering nothing', async (t) => {
-  const { dir, options } = fixture(t);
-  disableExternalSources(t, dir, { ATTIO_API_KEY: 'attio-test-key' });
-  const records = [{
-    values: {
-      name: [{ full_name: 'Riley Operator' }],
-      email_addresses: [{ value: { email_address: 'Operator@Example.com' } }],
-      last_interaction: [{ interacted_at: new Date(NOW.getTime() - 86_400_000).toISOString(), interaction_type: 'email' }],
-    },
-  }];
-  const fetchImpl = async (url) => {
-    const cove = coveRowsResponse(url);
-    if (cove) return cove;
-    return new Response(JSON.stringify({ data: { data: records } }), { status: 200 });
-  };
-  const withoutProfile = await collectMorningBriefSources({ ...options, fetchImpl });
-  assert.equal(
-    withoutProfile.sources.find((source) => source.id === 'crm_last_touch').content.includes('Riley Operator'),
-    true,
-  );
-
-  writeOperatorProfile(t, dir, { self_emails: ['  OPERATOR@example.com  ', '', 7] });
-  const withProfile = await collectMorningBriefSources({ ...options, fetchImpl });
-  assert.equal(
-    withProfile.sources.find((source) => source.id === 'crm_last_touch').content.includes('Riley Operator'),
-    false,
-  );
-});
-
-test('.env.local strips unquoted inline comments but preserves hashes inside quotes', async (t) => {
-  const { dir, options } = fixture(t);
-  disableExternalSources(t, dir, { ATTIO_API_KEY: undefined });
-  const previousCwd = process.cwd();
-  const authorizations = [];
-  const fetchImpl = async (url, init = {}) => {
-    const cove = coveRowsResponse(url);
-    if (cove) return cove;
-    assert.equal(String(url), 'https://api.attio.com/v2/objects/people/records/query');
-    authorizations.push(init.headers.Authorization);
-    return new Response(JSON.stringify({ data: [] }), { status: 200 });
-  };
+  disableExternalSources(t, dir, { ATTIO_API_KEY: 'must-not-be-used' });
+  const db = openLocalDatabase(path.join(dir, 'cove.db'));
   try {
-    process.chdir(dir);
-    writeFileSync(path.join(dir, '.env.local'), 'ATTIO_API_KEY=unquoted-secret # operator note\n');
-    await collectMorningBriefSources({ ...options, fetchImpl });
-    writeFileSync(path.join(dir, '.env.local'), 'ATTIO_API_KEY="quoted # secret"\n');
-    await collectMorningBriefSources({ ...options, fetchImpl });
+    const now = NOW.toISOString();
+    for (const [id, name, email] of [
+      ['overdue', 'Overdue Person', 'overdue@example.com'],
+      ['today', 'Today Person', 'today@example.com'],
+      ['soon', 'Soon Person', 'soon@example.com'],
+      ['attendee', 'Meeting Person', 'primary@example.com'],
+    ]) {
+      db.prepare(`INSERT INTO contacts
+        (id, name, email, normalized_email, tags, notes, created_at, updated_at)
+        VALUES (?, ?, ?, ?, '[]', '', ?, ?)`)
+        .run(id, name, email, email, now, now);
+    }
+    db.prepare(`INSERT INTO contact_emails
+      (id, contact_id, email, normalized_email, is_primary, created_at)
+      VALUES ('alias', 'attendee', 'alias@example.com', 'alias@example.com', 0, ?)`)
+      .run(now);
+    for (const [id, date] of [['overdue', '2026-07-15'], ['today', '2026-07-16'], ['soon', '2026-07-20'], ['attendee', null]]) {
+      db.prepare(`INSERT INTO pipeline_deals
+        (id, contact_id, stage, next_action, next_follow_up_at, source, notes,
+         stage_changed_at, created_at, updated_at)
+        VALUES (?, ?, 'interested', ?, ?, '', '', ?, ?, ?)`)
+        .run(`deal-${id}`, id, `Follow up with ${id}`, date, now, now, now);
+    }
   } finally {
-    process.chdir(previousCwd);
+    db.close();
   }
-  assert.deepEqual(authorizations, [
-    'Bearer unquoted-secret',
-    'Bearer quoted # secret',
-  ]);
+  let externalFetches = 0;
+  let calendarCalls = 0;
+  const collected = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => {
+      const cove = coveRowsResponse(url);
+      if (cove) return cove;
+      externalFetches += 1;
+      throw new Error(`unexpected external fetch ${url}`);
+    },
+    workspaceGateway: {
+      calendar: {
+        listEvents: async () => {
+          calendarCalls += 1;
+          return [{
+            id: 'event', summary: 'Call', start: '2026-07-16T09:00:00-07:00',
+            end: '2026-07-16T09:30:00-07:00', attendees: [{ email: 'alias@example.com', self: false }],
+            meetingUrl: null,
+          }];
+        },
+      },
+    },
+  });
+  const source = collected.sources.find((entry) => entry.id === 'crm_last_touch');
+  assert.equal(source.label, 'PIPELINE_FOLLOW_UPS');
+  assert.match(source.content, /Overdue Person: Interested/);
+  assert.match(source.content, /Today Person: Interested/);
+  assert.match(source.content, /Soon Person: Interested/);
+  assert.match(source.content, /Meeting Person: Interested/);
+  assert.equal(calendarCalls, 1);
+  assert.equal(externalFetches, 0);
 });
 
-test('CRM reports not_configured when neither Attio credential is present', async (t) => {
+test('pipeline overdue deals survive a calendar failure', async (t) => {
   const { dir, options } = fixture(t);
   disableExternalSources(t, dir);
-  const collected = await collectMorningBriefSources({ ...options, fetchImpl: async (url) => coveRowsResponse(url) });
-  assert.equal(collected.sources.find((source) => source.id === 'crm_last_touch').note, 'not_configured');
+  const db = openLocalDatabase(path.join(dir, 'cove.db'));
+  try {
+    const now = NOW.toISOString();
+    db.prepare(`INSERT INTO contacts
+      (id, name, email, normalized_email, tags, notes, created_at, updated_at)
+      VALUES ('overdue', 'Overdue Person', 'overdue@example.com',
+              'overdue@example.com', '[]', '', ?, ?)`).run(now, now);
+    db.prepare(`INSERT INTO pipeline_deals
+      (id, contact_id, stage, next_action, next_follow_up_at, source, notes,
+       stage_changed_at, created_at, updated_at)
+      VALUES ('deal-overdue', 'overdue', 'interested', 'Call today', '2026-07-15',
+              '', '', ?, ?, ?)`).run(now, now, now);
+  } finally {
+    db.close();
+  }
+  const collected = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => coveRowsResponse(url) ?? new Response('not found', { status: 404 }),
+    workspaceGateway: {
+      calendar: {
+        listEvents: async () => {
+          throw new Error('calendar unavailable');
+        },
+      },
+    },
+  });
+  const calendar = collected.sources.find((entry) => entry.id === 'calendar');
+  const pipeline = collected.sources.find((entry) => entry.id === 'crm_last_touch');
+  assert.match(calendar.note, /calendar unavailable/);
+  assert.match(pipeline.content, /Overdue Person: Interested/);
+  assert.match(pipeline.content, /Call today/);
+  assert.equal(pipeline.note, undefined);
 });
 
 test('memory decisions prefer decision-tagged Jarvis results and bound each line', async (t) => {
@@ -1856,7 +1808,7 @@ test('commitments source marks either partial fetch failure without asserting fa
   );
 });
 
-test('real source ids overwrite coverage fallbacks, while failed fetches remain missing', async (t) => {
+test('real source ids overwrite coverage fallbacks while local pipeline survives network failure', async (t) => {
   const { dir, options } = fixture(t);
   const tokenPath = path.join(dir, 'jarvis-token');
   writeFileSync(tokenPath, 'jarvis-test-token');
@@ -1935,7 +1887,7 @@ test('real source ids overwrite coverage fallbacks, while failed fetches remain 
   });
   const failedCoverage = assembleMorningBriefContext(failed.sources, { now: NOW }).manifest.coverage;
   assert.equal(failedCoverage.calendar, 'missing');
-  assert.equal(failedCoverage.crm_last_touch, 'missing');
+  assert.equal(failedCoverage.crm_last_touch, 'included');
 });
 
 test('a tight budget drops the lowest-ranked sources and keeps the highest intact', () => {

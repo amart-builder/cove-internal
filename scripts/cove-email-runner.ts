@@ -22,6 +22,7 @@ import { loadSignature } from "../src/lib/email/signature";
 import { readEmailVoiceGuide } from "../src/lib/email/voice-guide";
 import { JobScheduler } from "../src/lib/reliability/jobs";
 import { recordReceipt } from "../src/lib/reliability/receipts";
+import { tryEnqueueChiefOfStaffWake } from "../src/lib/chief-of-staff/hooks";
 import {
   createGoogleWorkspaceGateway,
   readWorkspaceConfig,
@@ -268,7 +269,17 @@ async function runEmailTriageUnchecked(
   }
   reconcileDeadEmailJobs({ dbPath, now: now() });
   syncRollingEmailCard({ dbPath, now: now() });
-  recordReceipt({
+  const surfacedItemIds = (() => {
+    const db = openLocalDatabase(dbPath);
+    try {
+      return (db.prepare(
+        `SELECT id FROM email_items WHERE surfaced_at >= ? ORDER BY surfaced_at, id`,
+      ).all(startedAt) as Array<{ id: string }>).map((row) => row.id);
+    } finally {
+      db.close();
+    }
+  })();
+  const receipt = recordReceipt({
     dbPath,
     source: "email-triage",
     startedAt,
@@ -301,6 +312,13 @@ async function runEmailTriageUnchecked(
             jobsDead,
           })
       : undefined,
+  });
+  tryEnqueueChiefOfStaffWake({
+    reason: "triage",
+    payload: { receiptId: receipt.id, observed, classified, surfacedItemIds },
+    dbPath,
+    now: now(),
+    warn,
   });
   return {
     observed,

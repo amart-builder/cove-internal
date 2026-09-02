@@ -41,6 +41,10 @@ import { buildSettlementSummary, readDumpRelay, readSettlementRelay } from "./br
 import { contentQuotaGap, followUpsDue, staleOpenItems } from "./gap-detectors";
 import { localDateFor } from "./candidates";
 import { coveEnv } from "../env";
+import { LocalCRMBackend } from "../crm/local";
+import { isOpenPipelineStage, PIPELINE_STAGE_LABELS, followUpStatus } from "../crm/pipeline";
+import { LocalPipelineStore } from "../crm/pipeline-store";
+import { localDatabasePath } from "../local/database";
 import {
   normalizeMachineIdentity,
   resolveMachineIdentity,
@@ -61,7 +65,6 @@ const EXTERNAL_FETCH_TIMEOUT_MS = 10_000;
 // targets the wrong calendar day. Read per call, because the profile that
 // supplies it is written during setup, after this module first loads.
 const defaultBriefTimezone = () => operatorTimezone();
-const ATTIO_PEOPLE_QUERY_URL = "https://api.attio.com/v2/objects/people/records/query";
 
 export type BriefFileSourcePolicyEntry = {
   path: string;
@@ -228,32 +231,6 @@ function readKeyFile(filePath: string): string | null {
   } catch {
     return null;
   }
-}
-
-function readEnvLocalVar(name: string): string | null {
-  if (Object.prototype.hasOwnProperty.call(process.env, name)) {
-    return process.env[name]?.trim() || null;
-  }
-  try {
-    const lines = readFileSync(path.join(process.cwd(), ".env.local"), "utf8").split(/\r?\n/);
-    for (const line of lines) {
-      const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
-      if (!match || match[1] !== name) continue;
-      let value = match[2].trim();
-      const quote = value.startsWith('"') ? '"' : value.startsWith("'") ? "'" : undefined;
-      if (quote) {
-        const closingQuote = value.indexOf(quote, 1);
-        if (closingQuote > 0) value = value.slice(1, closingQuote);
-      } else {
-        const inlineComment = value.indexOf(" #");
-        if (inlineComment >= 0) value = value.slice(0, inlineComment);
-      }
-      return value.trim() || null;
-    }
-  } catch {
-    // A missing or unreadable .env.local is the same as an absent variable.
-  }
-  return null;
 }
 
 type TaskRow = {
@@ -1888,6 +1865,11 @@ type CalendarEvent = {
   conferenceData?: unknown;
 };
 
+type CalendarSourceResult = {
+  source: BriefSourceInput;
+  events: CalendarEvent[];
+};
+
 function calendarTime(value: string, timezone: string): string {
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) return "time unknown";
@@ -1993,7 +1975,7 @@ async function calendarSource(
   now: Date,
   dataDir?: string,
   injectedGateway?: Pick<WorkspaceGateway, "calendar">,
-): Promise<BriefSourceInput> {
+): Promise<CalendarSourceResult> {
   const source = {
     id: "calendar",
     label: "CALENDAR",
@@ -2003,7 +1985,7 @@ async function calendarSource(
   } as const;
   const resolvedDataDir = coveDataDir(dataDir);
   if (!injectedGateway && !existsSync(workspaceConfigPath(resolvedDataDir))) {
-    return { ...source, note: "not_configured" };
+    return { source: { ...source, note: "not_configured" }, events: [] };
   }
   try {
     const startBounds = calendarDayBounds(targetLocalDate, targetTimezone);
@@ -2013,7 +1995,7 @@ async function calendarSource(
     );
     const calendar = injectedGateway?.calendar ??
       createGoogleWorkspaceGateway({ dataDir: resolvedDataDir }).calendar;
-    if (!calendar) return { ...source, note: "not_configured" };
+    if (!calendar) return { source: { ...source, note: "not_configured" }, events: [] };
     const events = await calendar.listEvents({
       timeMin: startBounds.timeMin,
       timeMax: endBounds.timeMin,
@@ -2036,179 +2018,105 @@ async function calendarSource(
       hangoutLink: event.meetingUrl || undefined,
     }));
     return {
-      ...source,
-      content: formatCalendarEvents(formatted, targetTimezone, targetLocalDate),
-      asOf: now.toISOString(),
+      source: {
+        ...source,
+        content: formatCalendarEvents(formatted, targetTimezone, targetLocalDate),
+        asOf: now.toISOString(),
+      },
+      events: formatted,
     };
   } catch (error) {
-    return { ...source, note: errorNote(error, "calendar_failed") };
+    return {
+      source: { ...source, note: errorNote(error, "calendar_failed") },
+      events: [],
+    };
   }
 }
 
-function firstAttioValue(record: UnknownRecord, slug: string): UnknownRecord | undefined {
-  const values = asRecord(record.values);
-  const entries = values?.[slug];
-  return Array.isArray(entries) ? asRecord(entries[0]) : undefined;
-}
-
-function attioEmailAddresses(record: UnknownRecord): string[] {
-  const values = asRecord(record.values);
-  const entries = values?.email_addresses;
-  if (!Array.isArray(entries)) return [];
-  return entries
-    .map((entry) => {
-      const direct = asRecord(entry);
-      const value = asRecord(direct?.value) ?? direct;
-      return typeof value?.email_address === "string"
-        ? compactLine(value.email_address, 254)
-        : "";
-    })
-    .filter(Boolean);
-}
-
-function attioPersonName(record: UnknownRecord): string | undefined {
-  const entry = firstAttioValue(record, "name");
-  const value = asRecord(entry?.value) ?? entry;
-  const fullName = value?.full_name;
-  if (typeof fullName === "string" && fullName.trim()) return compactLine(fullName, 160);
-  const firstName = typeof value?.first_name === "string" ? value.first_name.trim() : "";
-  const lastName = typeof value?.last_name === "string" ? value.last_name.trim() : "";
-  const combinedName = compactLine(`${firstName} ${lastName}`, 160);
-  if (combinedName) return combinedName;
-  return attioEmailAddresses(record)[0];
-}
-
-type AttioInteraction = {
-  interactedAt: string;
-  interactionType?: string;
-};
-
-function attioInteraction(record: UnknownRecord, slug: string): AttioInteraction | undefined {
-  const entry = firstAttioValue(record, slug);
-  const nested = asRecord(entry?.value);
-  const interactedAt = typeof entry?.interacted_at === "string"
-    ? entry.interacted_at
-    : typeof nested?.interacted_at === "string"
-      ? nested.interacted_at
-      : undefined;
-  if (!interactedAt) return undefined;
-  const rawType = typeof entry?.interaction_type === "string"
-    ? entry.interaction_type
-    : typeof nested?.interaction_type === "string"
-      ? nested.interaction_type
-      : undefined;
-  const interactionType = compactLine(rawType, 80);
-  return { interactedAt, ...(interactionType ? { interactionType } : {}) };
-}
-
-function attioLastTouch(record: UnknownRecord): AttioInteraction | undefined {
-  return (
-    attioInteraction(record, "last_email_interaction") ??
-    attioInteraction(record, "last_interaction")
-  );
-}
-
-// The operator's own CRM record is noise in a last-touch list. Which addresses
-// are "theirs" is install-specific, so it comes from the profile; with none
-// configured we filter nothing rather than guess.
-export function operatorSelfEmails(): ReadonlySet<string> {
-  const configured = loadOperatorProfile()?.self_emails;
-  if (!Array.isArray(configured)) return new Set();
-  return new Set(
-    configured.flatMap((value) =>
-      typeof value === "string" && value.trim() ? [value.trim().toLowerCase()] : []),
-  );
-}
-
-function formatCrmLastTouches(
-  records: readonly unknown[],
-  now: Date,
-  timezone: string,
-  selfEmails: ReadonlySet<string>,
-): string {
-  const people = records
-    .map((value) => {
-      const record = asRecord(value);
-      if (!record) return undefined;
-      const emails = attioEmailAddresses(record);
-      if (emails.some((email) => selfEmails.has(email.toLowerCase()))) {
-        return undefined;
-      }
-      const name = attioPersonName(record);
-      if (!name) return undefined;
-      const interaction = attioLastTouch(record);
-      if (!interaction) return undefined;
-      const interactedMs = Date.parse(interaction.interactedAt);
-      if (!Number.isFinite(interactedMs)) return undefined;
-      return {
-        name,
-        interactedMs,
-        date: localDateInTimezone(new Date(interactedMs), timezone),
-        ageDays: Math.max(0, Math.floor((now.getTime() - interactedMs) / 86_400_000)),
-        interactionType: interaction.interactionType,
-      };
-    })
-    .filter((person): person is NonNullable<typeof person> => person !== undefined)
-    .sort((left, right) => right.interactedMs - left.interactedMs);
-  if (people.length === 0) return "No interaction history in CRM yet.";
-  const recent = people
-    .slice(0, 12)
-    .map(
-      (person) =>
-        `${person.name}: last touch ${person.ageDays}d ago (` +
-        `${person.date}${person.interactionType ? `, ${person.interactionType}` : ""})`,
-    );
-  const quiet = people
-    .filter((person) => person.ageDays > 14 && person.ageDays <= 120)
-    .slice(0, 15)
-    .map((person) => person.name);
-  return `Recent touches:\n${recent.join("\n")}\n\nGone quiet (>14d): ${quiet.length > 0 ? quiet.join(", ") : "None."}`;
-}
-
-async function crmSource(
-  fetchImpl: typeof fetch,
-  now: Date,
-  timezone: string,
-): Promise<BriefSourceInput> {
+async function pipelineFollowUpsSource(input: {
+  targetLocalDate: string;
+  targetTimezone: string;
+  now: Date;
+  dataDir?: string;
+  calendarPromise: Promise<CalendarSourceResult>;
+}): Promise<BriefSourceInput> {
   const source = {
     id: "crm_last_touch",
-    label: "CRM_LAST_TOUCH",
+    label: "PIPELINE_FOLLOW_UPS",
     required: false,
     maxChars: 4000,
     priority: 10,
   } as const;
-  const key = readEnvLocalVar("ATTIO_API_KEY") ?? readEnvLocalVar("ATTIO_TOKEN");
-  if (!key) return { ...source, note: "not_configured" };
+  const resolvedDataDir = coveDataDir(input.dataDir);
+  const configuredDbPath = coveEnv("DB_PATH");
+  const dbPath = configuredDbPath ?? (input.dataDir
+    ? path.join(resolvedDataDir, "cove.db")
+    : localDatabasePath());
+  let deals: ReturnType<LocalPipelineStore["list"]>;
   try {
-    const response = await fetchImpl(ATTIO_PEOPLE_QUERY_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        limit: 250,
-        sorts: [{ attribute: "last_interaction", field: "interacted_at", direction: "desc" }],
-      }),
-      cache: "no-store",
-      signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
-    });
-    if (!response.ok) throw new Error(`Attio people query ${response.status}`);
-    const payload = asRecord(await response.json());
-    const firstData = payload?.data;
-    const records = Array.isArray(firstData)
-      ? firstData
-      : Array.isArray(asRecord(firstData)?.data)
-        ? (asRecord(firstData)?.data as unknown[])
-        : undefined;
-    if (!records) throw new Error("Attio people response shape");
+    const pipeline = new LocalPipelineStore({ dbPath });
+    try {
+      deals = pipeline.list().filter((deal) => isOpenPipelineStage(deal.stage));
+    } finally {
+      pipeline.close();
+    }
+  } catch (error) {
+    return { ...source, note: errorNote(error, "pipeline_failed") };
+  }
+  const due = deals.filter((deal) => {
+    const status = followUpStatus(deal, input.targetLocalDate);
+    return status === "overdue" || status === "today" || status === "soon";
+  });
+  const attendeeLines: string[] = [];
+  const calendarEvents = (await input.calendarPromise).events.filter(
+    (event) => calendarEventLocalDate(event, input.targetTimezone, input.targetLocalDate) ===
+      input.targetLocalDate,
+  );
+  const crm = new LocalCRMBackend({ dbPath });
+  try {
+    const seen = new Set<string>();
+    for (const event of calendarEvents) {
+      for (const attendee of event.attendees ?? []) {
+        if (!attendee.email || attendee.self || seen.has(attendee.email.toLowerCase())) continue;
+        seen.add(attendee.email.toLowerCase());
+        const matches = crm.findByNormalizedEmail(attendee.email);
+        if (matches.length !== 1) continue;
+        const deal = deals.find((candidate) => candidate.contact_id === matches[0].id);
+        if (!deal) continue;
+        attendeeLines.push(
+          `- ${deal.name}: ${PIPELINE_STAGE_LABELS[deal.stage]}; next=${compactLine(deal.next_action, 300) || "not set"}; follow_up=${deal.next_follow_up_at ?? "not set"}`,
+        );
+      }
+    }
+    const category = (label: string, status: "overdue" | "today" | "soon") => {
+      const rows = due.filter((deal) => followUpStatus(deal, input.targetLocalDate) === status);
+      return [
+        `${label}:`,
+        ...(rows.length
+          ? rows.map((deal) =>
+              `- ${deal.name}: ${PIPELINE_STAGE_LABELS[deal.stage]}; next=${compactLine(deal.next_action, 300) || "not set"}; follow_up=${deal.next_follow_up_at ?? "not set"}`
+            )
+          : ["- None."]),
+      ];
+    };
     return {
       ...source,
-      content: formatCrmLastTouches(records, now, timezone, operatorSelfEmails()),
-      asOf: now.toISOString(),
+      content: [
+        ...category("Overdue", "overdue"),
+        "",
+        ...category("Due today", "today"),
+        "",
+        ...category("Due within 7 days", "soon"),
+        "",
+        "Open deals among today's calendar attendees:",
+        ...(attendeeLines.length ? attendeeLines : ["- None."]),
+      ].join("\n"),
+      asOf: input.now.toISOString(),
     };
   } catch (error) {
-    return { ...source, note: errorNote(error, "crm_failed") };
+    return { ...source, note: errorNote(error, "pipeline_failed") };
+  } finally {
+    crm.close();
   }
 }
 
@@ -2404,7 +2312,13 @@ export async function collectMorningBriefSources(
     options.dataDir,
     options.workspaceGateway,
   );
-  const crmPromise = crmSource(fetchImpl, now, targetTimezone);
+  const crmPromise = pipelineFollowUpsSource({
+    targetLocalDate,
+    targetTimezone,
+    now,
+    dataDir: options.dataDir,
+    calendarPromise,
+  });
   const memoryPromise = memoryDecisionsSource(fetchImpl, memoryPath, now);
   const commitmentsPromise = commitmentsSource({
     fetchImpl,
@@ -2724,7 +2638,7 @@ export async function collectMorningBriefSources(
     });
   }
 
-  sources.push(await calendarPromise);
+  sources.push((await calendarPromise).source);
 
   // Settlement summary: the local store is authoritative when it holds
   // snapshots. An empty local state (the Mini, whose DB no longer syncs) is

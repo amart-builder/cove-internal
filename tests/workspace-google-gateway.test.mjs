@@ -259,6 +259,39 @@ test("gateway preserves threadId and passes both reply alternatives into Gmail M
   assert.equal(decoded.parts[1].text, '<div dir="ltr"><div><b>Rich</b> reply.</div></div>');
 });
 
+test("gateway updates the exact existing Gmail draft when requested", async () => {
+  let update;
+  const gateway = createGoogleWorkspaceGateway({
+    config,
+    tokenProvider: { getAccessToken: async () => "access", invalidate() {} },
+    fetch: async (url, init) => {
+      const target = String(url);
+      if (target.endsWith("/profile")) return json({ emailAddress: "alex@example.com" });
+      if (target.includes("/messages/source-update")) {
+        return json({
+          id: "source-update", threadId: "thread-update", labelIds: ["INBOX"],
+          internalDate: "1000",
+          payload: { headers: [
+            { name: "Message-ID", value: "<source-update@example.com>" },
+            { name: "From", value: "Person <person@example.com>" },
+            { name: "Subject", value: "Update reply" },
+          ] },
+        });
+      }
+      if (target.endsWith("/drafts/draft-update") && init?.method === "PUT") {
+        update = JSON.parse(init.body);
+        return json({ id: "draft-update", message: { id: "draft-message-update", threadId: "thread-update" } });
+      }
+      return json({});
+    },
+  });
+  await gateway.mail.createReplyDraft({
+    threadId: "thread-update", sourceMessageId: "source-update", body: "Updated.",
+    idempotencyKey: "reply:thread-update:v2", existingDraftId: "draft-update",
+  });
+  assert.equal(update.message.threadId, "thread-update");
+});
+
 test("reply MIME rejects header injection and carries a deterministic operation marker", () => {
   assert.throws(() => buildReplyMime({
     to: "victim@example.com\r\nBcc: attacker@example.com",

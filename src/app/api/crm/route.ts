@@ -22,6 +22,12 @@ import {
   PipelineCollisionError,
   PipelineNotFoundError,
 } from "@/lib/crm/pipeline-store";
+import { mergeContactAtomic } from "@/lib/crm/merge";
+import {
+  buildContactContext,
+  renderContactContext,
+  resolveContact,
+} from "@/lib/crm/contact-context";
 import { localDateInTimezone } from "@/lib/day-plan/brief";
 import type { Contact } from "@/lib/data/types";
 import { operatorTimezone } from "@/lib/operator";
@@ -99,6 +105,37 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         contact: result?.contact ?? null,
         activities: result?.activities ?? [],
+        csrfToken,
+      });
+    }
+    if (operation === "context") {
+      const resolution = resolveContact({
+        contactId: request.nextUrl.searchParams.get("id") ?? undefined,
+        email: request.nextUrl.searchParams.get("email") ?? undefined,
+        crm,
+      });
+      if (resolution.status === "ambiguous") {
+        return NextResponse.json(
+          { error: "Contact identity is ambiguous.", candidates: resolution.candidates, csrfToken },
+          { status: 409 },
+        );
+      }
+      if (resolution.status === "not_found") {
+        return NextResponse.json(
+          { error: "Contact was not found.", csrfToken },
+          { status: 404 },
+        );
+      }
+      const context = buildContactContext({ contactId: resolution.contact.id });
+      if (!context) {
+        return NextResponse.json(
+          { error: "Contact was not found.", csrfToken },
+          { status: 404 },
+        );
+      }
+      return NextResponse.json({
+        context,
+        rendered: renderContactContext(context, { lane: "buddy" }),
         csrfToken,
       });
     }
@@ -280,7 +317,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, csrfToken });
     }
     if (action === "merge") {
-      pipelineStore ??= new LocalPipelineStore();
       // Merging is a human decision made through this API; the email lane
       // and the classifier have no path to it.
       const merge = recordBody(input);
@@ -292,12 +328,8 @@ export async function POST(request: NextRequest) {
       ) {
         throw new Error("Merge requires winnerId and loserId.");
       }
-      // Pipeline reparenting and CRM merging use separate store connections.
-      // Reparent first so a collision stops the merge, but a later CRM failure
-      // cannot be rolled back across both connections.
-      pipelineStore.reparent(loserId, winnerId);
       return NextResponse.json({
-        contact: crm.mergeContacts({ winnerId, loserId }),
+        contact: mergeContactAtomic({ winnerId, loserId }),
         csrfToken,
       });
     }

@@ -218,6 +218,38 @@ at the durable action boundary.
   Cove actually started.
 - `brief-inputs.ts` stores bounded private generation evidence for diagnosis.
 
+### Persistent chief of staff
+
+`scripts/cove-chief-of-staff.ts` is the only operator entry point. `enqueue`
+adds a durable `chief-of-staff-wake` job and returns immediately. `drain` claims
+those jobs one at a time through `JobScheduler`, which provides leases,
+heartbeat renewal, bounded retries, and visible dead jobs. Brief, email triage,
+and meeting lanes only enqueue. They never run the persistent agent inline.
+
+`src/lib/chief-of-staff/snapshot.ts` builds a fresh 24,000-character desk
+snapshot from existing local stores. Every database value is data, never
+instructions. `driver.ts` runs one continuing Codex session in a nested,
+read-only agent home, validates its structured output, and applies only the
+documented action vocabulary. A dedicated `data/chief-of-staff/codex-home/`
+provides a minimal config with shell, web, apps, and MCP absent. Its `auth.json`
+is a symlink to the operator's live Codex auth file, and its isolated sessions
+hold the resumable rollout. The model has no shell, file reads, MCP, network,
+or writes. Its only hands are the JSON actions applied by the driver. The
+`chief_of_staff_actions` ledger makes each
+action intent replay-safe even when Codex changes its action ID on a retry.
+Unknown actions, missing records, and pipeline moves to
+`lost` or `parked` are rejected and shown in the next snapshot. `pipeline_add`
+can create a non-terminal deal for a contact with no deal. Existing deals must
+use `pipeline_update` or `pipeline_move`.
+
+The weekly review deliberately uses a fresh, tool-free Claude run. It proposes
+mandate lines in a review file and Quiet Current suggestion. It never edits the
+mandate itself.
+
+Buddy remains its own user-visible Claude session in this phase. The persistent
+chief of staff does not replace Buddy, share Buddy's transcript, or answer in
+Buddy's interface.
+
 Every model lane must specify tools, MCP configuration, environment, timeout,
 budget, output cap, and validation. Treat model output as untrusted even when
 the process exits successfully.
@@ -241,6 +273,9 @@ The flow is split deliberately:
   gateway.
 - `src/lib/email/` holds claims, classification jobs, canonical thread state,
   draft formatting, the Gmail operation outbox, and card reconciliation.
+- `src/lib/crm/contact-context.ts` supplies the same bounded relationship record
+  to email, meeting analysis, the brief, and Buddy. Meeting summaries have a
+  separate rendering budget so general history cannot crowd them out.
 - `scripts/cove-email-runner.ts` is the scheduled orchestration entry point.
 
 The model never receives a Google token or Gmail tool. It returns bounded
@@ -248,6 +283,12 @@ classification and draft data. Deterministic code may read observed messages,
 create at most one in-thread draft, or archive an exact message after durable
 state is ready. The gateway has no send method. Gmail still owns message and
 thread truth.
+
+Ambiguous contact identity or unavailable Cove records suppresses a reply
+draft while preserving the classifier's bucket. A later meeting summary can
+move a still-open Cove-owned draft back through `observed` and the existing
+classification job. The next version's `upsert_draft` updates the known Gmail
+draft only after its stored body hash still matches.
 
 ### Intake and meeting notes
 
@@ -303,6 +344,13 @@ backend interface so relationship context does not split across stores.
 
 Email is the strongest identity key. A normalized name is weaker. Ambiguity must
 be returned to the user rather than resolved by guessing.
+
+Contact merges run through `src/lib/crm/merge.ts`. Pipeline reparenting and CRM
+row merging share one SQLite connection and one transaction, so either both
+commit or both roll back.
+
+`src/lib/operator-policy.ts` reads the optional private `cove-policy.md` file
+and formats the single policy block shared by the five narrow model surfaces.
 
 ### Attention and health
 
@@ -360,6 +408,9 @@ or broken agent.
 | `com.cove.meeting-drain` | `scripts/cove-meeting-watch.mjs --drain-only` | Always-on local meeting-analysis job drain | Only when this Mac claims the meeting lane |
 | `com.cove.progress` | `scripts/cove-progress-reconcile.mjs` | Read-only project evidence and progress suggestions | Only when this Mac claims the progress lane |
 | `com.cove.voice-review` | `scripts/cove-voice-review.mjs` | Weekly draft-outcome and operator-writing review | Only when this Mac claims the voice-review lane; disabled in email settings by default |
+| `com.cove.chief-of-staff-drain` | `scripts/cove-chief-of-staff.ts drain --max 3` | Runs queued persistent-agent wakes one at a time | Only when this Mac claims the chief-of-staff lane |
+| `com.cove.chief-of-staff-nightly` | `scripts/cove-chief-of-staff.ts enqueue --reason nightly` | Queues the 21:30 nightly wake | Only when this Mac claims the chief-of-staff lane |
+| `com.cove.chief-of-staff-review` | `scripts/cove-chief-of-staff.ts review` | Runs the Sunday fresh-context review | Only when this Mac claims the chief-of-staff lane |
 | `com.cove.local.backup` | `scripts/cove-backup.sh` | Daily online SQLite backup | Default profile |
 | `com.cove.morning-brief` | `scripts/cove-claude-worker.ts --lane brief` | Scheduled brief generation on a legacy always-on host | `--mini` profile only |
 

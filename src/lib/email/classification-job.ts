@@ -8,6 +8,7 @@ import {
   captureEmailCommitments,
   formatEmailCRMContext,
   getEmailCRMContext,
+  recordCRMResolutionFailure,
   recordEmailCorrespondence,
   type EmailCommitmentInput,
 } from "./automation";
@@ -17,6 +18,8 @@ import type { runJob } from "../model-runner";
 import { readCoveEmailSettings } from "./settings";
 import { readVoiceFingerprint } from "./voice-guide";
 import { judgeDraftVoice } from "./voice-judge";
+import { coveDataDir } from "../operator";
+import { formatOperatorPolicy, readOperatorPolicy } from "../operator-policy";
 
 function header(message: MailMessage, name: string): string {
   return message.headers.find((item) => item.name.toLowerCase() === name.toLowerCase())
@@ -65,6 +68,7 @@ export function createEmailClassificationHandler(input: {
     text: string;
     voice?: string;
     recentContext?: string;
+    policy?: string;
   }) => Promise<EmailClassification>;
   now?: () => Date;
   urgentHandler?: typeof handleUrgentEmail;
@@ -164,29 +168,58 @@ export function createEmailClassificationHandler(input: {
       format: "full",
     });
     const from = parseFromHeader(header(message, "From"));
-    // Relationship context is best effort: any CRM failure means classifying
-    // without context, never a failed job. Only stored deterministic CRM data
-    // reaches the trusted context slot, never other threads' email bodies.
+    // Bucketing remains useful without CRM, but drafting fails closed when
+    // identity is ambiguous or Cove records cannot load.
     let recentContext: string | undefined;
+    let draftBlockReason: string | undefined;
     try {
-      recentContext = formatEmailCRMContext(getEmailCRMContext({
+      const crmContext = getEmailCRMContext({
         senderName: from.displayName,
         senderEmail: from.address,
         threadId: message.threadId,
         dbPath: input.dbPath,
+        dataDir: input.dataDir,
         now: input.now,
-      }));
-    } catch {
+      });
+      recentContext = formatEmailCRMContext(crmContext);
+      if (crmContext.status === "ambiguous") {
+        draftBlockReason = `contact record is ambiguous (${crmContext.candidates?.length ?? 0} candidates)`;
+      }
+    } catch (error) {
       recentContext = undefined;
+      draftBlockReason = "Cove records were unavailable";
+      recordCRMResolutionFailure({
+        dbPath: input.dbPath,
+        sourceId: `gmail:${message.threadId}`,
+        message: "Email reply draft was withheld because Cove records were unavailable.",
+        details: {
+          threadId: message.threadId,
+          senderEmail: from.address,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        occurredAt: (input.now ?? (() => new Date()))().toISOString(),
+      });
     }
-    const result = await classifier({
+    const classified = await classifier({
       accountEmail: input.accountEmail,
       sender: header(message, "From"),
       subject: header(message, "Subject"),
       text: message.text || message.snippet,
       voice: input.voice?.(),
       recentContext,
+      policy: (() => {
+        const value = readOperatorPolicy({ dataDir: coveDataDir(input.dataDir) });
+        return value ? formatOperatorPolicy(value) : undefined;
+      })(),
     });
+    const result = classified.bucket === "reply" && draftBlockReason
+      ? {
+          ...classified,
+          bucket: "action" as const,
+          draftBody: null,
+          recommendedAction: `Cove withheld the reply draft: ${draftBlockReason}. Fix the contact record in CRM, then rerun triage.`,
+        }
+      : classified;
     let voiceJudgeScore: number | null = null;
     let voiceJudgeVerdict: string | null = null;
     if (result.draftBody && input.dataDir) {

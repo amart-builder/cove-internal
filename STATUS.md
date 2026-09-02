@@ -18,11 +18,28 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-09-02T09:11:10-0700
-- **task:** commit closeout Mark complete
+- **since:** 2026-09-02T10:10:15-0700
+- **task:** Chief-of-staff Phase 1: shared memory + email fix (Sol building)
 <!-- END active-session -->
 
 ---
+
+## 2026-09-02 Chief-of-staff Phase 1: shared memory, email fix, one persistent agent (DONE, LIVE)
+
+Why: Alex saw drafts that ignored what a meeting note had already settled. Root causes were duplicate contact rows, lanes reading different slices of history, an email lane that failed open, and drafts never refreshed after a later meeting note.
+
+Shipped:
+- `src/lib/crm/contact-context.ts`: one `buildContactContext` / `renderContactContext` used by the email classifier, meeting analyst, brief, and `GET /api/crm?operation=context`. Meeting summaries have their own budget so history cannot crowd them out. Stored text is rendered as data inside `<cove_record>`, never as "trusted".
+- Email fails closed: ambiguous contact or CRM error means bucket `action`, no draft, visible failure, and a note if an older Cove draft still sits in Gmail. A meeting summary landing after a Cove-owned draft requeues the item; the next triage pass refreshes the Gmail draft in place (operator-edited drafts are left alone). Dead refresh jobs return the item to the card.
+- Atomic contact merge (`src/lib/crm/merge.ts`, one connection, one transaction). Dedupe: `node --import tsx scripts/cove-contact-dedupe.mjs --write-plan f.json`, approve groups, `--apply --plan f.json` (consistent backup first, stale fingerprints and deal collisions refused). Applied 2026-09-02: 13 rows merged into 12 winners, contacts 547 to 534; backups in `data/backups/`.
+- Morning brief CRM source is now the local pipeline (overdue, due today, due in 7 days, today's attendees with deals). Attio is gone from the brief.
+- Operator policy block: private `data/cove-policy.md` is prepended once to the brief, intake, email classifier, meeting analyst, and Buddy prompts. Template at `prompts/operator-policy.template.md`.
+- One persistent chief-of-staff agent (`scripts/cove-chief-of-staff.ts`, `src/lib/chief-of-staff/`): a single long-lived Codex Sol session, resumed on every wake, sandbox read-only, shell tool off, no MCP (own `data/chief-of-staff/codex-home`, auth symlinked), no network. The driver builds a bounded desk snapshot, the agent returns JSON, and the driver applies seven action kinds (task create/update, pipeline touch/update/move except lost or parked, contact note, Quiet Current suggestion) with a content-hash ledger for replay safety. Wakes are `cove_jobs` rows enqueued at brief, triage, and meeting completion; launchd lanes drain every 5 min, enqueue nightly at 21:30, and run a cross-family Claude review on Sundays at 18:00. Mandate lives in private `data/cove-mandate.md`, rendered read-only to the agent's `AGENTS.md`. Journal in `data/chief-of-staff/journal/`.
+- Buddy is still its own Claude session in this phase (honest label; folding it in is Phase 2).
+
+Verified: fresh Opus reviews of both rounds (all HIGH/MEDIUM fixed), held-out acceptance C1 to C9 and F1 to F11 pass, live schema and sandbox probes against codex 0.146.0.
+
+Next: Phase 2 folds Buddy into the same session; consider driver-side reclassification when a meeting note lands during triage.
 
 ## 2026-09-02 Arrival inline All Work, task-backed items, card editor (DONE, see commit)
 

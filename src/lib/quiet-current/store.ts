@@ -90,11 +90,11 @@ function nextMorning(now: Date): Date {
   return morning;
 }
 
-function storePath(): string {
+function storePath(dataDir?: string): string {
   if (testStorePath) return testStorePath;
   const configuredName = coveEnv("QUIET_CURRENT_FILE");
   const fileName = configuredName ? path.basename(configuredName) : "quiet-current.json";
-  return path.join(coveDataDir(), fileName);
+  return path.join(coveDataDir(dataDir), fileName);
 }
 
 /** Test-only path override so state tests never touch a real Cove installation. */
@@ -152,8 +152,8 @@ function emptyStore(): QuietCurrentStore {
   return { version: 1, suggestions: [], decisionEvents: [] };
 }
 
-function readStore(): QuietCurrentStore {
-  const file = storePath();
+function readStore(dataDir?: string): QuietCurrentStore {
+  const file = storePath(dataDir);
   try {
     const parsed = JSON.parse(
       readFileSync(/* turbopackIgnore: true */ file, "utf8"),
@@ -172,8 +172,8 @@ function readStore(): QuietCurrentStore {
   }
 }
 
-function writeStore(store: QuietCurrentStore): void {
-  const file = storePath();
+function writeStore(store: QuietCurrentStore, dataDir?: string): void {
+  const file = storePath(dataDir);
   mkdirSync(/* turbopackIgnore: true */ path.dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.tmp`;
   writeFileSync(/* turbopackIgnore: true */ temporary, `${JSON.stringify(store, null, 2)}\n`, {
@@ -293,9 +293,9 @@ export function pruneSuggestions(
   return suggestions.filter((suggestion) => !removable.has(suggestion.id));
 }
 
-export function getQuietCurrentSnapshot(): QuietCurrentStore {
-  const store = readStore();
-  if (refreshSuggestionLifecycle(store)) writeStore(store);
+export function getQuietCurrentSnapshot(dataDir?: string): QuietCurrentStore {
+  const store = readStore(dataDir);
+  if (refreshSuggestionLifecycle(store)) writeStore(store, dataDir);
   return store;
 }
 
@@ -312,6 +312,7 @@ export function createWorkSuggestion(input: {
   reviewMaterial?: string;
   claimKey?: string;
   expiresAt?: string;
+  dataDir?: string;
 }): WorkSuggestion {
   const kind = input.kind ?? "create_task";
   if (
@@ -328,12 +329,22 @@ export function createWorkSuggestion(input: {
         ? "Observed progress"
         : "A stale-task check"} requires an existing target task.`);
   }
-  const store = readStore();
+  const store = readStore(input.dataDir);
   const lifecycleChanged = refreshSuggestionLifecycle(store);
+  const claimKey = input.claimKey?.trim();
+  if (claimKey) {
+    const existing = store.suggestions.find((suggestion) =>
+      suggestion.claimKey === claimKey && NON_TERMINAL_STATES.has(suggestion.state)
+    );
+    if (existing) {
+      if (lifecycleChanged) writeStore(store, input.dataDir);
+      return existing;
+    }
+  }
   if (input.id) {
     const existing = store.suggestions.find((suggestion) => suggestion.id === input.id);
     if (existing) {
-      if (lifecycleChanged) writeStore(store);
+      if (lifecycleChanged) writeStore(store, input.dataDir);
       return existing;
     }
   }
@@ -356,7 +367,7 @@ export function createWorkSuggestion(input: {
     dueDate: input.dueDate,
     targetTaskId: input.targetTaskId,
     reviewMaterial: input.reviewMaterial,
-    claimKey: input.claimKey,
+    claimKey,
     state: "proposed",
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
@@ -371,7 +382,7 @@ export function createWorkSuggestion(input: {
     after: suggestion,
     source: input.source,
   });
-  writeStore(store);
+  writeStore(store, input.dataDir);
   return suggestion;
 }
 

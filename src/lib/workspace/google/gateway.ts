@@ -607,14 +607,17 @@ class GoogleMailGateway implements RestrictedMailGateway {
     body: string;
     htmlBody?: string;
     idempotencyKey: string;
+    existingDraftId?: string;
   }): Promise<{ id: string; messageId: string; threadId: string }> {
     await this.verifyAccount();
     const raw = await this.replyRaw(input);
     const row = await this.#transport.json(
       "gmail_create_reply_draft",
-      `${GMAIL_API}/drafts`,
+      input.existingDraftId
+        ? `${GMAIL_API}/drafts/${id(input.existingDraftId, "Draft id")}`
+        : `${GMAIL_API}/drafts`,
       {
-        method: "POST",
+        method: input.existingDraftId ? "PUT" : "POST",
         body: JSON.stringify({ message: { threadId: id(input.threadId, "Thread id"), raw } }),
       },
       { uncertainWrite: true },

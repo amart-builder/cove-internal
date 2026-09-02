@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cove Chief of Staff"
+  short_description: "Wake and inspect Cove chief-of-staff work"
+  default_prompt: "Use $cove-chief-of-staff to wake the persistent chief of staff with a manual note."

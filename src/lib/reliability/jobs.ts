@@ -216,6 +216,8 @@ export class JobScheduler {
 
   private sweepRetention(): void {
     const now = this.now().getTime();
+    const nowIso = new Date(now).toISOString();
+    const unclaimedCutoff = new Date(now - 24 * 60 * 60_000).toISOString();
     const jobCutoff = new Date(now - 30 * 24 * 60 * 60_000).toISOString();
     const receiptCutoff = new Date(now - 90 * 24 * 60 * 60_000).toISOString();
     this.db.transaction(() => {
@@ -231,6 +233,26 @@ export class JobScheduler {
       this.db.prepare(
         "DELETE FROM cove_receipts WHERE finished_at < ?",
       ).run(receiptCutoff);
+      const unclaimedTypes = this.db.prepare(
+        `SELECT DISTINCT type FROM cove_jobs
+         WHERE status = 'queued' AND created_at <= ?
+         ORDER BY type`,
+      ).pluck().all(unclaimedCutoff) as string[];
+      if (unclaimedTypes.length > 0) {
+        recordFailureInDatabase(this.db, {
+          source: "jobs-unclaimed",
+          sourceId: "queued-types",
+          message: `Queued jobs have remained unclaimed for more than 24 hours: ${unclaimedTypes.join(", ")}.`,
+          details: { types: unclaimedTypes },
+          occurredAt: nowIso,
+        });
+      } else {
+        this.db.prepare(
+          `UPDATE cove_failure_inbox SET dismissed_at = ?
+           WHERE source = 'jobs-unclaimed' AND source_id = 'queued-types'
+             AND dismissed_at IS NULL`,
+        ).run(nowIso);
+      }
     })();
   }
 
@@ -315,17 +337,21 @@ export class JobScheduler {
   }
 
   private claimNext(): ClaimedJob | undefined {
+    const registeredTypes = [...this.handlers.keys()];
+    if (registeredTypes.length === 0) return undefined;
     const now = this.now();
     const leaseUntil = new Date(now.getTime() + this.leaseMs).toISOString();
     return this.db.transaction(() => {
+      const typePlaceholders = registeredTypes.map(() => "?").join(",");
       const row = this.db.prepare(
         `SELECT * FROM cove_jobs
          WHERE status IN ('queued','failed')
            AND run_after <= ?
            AND attempts < max_attempts
+           AND type IN (${typePlaceholders})
          ORDER BY priority DESC, run_after ASC, created_at ASC
          LIMIT 1`,
-      ).get(now.toISOString()) as JobRow | undefined;
+      ).get(now.toISOString(), ...registeredTypes) as JobRow | undefined;
       if (!row) return undefined;
       const leaseToken = randomUUID();
       const result = this.db.prepare(

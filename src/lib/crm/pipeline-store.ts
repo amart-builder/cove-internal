@@ -90,21 +90,24 @@ function decodeDeal(row: DealRow): PipelineDealWithContact {
 export class LocalPipelineStore {
   private readonly db: Database.Database;
   private readonly now: () => Date;
+  private readonly ownsDatabase: boolean;
 
   constructor(options: {
     dataDir?: string;
     dbPath?: string;
+    database?: Database.Database;
     now?: () => Date;
   } = {}) {
     const dbPath = options.dbPath ?? (
       options.dataDir ? path.join(options.dataDir, "cove.db") : localDatabasePath()
     );
-    this.db = openLocalDatabase(dbPath);
+    this.db = options.database ?? openLocalDatabase(dbPath);
+    this.ownsDatabase = !options.database;
     this.now = options.now ?? (() => new Date());
   }
 
   close(): void {
-    this.db.close();
+    if (this.ownsDatabase) this.db.close();
   }
 
   list(): PipelineDealWithContact[] {
@@ -274,19 +277,41 @@ export class LocalPipelineStore {
     if (!from || !to) throw new PipelineValidationError("Both contact ids are required.");
     if (from === to) return this.get(from);
     return this.db.transaction(() => {
-      const source = this.dealRow(from);
-      if (!source) return null;
-      this.contact(to);
-      if (this.dealRow(to)) {
-        throw new PipelineCollisionError(
-          "Both contacts already have pipeline deals. Move or close one deal before merging.",
-        );
-      }
-      this.db.prepare(
-        `UPDATE pipeline_deals SET contact_id = ?, updated_at = ? WHERE contact_id = ?`,
-      ).run(to, this.now().toISOString(), from);
-      return this.requiredDeal(to);
+      const moved = LocalPipelineStore.reparentInDatabase(
+        this.db,
+        from,
+        to,
+        this.now().toISOString(),
+      );
+      return moved ? this.requiredDeal(to) : null;
     }).immediate();
+  }
+
+  static reparentInDatabase(
+    db: Database.Database,
+    fromContactId: string,
+    toContactId: string,
+    now: string,
+  ): boolean {
+    const from = fromContactId.trim();
+    const to = toContactId.trim();
+    if (!from || !to) throw new PipelineValidationError("Both contact ids are required.");
+    if (from === to) return false;
+    const target = db.prepare("SELECT 1 FROM contacts WHERE id = ?").get(to);
+    if (!target) throw new PipelineNotFoundError("Contact was not found.");
+    const sourceDeal = db.prepare(
+      "SELECT 1 FROM pipeline_deals WHERE contact_id = ?",
+    ).get(from);
+    if (!sourceDeal) return false;
+    if (db.prepare("SELECT 1 FROM pipeline_deals WHERE contact_id = ?").get(to)) {
+      throw new PipelineCollisionError(
+        "Both contacts already have pipeline deals. Move or close one deal before merging.",
+      );
+    }
+    db.prepare(
+      "UPDATE pipeline_deals SET contact_id = ?, updated_at = ? WHERE contact_id = ?",
+    ).run(to, now, from);
+    return true;
   }
 
   remove(contactId: string): boolean {

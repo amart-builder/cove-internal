@@ -9,10 +9,11 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { createCRMBackend } from "../crm";
+import { buildContactContext, renderContactContext, type ContactContext } from "../crm/contact-context";
 import type { Contact, ContactActivity } from "../data/types";
 import { openLocalDatabase } from "../local/database";
 import { recordFailure, resolveFailure } from "../reliability/failures";
-import { JobScheduler } from "../reliability/jobs";
+import { enqueueJobInDatabase, JobScheduler } from "../reliability/jobs";
 import {
   recordReceipt,
   recordReceiptInDatabase,
@@ -67,6 +68,7 @@ export type EmailCRMContext = {
     dueAt: string | null;
   }>;
   candidates?: unknown[];
+  context: ContactContext | null;
 };
 
 function nowIso(now: Date | (() => Date) | undefined): string {
@@ -438,7 +440,7 @@ export function captureEmailCommitments(input: {
   }
 }
 
-function recordCRMResolutionFailure(input: {
+export function recordCRMResolutionFailure(input: {
   dbPath?: string;
   sourceId: string;
   message: string;
@@ -491,6 +493,7 @@ export function getEmailCRMContext(input: {
         activities: [],
         waitingOn: [],
         candidates: matches,
+        context: null,
       };
     }
     const contact = matches[0];
@@ -500,6 +503,7 @@ export function getEmailCRMContext(input: {
         contact: null,
         activities: [],
         waitingOn: [],
+        context: null,
       };
     }
     resolveFailure("email-contact-resolution", `gmail:${threadId}`, {
@@ -538,6 +542,12 @@ export function getEmailCRMContext(input: {
           details: row.details,
           dueAt: row.due_at,
         })),
+        context: buildContactContext({
+          contactId: contact.id,
+          dbPath: input.dbPath,
+          dataDir: input.dataDir,
+          now: typeof input.now === "function" ? input.now() : input.now,
+        }),
       };
     } finally {
       db.close();
@@ -547,52 +557,112 @@ export function getEmailCRMContext(input: {
   }
 }
 
-// Renders CRM context for the classifier's "Trusted Cove context:" slot.
+// Renders CRM context for the classifier's Cove records slot.
 // Only stored deterministic data belongs here: contact fields, activity
 // summaries, and commitment rows. Never raw email bodies from other threads.
 export function formatEmailCRMContext(
   context: EmailCRMContext,
 ): string | undefined {
   if (context.status !== "matched" || !context.contact) return undefined;
-  const contact = context.contact;
-  const facts = [
-    contact.role ? `role: ${contact.role}` : "",
-    contact.tier ? `tier: ${contact.tier}` : "",
-    contact.how_we_met ? `how we met: ${contact.how_we_met}` : "",
-    contact.last_interaction_at
-      ? `last interaction: ${contact.last_interaction_at.slice(0, 10)}`
-      : "",
-  ].filter(Boolean);
-  const lines = [
-    `Known contact: ${contact.name}${facts.length ? ` (${facts.join("; ")})` : ""}`,
-  ];
-  if (contact.notes?.trim()) {
-    lines.push(`Notes: ${contact.notes.trim().slice(0, 500)}`);
-  }
-  const activities = context.activities.slice(0, 5);
-  if (activities.length > 0) {
-    lines.push("Recent history:");
-    for (const activity of activities) {
-      const when = String(activity.created_at ?? "").slice(0, 10);
-      const title = (activity.title ?? "").slice(0, 120);
-      const summary = (activity.content ?? "")
-        .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, 200);
-      lines.push(
-        `- ${when} ${activity.activity_type}: ${title}${summary ? `. ${summary}` : ""}`,
+  return context.context ? renderContactContext(context.context, { lane: "email" }) : undefined;
+}
+
+export function reconcileEmailDraftsForContact(input: {
+  contactId: string; occurredAt: string; reason: string; dbPath?: string; now?: Date;
+}): { queued: number; skipped: number } {
+  const contactId = requireText(input.contactId, "Contact id", 500);
+  const triggerId = requireText(input.reason, "Draft refresh reason", 500);
+  const occurredMs = Date.parse(input.occurredAt);
+  if (!Number.isFinite(occurredMs)) throw new Error("Draft refresh occurredAt is invalid.");
+  const now = (input.now ?? new Date()).toISOString();
+  const crm = createCRMBackend({ dbPath: input.dbPath });
+  const db = openLocalDatabase(input.dbPath);
+  try {
+    const contact = crm.getContactWithRecentActivities(contactId, 1)?.contact;
+    if (!contact) throw new Error("Draft refresh contact was not found.");
+    const rows = db.prepare(
+      `SELECT id, thread_version, latest_inbound_message_id, sender_email,
+              gmail_draft_id, draft_body_hash
+       FROM email_items
+       WHERE status = 'pending' AND workflow_state = 'open'
+         AND gmail_draft_id IS NOT NULL ORDER BY updated_at, id`,
+    ).all() as Array<{
+      id: string; thread_version: number; latest_inbound_message_id: string;
+      sender_email: string | null; gmail_draft_id: string; draft_body_hash: string | null;
+    }>;
+    let queued = 0;
+    let skipped = 0;
+    for (const row of rows) {
+      if (!row.sender_email) continue;
+      const matches = crm.findByNormalizedEmail(row.sender_email);
+      if (matches.length !== 1 || matches[0].id !== contactId) continue;
+      const key = `email-draft-refresh:${row.id}:${triggerId}`.slice(0, 300);
+      if (db.prepare("SELECT 1 FROM cove_jobs WHERE idempotency_key = ?").get(key)) continue;
+      const outcome = db.prepare(
+        `SELECT gmail_draft_id, draft_body_hash, drafted_at
+         FROM email_draft_outcomes WHERE email_item_id = ?
+         ORDER BY drafted_at DESC, id DESC LIMIT 1`,
+      ).get(row.id) as {
+        gmail_draft_id: string | null; draft_body_hash: string; drafted_at: string;
+      } | undefined;
+      const coveOwned = Boolean(
+        row.draft_body_hash && outcome &&
+        outcome.gmail_draft_id === row.gmail_draft_id &&
+        outcome.draft_body_hash === row.draft_body_hash,
       );
+      if (!coveOwned) {
+        skipped += 1;
+        recordReceiptInDatabase(db, {
+          source: "email-surfaced", startedAt: now, finishedAt: now,
+          summary: `Draft refresh skipped for ${contact.name}: Cove could not prove the Gmail draft was still its own.`,
+          actions: { emailItemId: row.id, contactId, triggerId }, outcome: "skipped",
+        });
+        continue;
+      }
+      const draftedMs = Date.parse(outcome!.drafted_at);
+      if (!Number.isFinite(draftedMs) || draftedMs >= occurredMs) {
+        skipped += 1;
+        recordReceiptInDatabase(db, {
+          source: "email-surfaced", startedAt: now, finishedAt: now,
+          summary: Number.isFinite(draftedMs)
+            ? `Draft refresh skipped for ${contact.name}: the Cove draft was written at or after the meeting summary landed.`
+            : `Draft refresh skipped for ${contact.name}: Cove could not compare the draft time with the meeting summary time.`,
+          actions: { emailItemId: row.id, contactId, triggerId }, outcome: "skipped",
+        });
+        continue;
+      }
+      db.transaction(() => {
+        const nextVersion = row.thread_version + 1;
+        const changed = db.prepare(
+          `UPDATE email_items SET workflow_state = 'observed', thread_version = ?, updated_at = ?
+           WHERE id = ? AND status = 'pending' AND workflow_state = 'open' AND thread_version = ?`,
+        ).run(nextVersion, now, row.id, row.thread_version);
+        if (changed.changes !== 1) return;
+        db.prepare(
+          `UPDATE cove_email_messages
+           SET state = 'observed', classification_json = NULL, model_version = NULL,
+               processed_at = NULL, last_error = NULL, updated_at = ? WHERE message_id = ?`,
+        ).run(now, row.latest_inbound_message_id);
+        enqueueJobInDatabase(db, {
+          type: "email-classify",
+          payload: { messageId: row.latest_inbound_message_id, emailItemId: row.id, threadVersion: nextVersion },
+          idempotencyKey: key,
+          maxAttempts: 5,
+        }, new Date(now));
+        recordReceiptInDatabase(db, {
+          source: "email-surfaced", startedAt: now, finishedAt: now,
+          summary: `Draft queued for refresh: a meeting note with ${contact.name} landed after the draft was written.`,
+          actions: { emailItemId: row.id, contactId, triggerId, threadVersion: nextVersion },
+          outcome: "success",
+        });
+        queued += 1;
+      }).immediate();
     }
+    return { queued, skipped };
+  } finally {
+    db.close();
+    crm.close();
   }
-  if (context.waitingOn.length > 0) {
-    lines.push("Open waiting-on commitments:");
-    for (const item of context.waitingOn.slice(0, 5)) {
-      lines.push(
-        `- ${item.title.slice(0, 160)}${item.dueAt ? ` (due ${item.dueAt.slice(0, 10)})` : ""}`,
-      );
-    }
-  }
-  return lines.join("\n").slice(0, 4_000);
 }
 
 export function recordEmailCorrespondence(input: {

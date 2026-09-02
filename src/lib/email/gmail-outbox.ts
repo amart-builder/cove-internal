@@ -14,7 +14,12 @@ import type { ScheduledJob } from "../reliability/jobs";
 import { recordReceiptInDatabase } from "../reliability/receipts";
 import type { RestrictedMailGateway } from "../workspace";
 import { WorkspaceGatewayError } from "../workspace";
-import { draftBodyToHtml, signatureHtmlToText } from "./draft-format";
+import {
+  draftBodyToHtml,
+  normalizeDraftBody,
+  signatureHtmlToText,
+  stripTrailingSignature,
+} from "./draft-format";
 import { loadSignature } from "./signature";
 import { ensureRollingEmailCardInDatabase } from "./state-machine";
 
@@ -98,6 +103,7 @@ function headerValue(
 async function findOperationDraft(
   gateway: RestrictedMailGateway,
   row: OperationRow,
+  existingDraftId?: string,
 ): Promise<{
   draft: { id: string; messageId: string; threadId: string };
   exactOperation: boolean;
@@ -105,11 +111,13 @@ async function findOperationDraft(
   let pageToken: string | undefined;
   const seenPageTokens = new Set<string>();
   let sameThreadDraft: { id: string; messageId: string; threadId: string } | undefined;
+  let requestedDraft: { id: string; messageId: string; threadId: string } | undefined;
   do {
     const page = await gateway.listDrafts({ pageToken, maxResults: 500 });
     for (const draft of page.drafts) {
       if (draft.threadId !== row.thread_id) continue;
       sameThreadDraft ??= draft;
+      if (draft.id === existingDraftId) requestedDraft = draft;
       const message = await gateway.getMessage({
         messageId: draft.messageId,
         format: "metadata",
@@ -128,6 +136,7 @@ async function findOperationDraft(
     }
     if (pageToken) seenPageTokens.add(pageToken);
   } while (pageToken);
+  if (requestedDraft) return { draft: requestedDraft, exactOperation: false };
   return sameThreadDraft
     ? { draft: sameThreadDraft, exactOperation: false }
     : undefined;
@@ -225,11 +234,51 @@ export function createGmailOperationHandler(input: {
           });
         }
       } else {
-        const existing = await findOperationDraft(input.gateway, row);
+        const existing = await findOperationDraft(
+          input.gateway,
+          row,
+          typeof payload.existingDraftId === "string" ? payload.existingDraftId : undefined,
+        );
         if (existing) {
           remoteId = existing.draft.id;
-          draftBodyVerified = existing.exactOperation;
-          preservedExistingDraft = !existing.exactOperation;
+          if (existing.exactOperation) {
+            draftBodyVerified = true;
+          } else if (
+            payload.existingDraftId === existing.draft.id &&
+            typeof payload.existingDraftBodyHash === "string"
+          ) {
+            const storedSignature = getCachedSignature();
+            const prior = await input.gateway.getMessage({
+              messageId: existing.draft.messageId,
+              format: "full",
+            });
+            const signatureText = storedSignature
+              ? signatureHtmlToText(storedSignature.html)
+              : "";
+            const priorBody = normalizeDraftBody(
+              stripTrailingSignature(prior.text, signatureText),
+            );
+            const priorHash = createHash("sha256").update(priorBody).digest("hex");
+            if (priorHash === payload.existingDraftBodyHash) {
+              if (typeof payload.body !== "string" || !payload.body.trim()) {
+                throw new Error("Draft operation has no body.");
+              }
+              const updated = await input.gateway.createReplyDraft({
+                threadId: row.thread_id,
+                sourceMessageId: row.expected_message_id,
+                body: signatureText ? `${payload.body}\n\n${signatureText}` : payload.body,
+                htmlBody: draftBodyToHtml(payload.body, storedSignature?.html),
+                idempotencyKey: row.operation_key,
+                existingDraftId: existing.draft.id,
+              });
+              remoteId = updated.id;
+              draftBodyVerified = true;
+            } else {
+              preservedExistingDraft = true;
+            }
+          } else {
+            preservedExistingDraft = true;
+          }
         } else if (row.status === "uncertain") {
           throw new WorkspaceGatewayError({
             code: "unknown_write_outcome",
@@ -460,10 +509,17 @@ export function reconcileDeadEmailJobs(input: {
         ).run(now, operation.email_item_id);
       }
       const deadClassifications = db.prepare(
-        `SELECT message.message_id, message.email_item_id
+        `SELECT DISTINCT message.message_id, message.email_item_id
          FROM cove_email_messages message
          JOIN cove_jobs job
-           ON job.idempotency_key = 'email-classify:' || message.message_id
+           ON job.type = 'email-classify'
+          AND (
+            job.idempotency_key = 'email-classify:' || message.message_id
+            OR (
+              job.idempotency_key LIKE 'email-draft-refresh:' || message.email_item_id || ':%'
+              AND json_extract(job.payload, '$.messageId') = message.message_id
+            )
+          )
          WHERE job.status = 'dead'
            AND message.state IN ('observed','classifying','failed')`,
       ).all() as Array<{ message_id: string; email_item_id: string }>;

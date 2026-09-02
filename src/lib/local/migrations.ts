@@ -1474,6 +1474,56 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       `);
     },
   },
+  {
+    version: 22,
+    name: "chief_of_staff_action_ledger",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE chief_of_staff_actions (
+          wake_job_id TEXT NOT NULL REFERENCES cove_jobs(id) ON DELETE CASCADE,
+          action_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          status TEXT NOT NULL
+            CHECK (status IN ('applied','rejected','skipped')),
+          error TEXT,
+          applied_at TEXT,
+          PRIMARY KEY (wake_job_id, action_id)
+        );
+        CREATE INDEX chief_of_staff_actions_status_idx
+          ON chief_of_staff_actions(status, applied_at);
+      `);
+    },
+  },
+  {
+    version: 23,
+    name: "chief_of_staff_content_hash_ledger",
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE chief_of_staff_actions RENAME TO chief_of_staff_actions_by_action_id;
+        CREATE TABLE chief_of_staff_actions (
+          wake_job_id TEXT NOT NULL REFERENCES cove_jobs(id) ON DELETE CASCADE,
+          content_hash TEXT NOT NULL,
+          action_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          status TEXT NOT NULL
+            CHECK (status IN ('applied','rejected','skipped')),
+          error TEXT,
+          applied_at TEXT,
+          PRIMARY KEY (wake_job_id, content_hash)
+        );
+        INSERT INTO chief_of_staff_actions
+          (wake_job_id, content_hash, action_id, kind, payload_json, status, error, applied_at)
+        SELECT wake_job_id, 'legacy:' || action_id, action_id, kind, payload_json,
+               status, error, applied_at
+        FROM chief_of_staff_actions_by_action_id;
+        DROP TABLE chief_of_staff_actions_by_action_id;
+        CREATE INDEX chief_of_staff_actions_status_idx
+          ON chief_of_staff_actions(status, applied_at);
+      `);
+    },
+  },
 ];
 
 function migrationTableExists(db: Database.Database, name: string): boolean {

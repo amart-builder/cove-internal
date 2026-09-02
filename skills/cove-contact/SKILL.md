@@ -95,9 +95,15 @@ pipeline follow-up.
 
 ## Answering questions
 
+Before writing about or to anyone, make one context call:
+`GET /api/crm?operation=context&id=<contactId>` or
+`GET /api/crm?operation=context&email=<address>`. Use its `rendered` field as
+stored relationship data. A 409 means the identity is ambiguous and must not be
+guessed. A 404 means Cove has no matching contact.
+
 "Who is Dana?" or "when did I last talk to Steve?": search with
-`GET /api/crm?operation=list&search=dana`, then fetch the selected full record
-with `GET /api/crm?operation=get&id=<id>&limit=20`. Answer in two or three
+`GET /api/crm?operation=list&search=dana`, then make the context call above.
+Answer in two or three
 plain sentences: who they are, the relationship context, and the last
 interaction with its date. If nobody matches, say so and offer to add them.
 

@@ -51,6 +51,12 @@ The model receives no Google credential, Gmail tool, Calendar tool, Docs tool,
 shell tool, plugin, or generic network tool. It returns validated JSON only.
 Only deterministic Cove code may perform the gateway's fixed operations.
 
+If contact identity is ambiguous or Cove records are unavailable, triage still
+classifies the email but withholds any reply draft and records an Issue. If a
+meeting note lands after a Cove-owned draft, Cove queues the same email for
+fresh classification and updates that draft only when the operator has not
+edited it.
+
 Cove may read email, create a draft or preserve an existing draft, add the two reserved transitional
 labels, and remove `INBOX` from exact observed messages. The gateway exposes no
 send, trash, delete, forward, settings, arbitrary-recipient, raw-token, or

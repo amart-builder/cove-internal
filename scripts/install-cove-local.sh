@@ -480,9 +480,13 @@ MEETING_PLIST="$LA_DIR/com.cove.meeting-watch.plist"
 MEETING_DRAIN_PLIST="$LA_DIR/com.cove.meeting-drain.plist"
 PROGRESS_PLIST="$LA_DIR/com.cove.progress.plist"
 VOICE_REVIEW_PLIST="$LA_DIR/com.cove.voice-review.plist"
+CHIEF_OF_STAFF_DRAIN_PLIST="$LA_DIR/com.cove.chief-of-staff-drain.plist"
+CHIEF_OF_STAFF_NIGHTLY_PLIST="$LA_DIR/com.cove.chief-of-staff-nightly.plist"
+CHIEF_OF_STAFF_REVIEW_PLIST="$LA_DIR/com.cove.chief-of-staff-review.plist"
 INSTALL_MEETING_LANE=0
 INSTALL_PROGRESS_LANE=0
 INSTALL_VOICE_REVIEW_LANE=0
+INSTALL_CHIEF_OF_STAFF_LANE=0
 MEETING_CLAIM="$(claim_lane meeting_watch plain)"
 case "$MEETING_CLAIM" in
   claimed:*) INSTALL_MEETING_LANE=1 ;;
@@ -510,6 +514,15 @@ case "$VOICE_REVIEW_CLAIM" in
     rm -f "$VOICE_REVIEW_PLIST"
     ;;
 esac
+CHIEF_OF_STAFF_CLAIM="$(claim_lane chief_of_staff plain)"
+case "$CHIEF_OF_STAFF_CLAIM" in
+  claimed:*) INSTALL_CHIEF_OF_STAFF_LANE=1 ;;
+  skipped:*)
+    CHIEF_OF_STAFF_OWNER="${CHIEF_OF_STAFF_CLAIM#skipped:}"
+    echo "Skipping chief-of-staff lanes: $CHIEF_OF_STAFF_OWNER owns this lane."
+    rm -f "$CHIEF_OF_STAFF_DRAIN_PLIST" "$CHIEF_OF_STAFF_NIGHTLY_PLIST" "$CHIEF_OF_STAFF_REVIEW_PLIST"
+    ;;
+esac
 render_lane_plist() {
   "$NODE_REAL" "$LANE_PLIST_RENDERER" \
     "$1" "$2" "$REPO_DIR" "$HOME" "$ATLAS_ROOT" "$LANE_DATA_DIR" "$NODE_REAL" \
@@ -532,6 +545,17 @@ if [ "$INSTALL_VOICE_REVIEW_LANE" = "1" ]; then
   render_lane_plist \
     "$REPO_DIR/scripts/launchd/com.cove.voice-review.plist" \
     "$VOICE_REVIEW_PLIST"
+fi
+if [ "$INSTALL_CHIEF_OF_STAFF_LANE" = "1" ]; then
+  render_lane_plist \
+    "$REPO_DIR/scripts/launchd/com.cove.chief-of-staff-drain.plist" \
+    "$CHIEF_OF_STAFF_DRAIN_PLIST"
+  render_lane_plist \
+    "$REPO_DIR/scripts/launchd/com.cove.chief-of-staff-nightly.plist" \
+    "$CHIEF_OF_STAFF_NIGHTLY_PLIST"
+  render_lane_plist \
+    "$REPO_DIR/scripts/launchd/com.cove.chief-of-staff-review.plist" \
+    "$CHIEF_OF_STAFF_REVIEW_PLIST"
 fi
 
 # --- Install Cove's skills for Claude and Codex ---
@@ -914,6 +938,9 @@ retire_legacy_agent meeting-watch
 retire_legacy_agent meeting-drain
 retire_legacy_agent progress
 retire_legacy_agent voice-review
+retire_legacy_agent chief-of-staff-drain
+retire_legacy_agent chief-of-staff-nightly
+retire_legacy_agent chief-of-staff-review
 # com.forge.web is the pre-rename web server on this same port. Leaving it
 # loaded means com.cove.local crash-loops on EADDRINUSE while the readiness
 # probe below happily answers off the old server, so the install looks fine and
@@ -930,6 +957,9 @@ launchctl bootout "gui/$UID_NUM/com.cove.meeting-watch" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.meeting-drain" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.progress" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.voice-review" 2>/dev/null || true
+launchctl bootout "gui/$UID_NUM/com.cove.chief-of-staff-drain" 2>/dev/null || true
+launchctl bootout "gui/$UID_NUM/com.cove.chief-of-staff-nightly" 2>/dev/null || true
+launchctl bootout "gui/$UID_NUM/com.cove.chief-of-staff-review" 2>/dev/null || true
 # Decommission the retired MBP 7:30 brief agent entirely (bootout + plist
 # removal): the Mini owns scheduled generation now.
 launchctl bootout "gui/$UID_NUM/com.cove.morning-brief" 2>/dev/null || true
@@ -989,6 +1019,12 @@ if [ "$INSTALL_VOICE_REVIEW_LANE" = "1" ]; then
   launchctl bootstrap "gui/$UID_NUM" "$VOICE_REVIEW_PLIST"
   mark_lane_installed voice_review
 fi
+if [ "$INSTALL_CHIEF_OF_STAFF_LANE" = "1" ]; then
+  launchctl bootstrap "gui/$UID_NUM" "$CHIEF_OF_STAFF_DRAIN_PLIST"
+  launchctl bootstrap "gui/$UID_NUM" "$CHIEF_OF_STAFF_NIGHTLY_PLIST"
+  launchctl bootstrap "gui/$UID_NUM" "$CHIEF_OF_STAFF_REVIEW_PLIST"
+  mark_lane_installed chief_of_staff
+fi
 if [ -f "$TRIAGE_PLIST" ]; then launchctl bootstrap "gui/$UID_NUM" "$TRIAGE_PLIST"; fi
 launchctl enable "gui/$UID_NUM/com.cove.local" 2>/dev/null || true
 launchctl enable "gui/$UID_NUM/com.cove.claude-worker" 2>/dev/null || true
@@ -1003,6 +1039,11 @@ if [ "$INSTALL_PROGRESS_LANE" = "1" ]; then
 fi
 if [ "$INSTALL_VOICE_REVIEW_LANE" = "1" ]; then
   launchctl enable "gui/$UID_NUM/com.cove.voice-review" 2>/dev/null || true
+fi
+if [ "$INSTALL_CHIEF_OF_STAFF_LANE" = "1" ]; then
+  launchctl enable "gui/$UID_NUM/com.cove.chief-of-staff-drain" 2>/dev/null || true
+  launchctl enable "gui/$UID_NUM/com.cove.chief-of-staff-nightly" 2>/dev/null || true
+  launchctl enable "gui/$UID_NUM/com.cove.chief-of-staff-review" 2>/dev/null || true
 fi
 
 # Confirm the server actually came up. This catches the most common failure:
