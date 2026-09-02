@@ -37,7 +37,7 @@ import { reconcileFocusSeatTaskChanges } from '@/lib/tasks/focus-seats';
 import { taskSessionModeButtons } from './TaskSessionLauncher';
 import { OpenInClaudeCode } from './ClaudeRunIndicators';
 import DayRitualLayer from './DayRitualLayer';
-import { ModalScrim } from './arrival/TaskSheet';
+import ModalScrim from './arrival/ModalScrim';
 import {
   beginCompletionMotion,
   beginUndoMotion,

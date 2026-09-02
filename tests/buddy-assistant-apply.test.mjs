@@ -3,6 +3,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import Database from 'better-sqlite3';
 import { NextRequest } from 'next/server';
 import {
   POST,
@@ -24,8 +25,27 @@ import { getEvent } from '../src/lib/intake/inbox.ts';
 function setupAssistantApply(t) {
   const root = path.join(os.tmpdir(), `cove-buddy-atomicity-${process.pid}-${Date.now()}-${Math.random()}`);
   mkdirSync(root, { recursive: true });
+  const dbPath = path.join(root, 'cove.db');
+  const boardDb = new Database(dbPath);
+  boardDb.exec(`
+    CREATE TABLE task_columns (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE tasks (
+      id TEXT PRIMARY KEY, column_id TEXT, title TEXT NOT NULL, description TEXT,
+      priority TEXT, due_at TEXT, due_date TEXT, tags TEXT, project TEXT,
+      position REAL, status TEXT, archived_at TEXT, archived_from_status TEXT,
+      recurring_template_id TEXT, occurrence_local_date TEXT,
+      created_at TEXT, updated_at TEXT
+    );
+    INSERT INTO task_columns (id, name, position) VALUES
+      ('col-ns', 'Not Started', 0),
+      ('col-today', 'Must happen today', 10),
+      ('col-done', 'Done', 20);
+  `);
+  boardDb.close();
   const store = createDayPlanStore({
-    dbPath: path.join(root, 'cove.db'),
+    dbPath,
     now: () => new Date('2026-07-15T16:00:00.000Z'),
   });
   t.after(() => {
@@ -148,7 +168,7 @@ test('assistant-apply enforces access and CSRF, applies valid ops, and returns c
 });
 
 test('assistant apply creates, completes, updates, and reprioritizes task-backed work atomically', (t) => {
-  const { store, plan } = setupAssistantApply(t);
+  const { root, store, plan } = setupAssistantApply(t);
   const completedItem = plan.items[0];
   const retainedItem = plan.items[1];
 
@@ -191,6 +211,23 @@ test('assistant apply creates, completes, updates, and reprioritizes task-backed
   const mutations = store.listPendingTaskMutations();
   assert.deepEqual(mutations.map((mutation) => mutation.action), ['complete', 'update']);
   assert.equal(result.createdItemIds.length, 2);
+  const verify = new Database(path.join(root, 'cove.db'), { readonly: true });
+  const createdTasks = verify.prepare(
+    `SELECT id, column_id, status FROM tasks
+     WHERE id IN (?, ?) ORDER BY id`,
+  ).all(...result.createdItemIds);
+  verify.close();
+  assert.equal(createdTasks.length, 2);
+  assert.equal(createdTasks.every((task) => task.column_id === 'col-today'), true);
+  assert.equal(createdTasks.every((task) => task.status === 'open'), true);
+  assert.equal(
+    result.plan.items
+      .filter((item) => result.createdItemIds.includes(item.id))
+      .every((item) => item.sourceRefs.some(
+        (source) => source.sourceType === 'task' && source.recordId === item.taskId,
+      )),
+    true,
+  );
   assert.equal(
     mutations.some((mutation) => result.createdItemIds.includes(mutation.taskId)),
     false,
@@ -217,6 +254,44 @@ test('assistant apply creates, completes, updates, and reprioritizes task-backed
       error instanceof DayPlanInvalidTransition &&
       error.message === 'Arrival items can change only while arrival is open.',
   );
+});
+
+test('assistant create_item rolls back both the plan item and task when the transaction fails', (t) => {
+  const { root, store, plan } = setupAssistantApply(t);
+  const dbPath = path.join(root, 'cove.db');
+  const db = new Database(dbPath);
+  db.exec(`
+    CREATE TRIGGER fail_assistant_plan_event
+    BEFORE INSERT ON day_plan_events
+    WHEN NEW.event_type = 'assistant_patch'
+    BEGIN
+      SELECT RAISE(ABORT, 'forced assistant transaction failure');
+    END;
+  `);
+  db.close();
+
+  assert.throws(
+    () => store.applyAssistantOperations({
+      expectedVersion: plan.version,
+      createdItemIds: ['atomic-create-id'],
+      operations: [{
+        operation: 'create_item',
+        clientId: 'atomic-create',
+        title: 'Atomic new work',
+        outcome: 'Both records exist or neither record exists.',
+        position: 0,
+      }],
+    }),
+    /forced assistant transaction failure/,
+  );
+
+  assert.equal(store.getPlan(plan.id).items.some((item) => item.id === 'atomic-create-id'), false);
+  const verify = new Database(dbPath, { readonly: true });
+  assert.equal(
+    verify.prepare("SELECT COUNT(*) FROM tasks WHERE id = 'atomic-create-id'").pluck().get(),
+    0,
+  );
+  verify.close();
 });
 
 test('active-plan apply requires an exact finished Buddy preview and consumes it once', async (t) => {
@@ -548,9 +623,16 @@ test('assistant create_item records the deterministic plan item in inbound_event
   assert.equal(event.state, 'triaged');
   assert.equal(event.task_id, createdId);
   assert.match(event.raw_text, /Outcome: Make the kickoff ready/);
-  assert.equal(tasks.get(createdId).title, 'Prepare the client kickoff');
-  assert.equal(tasks.get(createdId).column_id, 'today');
-  assert.deepEqual(tasks.get(createdId).tags, ['needs-triage']);
+  const taskDb = new Database(path.join(root, 'cove.db'), { readonly: true });
+  const backingTask = taskDb.prepare(
+    'SELECT id, column_id, title, description, priority, tags, status FROM tasks WHERE id = ?',
+  ).get(createdId);
+  taskDb.close();
+  assert.equal(backingTask.title, 'Prepare the client kickoff');
+  assert.equal(backingTask.column_id, 'col-today');
+  assert.equal(backingTask.status, 'open');
+  assert.deepEqual(JSON.parse(backingTask.tags), []);
+  tasks.set(createdId, backingTask);
   assert.equal(store.listPendingTaskMutations().some((mutation) => mutation.action === 'create'), false);
 
   const editResponse = await POST(new NextRequest(

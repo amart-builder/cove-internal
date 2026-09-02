@@ -22,7 +22,6 @@ import {
 } from "@/lib/day-plan/assistant-patch";
 import type { InboundEvent } from "@/lib/data/types";
 import { recordEvent, resolveEvent } from "@/lib/intake/inbox";
-import { createCapturedInboundTask } from "@/lib/intake/task-writer";
 import { operatorName } from "@/lib/operator";
 import { getRuntimeMode } from "@/lib/runtime/mode";
 
@@ -260,15 +259,6 @@ export async function POST(request: NextRequest) {
         : {}),
     });
     applied = true;
-    await Promise.all(captured.map(async ({ event, operation }) => {
-      await createCapturedInboundTask(event, {
-        title: operation.title.trim(),
-        description: `${assistantCreateItemIntakeText(operation)}\n\nArrived via day-plan and needs triage.`,
-        project: operation.project?.trim() || "Atlas",
-        priority: operation.priority ?? "medium",
-        column: "Must happen today",
-      });
-    }));
     await Promise.all(captured.map(async ({ event }) => {
       if (event.spooled === true) return;
       try {

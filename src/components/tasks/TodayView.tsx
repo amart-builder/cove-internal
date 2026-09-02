@@ -75,6 +75,7 @@ import { OpenInClaudeCode, RunStatusChip } from './ClaudeRunIndicators';
 import ExecutionConfigPanel from './ExecutionConfigPanel';
 import CurrentCanvas, { type CurrentPoint, type Tributary } from './CurrentCanvas';
 import TaskDetail from './TaskDetail';
+import type { Task as EditableTask } from './TaskFieldsEditor';
 import {
   confirmTaskRecurrence,
   listRecurringTemplates,
@@ -323,6 +324,7 @@ function normalizeRestTask(task: RestTask): TaskData {
     dueDate: task.due_at?.slice(0, 10),
     dueAt: task.due_at ?? undefined,
     tags,
+    project: task.project,
     status: task.status,
     proposedRecurrenceCadence: task.proposed_recurrence_cadence ?? undefined,
     recurringTemplateId: task.recurring_template_id ?? undefined,
@@ -1827,6 +1829,17 @@ function TodayExperience({
     }
   }
 
+  async function saveRitualTask(taskId: string, patch: Partial<EditableTask>) {
+    await updateTask(taskId, {
+      title: patch.title,
+      description: patch.description,
+      priority: patch.priority,
+      dueDate: patch.dueDate,
+      tags: patch.tags,
+    });
+    await retry();
+  }
+
   async function deleteDetail() {
     if (!detailTask) return;
     const archived = detailTask;
@@ -1951,6 +1964,10 @@ function TodayExperience({
     () => [...(dayRitual.plan?.items ?? [])].sort((left, right) => left.position - right.position),
     [dayRitual.plan?.items],
   );
+  const tasksById = useMemo(
+    () => new Map(tasks.map((task) => [task._id, task])),
+    [tasks],
+  );
   const arrivalPlanItems = useMemo(
     () => orderedPlanItems.filter(
       (item) =>
@@ -1968,7 +1985,7 @@ function TodayExperience({
       id: task._id,
       title: task.title,
       description: task.description,
-      project: helpfulProjectLabel(task.tags[0]),
+      project: helpfulProjectLabel(task.project) ?? helpfulProjectLabel(task.tags[0]),
       due: task.dueAt
         ? formatArrivalDueDate(task.dueAt)
         : task.dueDate
@@ -1979,24 +1996,27 @@ function TodayExperience({
   );
   const arrivalItems = useMemo<MorningArrivalItem[]>(
     () => arrivalPlanItems.map((item) => {
-      const sourceTask = tasks.find((task) => task._id === item.taskId);
+      const sourceTask = tasksById.get(item.taskId);
       const fullDescription = sourceTask?.description || item.outcome;
+      const title = sourceTask?.title || item.title;
+      const due = sourceTask?.dueAt ?? sourceTask?.dueDate ?? item.dueAt;
       return {
         item,
-        title: item.title,
-        summary: shortArrivalSummary(fullDescription, item.title),
+        task: sourceTask,
+        title,
+        summary: shortArrivalSummary(fullDescription, title),
         description: fullDescription,
         // The Morning Brief's rationale wins the card copy when this item was
         // brief-ranked; the deterministic evidence line remains the fallback.
         whyToday: item.brief?.whyToday ?? item.whyToday,
         definitionOfDone: item.definitionOfDone,
-        project: helpfulProjectLabel(item.project),
-        deadline: item.dueAt
-          ? formatArrivalDueDate(item.dueAt)
+        project: helpfulProjectLabel(sourceTask?.project) ?? helpfulProjectLabel(item.project),
+        deadline: due
+          ? formatArrivalDueDate(due)
           : undefined,
       };
     }),
-    [arrivalPlanItems, tasks],
+    [arrivalPlanItems, tasksById],
   );
   const recommendation = arrivalPlanItems[0]
     ? `Start with ${arrivalPlanItems[0].title}. ${arrivalPlanItems[0].whyToday}`
@@ -2019,7 +2039,7 @@ function TodayExperience({
         config,
       );
       const run = currentRun ?? latestRun;
-      const task = tasks.find((candidate) => candidate._id === item.taskId);
+      const task = tasksById.get(item.taskId);
       const taskDone = task?.status === 'done' || task?.columnId === doneColumn?._id;
       map.set(item.taskId, {
         item,
@@ -2044,7 +2064,7 @@ function TodayExperience({
     dayRitual.executionState,
     dayRitual.startDayApplying,
     doneColumn?._id,
-    tasks,
+    tasksById,
   ]);
   const boardSessionByTaskId = useMemo(() => {
     const map = new Map<string, {
@@ -2122,11 +2142,11 @@ function TodayExperience({
   const completedForSettlement = orderedPlanItems
     .filter((item) => item.decision === 'completed')
     .map((item) => {
-      const task = tasks.find((candidate) => candidate._id === item.taskId);
+      const task = tasksById.get(item.taskId);
       return {
         id: item.taskId,
         itemId: item.id,
-        title: item.title,
+        title: task?.title || item.title,
         sessionStatus: localMode
           ? taskSessions.latestByTaskId.get(item.taskId)?.status
           : undefined,
@@ -2142,14 +2162,17 @@ function TodayExperience({
     });
   const unresolvedForSettlement = orderedPlanItems
     .filter((item) => item.decision === 'accepted')
-    .map((item) => ({
-      item,
-      title: item.title,
-      outcome: item.outcome,
-      sessionStatus: localMode
-        ? taskSessions.latestByTaskId.get(item.taskId)?.status
-        : undefined,
-    }));
+    .map((item) => {
+      const task = tasksById.get(item.taskId);
+      return {
+        item,
+        title: task?.title || item.title,
+        outcome: task?.description || item.outcome,
+        sessionStatus: localMode
+          ? taskSessions.latestByTaskId.get(item.taskId)?.status
+          : undefined,
+      };
+    });
   const settlementDecisions = Object.fromEntries(
     orderedPlanItems.map((item) => [item.id, item.settlementDecision?.disposition]),
   );
@@ -3104,10 +3127,12 @@ function TodayExperience({
           >
             {ritualView === 'arrival' ? (
               <MorningArrival
+                localDate={dayRitual.plan.localDate}
                 plan={dayRitual.plan}
                 focusCount={focusCount}
                 items={arrivalItems}
                 notTodayTasks={notTodayTasks}
+                tasksById={tasksById}
                 recommendation={recommendation}
                 brief={dayRitual.morningBrief}
                 briefGeneration={dayRitual.briefGeneration}
@@ -3133,9 +3158,17 @@ function TodayExperience({
                 onOwnerChange={(itemId, owner) => dayRitual.setOwner(itemId, owner)}
                 onMoveToPosition={(itemId, position, title) => dayRitual.reorder(itemId, position, title)}
                 onFocusCountChange={changeToday2FocusCount}
-                onRemove={(itemId, title, taskBacked) => taskBacked
-                  ? dayRitual.laterItem(itemId, title)
-                  : dayRitual.dismissItem(itemId, title)}
+                onRemove={(itemId, title, legacyTaskBacked) => {
+                  const item = dayRitual.plan?.items.find((candidate) => candidate.id === itemId);
+                  const taskBacked = Boolean(item && tasksById.has(item.taskId)) ||
+                    legacyTaskBacked ||
+                    Boolean(item?.sourceRefs.some(
+                      (source) => source.sourceType === 'task' && source.recordId === item.taskId,
+                    ));
+                  return taskBacked
+                    ? dayRitual.laterItem(itemId, title)
+                    : dayRitual.dismissItem(itemId, title);
+                }}
                 onComplete={async (itemId, title) => {
                   await dayRitual.completeItem(itemId, title);
                   await retry();
@@ -3148,6 +3181,7 @@ function TodayExperience({
                 onAddTask={async (taskId, title) => {
                   return dayRitual.addTask(taskId, title);
                 }}
+                onSaveTask={saveRitualTask}
                 onSnooze={() => dayRitual.snooze().catch(() => undefined)}
                 onBypass={() => dayRitual.bypass().catch(() => undefined)}
                 onStartDay={startPlannedDay}
@@ -3157,6 +3191,7 @@ function TodayExperience({
                 plan={dayRitual.plan}
                 completed={completedForSettlement}
                 unresolved={unresolvedForSettlement}
+                tasksById={tasksById}
                 decisions={settlementDecisions}
                 proposedTomorrowTitle={proposedTomorrow?.title}
                 savingItemIds={dayRitual.savingItemIds}
@@ -3181,6 +3216,7 @@ function TodayExperience({
                   await dayRitual.reopenSettlementItem(itemId, title);
                   await retry();
                 }}
+                onSaveTask={saveRitualTask}
                 onCancel={dayRitual.cancelSettlement}
                 onNoteChange={setSettlementNote}
                 onCloseDay={closeSettledDay}

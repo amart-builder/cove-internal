@@ -36,7 +36,7 @@ Say: "The brief becomes a plan I can edit. These three are the focus, and the re
 
 Drag `Follow up with the Meridian intro` from Not today into the Today band. It first joins Also today. Drag that card over a charcoal focus card to promote it into the focus three.
 
-Open the Meridian card to show the Task Sheet and the Me, Claude, Together owner control. Leave the owner as Me. Close the sheet, then open `Browse All Work` and close it again.
+Open the Meridian card to show the Task Sheet and the Me, Claude, Together owner control. Leave the owner as Me. Close the sheet, then expand the `more in All Work` tile and collapse it again.
 
 Say: "Nothing here is locked. I can change the order, pull in work, or decide whether I own it, Claude owns it, or we do it together."
 

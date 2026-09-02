@@ -42,6 +42,8 @@ function assertNever(value: never): never {
 }
 
 const NON_PROJECT_TAGS = new Set([
+  // 'Atlas' is the tasks table default, so it means no project was chosen.
+  'atlas',
   'blocked',
   'captured-today',
   'email',

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { DayPlan, DayPlanItem } from '@/lib/day-plan/types';
 import {
   allSettlementDecisionsMade,
@@ -15,6 +15,8 @@ import {
   type TaskSessionRunStatus,
 } from '@/lib/task-sessions/types';
 import { taskSessionSettlementNote } from '@/lib/task-sessions/presentation';
+import TaskFieldsEditor, { type Task } from './TaskFieldsEditor';
+import ModalScrim from './arrival/ModalScrim';
 
 const DECISIONS: Array<{
   value: SettlementDecision;
@@ -48,6 +50,7 @@ interface DaySettlementProps {
   plan: DayPlan;
   completed: SettlementCompletedItem[];
   unresolved: SettlementOpenItem[];
+  tasksById: ReadonlyMap<string, Task>;
   decisions: Readonly<Record<string, SettlementDecision | undefined>>;
   proposedTomorrowTitle?: string;
   savingItemIds?: ReadonlySet<string>;
@@ -65,6 +68,7 @@ interface DaySettlementProps {
   ) => void | Promise<void>;
   onComplete: (itemId: string, title: string) => void | Promise<void>;
   onReopen: (itemId: string, title: string) => void | Promise<void>;
+  onSaveTask: (taskId: string, patch: Partial<Task>) => Promise<void>;
   onCancel: () => void;
   onNoteChange: (note: string) => void;
   onCloseDay: () => void | Promise<void>;
@@ -84,6 +88,7 @@ export default function DaySettlement({
   plan,
   completed,
   unresolved,
+  tasksById,
   decisions,
   proposedTomorrowTitle,
   savingItemIds = new Set<string>(),
@@ -96,14 +101,22 @@ export default function DaySettlement({
   onDecision,
   onComplete,
   onReopen,
+  onSaveTask,
   onCancel,
   onNoteChange,
   onCloseDay,
 }: DaySettlementProps) {
+  const editorTitleId = useId();
   const noteRef = useRef<HTMLTextAreaElement>(null);
   const autoAttemptsRef = useRef(new Map<string, number>());
   const autoPostedPlanIdRef = useRef(plan.id);
   const [completingIds, setCompletingIds] = useState<Set<string>>(() => new Set());
+  const [editingTask, setEditingTask] = useState<{
+    task: Task;
+    returnFocus: HTMLElement;
+  }>();
+  const [editorSaving, setEditorSaving] = useState(false);
+  const [editorError, setEditorError] = useState('');
   const [progressDrafts, setProgressDrafts] = useState<Record<string, ProgressFields>>(() =>
     Object.fromEntries(unresolved.map(({ item }) => [item.id, {
       progressNote: item.settlementDecision?.progressNote ?? '',
@@ -202,6 +215,20 @@ export default function DaySettlement({
   const reopenItem = (itemId: string, title: string) =>
     runPending(itemId, () => onReopen(itemId, title));
 
+  const saveTask = async (patch: Partial<Task>) => {
+    if (!editingTask) return;
+    setEditorSaving(true);
+    setEditorError('');
+    try {
+      await onSaveTask(editingTask.task._id, patch);
+      setEditingTask(undefined);
+    } catch {
+      setEditorError("Cove couldn't save those task details. Try again.");
+    } finally {
+      setEditorSaving(false);
+    }
+  };
+
   const chooseDecision = (itemId: string, decision: SettlementDecision) => {
     const progress = decision === 'progress' ? progressDrafts[itemId] : undefined;
     return onDecision(itemId, decision, progress);
@@ -226,6 +253,7 @@ export default function DaySettlement({
   const staleNotice = staleSettlementNotice(plan.localDate, todayLocalDate);
 
   return (
+    <>
       <div
         className="my-auto overflow-hidden rounded-3xl border bg-background shadow-2xl"
         data-day-plan-id={plan.id}
@@ -260,7 +288,18 @@ export default function DaySettlement({
                   {completed.map((item) => (
                     <li key={item.id} className="flex items-start justify-between gap-3 rounded-xl border bg-card px-4 py-3">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-foreground">{item.title}</p>
+                        <button
+                          type="button"
+                          aria-label={`Edit ${item.title}`}
+                          disabled={closing || !tasksById.has(item.id)}
+                          className="text-left text-sm font-medium text-foreground outline-none hover:underline focus-visible:rounded focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:no-underline"
+                          onClick={(event) => {
+                            const task = tasksById.get(item.id);
+                            if (task) setEditingTask({ task, returnFocus: event.currentTarget });
+                          }}
+                        >
+                          {item.title}
+                        </button>
                         {item.detail && <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p>}
                         {item.sessionStatus && (
                           <p className="mt-1 text-xs text-muted-foreground">
@@ -298,7 +337,20 @@ export default function DaySettlement({
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <div className="min-w-0">
                               <p className="text-xs text-muted-foreground">Priority {index + 1} · Owner {ownerLabel(view.item.owner)}</p>
-                              <h3 className="mt-1 text-base font-semibold text-foreground">{view.title}</h3>
+                              <h3 className="mt-1 text-base font-semibold text-foreground">
+                                <button
+                                  type="button"
+                                  aria-label={`Edit ${view.title}`}
+                                  disabled={closing || !tasksById.has(view.item.taskId)}
+                                  className="text-left outline-none hover:underline focus-visible:rounded focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:no-underline"
+                                  onClick={(event) => {
+                                    const task = tasksById.get(view.item.taskId);
+                                    if (task) setEditingTask({ task, returnFocus: event.currentTarget });
+                                  }}
+                                >
+                                  {view.title}
+                                </button>
+                              </h3>
                               {view.outcome && <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{view.outcome}</p>}
                             </div>
                             <div className="flex shrink-0 items-center gap-2">
@@ -463,6 +515,34 @@ export default function DaySettlement({
           </footer>
         </div>
       </div>
+      {editingTask && (
+        <ModalScrim
+          labelledBy={editorTitleId}
+          returnFocus={editingTask.returnFocus}
+          onClose={() => setEditingTask(undefined)}
+          panelClassName="panel-pop-in relative max-h-[calc(100dvh-2rem)] w-full max-w-[520px] overflow-y-auto rounded-[22px] border bg-card px-7 py-7 text-foreground shadow-2xl outline-none sm:px-9 dark:border-white/10"
+        >
+          <button
+            type="button"
+            data-modal-initial-focus
+            aria-label="Close task editor"
+            disabled={editorSaving}
+            className="absolute right-4 top-4 grid size-9 place-items-center rounded-full text-lg text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-50"
+            onClick={() => setEditingTask(undefined)}
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+          <h2 id={editorTitleId} className="pr-10 text-xl font-semibold">Edit task</h2>
+          <TaskFieldsEditor
+            task={editingTask.task}
+            saving={editorSaving}
+            error={editorError}
+            onSave={saveTask}
+            onCancel={() => setEditingTask(undefined)}
+          />
+        </ModalScrim>
+      )}
+    </>
   );
 }
 

@@ -14,6 +14,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import type Database from "better-sqlite3";
 import { resolveProjectDirectory } from "../atlas-projects";
 import { normalizeBuddyReceipts } from "../buddy/receipts";
 import { hasPlanExecutionResultSubstance } from "../claude-execution/commands";
@@ -268,6 +269,48 @@ type ManagedTaskRow = {
   created_at: string | null;
   updated_at: string | null;
 };
+
+// Assistant-created tasks are normal board tasks. They no longer carry the
+// inbound-event source_type or needs-triage tag used by the old post-commit writer.
+function insertBackingTask(
+  db: Database.Database,
+  input: {
+    id: string;
+    title: string;
+    description: string;
+    priority: "low" | "medium" | "high";
+    project?: string;
+    changedAt: string;
+  },
+): void {
+  const todayColumn = (db.prepare(
+    "SELECT id, name FROM task_columns ORDER BY position ASC",
+  ).all() as Array<{ id: string; name: string }>).find(
+    (column) => taskColumnKeyForName(column.name) === "today",
+  );
+  if (!todayColumn) {
+    throw new DayPlanInvalidTransition("Cove needs a Today list to add work.");
+  }
+  const position = db.prepare(
+    "SELECT COALESCE(MAX(position), -1) + 1 AS position FROM tasks WHERE column_id = ? AND status = 'open'",
+  ).pluck().get(todayColumn.id) as number;
+  db.prepare(
+    `INSERT INTO tasks
+      (id, column_id, title, description, priority, due_at, due_date,
+       tags, project, position, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, NULL, NULL, '[]', ?, ?, 'open', ?, ?)`,
+  ).run(
+    input.id,
+    todayColumn.id,
+    input.title,
+    input.description,
+    input.priority,
+    input.project?.trim() || "Atlas",
+    position,
+    input.changedAt,
+    input.changedAt,
+  );
+}
 
 type DayDumpRow = {
   id: string;
@@ -1982,6 +2025,7 @@ export function createDayPlanStore(options: {
       action: DayPlanTaskMutation["action"];
       payload: Record<string, unknown>;
     }> = [];
+    let createdOperationIndex = 0;
     for (const operation of proposal.operations) {
       if (operation.operation === "edit_item") {
         const item = plan.items.find((candidate) => candidate.id === operation.itemId)!;
@@ -1996,6 +2040,25 @@ export function createDayPlanStore(options: {
       } else if (operation.operation === "complete_item") {
         const item = plan.items.find((candidate) => candidate.id === operation.itemId)!;
         taskMutations.push({ taskId: item.taskId, action: "complete", payload: {} });
+      } else if (operation.operation === "create_item") {
+        const itemId = createdItemIds[createdOperationIndex++];
+        const item = plan.items.find((candidate) => candidate.id === itemId)!;
+        insertBackingTask(db, {
+          id: item.taskId,
+          title: item.title,
+          description: descriptionFor(item),
+          priority: item.priority,
+          project: item.project,
+          changedAt: finishedAt,
+        });
+        item.sourceRefs = [{
+          sourceType: "task",
+          recordId: item.taskId,
+          sourceUpdatedAt: finishedAt,
+          refreshedAt: finishedAt,
+          freshness: "current",
+          supports: ["commitment", "priority"],
+        }, ...item.sourceRefs];
       }
     }
     const insertTaskMutation = db.prepare(
@@ -3995,9 +4058,6 @@ export function createDayPlanStore(options: {
                 "That task is not available for today's plan.",
               );
             }
-            if (activeCount >= 10) {
-              throw new DayPlanInvalidTransition("Today's plan is full.");
-            }
             const taskPriority = task!.priority === "high" || task!.priority === "low"
               ? task!.priority
               : "medium";
@@ -4059,9 +4119,6 @@ export function createDayPlanStore(options: {
             plan.items = ordered;
             break;
           }
-          if (activeCount >= 10) {
-            throw new DayPlanInvalidTransition("Today's plan is full.");
-          }
           const title = cleanOptional(input.title);
           const outcome = cleanOptional(input.outcome);
           const why = cleanOptional(input.why);
@@ -4072,10 +4129,16 @@ export function createDayPlanStore(options: {
             throw new DayPlanInvalidTransition("Item owner is invalid.");
           }
           const id = randomUUID();
+          insertBackingTask(db, {
+            id,
+            title,
+            description: outcome,
+            priority: "high",
+            changedAt,
+          });
           plan.items.push({
             id,
             candidateId: id,
-            // Arrival additions are plan-only and deliberately have no backing task record.
             taskId: id,
             outcomeKey: arrivalAdditionOutcomeKey({ title, outcome, why }),
             title,
@@ -4085,14 +4148,24 @@ export function createDayPlanStore(options: {
             commitment: "ink",
             whyToday: why,
             priority: "high",
-            sourceRefs: [{
-              sourceType: "decision",
-              recordId: id,
-              sourceUpdatedAt: changedAt,
-              refreshedAt: changedAt,
-              freshness: "current",
-              supports: ["commitment", "priority"],
-            }],
+            sourceRefs: [
+              {
+                sourceType: "task",
+                recordId: id,
+                sourceUpdatedAt: changedAt,
+                refreshedAt: changedAt,
+                freshness: "current",
+                supports: ["commitment", "priority"],
+              },
+              {
+                sourceType: "decision",
+                recordId: id,
+                sourceUpdatedAt: changedAt,
+                refreshedAt: changedAt,
+                freshness: "current",
+                supports: ["commitment", "priority"],
+              },
+            ],
             newestSourceRefreshAt: changedAt,
             conflicts: [],
             humanDecisionEventIds: [input.mutationId],

@@ -9,6 +9,8 @@ import type {
   DayPlanMutationResult,
   DayPlanOwner as DayOwner,
 } from '@/lib/day-plan/types';
+import type { ArrivalTask } from '@/lib/quiet-current/arrival-cache';
+import type { Task } from './TaskFieldsEditor';
 import {
   arrivalDateLabel,
   focusBandItems,
@@ -21,6 +23,7 @@ import StepDots, { morningArrivalSteps, type ArrivalStep } from './arrival/StepD
 
 export type MorningArrivalItem = {
   item: DayPlanItem;
+  task?: ArrivalTask;
   title: string;
   summary?: string;
   description?: string;
@@ -39,10 +42,12 @@ export type MorningArrivalBoardTask = {
 };
 
 interface MorningArrivalProps {
+  localDate: string;
   plan: DayPlan;
   focusCount: 1 | 2 | 3;
   items: MorningArrivalItem[];
   notTodayTasks: MorningArrivalBoardTask[];
+  tasksById: ReadonlyMap<string, Task>;
   recommendation: string;
   brief?: PublicMorningBrief;
   briefGeneration?: MorningBriefGeneration;
@@ -68,6 +73,7 @@ interface MorningArrivalProps {
     taskId: string,
     title: string,
   ) => DayPlanMutationResult | void | Promise<DayPlanMutationResult | void>;
+  onSaveTask: (taskId: string, patch: Partial<Task>) => Promise<void>;
   onSnooze: () => void | Promise<void>;
   onBypass: () => void | Promise<void>;
   onStartDay: () => void | Promise<void>;
@@ -90,10 +96,12 @@ const STEP_ANNOUNCEMENTS: Record<ArrivalStep, string> = {
 };
 
 export default function MorningArrival({
+  localDate,
   plan,
   focusCount,
   items,
   notTodayTasks,
+  tasksById,
   recommendation,
   brief,
   briefGeneration,
@@ -116,6 +124,7 @@ export default function MorningArrival({
   onComplete,
   onCompleteBoardTask,
   onAddTask,
+  onSaveTask,
   onSnooze,
   onBypass,
   onStartDay,
@@ -263,8 +272,10 @@ export default function MorningArrival({
             />
           ) : (
             <ArrivalPlanGrid
+              localDate={localDate}
               todayItems={visibleItems}
               notTodayTasks={notTodayTasks}
+              tasksById={tasksById}
               focusCount={focusCount}
               busy={busy}
               completingTaskId={completingTaskId}
@@ -276,6 +287,7 @@ export default function MorningArrival({
               onComplete={onComplete}
               onCompleteBoardTask={onCompleteBoardTask}
               onAddTask={onAddTask}
+              onSaveTask={onSaveTask}
               escapeRef={escapeRef}
             />
           )}

@@ -1,117 +1,18 @@
 'use client';
 
 import {
-  useEffect,
   useId,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode,
 } from 'react';
-import { createPortal } from 'react-dom';
 import { ownerLabel } from '@/lib/day-plan/presentation';
 import type { DayPlanOwner } from '@/lib/day-plan/types';
+import TaskFieldsEditor, { type Task } from '../TaskFieldsEditor';
 import type { MorningArrivalBoardTask, MorningArrivalItem, MorningArrivalProps } from '../MorningArrival';
-
-const FOCUSABLE_SELECTOR = [
-  'button:not([disabled])',
-  'input:not([disabled])',
-  'select:not([disabled])',
-  'textarea:not([disabled])',
-  'a[href]',
-  '[tabindex]:not([tabindex="-1"])',
-].join(',');
+import ModalScrim from './ModalScrim';
 
 const OWNERS: DayPlanOwner[] = ['me', 'claude', 'together'];
-
-export function ModalScrim({
-  labelledBy,
-  describedBy,
-  returnFocus,
-  onClose,
-  panelClassName,
-  children,
-}: {
-  labelledBy: string;
-  describedBy?: string;
-  returnFocus: HTMLElement | null;
-  onClose: () => void;
-  panelClassName: string;
-  children: ReactNode;
-}) {
-  const dialogRef = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    const focusFrame = window.requestAnimationFrame(() => {
-      const preferred = dialogRef.current?.querySelector<HTMLElement>('[data-modal-initial-focus]');
-      const first = dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
-      (preferred ?? first ?? dialogRef.current)?.focus();
-    });
-    return () => {
-      window.cancelAnimationFrame(focusFrame);
-      window.requestAnimationFrame(() => {
-        if (returnFocus?.isConnected) returnFocus.focus();
-      });
-    };
-  }, [returnFocus]);
-
-  function handleKeyDownCapture(event: ReactKeyboardEvent<HTMLDivElement>) {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      (event.nativeEvent as KeyboardEvent).stopImmediatePropagation();
-      onClose();
-      return;
-    }
-    if (event.key !== 'Tab') return;
-    event.stopPropagation();
-    (event.nativeEvent as KeyboardEvent).stopImmediatePropagation();
-
-    const focusable = Array.from(
-      dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ?? [],
-    ).filter((element) => !element.hasAttribute('disabled') && element.offsetParent !== null);
-    if (focusable.length === 0) {
-      event.preventDefault();
-      dialogRef.current?.focus();
-      return;
-    }
-
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    const active = document.activeElement;
-    const outside = !dialogRef.current?.contains(active);
-    if (event.shiftKey && (active === first || active === dialogRef.current || outside)) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && (active === last || outside)) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[160] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm dark:bg-black/55"
-      onKeyDownCapture={handleKeyDownCapture}
-      onPointerDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <section
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={labelledBy}
-        aria-describedby={describedBy}
-        tabIndex={-1}
-        className={panelClassName}
-      >
-        {children}
-      </section>
-    </div>,
-    document.body,
-  );
-}
 
 type TodaySheetDetail = {
   kind: 'today';
@@ -135,6 +36,8 @@ export default function TaskSheet({
   onRemove,
   onComplete,
   onAdd,
+  onSaveTask,
+  tasksById,
 }: {
   detail: TaskSheetDetail;
   busy: boolean;
@@ -144,12 +47,16 @@ export default function TaskSheet({
   onRemove: MorningArrivalProps['onRemove'];
   onComplete: MorningArrivalProps['onComplete'];
   onAdd: (task: MorningArrivalBoardTask) => boolean | Promise<boolean>;
+  onSaveTask: (taskId: string, patch: Partial<Task>) => Promise<void>;
+  tasksById: ReadonlyMap<string, Task>;
 }) {
   const titleId = useId();
   const descriptionId = useId();
   const [addMessage, setAddMessage] = useState('');
   const [actionError, setActionError] = useState('');
   const [pendingAction, setPendingAction] = useState<'remove' | 'complete' | 'add'>();
+  const [savingTask, setSavingTask] = useState(false);
+  const [taskError, setTaskError] = useState('');
   const today = detail.kind === 'today' ? detail.view : undefined;
   const task = detail.kind === 'bench' ? detail.task : undefined;
   const title = today?.title ?? task?.title ?? '';
@@ -158,7 +65,8 @@ export default function TaskSheet({
     : task?.description?.trim();
   const project = today?.project ?? task?.project;
   const due = today?.deadline ?? task?.due;
-  const actionBusy = busy || pendingAction !== undefined;
+  const taskRecord = today?.task ?? (task ? tasksById.get(task.id) : undefined);
+  const actionBusy = busy || savingTask || pendingAction !== undefined;
 
   async function runTodayAction(
     action: 'remove' | 'complete',
@@ -180,6 +88,20 @@ export default function TaskSheet({
     }
   }
 
+  async function saveTask(patch: Partial<Task>) {
+    if (!taskRecord) return;
+    setTaskError('');
+    setSavingTask(true);
+    try {
+      await onSaveTask(taskRecord._id, patch);
+      onClose();
+    } catch {
+      setTaskError("Cove couldn't save those task details. Try again.");
+    } finally {
+      setSavingTask(false);
+    }
+  }
+
   async function addBenchTask() {
     if (!task) return;
     setAddMessage('');
@@ -189,7 +111,7 @@ export default function TaskSheet({
       const added = await onAdd(task);
       setPendingAction(undefined);
       if (added) onClose();
-      else setAddMessage('Today is full at 10. Move one task down before adding another.');
+      else setAddMessage('That task was not added. Try again.');
     } catch {
       setActionError("Cove couldn't add this task to today. Try again.");
       setPendingAction(undefined);
@@ -230,6 +152,16 @@ export default function TaskSheet({
         {project ?? 'No project'} <span aria-hidden="true">·</span> {due ? `due ${due}` : 'no due date'}
       </p>
 
+      {taskRecord && (
+        <TaskFieldsEditor
+          task={taskRecord}
+          saving={savingTask}
+          error={taskError}
+          onSave={saveTask}
+          onCancel={onClose}
+        />
+      )}
+
       {today && (
         <OwnerControl
           itemId={today.item.id}
@@ -260,7 +192,7 @@ export default function TaskSheet({
               onClick={() => void runTodayAction('remove', () => onRemove(
                 today.item.id,
                 today.title,
-                today.item.sourceRefs.some(
+                Boolean(taskRecord) || today.item.sourceRefs.some(
                   (source) => source.sourceType === 'task' && source.recordId === today.item.taskId,
                 ),
               ))}

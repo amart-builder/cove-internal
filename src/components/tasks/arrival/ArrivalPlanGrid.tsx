@@ -26,7 +26,7 @@ import {
 } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import type { MorningArrivalBoardTask, MorningArrivalItem, MorningArrivalProps } from '../MorningArrival';
-import AllWorkPicker, { TODAY_TAG_CLASS } from './AllWorkPicker';
+import type { Task } from '../TaskFieldsEditor';
 import TaskSheet, { type TaskSheetDetail } from './TaskSheet';
 
 export const INITIAL_PRIORITY_ZONE_ID = 'arrival-initial-priorities-zone';
@@ -35,6 +35,8 @@ export const NOT_TODAY_ZONE_ID = 'arrival-not-today-zone';
 // Kept as an alias for older callers that treated all of Today as one zone.
 export const TODAY_ZONE_ID = ALSO_TODAY_ZONE_ID;
 const BOARD_TASK_LIMIT = 7;
+const TODAY_TAG_CLASS = 'mb-2 inline-block rounded-full bg-muted px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground';
+const EXPANSION_KEY_PREFIX = 'cove.arrival.not-today-expanded.';
 
 const bucketCollisionDetection: CollisionDetection = (args) => {
   const pointerCollisions = pointerWithin(args);
@@ -427,8 +429,10 @@ function BenchCard({
 }
 
 export default function ArrivalPlanGrid({
+  localDate,
   todayItems,
   notTodayTasks,
+  tasksById,
   focusCount,
   busy,
   completingTaskId,
@@ -441,9 +445,12 @@ export default function ArrivalPlanGrid({
   onComplete,
   onCompleteBoardTask,
   onAddTask,
+  onSaveTask,
 }: {
+  localDate: string;
   todayItems: MorningArrivalItem[];
   notTodayTasks: MorningArrivalBoardTask[];
+  tasksById: ReadonlyMap<string, Task>;
   focusCount: 1 | 2 | 3;
   busy: boolean;
   completingTaskId?: string | null;
@@ -456,9 +463,10 @@ export default function ArrivalPlanGrid({
   onComplete: MorningArrivalProps['onComplete'];
   onCompleteBoardTask: MorningArrivalProps['onCompleteBoardTask'];
   onAddTask: MorningArrivalProps['onAddTask'];
+  onSaveTask: MorningArrivalProps['onSaveTask'];
 }) {
   const [openSheet, setOpenSheet] = useState<OpenTaskSheet>();
-  const [pickerTrigger, setPickerTrigger] = useState<HTMLElement | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const [dropNote, setDropNote] = useState<string>();
   const [activeDragId, setActiveDragId] = useState<string>();
   const pendingAddIdsRef = useRef(new Set<string>());
@@ -479,11 +487,21 @@ export default function ArrivalPlanGrid({
     : visibleFocusCount === 2
       ? 'sm:grid-cols-2'
       : 'sm:grid-cols-3';
-  const boardTasks = notTodayTasks.slice(0, BOARD_TASK_LIMIT);
-  const hiddenTaskCount = Math.max(0, notTodayTasks.length - boardTasks.length);
-  const allWorkTileLabel = hiddenTaskCount > 0
-    ? `${hiddenTaskCount} more in All Work`
-    : 'Browse All Work';
+  const boardTasks = expanded ? notTodayTasks : notTodayTasks.slice(0, BOARD_TASK_LIMIT);
+  const hiddenTaskCount = Math.max(0, notTodayTasks.length - BOARD_TASK_LIMIT);
+  const allWorkTileLabel = expanded ? 'Show fewer' : `${hiddenTaskCount} more in All Work`;
+
+  useEffect(() => {
+    let restored = false;
+    try {
+      restored = window.localStorage.getItem(`${EXPANSION_KEY_PREFIX}${localDate}`) === '1';
+    } catch {
+      restored = false;
+    }
+    // Restore the operator's saved expansion choice when the ritual day changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setExpanded(restored);
+  }, [localDate]);
 
   useEffect(() => {
     const todayTaskIds = new Set(orderedToday.map((view) => view.item.taskId));
@@ -494,23 +512,28 @@ export default function ArrivalPlanGrid({
 
   useEffect(() => {
     if (!escapeRef) return;
-    escapeRef.current = openSheet
-      ? () => setOpenSheet(undefined)
-      : pickerTrigger
-        ? () => setPickerTrigger(null)
-        : null;
+    escapeRef.current = openSheet ? () => setOpenSheet(undefined) : null;
     return () => {
       escapeRef.current = null;
     };
-  }, [escapeRef, openSheet, pickerTrigger]);
+  }, [escapeRef, openSheet]);
+
+  function toggleExpanded() {
+    onInteract?.();
+    const next = !expanded;
+    try {
+      const key = `${EXPANSION_KEY_PREFIX}${localDate}`;
+      if (next) window.localStorage.setItem(key, '1');
+      else window.localStorage.removeItem(key);
+    } catch {
+      // Expansion still works for this session when storage is unavailable.
+    }
+    setExpanded(next);
+  }
 
   async function addTask(task: MorningArrivalBoardTask) {
     onInteract?.();
     if (pendingAddIdsRef.current.has(task.id)) return true;
-    if (orderedToday.length + pendingAddIdsRef.current.size >= 10) {
-      setDropNote('Today is full at 10. Move one task down before adding another.');
-      return false;
-    }
     setDropNote(undefined);
     pendingAddIdsRef.current.add(task.id);
     try {
@@ -582,7 +605,13 @@ export default function ArrivalPlanGrid({
         : focusCount;
       if (nextFocusCount !== focusCount) await onFocusCountChange(nextFocusCount);
       try {
-        await onRemove(activeItemId, activeView.title, Boolean(activeView.item.taskId));
+        await onRemove(
+          activeItemId,
+          activeView.title,
+          Boolean(activeView.task) || activeView.item.sourceRefs.some(
+            (source) => source.sourceType === 'task' && source.recordId === activeView.item.taskId,
+          ),
+        );
       } catch (error) {
         if (nextFocusCount !== focusCount) await onFocusCountChange(focusCount);
         throw error;
@@ -781,21 +810,22 @@ export default function ArrivalPlanGrid({
                 No other open tasks are ready to plan.
               </li>
             )}
-            <li className="h-full">
-              <button
-                type="button"
-                className="press-scale flex h-full min-h-24 w-full flex-col items-center justify-center gap-1.5 rounded-[14px] border border-dashed bg-transparent px-[18px] py-4 text-[13px] font-medium text-muted-foreground outline-none transition-[transform,box-shadow,color,border-color] duration-150 hover:-translate-y-0.5 hover:border-muted-foreground/50 hover:text-foreground hover:shadow-md focus-visible:ring-2 focus-visible:ring-accent-blue/40 active:translate-y-0 active:shadow-sm motion-reduce:transform-none"
-                aria-label={allWorkTileLabel}
-                aria-haspopup="dialog"
-                onClick={(event) => {
-                  onInteract?.();
-                  setPickerTrigger(event.currentTarget);
-                }}
-              >
-                <span className="text-[17px] leading-none" aria-hidden="true">＋</span>
-                <span>{allWorkTileLabel}</span>
-              </button>
-            </li>
+            {hiddenTaskCount > 0 && (
+              <li className="h-full">
+                <button
+                  type="button"
+                  className="press-scale flex h-full min-h-24 w-full flex-col items-center justify-center gap-1.5 rounded-[14px] border border-dashed bg-transparent px-[18px] py-4 text-[13px] font-medium text-muted-foreground outline-none transition-[transform,box-shadow,color,border-color] duration-150 hover:-translate-y-0.5 hover:border-muted-foreground/50 hover:text-foreground hover:shadow-md focus-visible:ring-2 focus-visible:ring-accent-blue/40 active:translate-y-0 active:shadow-sm motion-reduce:transform-none"
+                  aria-label={allWorkTileLabel}
+                  aria-expanded={expanded}
+                  onClick={toggleExpanded}
+                >
+                  <span className="text-[17px] leading-none" aria-hidden="true">
+                    {expanded ? '−' : '＋'}
+                  </span>
+                  <span>{allWorkTileLabel}</span>
+                </button>
+              </li>
+            )}
           </ul>
           </ArrivalDropBucket>
         </section>
@@ -817,16 +847,8 @@ export default function ArrivalPlanGrid({
           onRemove={onRemove}
           onComplete={onComplete}
           onAdd={async (task) => Boolean(await addTask(task))}
-        />
-      )}
-      {pickerTrigger && (
-        <AllWorkPicker
-          todayItems={orderedToday}
-          boardTasks={notTodayTasks}
-          busy={busy}
-          returnFocus={pickerTrigger}
-          onAdd={async (task) => Boolean(await addTask(task))}
-          onClose={() => setPickerTrigger(null)}
+          onSaveTask={onSaveTask}
+          tasksById={tasksById}
         />
       )}
     </section>

@@ -24,6 +24,35 @@
 
 ---
 
+## 2026-09-02 Arrival inline All Work, task-backed items, card editor (DONE, see commit)
+
+- Goal (Alex): "+N more in All Work" expands the Not today section in place
+  instead of opening the Everything on your plate overlay; every revealed card
+  drags into Also today or Initial priorities; every card on Arrival and on
+  Closing Your Day opens an editor (title, description, priority, due date,
+  tags). Initial priorities cap stays at 3; the 10-item Today cap is gone;
+  expansion is remembered for the day; every plan item gets a real board task.
+- Build: ArrivalPlanGrid toggles `expanded` (localStorage key
+  `cove.arrival.not-today-expanded.<localDate>`), AllWorkPicker deleted.
+  store.ts insertBackingTask creates the tasks row inside the mutation
+  transaction for manual item_add and assistant create_item; the assistant
+  route's post-commit task writer is gone. New TaskFieldsEditor is embedded in
+  TaskSheet (Arrival, Today and bench cards) and opened from DaySettlement card
+  title buttons inside the extracted ModalScrim. Cards show live task title,
+  description, due date and project with the plan snapshot as fallback; task
+  edits are never written back into plan items. Shared tag helpers live in
+  src/lib/tasks/tags.ts. "Atlas" (the tasks table default project) no longer
+  shows as a project label.
+- Verified: held-out store script (backing task, 12 items accepted, missing
+  Today list rejected, 3-priority clamp), scratch-DB browser pass (expand,
+  persist across reload, drag a revealed card into Also today, edit a bench
+  card and a closeout card, values land in the tasks row), scoped lint clean.
+  Sol built, Opus 5 reviewed twice (all findings applied), Sol read-only
+  checked the driver's label edit.
+- Next: none planned. Possible follow-ups: a placement fallback so Reopen on a
+  task already done on the board keeps its original column; a test for
+  item_complete when the backing task was deleted between add and complete.
+
 ## 2026-09-02 Closing Your Day: Mark complete and Reopen (DONE, UNCOMMITTED)
 
 - Goal: let Alex mark an open item done while closing the day instead of only

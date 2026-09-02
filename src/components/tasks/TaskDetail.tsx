@@ -8,6 +8,7 @@ import type {
 } from '@/lib/task-sessions/types';
 import EmailCardDetail from './EmailCardDetail';
 import { TaskSessionLauncher } from './TaskSessionLauncher';
+import { tagsWithBlockedFlag, visibleTags } from '@/lib/tasks/tags';
 
 interface ColumnData {
   _id: string;
@@ -67,19 +68,6 @@ function formatTimestamp(epoch: number): string {
     hour: 'numeric',
     minute: '2-digit',
   });
-}
-
-function isBlockedTag(tag: string): boolean {
-  return tag.trim().toLowerCase() === 'blocked';
-}
-
-function visibleTags(tags: string[]): string[] {
-  return tags.filter((tag) => !isBlockedTag(tag));
-}
-
-function tagsWithBlockedFlag(tags: string[], blocked: boolean): string[] {
-  const tagsWithoutFlag = visibleTags(tags);
-  return blocked ? [...tagsWithoutFlag, 'blocked'] : tagsWithoutFlag;
 }
 
 export default function TaskDetail({

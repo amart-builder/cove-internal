@@ -27,6 +27,23 @@ function setup(
   focusCount = 3,
 ) {
   const file = path.join(os.tmpdir(), `cove-execution-${process.pid}-${Date.now()}-${Math.random()}.db`);
+  const boardDb = new Database(file);
+  boardDb.exec(`
+    CREATE TABLE task_columns (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE tasks (
+      id TEXT PRIMARY KEY, column_id TEXT, title TEXT NOT NULL, description TEXT,
+      priority TEXT, due_at TEXT, due_date TEXT, tags TEXT, project TEXT,
+      position REAL, status TEXT, archived_at TEXT, archived_from_status TEXT,
+      recurring_template_id TEXT, occurrence_local_date TEXT,
+      created_at TEXT, updated_at TEXT
+    );
+    INSERT INTO task_columns (id, name, position) VALUES
+      ('col-today', 'Must happen today', 10),
+      ('col-done', 'Done', 20);
+  `);
+  boardDb.close();
   const store = createDayPlanStore({
     dbPath: file,
     now: () => new Date('2026-07-10T16:00:00.000Z'),

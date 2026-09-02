@@ -16,6 +16,7 @@ export type ArrivalTask = {
   dueDate?: string;
   dueAt?: string;
   tags: string[];
+  project?: string;
   status?: ArrivalTaskStatus;
   proposedRecurrenceCadence?: string;
   recurringTemplateId?: string;
@@ -72,6 +73,7 @@ function isArrivalTask(value: unknown): value is ArrivalTask {
     (value.dueAt === undefined || typeof value.dueAt === 'string') &&
     Array.isArray(value.tags) &&
     value.tags.every((tag) => typeof tag === 'string') &&
+    (value.project === undefined || typeof value.project === 'string') &&
     (status === undefined || status === 'open' || status === 'done' || status === 'archived') &&
     (value.proposedRecurrenceCadence === undefined ||
       typeof value.proposedRecurrenceCadence === 'string') &&
