@@ -88,9 +88,10 @@ transaction.
 
 ## Follow-ups
 
-If the user implies a next step ("follow up Friday", "send him the proposal"),
-also create the task by following the cove-task skill: task on the board, due
-date, reminder. One capture, both systems updated.
+Sales next steps belong in the Cove pipeline. Follow the cove-pipeline skill to
+save the next action and follow-up date with the lead. Create a Cove board task
+only when the user explicitly asks for a task or reminder in addition to the
+pipeline follow-up.
 
 ## Answering questions
 

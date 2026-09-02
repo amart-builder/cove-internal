@@ -1442,6 +1442,38 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       `);
     },
   },
+  {
+    version: 21,
+    name: "pipeline-deals",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE pipeline_deals (
+          id TEXT PRIMARY KEY,
+          contact_id TEXT NOT NULL UNIQUE
+            REFERENCES contacts(id) ON DELETE CASCADE,
+          stage TEXT NOT NULL CHECK (stage IN (
+            'reach_out','keep_warm','interested','call_scheduled','pitched',
+            'discovery_ready','discovery_booked','proposal','client','lost','parked'
+          )),
+          monthly_value INTEGER
+            CHECK (monthly_value IS NULL OR monthly_value >= 0),
+          discovery_price INTEGER
+            CHECK (discovery_price IS NULL OR discovery_price >= 0),
+          next_action TEXT NOT NULL DEFAULT '',
+          next_follow_up_at TEXT,
+          source TEXT NOT NULL DEFAULT '',
+          notes TEXT NOT NULL DEFAULT '',
+          last_touch_at TEXT,
+          stage_changed_at TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX pipeline_deals_stage_idx ON pipeline_deals(stage);
+        CREATE INDEX pipeline_deals_next_follow_up_idx
+          ON pipeline_deals(next_follow_up_at);
+      `);
+    },
+  },
 ];
 
 function migrationTableExists(db: Database.Database, name: string): boolean {

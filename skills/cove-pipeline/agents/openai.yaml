@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cove Pipeline"
+  short_description: "Manage the local Cove sales pipeline"
+  default_prompt: "Use $cove-pipeline to review and update my Edge AI sales pipeline."

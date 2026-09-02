@@ -2,6 +2,15 @@ import { getDayPlanCsrfToken } from "./day-plan";
 import { coveRest } from "../supabase/rest";
 import type { Company, Contact, ContactActivity } from "./types";
 import { getRuntimeMode } from "../runtime/mode";
+import type { ContactResolution } from "../crm/types";
+import type {
+  LogPipelineTouchInput,
+  PipelineAttentionItem,
+  PipelineDealPatch,
+  PipelineDealWithContact,
+  PipelineStage,
+  PipelineSummary,
+} from "../crm/pipeline";
 
 type CRMListResponse = {
   contacts: Contact[];
@@ -17,6 +26,15 @@ type CRMCreationResponse = {
     contact: Contact;
     candidates: Array<{ id: string; name: string; email: string | null }>;
   };
+};
+
+export type PipelineResponse = {
+  deals: PipelineDealWithContact[];
+  stages: Array<{ id: PipelineStage; label: string }>;
+  summary: PipelineSummary;
+  attention: PipelineAttentionItem[];
+  today: string;
+  csrfToken: string;
 };
 
 async function crmGet<T>(query: Record<string, string>): Promise<T> {
@@ -65,6 +83,60 @@ export async function listContacts(search?: string): Promise<Contact[]> {
     ...(search ? { search } : {}),
   });
   return response.contacts;
+}
+
+export async function resolveContact(input: {
+  name: string;
+  email?: string;
+}): Promise<ContactResolution> {
+  const response = await crmPost<{ resolution: ContactResolution }>("resolve", {
+    name: input.name,
+    email: input.email,
+    source: "manual",
+  });
+  return response.resolution;
+}
+
+export async function fetchPipeline(today?: string): Promise<PipelineResponse> {
+  return crmGet<PipelineResponse>({
+    operation: "pipeline",
+    ...(today ? { today } : {}),
+  });
+}
+
+export async function upsertDeal(input: {
+  contactId: string;
+  stage?: PipelineStage;
+  patch: PipelineDealPatch;
+}): Promise<PipelineDealWithContact> {
+  const response = await crmPost<{ deal: PipelineDealWithContact }>(
+    "pipeline_upsert",
+    input,
+  );
+  return response.deal;
+}
+
+export async function moveDeal(
+  contactId: string,
+  stage: PipelineStage,
+  note?: string,
+): Promise<PipelineDealWithContact> {
+  const response = await crmPost<{ deal: PipelineDealWithContact }>(
+    "pipeline_move",
+    { contactId, stage, ...(note ? { note } : {}) },
+  );
+  return response.deal;
+}
+
+export async function logDealTouch(
+  contactId: string,
+  input: LogPipelineTouchInput,
+): Promise<PipelineDealWithContact> {
+  const response = await crmPost<{ deal: PipelineDealWithContact }>(
+    "pipeline_log_touch",
+    { contactId, ...input },
+  );
+  return response.deal;
 }
 
 export async function listCompanies(): Promise<Company[]> {

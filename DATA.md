@@ -15,11 +15,19 @@ Gmail remains authoritative for message content, drafts, sent replies, inbox mem
 | Briefs | immutable artifacts, action state, exact input metadata | `src/lib/day-plan/brief.ts`, `src/lib/claude-execution/brief-inputs.ts` |
 | Email workflow | canonical thread items, message claims, provider operation outbox, draft outcomes | `src/lib/email/` |
 | People | contacts, companies, relationship activities | `src/lib/crm/` |
+| Sales pipeline | one consulting deal per contact, stage, value, next action, follow-up date | `src/lib/crm/pipeline-store.ts` |
 | Meeting intelligence | normalized meeting envelopes, analyst artifacts, replay-safe action ledger | `src/lib/intake/meeting-analysis.ts` |
 | Automation | jobs, receipts, failures, health snapshots, attention ledger | `src/lib/reliability/`, `src/lib/attention/` |
 | Agent work | execution runs, task-session runs, child-process identity | `src/lib/claude-execution/`, `src/lib/task-sessions/` |
 
 Schema ownership and code ownership are mapped in `CODEBASE_GUIDE.md`.
+
+### Sales pipeline
+
+`pipeline_deals` stores one Edge AI consulting deal per contact. Deleting a
+contact deletes its deal. Stage changes and real touches are retained in
+`contact_activities`; administrative deal removal does not delete that history.
+Follow-up dates are calendar dates in `YYYY-MM-DD` form, never timestamps.
 
 ### Task reminder fields
 

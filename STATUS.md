@@ -24,7 +24,52 @@
 
 ---
 
-**Last updated:** 2026-08-30 (voice loop shipped as 573a64f: fingerprint in email drafts, email_draft_outcomes tracking, weekly voice-review lane; lane's launchd registration still needs one interactive `bash scripts/install-cove-local.sh` run — classifier-blocked in the cowork session. Meeting Intelligence committed as d1f4d91.)
+## 2026-09-01 Edge AI sales pipeline page (DONE, LIVE)
+
+- New full page at `/crm/pipeline` (People tab keeps a People | Pipeline
+  sub-nav). Attention-first grouped list, not a drag board: four tiles (client
+  MRR, open leads, overdue, due in 7 days), a "Needs attention" list (overdue,
+  no next action, no follow-up date), then every stage in funnel order with an
+  inline stage select, and a right detail pane with save-on-blur fields, a
+  "Log a touch" form, and the contact's real activity timeline.
+- Stages: reach_out, keep_warm, interested, call_scheduled, pitched,
+  discovery_ready, discovery_booked, proposal, client, lost, parked. Open =
+  everything except client, lost, parked. MRR counts client rows only.
+- Data: migration 21 `pipeline_deals` (one deal per contact, FK cascade, CHECK
+  constraints). Persistence lives in `src/lib/crm/pipeline-store.ts`, pure
+  rules in `src/lib/crm/pipeline.ts`. Stage changes write a `pipeline_stage`
+  row into `contact_activities` and never touch contact recency; only
+  `pipeline_log_touch` bumps `last_interaction_at`, atomically with the deal
+  update. `pipeline_upsert` cannot change stage after creation; only
+  `pipeline_move` or a touch can.
+- Only door is `/api/crm` (GET `operation=pipeline`, POST `pipeline_upsert`,
+  `pipeline_move`, `pipeline_log_touch`, `pipeline_remove`). Not in the
+  generic REST or Buddy allowlists. `merge` reparents a loser's deal or 409s
+  when both sides hold one; `delete` 409s while a deal is open or client.
+  Patch keys accept camelCase or snake_case.
+- Skill `skills/cove-pipeline/SKILL.md` is how Claude runs the pipeline; the
+  contact skill now routes sales next steps there.
+- Seeded from Alex's 2026-09-01 note through the skill door: 20 deals, 4
+  clients at $16,000 MRR, 16 open leads, 6 new contacts. Seed rerun created
+  zero duplicates.
+- Verification: held-out acceptance (history rows, no fake recency, stage lock,
+  atomic touch, merge reparent and 409) 4/4; full suite green with zero
+  failures; zero-warning ESLint; production build; live browser checks of
+  field save, touch logging, stage move, and the delete guard. Sol built, Opus
+  reviewed twice (one HIGH: detail pane remounted on every save and dropped
+  in-flight edits; fixed).
+- Concurrent-session note: another Claude session committed `local.ts` row
+  decoding as c9fb16d mid-build and released this session's lock once.
+- Next: run the pipeline daily from the skill (log every call/email/text,
+  keep every open lead with a next action and date); consider a morning brief
+  source for overdue follow-ups. Two LOW follow-ups from the final Opus gate
+  (PASS): key the save-on-blur in-flight guard per field so a failed save is
+  never reported as saved when two blurs race (`PipelineView.tsx` saveField),
+  and make the post-touch draft sync functional or disable the two next-step
+  inputs while a touch is submitting.
+- Blockers: none.
+
+**Last updated:** 2026-09-01 (Edge AI sales pipeline page live at /crm/pipeline, seeded with 20 deals; see block above). Previous: 2026-08-30 (voice loop shipped as 573a64f: fingerprint in email drafts, email_draft_outcomes tracking, weekly voice-review lane; lane's launchd registration still needs one interactive `bash scripts/install-cove-local.sh` run — classifier-blocked in the cowork session. Meeting Intelligence committed as d1f4d91.)
 
 ## 2026-08-30 Always-on meeting-analysis drain (DONE, UNCOMMITTED)
 

@@ -13,6 +13,7 @@ import {
 } from '@/lib/data/crm';
 import type { Company, Contact, ContactActivity } from '@/lib/data/types';
 import { useDataChanged } from '@/lib/data/refresh-bus';
+import CrmSubNav from './CrmSubNav';
 
 // Local-mode CRM. Contacts and relationship history use the dedicated /api/crm
 // interface; company CRUD keeps the existing local REST path. No account, no
@@ -186,9 +187,12 @@ export default function LocalCRMView() {
       {/* Left pane: list */}
       <section className="people-list-pane water-list-panel flex min-w-0 flex-1 flex-col overflow-hidden">
         <div className="water-toolbar people-toolbar flex flex-wrap items-center gap-3 border-b px-5 pb-4 pt-[64px]">
-          <div className="shrink-0">
-            <p className="water-eyebrow">Relationships</p>
-            <h1 className="water-workspace-title mt-1">People</h1>
+          <div className="flex shrink-0 items-end gap-3">
+            <div>
+              <p className="water-eyebrow">Relationships</p>
+              <h1 className="water-workspace-title mt-1">People</h1>
+            </div>
+            <CrmSubNav />
           </div>
 
           <div className="relative min-w-[180px] max-w-[280px] flex-1">

@@ -81,6 +81,7 @@ JSON.
 | --- | --- | --- | --- |
 | Today and All Work | `src/app/tasks/page.tsx` | `src/components/tasks/TaskWorkspace.tsx`, `TodayView.tsx`, `KanbanBoard.tsx` | `src/lib/day-plan/`, `src/lib/data/tasks.ts`, `src/lib/tasks/` |
 | People | `src/app/crm/page.tsx` | `src/components/crm/CRMView.tsx`, `LocalCRMView.tsx` | `src/lib/crm/`, `src/lib/data/crm.ts` |
+| Sales pipeline | `src/app/crm/pipeline/page.tsx` | `src/components/crm/PipelineView.tsx` | `src/lib/crm/pipeline.ts`, `pipeline-store.ts`, `src/lib/data/crm.ts` |
 | Buddy | Mounted from the root layout | `src/components/buddy/BuddyProvider.tsx`, `BuddyDock.tsx` | `src/lib/buddy/`, `/api/buddy/*` |
 | Issues | `src/app/failures/page.tsx` | `src/components/reliability/FailureInbox.tsx` | `src/lib/reliability/failures.ts` |
 | Guide | `src/app/guide/page.tsx` | Page-local presentation | User education only |

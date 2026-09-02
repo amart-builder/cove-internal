@@ -7,7 +7,24 @@ import {
   type MeetingContactActivityInput,
   type ResolveContactInput,
 } from "@/lib/crm";
+import {
+  attentionItems,
+  PIPELINE_STAGE_LABELS,
+  PIPELINE_STAGES,
+  parseCalendarDate,
+  pipelineSummary,
+  PipelineValidationError,
+  validatePipelinePatch,
+  validatePipelineStage,
+} from "@/lib/crm/pipeline";
+import {
+  LocalPipelineStore,
+  PipelineCollisionError,
+  PipelineNotFoundError,
+} from "@/lib/crm/pipeline-store";
+import { localDateInTimezone } from "@/lib/day-plan/brief";
 import type { Contact } from "@/lib/data/types";
+import { operatorTimezone } from "@/lib/operator";
 import { getQuietCurrentCsrfToken } from "@/lib/quiet-current/store";
 import { hasDayPlanRouteAccess } from "@/lib/request-security";
 import { getRuntimeMode } from "@/lib/runtime/mode";
@@ -36,6 +53,20 @@ function recordBody(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function contactIdFrom(value: Record<string, unknown>): string {
+  const contactId = value.contactId;
+  if (typeof contactId !== "string" || !contactId.trim()) {
+    throw new PipelineValidationError("Contact id is required.");
+  }
+  return contactId.trim();
+}
+
+function pipelineErrorStatus(error: unknown): number {
+  if (error instanceof PipelineCollisionError) return 409;
+  if (error instanceof PipelineNotFoundError) return 404;
+  return 400;
+}
+
 export async function GET(request: NextRequest) {
   if (getRuntimeMode() !== "local") {
     return NextResponse.json(
@@ -47,6 +78,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "CRM access is not allowed." }, { status: 403 });
   }
   const crm = createCRMBackend();
+  let pipelineStore: LocalPipelineStore | undefined;
   try {
     const operation = request.nextUrl.searchParams.get("operation") ?? "list";
     const csrfToken = getQuietCurrentCsrfToken();
@@ -70,13 +102,39 @@ export async function GET(request: NextRequest) {
         csrfToken,
       });
     }
+    if (operation === "pipeline") {
+      pipelineStore = new LocalPipelineStore();
+      const requestedToday = request.nextUrl.searchParams.get("today")?.trim();
+      const today = requestedToday || localDateInTimezone(
+        new Date(),
+        operatorTimezone(),
+      );
+      if (!parseCalendarDate(today)) {
+        throw new PipelineValidationError(
+          "today must be a calendar date in YYYY-MM-DD format.",
+        );
+      }
+      const deals = pipelineStore.list();
+      return NextResponse.json({
+        deals,
+        stages: PIPELINE_STAGES,
+        summary: pipelineSummary(deals, today),
+        attention: attentionItems(deals, today),
+        today,
+        csrfToken,
+      });
+    }
     throw new Error(`Unknown CRM operation: ${operation}`);
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "CRM request failed." },
-      { status: 400 },
+      {
+        error: error instanceof Error ? error.message : "CRM request failed.",
+        csrfToken: getQuietCurrentCsrfToken(),
+      },
+      { status: pipelineErrorStatus(error) },
     );
   } finally {
+    pipelineStore?.close();
     crm.close();
   }
 }
@@ -99,6 +157,8 @@ export async function POST(request: NextRequest) {
   }
 
   const crm = createCRMBackend();
+  let pipelineStore: LocalPipelineStore | undefined;
+  const csrfToken = getQuietCurrentCsrfToken();
   try {
     const body = recordBody(await request.json());
     const action = body.action;
@@ -109,6 +169,7 @@ export async function POST(request: NextRequest) {
         resolution: crm.resolveOrCreateContact(
           recordBody(input) as ResolveContactInput,
         ),
+        csrfToken,
       });
     }
     if (action === "explicit_create") {
@@ -116,6 +177,7 @@ export async function POST(request: NextRequest) {
         creation: crm.createContact(
           recordBody(input) as ExplicitCreateContactInput,
         ),
+        csrfToken,
       });
     }
     if (action === "append_activity") {
@@ -123,6 +185,7 @@ export async function POST(request: NextRequest) {
         activity: crm.appendActivity(
           recordBody(input) as AppendContactActivityInput,
         ),
+        csrfToken,
       });
     }
     if (action === "meeting_activity") {
@@ -131,6 +194,7 @@ export async function POST(request: NextRequest) {
           recordBody(input) as MeetingContactActivityInput,
           crm,
         ),
+        csrfToken,
       });
     }
     if (action === "update") {
@@ -145,13 +209,78 @@ export async function POST(request: NextRequest) {
       );
       if (!contact) {
         return NextResponse.json(
-          { error: "Contact was not found." },
+          { error: "Contact was not found.", csrfToken },
           { status: 404 },
         );
       }
-      return NextResponse.json({ contact });
+      return NextResponse.json({ contact, csrfToken });
+    }
+    if (action === "pipeline_upsert") {
+      pipelineStore ??= new LocalPipelineStore();
+      const upsert = recordBody(input);
+      const contactId = contactIdFrom(upsert);
+      const patch = validatePipelinePatch(upsert.patch);
+      const existing = pipelineStore.get(contactId);
+      if (existing) {
+        if (Object.hasOwn(upsert, "stage")) {
+          throw new PipelineValidationError(
+            "An existing deal must change stage through pipeline_move.",
+          );
+        }
+        return NextResponse.json({
+          deal: pipelineStore.update(contactId, patch),
+          csrfToken,
+        });
+      }
+      if (!Object.hasOwn(upsert, "stage")) {
+        throw new PipelineValidationError("Stage is required for a new deal.");
+      }
+      return NextResponse.json({
+        deal: pipelineStore.create({
+          contactId,
+          stage: validatePipelineStage(upsert.stage),
+          ...patch,
+        }),
+        csrfToken,
+      });
+    }
+    if (action === "pipeline_move") {
+      pipelineStore ??= new LocalPipelineStore();
+      const move = recordBody(input);
+      return NextResponse.json({
+        deal: pipelineStore.move(
+          contactIdFrom(move),
+          move.stage,
+          move.note,
+        ),
+        csrfToken,
+      });
+    }
+    if (action === "pipeline_log_touch") {
+      pipelineStore ??= new LocalPipelineStore();
+      const touch = recordBody(input);
+      const contactId = contactIdFrom(touch);
+      const touchInput = Object.fromEntries(
+        Object.entries(touch).filter(([key]) => key !== "contactId"),
+      );
+      return NextResponse.json({
+        deal: pipelineStore.logTouch(contactId, touchInput),
+        csrfToken,
+      });
+    }
+    if (action === "pipeline_remove") {
+      pipelineStore ??= new LocalPipelineStore();
+      const removal = recordBody(input);
+      if (!pipelineStore.remove(contactIdFrom(removal))) {
+        return NextResponse.json(
+          { error: "Pipeline deal was not found.", csrfToken },
+          { status: 404 },
+        );
+      }
+      return NextResponse.json({ ok: true, csrfToken });
     }
     if (action === "merge") {
+      pipelineStore ??= new LocalPipelineStore();
       // Merging is a human decision made through this API; the email lane
       // and the classifier have no path to it.
       const merge = recordBody(input);
@@ -163,31 +292,52 @@ export async function POST(request: NextRequest) {
       ) {
         throw new Error("Merge requires winnerId and loserId.");
       }
+      // Pipeline reparenting and CRM merging use separate store connections.
+      // Reparent first so a collision stops the merge, but a later CRM failure
+      // cannot be rolled back across both connections.
+      pipelineStore.reparent(loserId, winnerId);
       return NextResponse.json({
         contact: crm.mergeContacts({ winnerId, loserId }),
+        csrfToken,
       });
     }
     if (action === "delete") {
+      pipelineStore ??= new LocalPipelineStore();
       const deletion = recordBody(input);
       const contactId = deletion.contactId;
       if (typeof contactId !== "string" || !contactId.trim()) {
         throw new Error("Contact id is required.");
       }
-      if (!crm.deleteContact(contactId)) {
+      const normalizedContactId = contactId.trim();
+      const deal = pipelineStore.get(normalizedContactId);
+      if (deal && deal.stage !== "lost" && deal.stage !== "parked") {
         return NextResponse.json(
-          { error: "Contact was not found." },
+          {
+            error: `This person is in the sales pipeline (${PIPELINE_STAGE_LABELS[deal.stage]}). Mark them lost or parked first.`,
+            csrfToken,
+          },
+          { status: 409 },
+        );
+      }
+      if (!crm.deleteContact(normalizedContactId)) {
+        return NextResponse.json(
+          { error: "Contact was not found.", csrfToken },
           { status: 404 },
         );
       }
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, csrfToken });
     }
     throw new Error(`Unknown CRM action: ${action}`);
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "CRM request failed." },
-      { status: 400 },
+      {
+        error: error instanceof Error ? error.message : "CRM request failed.",
+        csrfToken,
+      },
+      { status: pipelineErrorStatus(error) },
     );
   } finally {
+    pipelineStore?.close();
     crm.close();
   }
 }
