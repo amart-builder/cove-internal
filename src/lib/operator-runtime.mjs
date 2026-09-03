@@ -5,21 +5,21 @@ import { coveConfigPath, coveEnvTrimmed } from "./env-runtime.mjs";
 
 let cachedOperatorProfile;
 
-export function coveDataDir(explicit) {
+export function coveDataDir(explicit, env = process.env) {
   if (explicit) return explicit;
-  const configured = coveEnvTrimmed("DATA_DIR");
+  const configured = coveEnvTrimmed("DATA_DIR", env);
   if (configured) return configured;
-  const dbPath = coveEnvTrimmed("DB_PATH");
+  const dbPath = coveEnvTrimmed("DB_PATH", env);
   return dbPath ? path.dirname(dbPath) : path.join(process.cwd(), "data");
 }
 
-export function operatorProfilePath(dataDir) {
-  return coveEnvTrimmed("PROFILE_PATH") ??
-    coveConfigPath(coveDataDir(dataDir), "profile.json");
+export function operatorProfilePath(dataDir, env = process.env) {
+  return coveEnvTrimmed("PROFILE_PATH", env) ??
+    coveConfigPath(coveDataDir(dataDir, env), "profile.json");
 }
 
-export function loadOperatorProfile() {
-  const profilePath = operatorProfilePath();
+export function loadOperatorProfile(dataDir, env = process.env) {
+  const profilePath = operatorProfilePath(dataDir, env);
   try {
     const stats = statSync(profilePath);
     if (
@@ -53,10 +53,10 @@ export function loadOperatorProfile() {
  */
 export const OPERATOR_NAME_FALLBACK = "the operator";
 
-export function operatorName() {
-  const envName = coveEnvTrimmed("OPERATOR_NAME");
+export function operatorName(dataDir, env = process.env) {
+  const envName = coveEnvTrimmed("OPERATOR_NAME", env);
   if (envName) return envName;
-  const profileName = loadOperatorProfile()?.name;
+  const profileName = loadOperatorProfile(dataDir, env)?.name;
   return typeof profileName === "string" && profileName.trim()
     ? profileName.trim()
     : OPERATOR_NAME_FALLBACK;

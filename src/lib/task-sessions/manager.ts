@@ -28,7 +28,7 @@ import { Writable } from "node:stream";
 import { resolveProjectDirectory } from "../atlas-projects";
 import { coveEnv } from "../env";
 import { openLocalDatabase } from "../local/database";
-import { coveDataDir, operatorTimezone } from "../operator";
+import { coveDataDir, operatorName, operatorTimezone } from "../operator";
 import { recordReceipt } from "../reliability/receipts";
 import {
   completeSpawnedChild,
@@ -138,6 +138,19 @@ const SESSION_SYSTEM_PROMPT = [
   "Never attempt to bypass Claude Code permissions.",
 ].join("\n");
 
+function sessionOperatorName(value: string | undefined): string {
+  const name = value?.replace(/\s+/g, " ").trim().slice(0, 120);
+  return name && name !== "the operator" ? name : "the Cove operator";
+}
+
+function renderedSessionSystemPrompt(name: string): string {
+  return [
+    `You are working with ${name} in a session that Cove opened. Cove is their task system: it plans their day every morning, and this task is on today's plan.`,
+    "",
+    SESSION_SYSTEM_PROMPT,
+  ].join("\n");
+}
+
 const AUTONOMOUS_SESSION_TOOLS = [
   "Bash",
   "Edit",
@@ -201,8 +214,10 @@ export function buildTaskSessionPrompt(input: {
   mode: TaskSessionLaunchMode;
   outputDir: string;
   promptSnapshot: TaskSessionPromptSnapshot;
+  operatorDisplayName?: string;
 }): string {
   const task = input.promptSnapshot;
+  const name = sessionOperatorName(input.operatorDisplayName);
   const brief = boundedTaskBrief(task.brief);
   const cleanLine = (value: string | undefined) =>
     value === undefined
@@ -211,15 +226,13 @@ export function buildTaskSessionPrompt(input: {
   const due = humanDueDate(task.dueAt);
   const success = cleanLine(task.outcome) || (
     input.mode === "planning"
-      ? "a plan Alex can act on immediately, with his open decisions resolved"
-      : "the deliverable finished and verified, with anything that genuinely needs Alex called out at the end"
+      ? `a plan ${name} can act on immediately, with their open decisions resolved`
+      : `the deliverable finished and verified, with anything that genuinely needs ${name} called out at the end`
   );
   const modeInstructions = input.mode === "planning"
-    ? `Alex started this session in planning mode. Work with him to turn this into a concrete, grounded plan: investigate what you need, surface only the decisions he actually has to make, and recommend a default for each. Do not edit files or execute the task. Success looks like: ${success}.`
-    : `Alex started this session in auto mode. Execute the task end to end. Success looks like: ${success}.`;
+    ? `${name} started this session in planning mode. Work with them to turn this into a concrete, grounded plan: investigate what you need, surface only the decisions they actually have to make, and recommend a default for each. Do not edit files or execute the task. Success looks like: ${success}.`
+    : `${name} started this session in auto mode. Execute the task end to end. Success looks like: ${success}.`;
   return [
-    "You are working with Alex Martin, founder of Edge AI, in a session that Cove opened. Cove is Alex's task system: it plans his day every morning, and this task is on today's plan.",
-    "",
     `# ${cleanLine(task.title)}`,
     "",
     ...(task.whyToday ? [`Why it's on today's plan: ${cleanLine(task.whyToday)}`] : []),
@@ -257,9 +270,11 @@ export function buildTaskSessionCommand(input: {
   workspacePath?: string;
   title: string;
   promptSnapshot: TaskSessionPromptSnapshot;
+  operatorDisplayName?: string;
 }): TaskSessionCommand {
   const permission = permissionMode(input.mode);
   const title = input.title.replace(/\s+/g, " ").trim();
+  const name = sessionOperatorName(input.operatorDisplayName);
   return {
     executable: input.claudePath,
     cwd: input.workspacePath ?? input.outputDir,
@@ -270,7 +285,7 @@ export function buildTaskSessionCommand(input: {
       "--name",
       `Cove: ${title.slice(0, 80)}`,
       "--append-system-prompt",
-      SESSION_SYSTEM_PROMPT,
+      renderedSessionSystemPrompt(name),
       "--permission-mode",
       input.mode === "auto" ? "auto" : permission,
       "--safe-mode",
@@ -297,6 +312,7 @@ export function buildTaskSessionCommand(input: {
       mode: input.mode,
       outputDir: input.outputDir,
       promptSnapshot: input.promptSnapshot,
+      operatorDisplayName: name,
     }),
   };
 }
@@ -684,7 +700,10 @@ export function createTaskSessionManager(
   });
   const startedAtForPid = dependencies.processStartedAt ?? processStartedAt;
   const terminationGraceMs = dependencies.terminationGraceMs ?? 2_000;
-  const dataDir = coveDataDir(dependencies.dataDir ?? path.dirname(dependencies.dbPath));
+  const dataDir = coveDataDir(
+    dependencies.dataDir ?? path.dirname(dependencies.dbPath),
+    env,
+  );
   const claudePath = dependencies.claudePath ??
     coveEnv("CLAUDE_BIN") ??
     path.join(os.homedir(), ".local", "bin", "claude");
@@ -1084,6 +1103,7 @@ export function createTaskSessionManager(
       workspacePath,
       title: authoritativePromptSnapshot.title,
       promptSnapshot: authoritativePromptSnapshot,
+      operatorDisplayName: operatorName(dataDir, env),
     });
     let child: ChildProcessWithoutNullStreams;
     try {

@@ -190,7 +190,14 @@ test('clicked session modes are structural and never construct bypassPermissions
         /do not take binding or final actions/i,
       );
       assert.match(command.stdin, /\[task notes\]/);
-      assert.match(command.stdin, /Cove is Alex's task system/);
+      assert.match(
+        command.args[command.args.indexOf('--append-system-prompt') + 1],
+        /You are working with the Cove operator.*Cove is their task system/,
+      );
+      assert.doesNotMatch(
+        `${command.args[command.args.indexOf('--append-system-prompt') + 1]}\n${command.stdin}`,
+        /Alex|Edge AI/,
+      );
       assert.match(command.stdin, /Put anything you produce in \/tmp\/cove outputs/);
       assert.equal(/[—–]/.test(command.stdin), false);
       const tools = command.args[command.args.indexOf('--tools') + 1];
@@ -205,6 +212,43 @@ test('clicked session modes are structural and never construct bypassPermissions
       );
       assert.equal(command.args[command.args.indexOf('--effort') + 1], 'high');
     }
+  }
+});
+
+test('launched sessions render the configured operator name with a neutral fallback', (t) => {
+  const configured = fixture(t);
+  writeFileSync(
+    path.join(configured.dir, 'cove-profile.json'),
+    JSON.stringify({ name: 'Configured Operator' }),
+  );
+  configured.manager.launch({
+    taskId: 'task-configured-operator',
+    owner: 'together',
+    mode: 'planning',
+    promptSnapshot: SNAPSHOT,
+  });
+  const configuredCommand = configured.spawnCalls[0];
+  const configuredSystemPrompt = configuredCommand.args[
+    configuredCommand.args.indexOf('--append-system-prompt') + 1
+  ];
+  assert.match(configuredSystemPrompt, /You are working with Configured Operator/);
+  assert.match(configuredSystemPrompt, /Cove is their task system/);
+
+  const fallback = fixture(t);
+  fallback.manager.launch({
+    taskId: 'task-fallback-operator',
+    owner: 'claude',
+    mode: 'auto',
+    promptSnapshot: SNAPSHOT,
+  });
+  const fallbackCommand = fallback.spawnCalls[0];
+  const fallbackSystemPrompt = fallbackCommand.args[
+    fallbackCommand.args.indexOf('--append-system-prompt') + 1
+  ];
+  assert.match(fallbackSystemPrompt, /You are working with the Cove operator/);
+  for (const command of [configuredCommand, fallbackCommand]) {
+    const fullPrompt = `${command.args[command.args.indexOf('--append-system-prompt') + 1]}\n${command.child.stdin.read() ?? ''}`;
+    assert.doesNotMatch(fullPrompt, /Alex|Edge AI/);
   }
 });
 
@@ -726,7 +770,7 @@ test('task session endings notify once while user-abandoned runs stay silent', a
     mode: 'auto',
     promptSnapshot: { ...SNAPSHOT, title: 'Prepare the finished package' },
   });
-  const autoSummary = 'Finished the package and checked every requested output before leaving it ready for Alex to inspect in the Claude app.';
+  const autoSummary = 'Finished the package and checked every requested output before leaving it ready for the operator to inspect in the Claude app.';
   children[1].stdout.write(`${JSON.stringify({
     type: 'result',
     result: autoSummary,

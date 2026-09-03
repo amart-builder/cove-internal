@@ -2,20 +2,32 @@ import * as runtime from "./operator-runtime.mjs";
 
 export type OperatorProfile = Record<string, unknown>;
 
-export function coveDataDir(explicit?: string): string {
-  return runtime.coveDataDir(explicit);
+export function coveDataDir(
+  explicit?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return runtime.coveDataDir(explicit, env);
 }
 
-export function operatorProfilePath(dataDir?: string): string {
-  return runtime.operatorProfilePath(dataDir);
+export function operatorProfilePath(
+  dataDir?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return runtime.operatorProfilePath(dataDir, env);
 }
 
-export function loadOperatorProfile(): OperatorProfile | undefined {
-  return runtime.loadOperatorProfile() as OperatorProfile | undefined;
+export function loadOperatorProfile(
+  dataDir?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): OperatorProfile | undefined {
+  return runtime.loadOperatorProfile(dataDir, env) as OperatorProfile | undefined;
 }
 
-export function operatorName(): string {
-  return runtime.operatorName();
+export function operatorName(
+  dataDir?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return runtime.operatorName(dataDir, env);
 }
 
 export function operatorTimezone(): string {

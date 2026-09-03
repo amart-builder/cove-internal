@@ -75,7 +75,7 @@ test("weekly review resolves outcomes, finds own writing, writes a digest, and m
   // lookback, so this only passes through the literal-trailing-signature strip.
   writeSignature({
     dataDir: dir,
-    html: "<div>Best,<br>Alex Martin<br>Founder, Edge AI<br>+1 555 123 4567<br>edge-ai.example</div>",
+    html: "<div>Best,<br>Alex Example<br>Founder, Example Co<br>+1 555 123 4567<br>edge-ai.example</div>",
     metadata: {
       sendAsEmail: "alex@example.com",
       fetchedAt: now.toISOString(),
@@ -86,13 +86,13 @@ test("weekly review resolves outcomes, finds own writing, writes a digest, and m
     "thread-unedited": [message({
       id: "sent-unedited",
       threadId: "thread-unedited",
-      text: "Looks good.\n\nBest,\nAlex Martin\nFounder, Edge AI\n+1 555 123 4567\nedge-ai.example",
+      text: "Looks good.\n\nBest,\nAlex Example\nFounder, Example Co\n+1 555 123 4567\nedge-ai.example",
       internalDate: "2026-08-28T14:00:00.000Z",
     })],
     "thread-edited": [message({
       id: "sent-edited",
       threadId: "thread-edited",
-      text: "Looks great.\n\nBest,\nAlex Martin\nFounder, Edge AI\n+1 555 123 4567\nedge-ai.example",
+      text: "Looks great.\n\nBest,\nAlex Example\nFounder, Example Co\n+1 555 123 4567\nedge-ai.example",
       internalDate: "2026-08-28T15:00:00.000Z",
     })],
     "thread-abandoned": [],
