@@ -60,7 +60,7 @@ test("stripTrailingSignature also removes a model-invented sign-off variant", ()
     "I'll send it over tomorrow.",
   );
   assert.equal(
-    stripTrailingSignature("Sounds good.\n\nCheers,\nAlex Martin\nFounder at Edge AI", null),
+    stripTrailingSignature("Sounds good.\n\nCheers,\nAlex Example\nFounder at Edge AI", null),
     "Sounds good.",
   );
 });

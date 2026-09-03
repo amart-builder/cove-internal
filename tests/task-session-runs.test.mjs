@@ -456,25 +456,25 @@ test('task sessions fall back to Cove outputs when no Atlas project resolves', a
 });
 
 test('task sessions resolve a project from the title and launch from that workspace', (t) => {
-  const projectDir = '/Users/example/Atlas/Projects/slipstream';
+  const projectDir = '/Users/example/Atlas/Projects/newsletter';
   const hints = [];
   const { manager, spawnCalls } = fixture(t, {
     resolveProjectDirectory: (hint) => {
       hints.push(hint);
-      return hint.includes('Slipstream') ? projectDir : null;
+      return hint.includes('newsletter') ? projectDir : null;
     },
   });
   const run = manager.launch({
-    taskId: 'task-slipstream',
+    taskId: 'task-newsletter',
     owner: 'together',
     mode: 'planning',
     promptSnapshot: {
       ...SNAPSHOT,
-      title: 'Finish Slipstream newsletter issues 2 and 3',
+      title: 'Finish newsletter issues 2 and 3',
     },
   });
 
-  assert.deepEqual(hints, ['Finish Slipstream newsletter issues 2 and 3']);
+  assert.deepEqual(hints, ['Finish newsletter issues 2 and 3']);
   assert.equal(run.workspacePath, projectDir);
   assert.equal(spawnCalls[0].options.cwd, projectDir);
   assert.match(
