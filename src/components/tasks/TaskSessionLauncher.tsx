@@ -8,11 +8,30 @@ import type {
 } from '@/lib/task-sessions/types';
 import {
   ACTIVE_TASK_SESSION_STATUSES,
+  TASK_SESSION_STALE_ESCAPE_MS,
   TASK_SESSION_STATUS_LABELS,
 } from '@/lib/task-sessions/types';
 
 function modeLabel(mode: TaskSessionLaunchMode): string {
   return mode === 'planning' ? 'Planning' : 'Auto';
+}
+
+export function taskSessionPillLabel(
+  run: Pick<TaskSessionRun, 'permissionMode' | 'status'>,
+): string {
+  const mode = modeLabel(run.permissionMode === 'plan' ? 'planning' : 'auto');
+  if (run.status === 'output_ready') return `${mode} finished · Open in Claude`;
+  if (run.status === 'failed') return `${mode} stopped · Open in Claude`;
+  return `${mode} · ${TASK_SESSION_STATUS_LABELS[run.status]}`;
+}
+
+export function taskSessionRunNeedsEscape(
+  run: Pick<TaskSessionRun, 'status' | 'updatedAt'>,
+  nowMs = Date.now(),
+): boolean {
+  if (run.status !== 'running') return false;
+  const updatedAt = new Date(run.updatedAt).getTime();
+  return Number.isFinite(updatedAt) && nowMs - updatedAt >= TASK_SESSION_STALE_ESCAPE_MS;
 }
 
 function modeForOwner(owner: TaskSessionOwner): TaskSessionLaunchMode {
@@ -65,18 +84,30 @@ export function TaskSessionLauncher({
     ? 'min-h-8 rounded-full border px-2 text-[12px] font-medium'
     : 'min-h-9 rounded-full border px-3 text-xs font-medium';
 
-  if (run && ACTIVE_TASK_SESSION_STATUSES.has(run.status)) {
+  if (run?.status === 'running') {
+    const showEscape = taskSessionRunNeedsEscape(run);
     return (
-      <a
-        href={run.resumeUrl}
-        className={`${baseClass} press-scale inline-flex items-center border-accent-blue/35 bg-accent-blue/10 text-foreground`}
-        title={run.hint}
+      <span
+        className="inline-flex items-center gap-2"
         onPointerDown={stopPointer}
         onMouseDown={stopPointer}
         onClick={stopPointer}
       >
-        {modeLabel(run.permissionMode === 'plan' ? 'planning' : 'auto')} · {TASK_SESSION_STATUS_LABELS[run.status]}
-      </a>
+        <span
+          className={`${baseClass} press-scale inline-flex items-center border-accent-blue/35 bg-accent-blue/10 text-foreground`}
+          title="Claude is working in the background. You'll get a notification when it's ready."
+        >
+          {taskSessionPillLabel(run)}
+        </span>
+        {showEscape && (
+          <a
+            href={run.resumeUrl}
+            className="press-scale text-[11px] font-medium text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
+          >
+            Open in Claude
+          </a>
+        )}
+      </span>
     );
   }
 
@@ -102,7 +133,7 @@ export function TaskSessionLauncher({
             onMouseDown={stopPointer}
             onClick={stopPointer}
           >
-            {modeLabel(run.permissionMode === 'plan' ? 'planning' : 'auto')} · {TASK_SESSION_STATUS_LABELS[run.status]}
+            {taskSessionPillLabel(run)}
           </a>
         )}
         {modes.map((mode) => (

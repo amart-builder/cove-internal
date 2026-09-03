@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto";
 import {
   chmodSync,
   closeSync,
+  existsSync,
   mkdirSync,
   openSync,
   writeSync,
@@ -32,6 +33,7 @@ import { recordReceipt } from "../reliability/receipts";
 import {
   completeSpawnedChild,
   currentBootId,
+  hasLiveOwnerServer,
   pruneSpawnedChildren,
   reapSpawnedChildren,
   registerSpawnedChild,
@@ -44,6 +46,10 @@ import {
 import { minimalChildEnvironment } from "../claude-execution/worker";
 import { markCoveOrchestratorSession } from "../claude-execution/orchestrator-session";
 import { buildClaudeResumeCommand } from "../claude-execution/resume-command";
+import {
+  spawnNativeNotification,
+  type NativeNotificationInput,
+} from "../claude-execution/notify";
 import type {
   LaunchTaskSessionInput,
   TaskSessionEffort,
@@ -54,8 +60,13 @@ import type {
   TaskSessionRun,
   TaskSessionRunStatus,
 } from "./types";
+import { TASK_SESSION_TIMEOUT_MS } from "./types";
 
 export const TASK_SESSION_ACTIVE_LIMIT = 6;
+const AUTO_MAX_BUDGET_USD = "3.00";
+// The old 1.50 plan cap killed real planning runs after four to five minutes.
+const PLANNING_MAX_BUDGET_USD = "5.00";
+const FOREIGN_RUN_PID_ASSIGNMENT_GRACE_MS = 2 * 60 * 1000;
 
 export class TaskSessionCapacityError extends Error {
   readonly code = "task_session_capacity";
@@ -273,7 +284,7 @@ export function buildTaskSessionCommand(input: {
       path.join(process.cwd(), "scripts", "cove-empty-mcp.json"),
       "--no-chrome",
       "--max-budget-usd",
-      input.mode === "auto" ? "3.00" : "1.50",
+      input.mode === "auto" ? AUTO_MAX_BUDGET_USD : PLANNING_MAX_BUDGET_USD,
       "--model",
       input.modelDecision.model,
       "--effort",
@@ -474,12 +485,86 @@ function fromRow(row: TaskSessionRunRow): TaskSessionRun {
   };
 }
 
+type TaskSessionNotificationHandle = {
+  once?: (event: "error", listener: (error: Error) => void) => unknown;
+};
+
+function cleanNotificationText(value: string): string {
+  return value.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function finalResultSubtype(raw: string): string | undefined {
+  let subtype: string | undefined;
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      const event = JSON.parse(line) as Record<string, unknown>;
+      if (event.type === "result" && typeof event.subtype === "string") {
+        subtype = event.subtype;
+      }
+    } catch {
+      // Non-JSON output is retained in the run logs but cannot describe a result subtype.
+    }
+  }
+  return subtype;
+}
+
+function failedNotificationBody(errorCode: string | undefined): string {
+  if (errorCode === "error_max_budget_usd") return "Budget reached before it finished.";
+  if (errorCode === "session_timeout") return "It timed out.";
+  if (errorCode === "error_max_turns") return "It hit its step limit.";
+  if (errorCode === "error_during_execution") return "It hit an error partway.";
+  if (!errorCode || errorCode === "claude_failed" || errorCode === "orphan_reaped") {
+    return "It didn't finish.";
+  }
+  return "It crashed.";
+}
+
+function taskSessionFinishNotification(
+  run: TaskSessionRun,
+  openUrlSupported: boolean,
+): NativeNotificationInput {
+  const title = cleanNotificationText(run.promptSnapshot.title).slice(0, 160) || "Task";
+  const planning = run.permissionMode === "plan";
+  let body: string;
+  let notificationTitle: string;
+  if (run.status === "output_ready") {
+    notificationTitle = `${planning ? "Planning" : "Auto"} finished: ${title}`;
+    body = planning
+      ? "Open it in Claude to review the plan and start."
+      : cleanNotificationText(run.resultSummary ?? "").slice(0, 120) ||
+        "Open it in Claude to see what it did.";
+  } else {
+    notificationTitle = `${planning ? "Planning" : "Auto"} stopped: ${title}`;
+    body = failedNotificationBody(run.errorCode);
+  }
+  if (!openUrlSupported) body = `${body} Task: ${title}.`;
+  return {
+    title: notificationTitle,
+    body,
+    group: run.id,
+    openUrl: run.resumeUrl,
+  };
+}
+
 function processCommand(pid: number): string | undefined {
   try {
     return execFileSync("/bin/ps", ["-p", String(pid), "-o", "command="], {
       encoding: "utf8",
       timeout: 2_000,
       maxBuffer: 64 * 1024,
+    }).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function processStartedAt(pid: number): string | undefined {
+  try {
+    return execFileSync("/bin/ps", ["-p", String(pid), "-o", "lstart="], {
+      encoding: "utf8",
+      timeout: 2_000,
+      maxBuffer: 16 * 1024,
     }).trim() || undefined;
   } catch {
     return undefined;
@@ -550,12 +635,18 @@ export type TaskSessionManagerDependencies = {
   randomId?: () => string;
   timeoutMs?: number;
   terminationGraceMs?: number;
+  env?: NodeJS.ProcessEnv;
+  processExists?: (pid: number) => boolean;
+  processStartedAt?: (pid: number) => string | undefined;
   routeModel?: (input: {
     claudePath: string;
     mode: TaskSessionLaunchMode;
     promptSnapshot: TaskSessionPromptSnapshot;
   }) => TaskSessionModelDecision;
   resolveProjectDirectory?: (hint: string) => string | null;
+  notify?: (input: NativeNotificationInput) => TaskSessionNotificationHandle | void;
+  notificationOpenUrlSupported?: boolean;
+  logWarning?: (message: string, error: unknown) => void;
 };
 
 export function createTaskSessionManager(
@@ -572,7 +663,26 @@ export function createTaskSessionManager(
   const markSession = dependencies.markSession ?? markCoveOrchestratorSession;
   const randomId = dependencies.randomId ?? randomUUID;
   const projectDirectoryResolver = dependencies.resolveProjectDirectory ?? resolveProjectDirectory;
-  const timeoutMs = dependencies.timeoutMs ?? 45 * 60 * 1000;
+  const notify = dependencies.notify ?? spawnNativeNotification;
+  const env = dependencies.env ?? process.env;
+  const notificationsEnabled = coveEnv("NOTIFY", env) === "1";
+  const notificationOpenUrlSupported = dependencies.notificationOpenUrlSupported ?? (() => {
+    const notificationApp = coveEnv("NOTIFICATION_APP", env)?.trim();
+    return Boolean(notificationApp && existsSync(notificationApp));
+  })();
+  const logWarning = dependencies.logWarning ?? ((message: string, error: unknown) => {
+    console.warn(message, error);
+  });
+  const timeoutMs = dependencies.timeoutMs ?? TASK_SESSION_TIMEOUT_MS;
+  const processExists = dependencies.processExists ?? ((pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  const startedAtForPid = dependencies.processStartedAt ?? processStartedAt;
   const terminationGraceMs = dependencies.terminationGraceMs ?? 2_000;
   const dataDir = coveDataDir(dependencies.dataDir ?? path.dirname(dependencies.dbPath));
   const claudePath = dependencies.claudePath ??
@@ -718,6 +828,18 @@ export function createTaskSessionManager(
     return run;
   }
 
+  function notifyFinishedRun(run: TaskSessionRun): void {
+    if (!notificationsEnabled) return;
+    try {
+      const handle = notify(taskSessionFinishNotification(run, notificationOpenUrlSupported));
+      handle?.once?.("error", (error) => {
+        logWarning(`Task session notification failed for ${run.id}.`, error);
+      });
+    } catch (error) {
+      logWarning(`Task session notification failed for ${run.id}.`, error);
+    }
+  }
+
   function finish(
     runId: string,
     result: { exitCode?: number; errorCode?: string; resultSummary?: string },
@@ -747,6 +869,7 @@ export function createTaskSessionManager(
         ? `Claude session finished for ${run.promptSnapshot.title}.`
         : `Claude session failed for ${run.promptSnapshot.title}.`,
     );
+    notifyFinishedRun(run);
     return run;
   }
 
@@ -797,6 +920,7 @@ export function createTaskSessionManager(
       `Claude session was abandoned for ${run.promptSnapshot.title}.`,
       { surfaceFailure: reason === "orphan_reaped" },
     );
+    if (reason === "orphan_reaped") notifyFinishedRun(run);
     return run;
   }
 
@@ -814,14 +938,48 @@ export function createTaskSessionManager(
   function reapOrphans(): number {
     const rows = db.prepare(
       `SELECT * FROM cove_task_session_runs
-       WHERE server_generation = ?
-         AND status IN ('running','awaiting_approval')`,
-    ).all(serverGeneration) as TaskSessionRunRow[];
+       WHERE status IN ('running','awaiting_approval')
+       ORDER BY created_at, id`,
+    ).all() as TaskSessionRunRow[];
     let reaped = 0;
     for (const row of rows) {
       // The close/error settle handler owns every child in this map, even
       // during the narrow window after its pid exits but before close fires.
       if (children.has(row.id)) continue;
+      if (row.server_generation !== serverGeneration) {
+        const createdAt = new Date(row.created_at).getTime();
+        if (
+          row.pid === null &&
+          Number.isFinite(createdAt) &&
+          now().getTime() - createdAt < FOREIGN_RUN_PID_ASSIGNMENT_GRACE_MS
+        ) {
+          continue;
+        }
+        const owner = db.prepare(
+          `SELECT server_pid, boot_id, server_command, server_started_at
+           FROM cove_spawned_children
+           WHERE lane = 'session' AND run_id = ? AND state = 'active'
+           ORDER BY started_at DESC, id DESC
+           LIMIT 1`,
+        ).get(row.id) as {
+          server_pid: number;
+          boot_id: string;
+          server_command: string | null;
+          server_started_at: string | null;
+        } | undefined;
+        if (
+          owner &&
+          hasLiveOwnerServer(
+            owner,
+            bootId,
+            processExists,
+            commandForPid,
+            startedAtForPid,
+          )
+        ) {
+          continue;
+        }
+      }
       abandonRun(row.id, "orphan_reaped");
       reaped += 1;
     }
@@ -1061,6 +1219,7 @@ export function createTaskSessionManager(
     child.once("error", (error) => settle({ errorCode: error.message }));
     child.once("close", (code, signal) => {
       let resultSummary: string | undefined;
+      const resultSubtype = finalResultSubtype(stdoutTail);
       if (code === 0 && !signal) {
         try {
           resultSummary = parseExecutionResultSummary(
@@ -1073,7 +1232,13 @@ export function createTaskSessionManager(
       }
       settle({
         exitCode: code ?? undefined,
-        errorCode: timedOut ? "session_timeout" : signal ? `signal_${signal}` : undefined,
+        errorCode: timedOut
+          ? "session_timeout"
+          : signal
+            ? `signal_${signal}`
+            : resultSubtype?.startsWith("error_")
+              ? resultSubtype
+              : undefined,
         resultSummary,
       });
     });
@@ -1132,8 +1297,8 @@ export function getTaskSessionManager(): TaskSessionManager {
       serverGeneration,
       bootId,
     });
-    reapSpawnedChildren({ dbPath, serverGeneration, bootId });
     manager.reapOrphans();
+    reapSpawnedChildren({ dbPath, serverGeneration, bootId });
     global.__coveTaskSessionManager = manager;
     const timer = setInterval(() => {
       try {

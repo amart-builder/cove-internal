@@ -85,8 +85,13 @@ function hasStrongProcessIdentity(
     command === row.expected_command;
 }
 
-function hasLiveOwnerServer(
-  row: ActiveChildRow,
+export type OwnerServerFingerprint = Pick<
+  ActiveChildRow,
+  "boot_id" | "server_pid" | "server_command" | "server_started_at"
+>;
+
+export function hasLiveOwnerServer(
+  row: OwnerServerFingerprint,
   bootId: string,
   exists: (pid: number) => boolean,
   commandForPid: (pid: number) => string | undefined,
@@ -109,36 +114,36 @@ function markOwnedRunFailed(
   db: Database.Database,
   row: ActiveChildRow,
   finishedAt: string,
-): void {
+): number {
   if (row.lane === "brief") {
-    db.prepare(
+    return db.prepare(
       `UPDATE day_plan_briefs
        SET status = 'failed', error_code = 'orphan_reaped',
            finished_at = ?, updated_at = ?
        WHERE id = ? AND status = 'running'`,
-    ).run(finishedAt, finishedAt, row.run_id);
+    ).run(finishedAt, finishedAt, row.run_id).changes;
   } else if (row.lane === "dump") {
-    db.prepare(
+    return db.prepare(
       `UPDATE day_dumps
        SET status = 'failed', error_code = 'orphan_reaped',
            finished_at = ?, updated_at = ?
        WHERE id = ? AND status = 'running'`,
-    ).run(finishedAt, finishedAt, row.run_id);
+    ).run(finishedAt, finishedAt, row.run_id).changes;
   } else if (row.lane === "execution") {
-    db.prepare(
+    return db.prepare(
       `UPDATE day_plan_execution_runs
        SET status = 'failed', error_code = 'orphan_reaped',
            finished_at = ?, updated_at = ?
        WHERE id = ? AND status IN ('starting','running','cancelling')`,
-    ).run(finishedAt, finishedAt, row.run_id);
+    ).run(finishedAt, finishedAt, row.run_id).changes;
   } else {
-    db.prepare(
+    return db.prepare(
       `UPDATE cove_task_session_runs
        SET status = 'abandoned', error_code = 'orphan_reaped',
            hint = 'The Cove server restarted while this session was open.',
            finished_at = ?, updated_at = ?
        WHERE id = ? AND status IN ('running','awaiting_approval')`,
-    ).run(finishedAt, finishedAt, row.run_id);
+    ).run(finishedAt, finishedAt, row.run_id).changes;
   }
 }
 
@@ -260,6 +265,18 @@ export function reapSpawnedChildren(options: {
         continue;
       }
       const command = exists(row.pid) ? commandForPid(row.pid) : undefined;
+      const runChanged = db.transaction(() => {
+        const changed = markOwnedRunFailed(db, row, finishedAt);
+        db.prepare(
+          `UPDATE cove_spawned_children
+           SET state = 'reaped', finished_at = ?
+           WHERE id = ? AND state = 'active'`,
+        ).run(finishedAt, row.id);
+        return changed;
+      })();
+      reaped += 1;
+      // Always signal a live orphan: the run row may already be transitioned
+      // (the task-session reaper runs first) yet nobody else holds this pid.
       if (hasStrongProcessIdentity(row, command, bootId)) {
         try {
           signalGroup(row.pid, "SIGTERM");
@@ -267,15 +284,8 @@ export function reapSpawnedChildren(options: {
           // The child may have exited after the process check.
         }
       }
-      db.transaction(() => {
-        markOwnedRunFailed(db, row, finishedAt);
-        db.prepare(
-          `UPDATE cove_spawned_children
-           SET state = 'reaped', finished_at = ?
-           WHERE id = ? AND state = 'active'`,
-        ).run(finishedAt, row.id);
-      })();
-      reaped += 1;
+      // Only the receipt is deduplicated against the run's own failure entry.
+      if (runChanged === 0) continue;
       try {
         recordReceipt({
           dbPath: options.dbPath,

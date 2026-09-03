@@ -34,7 +34,7 @@ import type {
   TaskSessionRun,
 } from '@/lib/task-sessions/types';
 import { reconcileFocusSeatTaskChanges } from '@/lib/tasks/focus-seats';
-import { taskSessionModeButtons } from './TaskSessionLauncher';
+import { taskSessionModeButtons, taskSessionRunNeedsEscape } from './TaskSessionLauncher';
 import { OpenInClaudeCode } from './ClaudeRunIndicators';
 import DayRitualLayer from './DayRitualLayer';
 import ModalScrim from './arrival/ModalScrim';
@@ -173,18 +173,29 @@ function SessionState({
   if (!run) return null;
   if (run.status === 'running') {
     const planning = run.permissionMode === 'plan';
+    const mode = planning ? 'Planning' : 'Auto';
+    const showEscape = taskSessionRunNeedsEscape(run);
     return (
-      <span
-        className={`today2-task-state ${compact ? 'is-compact' : ''}`}
-        title={run.hint ?? (planning
-          ? 'Claude is planning in the background.'
-          : 'Claude is working in the background.')}
-        aria-label={planning
-          ? 'Planning with Claude in the background'
-          : 'Claude working in the background'}
-      >
-        <i aria-hidden="true" />
-        {planning ? 'Planning with Claude' : 'Claude working'}
+      <span className="inline-flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+        <span
+          className={`today2-task-state ${compact ? 'is-compact' : ''}`}
+          title="Claude is working in the background. You'll get a notification when it's ready."
+          aria-label={planning
+            ? 'Planning with Claude in the background'
+            : 'Claude working in the background'}
+        >
+          <i aria-hidden="true" />
+          {mode} · running
+        </span>
+        {showEscape && (
+          <a
+            href={run.resumeUrl}
+            className="press-scale text-[11px] font-medium text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
+            onClick={(event) => event.stopPropagation()}
+          >
+            Open in Claude
+          </a>
+        )}
       </span>
     );
   }
@@ -202,22 +213,28 @@ function SessionState({
     ) : <span className="today2-task-state is-needs-you">Needs you</span>;
   }
   if (run.status === 'output_ready') {
+    const mode = run.permissionMode === 'plan' ? 'Planning' : 'Auto';
     return run.claudeSessionId ? (
       <span className="today2-session-link" onClick={(event) => event.stopPropagation()}>
         <OpenInClaudeCode
           sessionId={run.claudeSessionId}
           title={task.title}
-          label="Ready"
+          label={`${mode} finished · Open in Claude`}
           resumeCommand={run.resumeCommand}
-          className="today2-ready-button"
+          className="today2-ready-button press-scale"
         />
       </span>
-    ) : <span className="today2-task-state">Ready</span>;
+    ) : (
+      <span className="today2-task-state">{mode} finished</span>
+    );
   }
   if (run.status === 'failed') {
+    const mode = run.permissionMode === 'plan' ? 'Planning' : 'Auto';
     return (
       <span className={`today2-session-failed ${compact ? 'is-compact' : ''}`}>
-        <a href={run.resumeUrl} onClick={(event) => event.stopPropagation()}>Didn&apos;t finish ·</a>
+        <a className="press-scale" href={run.resumeUrl} onClick={(event) => event.stopPropagation()}>
+          {mode} stopped · Open in Claude
+        </a>
         <button type="button" onClick={(event) => {
           event.stopPropagation();
           onRetry(run.permissionMode === 'plan' ? 'planning' : 'auto');

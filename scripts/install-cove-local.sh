@@ -634,6 +634,8 @@ cat > "$SERVER_PLIST" <<EOF
     <string>$BUDDY_APP_URL</string>
     <key>COVE_CLAUDE_WORKER_AVAILABLE</key>
     <string>1</string>
+    <key>COVE_NOTIFY</key>
+    <string>1</string>
     <key>COVE_JOB_RUNNER</key>
     <string>$JOB_RUNNER</string>
 $CODEX_PLIST_ENTRY

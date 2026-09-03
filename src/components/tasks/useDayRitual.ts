@@ -28,7 +28,6 @@ import {
   onceOnlyDayPlanMutationId,
   type DayPlanExecutionState,
 } from '@/lib/data/day-plan';
-import { launchTaskSessionRun } from '@/lib/data/task-sessions';
 import type {
   MorningBriefGeneration,
   PublicMorningBrief,
@@ -38,7 +37,6 @@ import { morningBriefSyncDecision } from '@/lib/day-plan/brief-view';
 import { useDataChanged } from '@/lib/data/refresh-bus';
 import type {
   DayPlan,
-  DayPlanItem,
   DayPlanExecutionMode,
   DayPlanModelAlias,
   DayPlanMutationAction,
@@ -55,7 +53,6 @@ import type {
 import {
   advanceMorningBriefAttachPoll,
   executionReadinessMessage,
-  focusBandItems,
   shouldAttemptLateBriefAttach,
   shouldPollBriefGeneration,
   startDayReceiptCopy,
@@ -68,6 +65,7 @@ const BRIEF_GENERATION_POLL_MS = 15_000;
 export const EXECUTION_STATUS_POLL_MS = 30_000;
 const CLOUD_EXECUTION_POLL_MS = 1_500;
 const CLOUD_EXECUTION_RETRY_MS = 2_000;
+export const LOCAL_START_DAY_RECEIPT = 'Your day is set.';
 
 export function executionPollingPolicy(localMode: boolean): {
   initialMs: number;
@@ -87,15 +85,6 @@ export function executionPollingPolicy(localMode: boolean): {
       };
 }
 
-export function localTaskSessionKickoffItems<T extends DayPlanItem>(
-  items: readonly T[],
-  focusCount: number,
-): T[] {
-  return focusBandItems(items, focusCount).filter(
-    (item) => item.owner === 'claude' || item.owner === 'together',
-  );
-}
-
 export type DayRitualView =
   | 'checking'
   | 'none'
@@ -106,7 +95,6 @@ type UseDayRitualInput = {
   enabled: boolean;
   candidates: RecommendationCandidate[];
   candidatesReady: boolean;
-  focusCount: 1 | 2 | 3;
   onBriefPicksChange?: (
     picks: ReadonlyArray<{ taskId: string; whyToday: string }>,
     briefReady: boolean,
@@ -177,7 +165,6 @@ export default function useDayRitual({
   enabled,
   candidates,
   candidatesReady,
-  focusCount,
   onBriefPicksChange,
 }: UseDayRitualInput) {
   const [plan, setPlan] = useState<DayPlan>();
@@ -1092,53 +1079,17 @@ export default function useDayRitual({
         announce: 'Your day is set.',
       });
       const executionRuns = result.executionRuns ?? [];
-      const localFocusItems = localTaskSessionKickoffItems(result.plan.items, focusCount);
-      const sessionLaunches = getRuntimeMode() === 'local'
-        ? await Promise.allSettled(
-            localFocusItems
-              .map((item) => launchTaskSessionRun({
-                taskId: item.taskId,
-                dayPlanId: result.plan.id,
-                itemId: item.id,
-                owner: item.owner === 'together' ? 'together' : 'claude',
-                mode: item.owner === 'together' ? 'planning' : 'auto',
-                promptSnapshot: {
-                  title: item.title,
-                  detail: item.outcome || item.title,
-                  outcome: item.outcome,
-                  definitionOfDone: item.definitionOfDone,
-                  whyToday: item.brief?.whyToday ?? item.whyToday,
-                  project: item.project,
-                  dueAt: item.dueAt,
-                },
-              })),
-          )
-        : [];
-      const handedOffCount = getRuntimeMode() === 'local'
-        ? sessionLaunches.filter(
-            (launch) =>
-              launch.status === 'fulfilled' &&
-              launch.value.status !== 'failed',
-          ).length
-        : executionRuns.filter((run) => run.status === 'queued').length;
-      const alreadyHandledCount = result.kickoffSkips?.filter(
-        (skip) => skip.reason === 'already_live' || skip.reason === 'result_available',
-      ).length ?? 0;
-      const failedTitles = getRuntimeMode() === 'local'
-        ? localFocusItems.flatMap((item, index) => {
-            const launch = sessionLaunches[index];
-            return !launch || launch.status === 'rejected' || launch.value.status === 'failed'
-              ? [item.title]
-              : [];
-          })
-        : result.kickoffSkips?.flatMap((skip) =>
-            skip.reason === 'not_ready' ? [skip.title] : []
-          ) ?? [];
-      const receipt = startDayReceiptCopy(
-        handedOffCount,
-        alreadyHandledCount,
-        failedTitles,
-      );
+      const receipt = getRuntimeMode() === 'local'
+        ? LOCAL_START_DAY_RECEIPT
+        : startDayReceiptCopy(
+            executionRuns.filter((run) => run.status === 'queued').length,
+            result.kickoffSkips?.filter(
+              (skip) => skip.reason === 'already_live' || skip.reason === 'result_available',
+            ).length ?? 0,
+            result.kickoffSkips?.flatMap((skip) =>
+              skip.reason === 'not_ready' ? [skip.title] : []
+            ) ?? [],
+          );
       setAnnouncement(receipt);
       setStartReceipt(receipt);
       if (receiptTimerRef.current !== undefined) window.clearTimeout(receiptTimerRef.current);
@@ -1163,7 +1114,7 @@ export default function useDayRitual({
     } finally {
       setStartDayApplying(false);
     }
-  }, [acceptExecutionState, enqueueMutation, focusCount]);
+  }, [acceptExecutionState, enqueueMutation]);
 
   const openSettlement = useCallback(async () => {
     const current = planRef.current;

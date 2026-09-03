@@ -868,7 +868,6 @@ function TodayExperience({
     enabled: !loading && Boolean(todayColumn && doneColumn),
     candidates: dayPlanCandidates,
     candidatesReady: candidateEvidence?.freshness === 'current',
-    focusCount,
     onBriefPicksChange,
   });
   const dayRitualPlanRef = useRef(dayRitual.plan);

@@ -13,7 +13,6 @@ import type { ArrivalTask } from '@/lib/quiet-current/arrival-cache';
 import type { Task } from './TaskFieldsEditor';
 import {
   arrivalDateLabel,
-  focusBandItems,
   isMorningBriefWriting,
   morningArrivalGreeting,
 } from '@/lib/day-plan/presentation';
@@ -152,12 +151,6 @@ export default function MorningArrival({
         view.item.decision === 'accepted',
     )
     .sort((left, right) => left.item.position - right.item.position);
-  const focusAgentCount = focusBandItems(
-    visibleItems.map((view) => view.item),
-    focusCount,
-  )
-    .filter((item) => item.owner === 'claude' || item.owner === 'together')
-    .length;
   const buddyActive = buddyBusy || Boolean(streamingTurn);
   const currentStepIndex = availableSteps.indexOf(step);
   const isFinalStep = step === 'plan';
@@ -314,11 +307,6 @@ export default function MorningArrival({
             </div>
 
             <div className="flex flex-col items-stretch gap-1.5 sm:ml-auto sm:items-end">
-              {isFinalStep && focusAgentCount > 0 && (
-                <p className="text-center text-[11.5px] leading-[1.35] text-muted-foreground sm:text-right">
-                  Claude will start {focusAgentCount} focus {focusAgentCount === 1 ? 'task' : 'tasks'}.
-                </p>
-              )}
               <button
                 type="button"
                 data-ritual-primary={isFinalStep ? '' : undefined}

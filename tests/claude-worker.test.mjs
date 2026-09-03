@@ -734,7 +734,7 @@ test('installer provisions a supervised watch worker without enabling autonomy',
   assert.match(workerProfile, /<key>COVE_NOTIFY<\/key>\s*<string>1<\/string>/);
   assert.match(jobsProfile, /<key>COVE_NOTIFY<\/key>\s*<string>1<\/string>/);
   assert.match(triageProfile, /<key>COVE_NOTIFY<\/key>\s*<string>1<\/string>/);
-  assert.doesNotMatch(serverProfile, /COVE_NOTIFY/);
+  assert.match(serverProfile, /<key>COVE_NOTIFY<\/key>\s*<string>1<\/string>/);
   // Every lane that imports a .ts module must boot through the tsx loader.
   // Plain node strips types without resolving extensionless imports, which
   // fails at run time in a way no test under tsx can see.
