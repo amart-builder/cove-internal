@@ -146,7 +146,7 @@ test("model text scrubber redacts secret-looking lines and caps retained text", 
     "a".repeat(40),
     "ya29.token-value",
     "sk-abcdefghijklmnopqrstuvwxyz1234",
-    "-----BEGIN PRIVATE KEY-----",
+    "-----BEGIN " + "PRIVATE KEY-----",
     "Bearer token-value",
   ]) assert.equal(scrubModelText(`prefix\n${secret}\nsuffix`, 500), "prefix\n[redacted]\nsuffix");
   assert.equal(scrubModelText("task-1234 follow up", 500), "task-1234 follow up");
@@ -159,7 +159,7 @@ test("model text scrubber redacts secret-looking lines and caps retained text", 
       action_id: "a1",
       kind: "task_create",
       why: "ya29.rationale",
-      title: "-----BEGIN PRIVATE KEY-----",
+      title: "-----BEGIN " + "PRIVATE KEY-----",
     }],
   });
   assert.equal(output.journal[0], "[redacted]");
