@@ -208,7 +208,7 @@ export async function runChiefOfStaffReview(input: {
     kind: "create_task",
     title: "Weekly chief-of-staff review",
     description: `Review the findings in ${file}`,
-    reason: "The weekly fresh-context review is ready for Alex.",
+    reason: "The weekly fresh-context review is ready for you.",
     source: "chief-of-staff-review",
     reviewMaterial: file,
     claimKey: `cos-review:${week}`,

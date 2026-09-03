@@ -580,7 +580,7 @@ function applyDatabaseAction(input: {
     prepareActionFields(action, ["contact_id", "stage"]);
     const stage = validatePipelineStage(action.stage);
     if (stage === "lost" || stage === "parked") {
-      throw new Error("Lost and parked require Alex's judgment. Use suggest instead.");
+      throw new Error("Lost and parked need the operator's judgment. Use suggest instead.");
     }
     input.pipeline.move(requiredActionText(action, "contact_id", 200), stage);
     return;

@@ -547,7 +547,7 @@ test("all allowed actions use real stores, rejected actions are fed back, and re
     calendar: null,
   });
   assert.match(feedback, /Unknown action kind: email_send/);
-  assert.match(feedback, /Lost and parked require Alex's judgment/);
+  assert.match(feedback, /Lost and parked need the operator's judgment/);
   assert.match(feedback, /Use pipeline_update or pipeline_move/);
   assert.match(feedback, /Client, lost, and parked cannot be added/);
   assert.match(feedback, /Contact was not found/);
