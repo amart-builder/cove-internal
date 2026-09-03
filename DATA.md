@@ -96,6 +96,13 @@ queues the existing classifier lane. The resulting `upsert_draft` operation
 updates the known Gmail draft only when its current body still matches Cove's
 stored hash. An operator-edited draft is preserved.
 
+Handled informational and low-value email rows remain in `email_items` as
+durable review evidence. The Email card reads the last seven days of `fyi` and
+`noise` rows for its read-only Things you should know section. The local REST
+query filters and sorts on `actioned_at`, which is set when Gmail confirms the
+archive. Accepted and tentative calendar responses use deterministic summaries.
+Other calendar notices keep the model context after a deterministic event line.
+
 Resolved rows remain durable review evidence after `reviewed_at` is set. Weekly
 markdown digests under `data/voice-reviews/` are also retained until the
 operator removes them. There is no automatic deletion in this version because

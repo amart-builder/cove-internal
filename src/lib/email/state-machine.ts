@@ -558,7 +558,8 @@ export function applyEmailClassification(input: {
           source: "email-surfaced",
           startedAt: now,
           finishedAt: now,
-          summary: "A low-value email was recorded before Cove queued it for archive.",
+          summary: input.summary.trim() ||
+            "A low-value email was recorded before Cove queued it for archive.",
           actions: {
             emailItemId: input.emailItemId,
             messageId: input.messageId,

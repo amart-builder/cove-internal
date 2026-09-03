@@ -99,7 +99,7 @@ Twice a day, at times you pick, Cove reads your new mail and sorts it:
 - **Just something you should know?** Recorded in Recent activity, then archived.
 - **Newsletters, promos, receipts?** Archived out of your inbox and logged, one click to rescue.
 
-Everything that still needs you lands on one rolling `Email` card in Must happen today. Open it to see replies with drafts ready and action or review items. When you send a reply from Gmail, the next run archives that inbound message and clears it from the card. The same card remains current instead of creating a new dated card each day.
+Everything that still needs you lands on one rolling `Email` card in Must happen today. Open it to see replies with drafts ready, action or review items, and a seven-day Things you should know log of informational or low-value mail Cove archived. Calendar responses use clear accepted, declined, tentative, invitation, update, cancellation, and booking summaries in that log. When you send a reply from Gmail, the next run archives that inbound message and clears it from the card. The same card remains current instead of creating a new dated card each day.
 
 After each run Cove records a one-line receipt such as "Inbox triaged: 2 need you, 1 action" in Recent activity. The rolling card interrupts you only when something still needs you.
 

@@ -180,6 +180,34 @@ test("noise classification leaves a durable receipt before archive", (t) => {
   assert.equal(receipt.outcome, "success");
   assert.equal(receipt.actions.bucket, "noise");
   assert.equal(receipt.actions.emailItemId, observed.emailItemId);
+  assert.equal(receipt.summary, "Promotional message.");
+});
+
+test("noise receipt falls back only when the classifier summary is empty", (t) => {
+  const dbPath = fixture(t);
+  const observed = observeInboundMessage({
+    messageId: "m-noise-empty-summary",
+    threadId: "t-noise-empty-summary",
+    internalDate: "1000",
+    accountEmail: "alex@example.com",
+    dbPath,
+  });
+
+  applyEmailClassification({
+    messageId: "m-noise-empty-summary",
+    emailItemId: observed.emailItemId,
+    threadVersion: observed.threadVersion,
+    bucket: "noise",
+    summary: "   ",
+    modelVersion: "test",
+    dbPath,
+  });
+
+  const receipt = listRecentReceipts({ dbPath, source: "email-surfaced" })[0];
+  assert.equal(
+    receipt.summary,
+    "A low-value email was recorded before Cove queued it for archive.",
+  );
 });
 
 test("a new Gmail operation supersedes another active operation on the thread", (t) => {
@@ -409,6 +437,67 @@ test("ungrounded model commitment quotes never enter the durable artifact job", 
     "SELECT payload FROM cove_jobs WHERE type = 'email-artifacts'",
   ).payload;
   assert.deepEqual(JSON.parse(artifactPayload).commitments, []);
+});
+
+test("a declined calendar notice keeps the model context after its event line", async (t) => {
+  const dbPath = fixture(t);
+  const observed = observeInboundMessage({
+    messageId: "m-declined-calendar",
+    threadId: "t-declined-calendar",
+    internalDate: "1000",
+    accountEmail: "alex@example.com",
+    dbPath,
+  });
+  const handler = createEmailClassificationHandler({
+    dbPath,
+    accountEmail: "alex@example.com",
+    gateway: {
+      getMessage: async () => ({
+        id: "m-declined-calendar",
+        threadId: "t-declined-calendar",
+        historyId: "10",
+        labelIds: ["INBOX"],
+        internalDate: "1000",
+        headers: [
+          { name: "From", value: "Ger Dwyer <gdwyer@rivian.com>" },
+          {
+            name: "Subject",
+            value: "Declined: Ger Dwyer and Edge AI @ Thu Sep 24, 2026 3pm - 3:30pm (PDT)",
+          },
+        ],
+        snippet: "Ger cannot attend and asked to reschedule.",
+        text: "Ger cannot attend and asked to reschedule.",
+      }),
+      modifyThreadLabels: async () => {},
+    },
+    classifier: async () => ({
+      bucket: "action",
+      summary: "Ger cannot attend and asked to reschedule.",
+      recommendedAction: "Find a new time",
+      draftBody: null,
+      commitments: [],
+      recordCorrespondence: false,
+      modelVersion: "test",
+    }),
+  });
+
+  await handler({
+    ...fakeJob("declined-calendar"),
+    type: "email-classify",
+    payload: {
+      messageId: "m-declined-calendar",
+      emailItemId: observed.emailItemId,
+      threadVersion: observed.threadVersion,
+    },
+  });
+
+  assert.deepEqual(
+    row(dbPath, "SELECT bucket, summary FROM email_items WHERE id = ?", observed.emailItemId),
+    {
+      bucket: "action",
+      summary: "Declined: Ger Dwyer and Edge AI (Ger Dwyer). Ger cannot attend and asked to reschedule.",
+    },
+  );
 });
 
 test("a permanent classification skip receives the Triaged marker", async (t) => {

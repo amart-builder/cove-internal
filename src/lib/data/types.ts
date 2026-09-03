@@ -119,6 +119,7 @@ export type EmailItem = {
   priority: number;
   received_at?: string | null;
   account_email?: string | null;
+  actioned_at?: string | null;
   created_at?: string;
   updated_at?: string;
 };

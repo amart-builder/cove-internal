@@ -14,6 +14,29 @@ export async function listEmailItems(status = "pending"): Promise<EmailItem[]> {
   });
 }
 
+export async function listHandledEmailItems({
+  days = 7,
+  limit = 200,
+}: {
+  days?: number;
+  limit?: number;
+} = {}): Promise<EmailItem[]> {
+  const boundedDays = Math.max(1, Math.floor(days));
+  const boundedLimit = Math.min(200, Math.max(1, Math.floor(limit)));
+  const since = new Date(Date.now() - boundedDays * 24 * 60 * 60_000).toISOString();
+  return coveRest<EmailItem[]>("email_items", {
+    requireAuth: true,
+    query: {
+      select: "*",
+      status: "in.(actioned,archived,reviewed)",
+      bucket: "in.(fyi,noise)",
+      actioned_at: `gte.${since}`,
+      order: "actioned_at.desc",
+      limit: boundedLimit,
+    },
+  });
+}
+
 export async function listAllEmailItems(): Promise<EmailItem[]> {
   return coveRest<EmailItem[]>("email_items", {
     requireAuth: true,
