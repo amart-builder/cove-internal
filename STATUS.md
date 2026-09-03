@@ -41,8 +41,8 @@
   hardcoded person and company (it reads the operator profile, falls back to
   "the Cove operator"); two chief-of-staff strings and the meeting, calendar,
   voice, and task-session test fixtures lost real names and domains.
-- Source release: `01a73f2b3437` on private `amart-builder/cove-internal`.
-  Public release: `fb920f5` on `amart-builder/cove`, 500 manifest hashes
+- Source release: `d6c4f95f25` on private `amart-builder/cove-internal` (first cut `01a73f2` at `fb920f5`, then the session-state UI fix).
+  Public release: `7b67caf` on `amart-builder/cove`, 500 manifest hashes
   bound to the source SHA, reverified from a fresh anonymous HTTPS clone with
   zero mismatches.
 - Verification on the exact export directory: `npm ci`, zero-warning lint,
