@@ -67,6 +67,7 @@ export type SecondCurrentItemV2 = {
   kicker: string;
   title: string;
   kind: 'email' | 'rhythm';
+  count?: number;
 };
 
 export type TodayRiverStageV2Model = {
@@ -1080,12 +1081,20 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
               <button
                 key={item.id}
                 type="button"
-                className="today2-second-current-item"
+                className={`today2-second-current-item${item.count ? ' has-badge' : ''}`}
                 style={{ '--today2-item-index': index } as CSSProperties}
                 onClick={() => callbacks.onOpenSecondCurrentItem(item)}
               >
                 <span>{item.kicker}</span>
                 <strong>{item.title}</strong>
+                {item.count ? (
+                  <>
+                    <span className="today2-second-current-badge" aria-hidden="true">{item.count}</span>
+                    <span className="sr-only">
+                      {`${item.count} ${item.count === 1 ? 'email needs' : 'emails need'} you`}
+                    </span>
+                  </>
+                ) : null}
               </button>
             ))}
             {rhythmManager && (

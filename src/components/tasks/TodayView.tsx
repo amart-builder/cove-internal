@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useDataChanged } from '@/lib/data/refresh-bus';
+import { listEmailItems } from '@/lib/data/email';
 import { retryBoardRequest } from '@/lib/data/board-refresh';
 import {
   createTask as createRestTask,
@@ -2200,6 +2201,20 @@ function TodayExperience({
     })),
     [localMode, taskSessions.latestByTaskId, taskSessions.launchingTaskIds, today2PlanEntries],
   );
+  // Count of pending email items (reply or action). Shown as a badge on the
+  // Email needs you card and refreshed on the same bus the email card uses.
+  const [emailNeedsYouCount, setEmailNeedsYouCount] = useState(0);
+  const loadEmailNeedsYouCount = useCallback(async () => {
+    try {
+      setEmailNeedsYouCount((await listEmailItems('pending')).length);
+    } catch {
+      // Leave the last known count; the email card reports load errors itself.
+    }
+  }, []);
+  useEffect(() => {
+    void loadEmailNeedsYouCount();
+  }, [loadEmailNeedsYouCount]);
+  useDataChanged(['email_items', 'drafts'], () => void loadEmailNeedsYouCount());
   const today2SecondCurrentItems = useMemo<SecondCurrentItemV2[]>(
     () => jarvisTasks
       .filter((task) => isEmailDigest(task) || isRecurringTask(task))
@@ -2208,8 +2223,9 @@ function TodayExperience({
         kicker: isEmailDigest(task) ? 'Email needs you' : 'Rhythm',
         title: task.title,
         kind: isEmailDigest(task) ? 'email' : 'rhythm',
+        ...(isEmailDigest(task) && emailNeedsYouCount > 0 ? { count: emailNeedsYouCount } : {}),
       })),
-    [jarvisTasks],
+    [jarvisTasks, emailNeedsYouCount],
   );
   const today2SunPoint = useMemo(
     () => pointOnCubicDayArc(progress, TODAY2_DAY_ARC),
