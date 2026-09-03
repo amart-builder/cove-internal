@@ -44,6 +44,7 @@ import { coveEnv } from "../env";
 import { LocalCRMBackend } from "../crm/local";
 import { isOpenPipelineStage, PIPELINE_STAGE_LABELS, followUpStatus } from "../crm/pipeline";
 import { LocalPipelineStore } from "../crm/pipeline-store";
+import { salesPipelineEnabled } from "../crm/sales-pipeline";
 import { localDatabasePath } from "../local/database";
 import {
   normalizeMachineIdentity,
@@ -220,6 +221,7 @@ export type MorningBriefSourceOptions = {
     hostname: string;
   };
   workspaceGateway?: Pick<WorkspaceGateway, "calendar">;
+  env?: NodeJS.ProcessEnv;
 };
 
 function readKeyFile(filePath: string): string | null {
@@ -2075,6 +2077,7 @@ async function pipelineFollowUpsSource(input: {
   now: Date;
   dataDir?: string;
   calendarPromise: Promise<CalendarSourceResult>;
+  env?: NodeJS.ProcessEnv;
 }): Promise<BriefSourceInput> {
   const source = {
     id: "crm_last_touch",
@@ -2083,8 +2086,10 @@ async function pipelineFollowUpsSource(input: {
     maxChars: 4000,
     priority: 10,
   } as const;
+  if (!salesPipelineEnabled(input.env)) return source;
+
   const resolvedDataDir = coveDataDir(input.dataDir);
-  const configuredDbPath = coveEnv("DB_PATH");
+  const configuredDbPath = coveEnv("DB_PATH", input.env);
   const dbPath = configuredDbPath ?? (input.dataDir
     ? path.join(resolvedDataDir, "cove.db")
     : localDatabasePath());
@@ -2354,6 +2359,7 @@ export async function collectMorningBriefSources(
     now,
     dataDir: options.dataDir,
     calendarPromise,
+    env: options.env,
   });
   const memoryPromise = memoryDecisionsSource(fetchImpl, memoryPath, now);
   const commitmentsPromise = commitmentsSource({

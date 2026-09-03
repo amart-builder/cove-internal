@@ -117,7 +117,7 @@ test('an ordinary accepted subject is not a calendar notice', () => {
 test('a dated RSVP from the responder address is a calendar notice', () => {
   assert.deepEqual(detectCalendarNotice({
     sender: 'Ger Dwyer <gdwyer@rivian.com>',
-    subject: 'Accepted: Ger Dwyer and Edge AI @ Thu Sep 24, 2026 3pm - 3:30pm (PDT) (alex@joinedgeai.com)',
+    subject: 'Accepted: Ger Dwyer and Edge AI @ Thu Sep 24, 2026 3pm - 3:30pm (PDT) (owner@example.com)',
   }), {
     kind: 'accepted',
     eventTitle: 'Ger Dwyer and Edge AI',

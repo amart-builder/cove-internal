@@ -196,12 +196,18 @@ test("client export excludes known internal paths", (t) => {
   mkdirSync(path.join(repo, "scripts"), { recursive: true });
   mkdirSync(path.join(repo, "docs"), { recursive: true });
   mkdirSync(path.join(repo, "data"), { recursive: true });
+  mkdirSync(path.join(repo, "skills", "cove-pipeline"), { recursive: true });
+  mkdirSync(path.join(repo, ".claude", "skills", "cove-pipeline"), { recursive: true });
+  mkdirSync(path.join(repo, "prompts"), { recursive: true });
   writeFileSync(path.join(repo, "README.md"), "# Cove\n");
   writeFileSync(path.join(repo, "SETUP.md"), "# Setup\n");
   writeFileSync(path.join(repo, "STATUS.md"), "Internal status\n");
   writeFileSync(path.join(repo, "BUDDY-DEPLOY.md"), "Internal deployment notes\n");
   writeFileSync(path.join(repo, "docs", "internal.md"), "Internal documentation\n");
   writeFileSync(path.join(repo, "data", "cove-meetings.json"), "{}\n");
+  writeFileSync(path.join(repo, "skills", "cove-pipeline", "SKILL.md"), "Owner pipeline skill\n");
+  writeFileSync(path.join(repo, ".claude", "skills", "cove-pipeline", "SKILL.md"), "Owner pipeline skill\n");
+  writeFileSync(path.join(repo, "prompts", "chief-of-staff-mandate.md"), "Public template\n");
   copyFileSync(EXPORT_SCRIPT, path.join(repo, "scripts", "export-cove-client.mjs"));
   git(repo, ["init", "-q"]);
   git(repo, [
@@ -212,6 +218,9 @@ test("client export excludes known internal paths", (t) => {
     "BUDDY-DEPLOY.md",
     "docs/internal.md",
     "data/cove-meetings.json",
+    "skills/cove-pipeline/SKILL.md",
+    ".claude/skills/cove-pipeline/SKILL.md",
+    "prompts/chief-of-staff-mandate.md",
     "scripts/export-cove-client.mjs",
   ]);
   git(repo, [
@@ -232,7 +241,13 @@ test("client export excludes known internal paths", (t) => {
     "BUDDY-DEPLOY.md",
     "docs/internal.md",
     "data/cove-meetings.json",
+    "skills/cove-pipeline/SKILL.md",
+    ".claude/skills/cove-pipeline/SKILL.md",
   ]) {
     assert.equal(existsSync(path.join(output, internalPath)), false, internalPath);
   }
+  assert.equal(
+    existsSync(path.join(output, "prompts", "chief-of-staff-mandate.md")),
+    true,
+  );
 });

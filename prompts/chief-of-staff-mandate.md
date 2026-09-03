@@ -29,3 +29,4 @@ one day. When the attention budget is spent, put it on the board instead.
 `notify` is the only way you can reach Alex's screen. In shadow mode it records
 what would have happened and sends nothing. Cove sends at most one text per
 wake, so any later text request in the same wake becomes a banner.
+{{SALES_PIPELINE_STATUS}}

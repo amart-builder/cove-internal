@@ -404,7 +404,7 @@ test("notification-only Gemini failure is labelled with a skip receipt and never
 test("Granola notification mail is skipped in favor of the API", async (t) => {
   const files = fixture(t, {
     active_tools: ["granola"],
-    granola: { enabled: true, owner_emails: ["alex@joinedgeai.com"] },
+    granola: { enabled: true, owner_emails: ["owner@example.com"] },
   });
   const google = gateway({
     getMessage: async (input) => {
@@ -441,7 +441,7 @@ test("Granola notification mail is skipped in favor of the API", async (t) => {
 test("Granola Gmail content uses the normal path when the API key is missing", async (t) => {
   const files = fixture(t, {
     active_tools: ["granola"],
-    granola: { enabled: true, owner_emails: ["alex@joinedgeai.com"] },
+    granola: { enabled: true, owner_emails: ["owner@example.com"] },
   });
   const google = gateway({
     getMessage: async (input) => {
@@ -480,7 +480,7 @@ test("Granola Gmail content uses the normal path when the API key is missing", a
 test("Granola-only active tools leave Gemini outside the Gmail query", async (t) => {
   const files = fixture(t, {
     active_tools: ["granola"],
-    granola: { enabled: true, owner_emails: ["alex@joinedgeai.com"] },
+    granola: { enabled: true, owner_emails: ["owner@example.com"] },
   });
   let query = "";
   const google = gateway({
@@ -503,7 +503,7 @@ test("Granola-only active tools leave Gemini outside the Gmail query", async (t)
 test("Granola API poll queues a complete note through the watcher door and persists state and heartbeat", async (t) => {
   const files = fixture(t, {
     active_tools: ["granola"],
-    granola: { enabled: true, owner_emails: ["alex@joinedgeai.com"] },
+    granola: { enabled: true, owner_emails: ["owner@example.com"] },
   });
   const requests = [];
   const granolaPayload = (url) => {
@@ -512,7 +512,7 @@ test("Granola API poll queues a complete note through the watcher door and persi
         notes: [{
           id: "not_real",
           title: "Client review",
-          owner: { name: "Alex", email: "alex@joinedgeai.com" },
+          owner: { name: "Alex", email: "owner@example.com" },
           created_at: "2026-07-29T16:00:00.000Z",
           updated_at: "2026-07-29T17:00:00.000Z",
         }],
@@ -524,7 +524,7 @@ test("Granola API poll queues a complete note through the watcher door and persi
       return {
         id: "not_real",
         title: "Client review",
-        owner: { name: "Alex", email: "alex@joinedgeai.com" },
+        owner: { name: "Alex", email: "owner@example.com" },
         attendees: [{ name: "Sam", email: "sam@example.com" }],
         created_at: "2026-07-29T16:00:00.000Z",
         updated_at: "2026-07-29T17:00:00.000Z",
@@ -634,7 +634,7 @@ test("Granola pending notes queue once when complete and later revisions are ign
   const note = (summary, privateNotes = null) => ({
     id: "not_pending",
     title: "Pending meeting",
-    owner: { name: "Alex", email: "alex@joinedgeai.com" },
+    owner: { name: "Alex", email: "owner@example.com" },
     attendees: [],
     created_at: "2026-09-01T18:00:00.000Z",
     updated_at: "2026-09-02T17:00:00.000Z",
@@ -662,7 +662,7 @@ test("Granola pending notes queue once when complete and later revisions are ign
   const pending = await runGranolaPoll({
     enabled: true,
     apiKey: "test",
-    ownerEmails: ["alex@joinedgeai.com"],
+    ownerEmails: ["owner@example.com"],
     state: baseState,
     now,
     dryRun: false,
@@ -676,7 +676,7 @@ test("Granola pending notes queue once when complete and later revisions are ign
   const complete = await runGranolaPoll({
     enabled: true,
     apiKey: "test",
-    ownerEmails: ["alex@joinedgeai.com"],
+    ownerEmails: ["owner@example.com"],
     state: pending.state,
     now,
     dryRun: false,
@@ -690,7 +690,7 @@ test("Granola pending notes queue once when complete and later revisions are ign
   const revised = await runGranolaPoll({
     enabled: true,
     apiKey: "test",
-    ownerEmails: ["alex@joinedgeai.com"],
+    ownerEmails: ["owner@example.com"],
     state: complete.state,
     now,
     dryRun: false,
@@ -706,7 +706,7 @@ test("Granola skips foreign and missing owners without fetching note details", a
   const result = await runGranolaPoll({
     enabled: true,
     apiKey: "test",
-    ownerEmails: ["alex@joinedgeai.com"],
+    ownerEmails: ["owner@example.com"],
     state: {
       watermark_at: null,
       list_cursor: null,
@@ -754,7 +754,7 @@ test("Granola queue failures are isolated, bounded, and dead-lettered", async ()
   const note = (id) => ({
     id,
     title: id,
-    owner: { name: "Alex", email: "alex@joinedgeai.com" },
+    owner: { name: "Alex", email: "owner@example.com" },
     attendees: [],
     created_at: "2026-09-02T16:00:00.000Z",
     updated_at: "2026-09-02T17:00:00.000Z",
@@ -785,7 +785,7 @@ test("Granola queue failures are isolated, bounded, and dead-lettered", async ()
     const poll = await runGranolaPoll({
       enabled: true,
       apiKey: "test",
-      ownerEmails: ["alex@joinedgeai.com"],
+      ownerEmails: ["owner@example.com"],
       state,
       now,
       dryRun: false,
@@ -811,7 +811,7 @@ test("Granola queue failures are isolated, bounded, and dead-lettered", async ()
   const afterDeadLetter = await runGranolaPoll({
     enabled: true,
     apiKey: "test",
-    ownerEmails: ["alex@joinedgeai.com"],
+    ownerEmails: ["owner@example.com"],
     state,
     now,
     dryRun: false,
@@ -826,7 +826,7 @@ test("Granola queue failures are isolated, bounded, and dead-lettered", async ()
   const alreadyFailed = await runGranolaPoll({
     enabled: true,
     apiKey: "test",
-    ownerEmails: ["alex@joinedgeai.com"],
+    ownerEmails: ["owner@example.com"],
     state: {
       watermark_at: null,
       list_cursor: null,
@@ -851,7 +851,7 @@ test("Granola lease-active results remain pending without consuming failure atte
   const note = {
     id: "not_leased",
     title: "Leased note",
-    owner: { email: "alex@joinedgeai.com" },
+    owner: { email: "owner@example.com" },
     attendees: [],
     created_at: "2026-09-02T16:00:00.000Z",
     updated_at: "2026-09-02T17:00:00.000Z",
@@ -861,7 +861,7 @@ test("Granola lease-active results remain pending without consuming failure atte
   const result = await runGranolaPoll({
     enabled: true,
     apiKey: "test",
-    ownerEmails: ["alex@joinedgeai.com"],
+    ownerEmails: ["owner@example.com"],
     state: {
       watermark_at: "2026-09-01T18:00:00.000Z",
       list_cursor: null,
@@ -889,7 +889,7 @@ test("every Granola pending note expires after seven days", async () => {
   const result = await runGranolaPoll({
     enabled: true,
     apiKey: "test",
-    ownerEmails: ["alex@joinedgeai.com"],
+    ownerEmails: ["owner@example.com"],
     state: {
       watermark_at: "2026-09-01T18:00:00.000Z",
       list_cursor: null,
@@ -904,7 +904,7 @@ test("every Granola pending note expires after seven days", async () => {
       listNotes: async () => ({ notes: [], hasMore: false }),
       getNote: async () => ({
         id: "not_old_complete",
-        owner: { email: "alex@joinedgeai.com" },
+        owner: { email: "owner@example.com" },
         attendees: [],
         created_at: "2026-09-01T18:00:00.000Z",
         updated_at: "2026-09-02T18:00:00.000Z",
@@ -927,7 +927,7 @@ test("Granola pending notes with an invalid created_at expire on the next poll",
   const result = await runGranolaPoll({
     enabled: true,
     apiKey: "test",
-    ownerEmails: ["alex@joinedgeai.com"],
+    ownerEmails: ["owner@example.com"],
     state: {
       watermark_at: "2026-09-01T18:00:00.000Z",
       list_cursor: null,
@@ -942,7 +942,7 @@ test("Granola pending notes with an invalid created_at expire on the next poll",
       listNotes: async () => ({ notes: [], hasMore: false }),
       getNote: async () => ({
         id: "not_bad_date",
-        owner: { email: "alex@joinedgeai.com" },
+        owner: { email: "owner@example.com" },
         attendees: [],
         created_at: "not-a-date",
         updated_at: "2026-09-02T17:00:00.000Z",
@@ -1006,7 +1006,7 @@ test("Granola pagination failure clears its cursor and restarts from the unchang
   await assert.rejects(runGranolaPoll({
     enabled: true,
     apiKey: "test",
-    ownerEmails: ["alex@joinedgeai.com"],
+    ownerEmails: ["owner@example.com"],
     state: initial,
     now: () => new Date("2026-09-02T18:00:00.000Z"),
     dryRun: false,
@@ -1038,7 +1038,7 @@ test("Granola pagination failure clears its cursor and restarts from the unchang
   const resumed = await runGranolaPoll({
     enabled: true,
     apiKey: "test",
-    ownerEmails: ["alex@joinedgeai.com"],
+    ownerEmails: ["owner@example.com"],
     state: interrupted,
     now: () => new Date("2026-09-02T18:00:00.000Z"),
     dryRun: false,
@@ -1101,7 +1101,7 @@ test("Granola list walk stops at twenty pages without advancing its watermark", 
 test("missing Granola key leaves the Gmail watcher active", async (t) => {
   const files = fixture(t, {
     active_tools: ["gemini", "granola"],
-    granola: { enabled: true, owner_emails: ["alex@joinedgeai.com"] },
+    granola: { enabled: true, owner_emails: ["owner@example.com"] },
   });
   const google = gateway();
   const result = await runMeetingWatch(runOptions(files, google.mail, {
@@ -1123,7 +1123,7 @@ test("missing Granola key leaves the Gmail watcher active", async (t) => {
 test("Granola 401 leaves poll state unchanged and reports failed without disabling Gmail", async (t) => {
   const files = fixture(t, {
     active_tools: ["granola"],
-    granola: { enabled: true, owner_emails: ["alex@joinedgeai.com"] },
+    granola: { enabled: true, owner_emails: ["owner@example.com"] },
   });
   writeMeetingState(files.statePath, {
     processed_ids: [],
@@ -1164,7 +1164,7 @@ test("Granola 401 leaves poll state unchanged and reports failed without disabli
 test("malformed Granola list pages fail the poll and leave state untouched", async (t) => {
   const files = fixture(t, {
     active_tools: ["granola"],
-    granola: { enabled: true, owner_emails: ["alex@joinedgeai.com"] },
+    granola: { enabled: true, owner_emails: ["owner@example.com"] },
   });
   writeMeetingState(files.statePath, {
     processed_ids: [],

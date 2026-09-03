@@ -23,6 +23,7 @@ import {
   PipelineNotFoundError,
 } from "@/lib/crm/pipeline-store";
 import { mergeContactAtomic } from "@/lib/crm/merge";
+import { salesPipelineEnabled } from "@/lib/crm/sales-pipeline";
 import {
   buildContactContext,
   renderContactContext,
@@ -37,6 +38,13 @@ import { getRuntimeMode } from "@/lib/runtime/mode";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const PIPELINE_ACTIONS = new Set([
+  "pipeline_upsert",
+  "pipeline_move",
+  "pipeline_log_touch",
+  "pipeline_remove",
+]);
 
 function requiredQuery(
   request: NextRequest,
@@ -140,6 +148,12 @@ export async function GET(request: NextRequest) {
       });
     }
     if (operation === "pipeline") {
+      if (!salesPipelineEnabled()) {
+        return NextResponse.json(
+          { error: "sales_pipeline_disabled" },
+          { status: 404 },
+        );
+      }
       pipelineStore = new LocalPipelineStore();
       const requestedToday = request.nextUrl.searchParams.get("today")?.trim();
       const today = requestedToday || localDateInTimezone(
@@ -201,6 +215,12 @@ export async function POST(request: NextRequest) {
     const action = body.action;
     const input = body.input;
     if (typeof action !== "string") throw new Error("CRM action is required.");
+    if (PIPELINE_ACTIONS.has(action) && !salesPipelineEnabled()) {
+      return NextResponse.json(
+        { error: "sales_pipeline_disabled" },
+        { status: 404 },
+      );
+    }
     if (action === "resolve") {
       return NextResponse.json({
         resolution: crm.resolveOrCreateContact(
@@ -334,22 +354,24 @@ export async function POST(request: NextRequest) {
       });
     }
     if (action === "delete") {
-      pipelineStore ??= new LocalPipelineStore();
       const deletion = recordBody(input);
       const contactId = deletion.contactId;
       if (typeof contactId !== "string" || !contactId.trim()) {
         throw new Error("Contact id is required.");
       }
       const normalizedContactId = contactId.trim();
-      const deal = pipelineStore.get(normalizedContactId);
-      if (deal && deal.stage !== "lost" && deal.stage !== "parked") {
-        return NextResponse.json(
-          {
-            error: `This person is in the sales pipeline (${PIPELINE_STAGE_LABELS[deal.stage]}). Mark them lost or parked first.`,
-            csrfToken,
-          },
-          { status: 409 },
-        );
+      if (salesPipelineEnabled()) {
+        pipelineStore ??= new LocalPipelineStore();
+        const deal = pipelineStore.get(normalizedContactId);
+        if (deal && deal.stage !== "lost" && deal.stage !== "parked") {
+          return NextResponse.json(
+            {
+              error: `This person is in the sales pipeline (${PIPELINE_STAGE_LABELS[deal.stage]}). Mark them lost or parked first.`,
+              csrfToken,
+            },
+            { status: 409 },
+          );
+        }
       }
       if (!crm.deleteContact(normalizedContactId)) {
         return NextResponse.json(

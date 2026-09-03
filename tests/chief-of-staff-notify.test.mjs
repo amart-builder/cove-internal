@@ -9,6 +9,8 @@ import { enqueueChiefOfStaffWake } from "../src/lib/chief-of-staff/storage.ts";
 import { openLocalDatabase } from "../src/lib/local/database.ts";
 import { getQuietCurrentSnapshot } from "../src/lib/quiet-current/store.ts";
 
+process.env.COVE_SALES_PIPELINE = "1";
+
 function fixture(t) {
   const dataDir = mkdtempSync(path.join(os.tmpdir(), "cove-cos-notify-"));
   const dbPath = path.join(dataDir, "cove.db");
@@ -274,6 +276,29 @@ test("notify resolves commitments and open deals by contact id", (t) => {
     },
   });
   assert.deepEqual(closed, { applied: 0, rejected: 1, skipped: 0 });
+
+  const disabledJob = enqueue(dbPath, new Date(now.getTime() + 2_000), "disabled deal");
+  const disabled = applyChiefOfStaffActions({
+    dbPath,
+    dataDir,
+    wakeJobId: disabledJob.id,
+    actions: [notifyAction({ actionId: "disabled-deal", refKind: "deal", refId: "contact-1" })],
+    now: new Date(now.getTime() + 2_000),
+    env: {},
+    attention: {
+      shadow: false,
+      transport: { textConfigured: false, banner: () => undefined, text: () => undefined },
+    },
+  });
+  assert.deepEqual(disabled, { applied: 0, rejected: 1, skipped: 0 });
+  const disabledDb = openLocalDatabase(dbPath);
+  try {
+    assert.equal(disabledDb.prepare(
+      "SELECT error FROM chief_of_staff_actions WHERE wake_job_id = ?",
+    ).pluck().get(disabledJob.id), "sales_pipeline_disabled");
+  } finally {
+    disabledDb.close();
+  }
 });
 
 test("shadow notify records a shadow row, sends nothing, and files Quiet Current", (t) => {

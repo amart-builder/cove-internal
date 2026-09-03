@@ -2,6 +2,8 @@
 
 The default is local SQLite with no account or cloud database. Configuration is read from `.env.local`, `COVE_*` environment variables rendered into LaunchAgents, ignored files under `data/`, and macOS Keychain.
 
+The sales pipeline is owner-only and stays off unless both `COVE_SALES_PIPELINE=1` and `NEXT_PUBLIC_COVE_SALES_PIPELINE=1` are set in `.env.local`, followed by a rebuild. The chief-of-staff launchd lanes install only when `COVE_CHIEF_OF_STAFF=1` is set, Codex is installed, and private `data/cove-mandate.md` exists.
+
 ## Core paths and runtime
 
 | Setting | Purpose | Default |

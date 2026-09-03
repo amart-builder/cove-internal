@@ -16,6 +16,7 @@ import {
   surfaceAttentionSuggestion,
   surfaceAttentionSuppression,
 } from "./quiet-current";
+import { salesPipelineEnabled } from "../crm/sales-pipeline";
 
 const DIRECT_AUTHOR_SOURCES = new Set(["chat", "imessage", "voice", "buddy", "day-plan"]);
 
@@ -222,6 +223,7 @@ export function deliverAttentionNudge(input: {
   includeReasonInBanner?: boolean;
   allowText?: boolean;
   acceptBoardOnly?: boolean;
+  env?: NodeJS.ProcessEnv;
 }): {
   row: AttentionLedgerRow;
   finalLevel: AttentionLedgerRow["level"];
@@ -230,6 +232,9 @@ export function deliverAttentionNudge(input: {
 } {
   const now = input.now ?? new Date();
   const kind = input.kind ?? "chief_of_staff";
+  if (input.refKind === "deal" && !salesPipelineEnabled(input.env)) {
+    throw new AttentionDeliveryRejected("sales_pipeline_disabled");
+  }
   const current = input.initialItem ?? currentAttentionItem(input.db, input.refKind, input.refId);
   if (!current) throw new AttentionDeliveryRejected("no longer open");
 

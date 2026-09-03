@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
+import { isSalesPipelineEnabled } from '../src/lib/runtime/sales-pipeline.ts';
 import {
   attentionItems,
   followUpStatus,
@@ -34,6 +37,25 @@ function deal(overrides = {}) {
     ...overrides,
   };
 }
+
+test('pipeline client switch hides the nav tab and page when disabled', {
+  concurrency: false,
+}, () => {
+  const previous = process.env.NEXT_PUBLIC_COVE_SALES_PIPELINE;
+  try {
+    delete process.env.NEXT_PUBLIC_COVE_SALES_PIPELINE;
+    assert.equal(isSalesPipelineEnabled(), false);
+    process.env.NEXT_PUBLIC_COVE_SALES_PIPELINE = '1';
+    assert.equal(isSalesPipelineEnabled(), true);
+  } finally {
+    if (previous === undefined) delete process.env.NEXT_PUBLIC_COVE_SALES_PIPELINE;
+    else process.env.NEXT_PUBLIC_COVE_SALES_PIPELINE = previous;
+  }
+  const nav = readFileSync(path.join(process.cwd(), 'src/components/crm/CrmSubNav.tsx'), 'utf8');
+  const page = readFileSync(path.join(process.cwd(), 'src/app/crm/pipeline/page.tsx'), 'utf8');
+  assert.match(nav, /if \(!isSalesPipelineEnabled\(\)\) return null/);
+  assert.match(page, /if \(!salesPipelineEnabled\(\)\) notFound\(\)/);
+});
 
 test('pipeline stages have the required order and validation', () => {
   assert.deepEqual(

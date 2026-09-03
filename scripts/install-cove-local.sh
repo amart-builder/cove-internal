@@ -93,6 +93,20 @@ case "$NODE_REAL" in
     echo "Note: Node is managed by a version manager. If Cove stops starting after you switch Node versions, re-run this script." ;;
 esac
 
+if [ ! -e "$REPO_DIR/.env.local" ]; then
+  install -m 600 /dev/null "$REPO_DIR/.env.local"
+  echo "Created a private empty .env.local. Add optional Cove settings there when needed."
+fi
+local_env_value() {
+  "$NODE_REAL" --input-type=module -e '
+    import { pathToFileURL } from "node:url";
+    const { loadLocalEnv } = await import(pathToFileURL(process.argv[1]).href);
+    const loaded = loadLocalEnv(process.argv[2], { ...process.env });
+    process.stdout.write(loaded[process.argv[3]] ?? "");
+  ' "$REPO_DIR/scripts/lib/load-local-env.mjs" "$REPO_DIR" "$1"
+}
+CHIEF_OF_STAFF_OPT_IN="$(local_env_value COVE_CHIEF_OF_STAFF)"
+
 NEXT_BIN="$REPO_DIR/node_modules/.bin/next"
 if [ ! -x "$NEXT_BIN" ]; then
   echo "Could not find Next.js at $NEXT_BIN. Run 'npm install' and 'npm run build' first." >&2
@@ -208,10 +222,6 @@ printf -v NOTIFICATION_PLIST_ENTRY \
   "$NOTIFICATION_APP_XML"
 
 mkdir -p "$LOG_DIR" "$LA_DIR"
-if [ ! -e "$REPO_DIR/.env.local" ]; then
-  install -m 600 /dev/null "$REPO_DIR/.env.local"
-  echo "Created a private empty .env.local. Add optional Cove settings there when needed."
-fi
 LANE_DATA_DIR="${COVE_DATA_DIR:-$REPO_DIR/data}"
 mkdir -p "$LANE_DATA_DIR"
 ATTENTION_CONFIG="$LANE_DATA_DIR/attention-sweep.json"
@@ -515,15 +525,27 @@ case "$VOICE_REVIEW_CLAIM" in
     rm -f "$VOICE_REVIEW_PLIST"
     ;;
 esac
-CHIEF_OF_STAFF_CLAIM="$(claim_lane chief_of_staff plain)"
-case "$CHIEF_OF_STAFF_CLAIM" in
-  claimed:*) INSTALL_CHIEF_OF_STAFF_LANE=1 ;;
-  skipped:*)
-    CHIEF_OF_STAFF_OWNER="${CHIEF_OF_STAFF_CLAIM#skipped:}"
-    echo "Skipping chief-of-staff lanes: $CHIEF_OF_STAFF_OWNER owns this lane."
-    rm -f "$CHIEF_OF_STAFF_DRAIN_PLIST" "$CHIEF_OF_STAFF_SWEEP_PLIST" "$CHIEF_OF_STAFF_NIGHTLY_PLIST" "$CHIEF_OF_STAFF_REVIEW_PLIST"
-    ;;
-esac
+if [ "$CHIEF_OF_STAFF_OPT_IN" = "1" ] &&
+   [ -n "$CODEX_BIN" ] && [ -x "$CODEX_BIN" ] &&
+   [ -f "$LANE_DATA_DIR/cove-mandate.md" ]; then
+  CHIEF_OF_STAFF_CLAIM="$(claim_lane chief_of_staff plain)"
+  case "$CHIEF_OF_STAFF_CLAIM" in
+    claimed:*) INSTALL_CHIEF_OF_STAFF_LANE=1 ;;
+    skipped:*)
+      CHIEF_OF_STAFF_OWNER="${CHIEF_OF_STAFF_CLAIM#skipped:}"
+      echo "Skipping chief-of-staff lanes: $CHIEF_OF_STAFF_OWNER owns this lane."
+      ;;
+  esac
+else
+  echo "Chief of staff: off (set COVE_CHIEF_OF_STAFF=1 in .env.local, install codex, and add data/cove-mandate.md to enable)"
+fi
+if [ "$INSTALL_CHIEF_OF_STAFF_LANE" != "1" ]; then
+  launchctl bootout "gui/$UID_NUM/com.cove.chief-of-staff-drain" 2>/dev/null || true
+  launchctl bootout "gui/$UID_NUM/com.cove.chief-of-staff-sweep" 2>/dev/null || true
+  launchctl bootout "gui/$UID_NUM/com.cove.chief-of-staff-nightly" 2>/dev/null || true
+  launchctl bootout "gui/$UID_NUM/com.cove.chief-of-staff-review" 2>/dev/null || true
+  rm -f "$CHIEF_OF_STAFF_DRAIN_PLIST" "$CHIEF_OF_STAFF_SWEEP_PLIST" "$CHIEF_OF_STAFF_NIGHTLY_PLIST" "$CHIEF_OF_STAFF_REVIEW_PLIST"
+fi
 render_lane_plist() {
   "$NODE_REAL" "$LANE_PLIST_RENDERER" \
     "$1" "$2" "$REPO_DIR" "$HOME" "$ATLAS_ROOT" "$LANE_DATA_DIR" "$NODE_REAL" \

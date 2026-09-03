@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { isSalesPipelineEnabled } from '@/lib/runtime/sales-pipeline';
 
 const ITEMS = [
   { href: '/crm', label: 'People', exact: true },
@@ -10,6 +11,8 @@ const ITEMS = [
 
 export default function CrmSubNav() {
   const pathname = usePathname();
+  if (!isSalesPipelineEnabled()) return null;
+
   return (
     <nav
       aria-label="Relationship views"

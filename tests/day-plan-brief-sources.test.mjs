@@ -47,6 +47,7 @@ function fixture(t) {
       targetTimezone: 'America/Los_Angeles',
       now: NOW,
       machineIdentity: MACHINE,
+      env: { COVE_SALES_PIPELINE: '1' },
     },
   };
 }
@@ -569,6 +570,21 @@ test('pipeline overdue deals survive a calendar failure', async (t) => {
   assert.match(pipeline.content, /Overdue Person: Interested/);
   assert.match(pipeline.content, /Call today/);
   assert.equal(pipeline.note, undefined);
+});
+
+test('pipeline brief source stays empty without opening the store when disabled', async (t) => {
+  const { dir, options } = fixture(t);
+  writeFileSync(path.join(dir, 'cove.db'), 'not a sqlite database');
+  const collected = await collectMorningBriefSources({
+    ...options,
+    env: {},
+    fetchImpl: async (url) => coveRowsResponse(url) ?? new Response('not found', { status: 404 }),
+    workspaceGateway: { calendar: null },
+  });
+  const source = collected.sources.find((entry) => entry.id === 'crm_last_touch');
+  assert.equal(source.label, 'PIPELINE_FOLLOW_UPS');
+  assert.equal(source.content, undefined);
+  assert.equal(source.note, undefined);
 });
 
 test('memory decisions prefer decision-tagged Jarvis results and bound each line', async (t) => {

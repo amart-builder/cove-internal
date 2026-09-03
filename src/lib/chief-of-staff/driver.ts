@@ -21,7 +21,8 @@ import {
   type PipelineStage,
 } from "../crm/pipeline";
 import { LocalPipelineStore } from "../crm/pipeline-store";
-import { coveEnvTrimmed } from "../env";
+import { salesPipelineEnabled } from "../crm/sales-pipeline";
+import { coveConfigPath, coveEnvTrimmed } from "../env";
 import { openLocalDatabase } from "../local/database";
 import { validateTaskTiming } from "../local/db";
 import { createWorkSuggestion } from "../quiet-current/store";
@@ -30,6 +31,7 @@ import { taskColumnKeyForName } from "../tasks/columns";
 import type { JobHandlerResult, ScheduledJob } from "../reliability/jobs";
 import {
   appendChiefOfStaffJournal,
+  atomicWrite,
   ensureChiefOfStaffCodexHome,
   ensureChiefOfStaffHome,
   resetChiefOfStaffSession,
@@ -52,6 +54,7 @@ import {
 
 const WAKE_TIMEOUT_MS = 15 * 60_000;
 const MAX_PROCESS_OUTPUT = 4 * 1024 * 1024;
+const SALES_PIPELINE_STATUS_PLACEHOLDER = "{{SALES_PIPELINE_STATUS}}";
 
 type CodexAttempt = {
   ok: boolean;
@@ -62,6 +65,26 @@ type CodexAttempt = {
   output?: ChiefOfStaffOutput;
   sessionId?: string;
 };
+
+function renderChiefOfStaffMandateForWake(input: {
+  mandatePath: string;
+  repoDir: string;
+  dataDir: string;
+  env: NodeJS.ProcessEnv;
+}): void {
+  const privateFile = coveConfigPath(input.dataDir, "mandate.md");
+  const fallback = path.join(input.repoDir, "prompts", "chief-of-staff-mandate.md");
+  const source = readFileSync(existsSync(privateFile) ? privateFile : fallback, "utf8").trim();
+  const status = salesPipelineEnabled(input.env)
+    ? ""
+    : "The sales pipeline is off. Do not propose pipeline actions or deal notifications.";
+  const rendered = source.includes(SALES_PIPELINE_STATUS_PLACEHOLDER)
+    ? source.replace(SALES_PIPELINE_STATUS_PLACEHOLDER, status).trim()
+    : status ? `${source}\n\n${status}` : source;
+  const expected = `${rendered}\n`;
+  if (readFileSync(input.mandatePath, "utf8") === expected) return;
+  atomicWrite(input.mandatePath, expected, 0o444);
+}
 
 export function buildChiefOfStaffCodexArgv(input: {
   workspace: string;
@@ -400,8 +423,12 @@ function applyDatabaseAction(input: {
   action: ChiefOfStaffAction;
   wakeJobId: string;
   now: Date;
+  salesPipelineEnabled: boolean;
 }): void {
   const { action } = input;
+  if (action.kind.startsWith("pipeline_") && !input.salesPipelineEnabled) {
+    throw new Error("sales_pipeline_disabled");
+  }
   if (action.kind === "task_create") {
     prepareActionFields(action, ["title"], ["details", "due_at", "remind_at", "priority", "project", "status"]);
     if (action.status !== null && action.status !== undefined && action.status !== "open") {
@@ -596,6 +623,7 @@ function applyChiefOfStaffActionsWithDetails(input: {
   actions: ChiefOfStaffAction[];
   now?: Date;
   repoDir?: string;
+  env?: NodeJS.ProcessEnv;
   attention?: ChiefOfStaffAttentionDependencies;
 }): {
   counts: ChiefOfStaffActionCounts;
@@ -609,6 +637,7 @@ function applyChiefOfStaffActionsWithDetails(input: {
   const result = { applied: 0, rejected: 0, skipped: 0 };
   const rejections: ChiefOfStaffActionRejection[] = [];
   const downgrades: ChiefOfStaffActionDowngrade[] = [];
+  const pipelineEnabled = salesPipelineEnabled(input.env);
   let textAttemptedThisWake = false;
   try {
     for (const proposedAction of input.actions) {
@@ -669,6 +698,7 @@ function applyChiefOfStaffActionsWithDetails(input: {
             reason,
             now,
             allowText: !perWakeDowngrade,
+            env: input.env,
           });
           textAttemptedThisWake ||= outcome.textAttempted;
           action.text_attempted = outcome.textAttempted;
@@ -715,7 +745,15 @@ function applyChiefOfStaffActionsWithDetails(input: {
           }))();
         } else {
           db.transaction(() => {
-            applyDatabaseAction({ db, pipeline, crm, action, wakeJobId: input.wakeJobId, now });
+            applyDatabaseAction({
+              db,
+              pipeline,
+              crm,
+              action,
+              wakeJobId: input.wakeJobId,
+              now,
+              salesPipelineEnabled: pipelineEnabled,
+            });
             insertLedger(db, {
               wakeJobId: input.wakeJobId,
               contentHash,
@@ -767,6 +805,7 @@ export function applyChiefOfStaffActions(input: {
   actions: ChiefOfStaffAction[];
   now?: Date;
   repoDir?: string;
+  env?: NodeJS.ProcessEnv;
   attention?: ChiefOfStaffAttentionDependencies;
 }): ChiefOfStaffActionCounts {
   return applyChiefOfStaffActionsWithDetails(input).counts;
@@ -806,7 +845,17 @@ export async function runWake(
   const now = options.now?.() ?? new Date();
   const wake = parseWake(job.payload);
   const parentEnv = options.env ?? process.env;
-  let home = ensureChiefOfStaffHome({ repoDir: options.repoDir, dataDir: options.dataDir, now });
+  let home = ensureChiefOfStaffHome({
+    repoDir: options.repoDir,
+    dataDir: options.dataDir,
+    now,
+  });
+  renderChiefOfStaffMandateForWake({
+    mandatePath: home.paths.mandate,
+    repoDir: options.repoDir,
+    dataDir: options.dataDir,
+    env: parentEnv,
+  });
   ensureChiefOfStaffCodexHome({ dataDir: options.dataDir, env: parentEnv });
   const snapshot = await buildChiefOfStaffSnapshot({
     jobId: job.id,
@@ -815,6 +864,7 @@ export async function runWake(
     dataDir: options.dataDir,
     dbPath: options.dbPath,
     now,
+    env: parentEnv,
   });
   writeChiefOfStaffSnapshot({ dataDir: options.dataDir, jobId: job.id, snapshot });
   const temporary = mkdtempSync(path.join(os.tmpdir(), "cove-chief-of-staff-"));
@@ -845,7 +895,17 @@ export async function runWake(
         why: "Codex could not resume the stored session, so Cove started a fresh one.",
         now,
       });
-      home = ensureChiefOfStaffHome({ repoDir: options.repoDir, dataDir: options.dataDir, now });
+      home = ensureChiefOfStaffHome({
+        repoDir: options.repoDir,
+        dataDir: options.dataDir,
+        now,
+      });
+      renderChiefOfStaffMandateForWake({
+        mandatePath: home.paths.mandate,
+        repoDir: options.repoDir,
+        dataDir: options.dataDir,
+        env: parentEnv,
+      });
       ensureChiefOfStaffCodexHome({ dataDir: options.dataDir, env: parentEnv });
       attempt = await invoke(null);
     }
@@ -865,6 +925,7 @@ export async function runWake(
       actions: attempt.output.actions,
       now,
       repoDir: options.repoDir,
+      env: parentEnv,
       attention: options.attention,
     });
     options.afterActionsApplied?.();

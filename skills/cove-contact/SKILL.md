@@ -88,10 +88,9 @@ transaction.
 
 ## Follow-ups
 
-Sales next steps belong in the Cove pipeline. Follow the cove-pipeline skill to
-save the next action and follow-up date with the lead. Create a Cove board task
-only when the user explicitly asks for a task or reminder in addition to the
-pipeline follow-up.
+When the sales pipeline is enabled, log the touch through the pipeline API as
+well. Create a Cove board task only when the user explicitly asks for a task or
+reminder in addition to the pipeline follow-up.
 
 ## Answering questions
 

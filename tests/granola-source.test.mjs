@@ -144,7 +144,7 @@ test("Granola mapping uses meeting time, includes private notes and source, and 
   const note = {
     id: "not_mapping",
     title: null,
-    owner: { name: "Alex Martin", email: "alex@joinedgeai.com" },
+    owner: { name: "Alex Martin", email: "owner@example.com" },
     attendees: [{ name: "Sam", email: "sam@example.com" }],
     created_at: "2026-09-01T10:00:00.000Z",
     updated_at: "2026-09-02T10:00:00.000Z",
@@ -172,7 +172,7 @@ test("Granola mapping uses meeting time, includes private notes and source, and 
   assert.ok(input.body.endsWith(`Source: ${note.web_url}`));
   assert.deepEqual(input.attendees, [
     { name: "Sam", email: "sam@example.com" },
-    { name: "Alex Martin", email: "alex@joinedgeai.com" },
+    { name: "Alex Martin", email: "owner@example.com" },
   ]);
   assert.equal(granolaNoteRevisionHash(note).length, 64);
 });

@@ -11,6 +11,7 @@ import {
 import { cleanAttentionText } from "../attention/safety.mjs";
 import { buildContactContext, renderContactContext } from "../crm/contact-context";
 import { LocalPipelineStore } from "../crm/pipeline-store";
+import { salesPipelineEnabled } from "../crm/sales-pipeline";
 import {
   followUpStatus,
   isOpenPipelineStage,
@@ -377,6 +378,7 @@ export async function buildChiefOfStaffSnapshot(input: {
   now?: Date;
   timezone?: string;
   calendar?: ReadonlyCalendarGateway | null;
+  env?: NodeJS.ProcessEnv;
 }): Promise<string> {
   const now = input.now ?? new Date();
   const timezone = input.timezone ?? operatorTimezone();
@@ -406,11 +408,13 @@ export async function buildChiefOfStaffSnapshot(input: {
       ], 1_600),
       boundedSection("Rejected actions from previous wake", previousRejections(db, input.jobId), 1_800),
       boundedSection("Open tasks", taskSection(db), 4_400),
-      boundedSection("Pipeline", pipelineSection({
-        dbPath: input.dbPath,
-        today,
-        lastWakeAt: input.session.lastWakeAt,
-      }), 3_600),
+      ...(salesPipelineEnabled(input.env) ? [
+        boundedSection("Pipeline", pipelineSection({
+          dbPath: input.dbPath,
+          today,
+          lastWakeAt: input.session.lastWakeAt,
+        }), 3_600),
+      ] : []),
       boundedSection("Calendar today and tomorrow", await calendarSection({
         dataDir: input.dataDir,
         today,

@@ -153,7 +153,7 @@ export function ensureChiefOfStaffCodexHome(input: {
   return { paths, configRewritten, operatorAuth };
 }
 
-function atomicWrite(file: string, content: string, mode = 0o600): void {
+export function atomicWrite(file: string, content: string, mode = 0o600): void {
   mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(temporary, content, { encoding: "utf8", mode });

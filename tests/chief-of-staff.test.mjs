@@ -32,6 +32,7 @@ import { createWorkSuggestion, getQuietCurrentSnapshot } from "../src/lib/quiet-
 import { JobScheduler } from "../src/lib/reliability/jobs.ts";
 
 const ROOT = process.cwd();
+process.env.COVE_SALES_PIPELINE = "1";
 
 function tempCove() {
   const dataDir = mkdtempSync(path.join(os.tmpdir(), "cove-cos-"));
@@ -45,6 +46,7 @@ function tempCove() {
       HOME: dataDir,
       PATH: process.env.PATH,
       CODEX_HOME: operatorCodexHome,
+      COVE_SALES_PIPELINE: "1",
     },
   };
 }
@@ -224,6 +226,82 @@ test("snapshot is bounded, includes every desk section, and strips stored angle 
   assert.doesNotMatch(snapshot, /<Important>|<Cove>|<Review>|<manual>|<task>/);
   assert.match(snapshot, /calendar not connected/);
   assert.match(snapshot, /Reply with one JSON object matching the schema\. Nothing else\.$/);
+});
+
+test("disabled sales pipeline is omitted from snapshots and its actions are rejected", async () => {
+  const { dataDir, dbPath } = tempCove();
+  const now = new Date("2026-09-03T16:00:00Z");
+  const wake = enqueue(dbPath, { reason: "manual", note: "disabled pipeline", now }).job;
+  const crm = new LocalCRMBackend({ dbPath, now: () => now });
+  const contact = crm.resolveOrCreateContact({
+    name: "No Pipeline Person",
+    email: "no-pipeline@example.com",
+    source: "manual",
+  }).contact;
+  crm.close();
+  assert.deepEqual(applyChiefOfStaffActions({
+    dbPath,
+    dataDir,
+    wakeJobId: wake.id,
+    now,
+    env: {},
+    actions: [{
+      action_id: "pipeline-disabled",
+      kind: "pipeline_add",
+      why: `contact ${contact.id}`,
+      contact_id: contact.id,
+      stage: "interested",
+      next_action: "Follow up",
+    }],
+  }), { applied: 0, rejected: 1, skipped: 0 });
+  const db = openLocalDatabase(dbPath);
+  try {
+    assert.equal(db.prepare(
+      "SELECT error FROM chief_of_staff_actions WHERE wake_job_id = ?",
+    ).pluck().get(wake.id), "sales_pipeline_disabled");
+    assert.equal(db.prepare("SELECT COUNT(*) FROM pipeline_deals").pluck().get(), 0);
+  } finally {
+    db.close();
+  }
+  const snapshot = await buildChiefOfStaffSnapshot({
+    jobId: wake.id,
+    wake: wake.payload,
+    session: {
+      sessionId: null,
+      createdAt: now.toISOString(),
+      mandateHash: "hash",
+      wakes: 0,
+      lastWakeAt: null,
+      lastWakeReason: null,
+    },
+    dataDir,
+    dbPath,
+    now,
+    calendar: null,
+    env: {},
+  });
+  assert.doesNotMatch(snapshot, /## Pipeline/);
+});
+
+test("chief-of-staff mandate tells the agent when sales pipeline actions are off", async () => {
+  const { dataDir, dbPath, operatorEnv } = tempCove();
+  writeFileSync(path.join(dataDir, "cove-mandate.md"), "Private mandate\n");
+  const binary = path.join(dataDir, "fake-codex");
+  fakeCodex(binary);
+  const now = new Date("2026-09-03T16:00:00Z");
+  const wake = enqueue(dbPath, { reason: "manual", note: "disabled mandate", now }).job;
+  await runWake(wake, {
+    repoDir: ROOT,
+    dataDir,
+    dbPath,
+    codexPath: binary,
+    now: () => now,
+    env: { ...operatorEnv, COVE_SALES_PIPELINE: "0" },
+  });
+  assert.match(
+    readFileSync(chiefOfStaffPaths(dataDir).mandate, "utf8"),
+    /The sales pipeline is off/,
+  );
 });
 
 test("output validation limits notify actions to four per wake", () => {

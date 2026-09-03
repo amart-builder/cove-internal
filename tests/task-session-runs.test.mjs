@@ -456,7 +456,7 @@ test('task sessions fall back to Cove outputs when no Atlas project resolves', a
 });
 
 test('task sessions resolve a project from the title and launch from that workspace', (t) => {
-  const projectDir = '/Users/alexanderjmartin/Atlas/Projects/slipstream';
+  const projectDir = '/Users/example/Atlas/Projects/slipstream';
   const hints = [];
   const { manager, spawnCalls } = fixture(t, {
     resolveProjectDirectory: (hint) => {

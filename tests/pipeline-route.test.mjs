@@ -38,10 +38,58 @@ function routeFixture(t, name, extraEnv = {}) {
     NEXT_PUBLIC_COVE_RUNTIME: 'local',
     COVE_DAY_PLAN_ACCESS_MODE: undefined,
     COVE_DAY_PLAN_REMOTE_TOKEN: undefined,
+    COVE_SALES_PIPELINE: '1',
     ...extraEnv,
   });
   return { dir, dbPath };
 }
+
+test('pipeline route returns 404 for every pipeline operation when disabled', {
+  concurrency: false,
+}, async (t) => {
+  const { dbPath } = routeFixture(t, 'disabled', { COVE_SALES_PIPELINE: undefined });
+  const list = await get('http://127.0.0.1:3200/api/crm?operation=list');
+  assert.equal(list.status, 200);
+  const { csrfToken } = await list.json();
+  const resolved = await (await post(csrfToken, 'resolve', {
+    name: 'Disabled Pipeline Person',
+    email: 'disabled-pipeline@example.com',
+    source: 'manual',
+  })).json();
+  const contactId = resolved.resolution.contact.id;
+
+  process.env.COVE_SALES_PIPELINE = '1';
+  assert.equal((await post(csrfToken, 'pipeline_upsert', {
+    contactId,
+    stage: 'interested',
+    patch: { nextAction: 'Follow up' },
+  })).status, 200);
+  delete process.env.COVE_SALES_PIPELINE;
+
+  const read = await get('http://127.0.0.1:3200/api/crm?operation=pipeline');
+  assert.equal(read.status, 404);
+  assert.deepEqual(await read.json(), { error: 'sales_pipeline_disabled' });
+
+  for (const [action, input] of [
+    ['pipeline_upsert', { contactId, patch: {} }],
+    ['pipeline_move', { contactId, stage: 'pitched' }],
+    ['pipeline_log_touch', { contactId, activityType: 'call', title: 'Call' }],
+    ['pipeline_remove', { contactId }],
+  ]) {
+    const response = await post(csrfToken, action, input);
+    assert.equal(response.status, 404, action);
+    assert.deepEqual(await response.json(), { error: 'sales_pipeline_disabled' }, action);
+  }
+
+  const removed = await post(csrfToken, 'delete', { contactId });
+  assert.equal(removed.status, 200);
+  const db = new Database(dbPath);
+  try {
+    assert.equal(db.prepare('SELECT COUNT(*) FROM contacts WHERE id = ?').pluck().get(contactId), 0);
+  } finally {
+    db.close();
+  }
+});
 
 function get(url, headers) {
   return GET(new NextRequest(url, { headers }));

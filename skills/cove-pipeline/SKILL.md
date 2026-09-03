@@ -14,6 +14,11 @@ This is local-runtime functionality. Read `NEXT_PUBLIC_COVE_RUNTIME` from
 `.env.local` first and stop if it is not `local`. Never use the generic Cove
 REST table endpoint for pipeline data.
 
+Before calling the API, confirm `.env.local` contains both
+`COVE_SALES_PIPELINE=1` and `NEXT_PUBLIC_COVE_SALES_PIPELINE=1`. If either is
+missing, or the API returns `sales_pipeline_disabled`, print exactly:
+`Sales pipeline is off. Add COVE_SALES_PIPELINE=1 and NEXT_PUBLIC_COVE_SALES_PIPELINE=1 to .env.local and rebuild.`
+
 ## Pipeline stages
 
 Use these stages in this order:

@@ -108,8 +108,13 @@ const allowedData = new Set([
   "data/cove-support.example.json",
   "data/cove-workspace.example.json",
 ]);
+const excludedPaths = [
+  ".claude/skills/cove-pipeline/",
+  "skills/cove-pipeline/",
+];
 
 function allowed(file) {
+  if (excludedPaths.some((directory) => file.startsWith(directory))) return false;
   if (!file.includes("/")) return rootFiles.has(file);
   if (allowedData.has(file)) return true;
   return allowedDirectories.some((directory) => file.startsWith(directory));

@@ -234,6 +234,29 @@ test("local env loading parses simple and quoted values without overriding the s
   });
 });
 
+test("installer local env lookup works in an empty process environment", async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "cove-installer-env-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const lookup = (name) => execFileSync("/usr/bin/env", [
+    "-i",
+    process.execPath,
+    "--input-type=module",
+    "-e",
+    `import { pathToFileURL } from "node:url";
+     const { loadLocalEnv } = await import(pathToFileURL(process.argv[1]).href);
+     const loaded = loadLocalEnv(process.argv[2], { ...process.env });
+     process.stdout.write(loaded[process.argv[3]] ?? "");`,
+    path.join(ROOT, "scripts", "lib", "load-local-env.mjs"),
+    dir,
+    name,
+  ], { encoding: "utf8" });
+
+  await writeFile(path.join(dir, ".env.local"), "COVE_CHIEF_OF_STAFF=1\n");
+  assert.equal(lookup("COVE_CHIEF_OF_STAFF"), "1");
+  await writeFile(path.join(dir, ".env.local"), "# opt-in absent\n");
+  assert.equal(lookup("COVE_CHIEF_OF_STAFF"), "");
+});
+
 test("installer creates the optional env file safely and treats a slow worker as a warning", () => {
   const installer = readFileSync(path.join(ROOT, "scripts", "install-cove-local.sh"), "utf8");
   assert.match(installer, /install -m 600 \/dev\/null "\$REPO_DIR\/\.env\.local"/);
@@ -247,6 +270,19 @@ test("installer creates the optional env file safely and treats a slow worker as
   assert.match(installer, /com\.cove\.chief-of-staff-sweep\.plist/);
   assert.match(installer, /com\.cove\.chief-of-staff-nightly\.plist/);
   assert.match(installer, /com\.cove\.chief-of-staff-review\.plist/);
+  assert.match(installer, /CHIEF_OF_STAFF_OPT_IN="\$\(local_env_value COVE_CHIEF_OF_STAFF\)"/);
+  assert.match(installer, /\[ "\$CHIEF_OF_STAFF_OPT_IN" = "1" \][\s\S]{0,180}\[ -n "\$CODEX_BIN" \][\s\S]{0,180}\[ -f "\$LANE_DATA_DIR\/cove-mandate\.md" \]/);
+  assert.match(installer, /Chief of staff: off \(set COVE_CHIEF_OF_STAFF=1 in \.env\.local, install codex, and add data\/cove-mandate\.md to enable\)/);
+  const disabledLaneBlock = installer.match(
+    /if \[ "\$INSTALL_CHIEF_OF_STAFF_LANE" != "1" \]; then([\s\S]*?)\nfi/,
+  )?.[1] ?? "";
+  for (const lane of ["drain", "sweep", "nightly", "review"]) {
+    assert.match(
+      disabledLaneBlock,
+      new RegExp(`launchctl bootout "gui/\\$UID_NUM/com\\.cove\\.chief-of-staff-${lane}" 2>/dev/null \\|\\| true`),
+    );
+  }
+  assert.match(disabledLaneBlock, /rm -f "\$CHIEF_OF_STAFF_DRAIN_PLIST"/);
   assert.match(installer, /launchctl bootout "gui\/\$UID_NUM\/com\.cove\.attention-sweep"/);
   assert.match(installer, /rm -f "\$LA_DIR\/com\.cove\.attention-sweep\.plist"/);
   assert.doesNotMatch(installer, /launchctl bootstrap[^\n]*ATTENTION_SWEEP/);
