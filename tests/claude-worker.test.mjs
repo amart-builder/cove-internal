@@ -740,14 +740,10 @@ test('installer provisions a supervised watch worker without enabling autonomy',
   // fails at run time in a way no test under tsx can see.
   const remindersProfile = installer.slice(
     installer.indexOf('# --- Reminders:'),
-    installer.indexOf('# --- Judgment sweep:'),
-  );
-  const sweepProfile = installer.slice(
-    installer.indexOf('# --- Judgment sweep:'),
     installer.indexOf('# --- Email triage:'),
   );
   for (
-    const profile of [remindersProfile, sweepProfile, jobsProfile, triageProfile, workerProfile]
+    const profile of [remindersProfile, jobsProfile, triageProfile, workerProfile]
   ) {
     assert.match(profile, /tsx\/dist\/loader\.mjs|\$TSX_BIN|cove-email-triage\.sh/);
   }
