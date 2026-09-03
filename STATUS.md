@@ -18,11 +18,29 @@
 ## Active Session
 - **system:** cowork
 - **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-09-02T17:05:25-0700
-- **task:** chief-of-staff notifications: commit round 3
+- **since:** 2026-09-02T17:29:32-0700
+- **task:** Commit Granola source, email badge, email handled log
 <!-- END active-session -->
 
 ---
+
+## 2026-09-02 Email handled log and calendar notices (DONE, see commits)
+
+- The Email card now has a read-only `Things you should know` section with the
+  last seven days of handled `fyi` and `noise` mail, a 12-row initial view, a
+  show-all toggle, a visible 200-row cap, short relative times, and Gmail thread
+  links. A history-query failure stays inside this section and does not hide
+  open email.
+- Accepted and tentative calendar notices bypass the model and become `fyi`.
+  Declined, invitation, updated, canceled, and new-event notices keep the model
+  bucket decision and append the model context after the deterministic event
+  line. A prefix bypasses the model only with a date-shaped schedule suffix or
+  a Google calendar sender. Noise receipts reuse the stored classifier summary.
+- The handled query filters and sorts on `actioned_at`, returns at most 200 rows,
+  and uses 200 as its default limit.
+- Fix-round verification: requested suite 54 passed, 0 failed. TypeScript and
+  scoped ESLint passed with zero output. No live database, Gmail, demo command,
+  browser, dependency, or schema migration was used.
 
 ## 2026-09-02 Chief-of-staff Phase 1: shared memory, email fix, one persistent agent (DONE, LIVE)
 
@@ -41,6 +59,38 @@ Shipped:
 Verified: fresh Opus reviews of both rounds (all HIGH/MEDIUM fixed), held-out acceptance C1 to C9 and F1 to F11 pass, live schema and sandbox probes against codex 0.146.0.
 
 Next: Phase 2 folds Buddy into the same session; consider driver-side reclassification when a meeting note lands during triage.
+
+## 2026-09-02 Granola API meeting-notes source, email count badge (DONE, see commits)
+
+- Problem (verified live): Cove's only meeting-notes source was Gmail. Granola's
+  email is a content-free "notes are ready" stub and Gemini still sends "couldn't
+  take notes" failures, so the meeting analyst saw empty meetings and minted
+  "Recover the X meeting outcome" tasks. All four meetings existed in Granola.
+- Fix: scripts/cove-meeting-watch.mjs now polls Granola's REST API in the same
+  lane (src/lib/intake/granola-source.ts). One note = one meeting, claimed as
+  `granola:<note_id>` through the watcher door (no migration). First complete
+  summary is analyzed once; later edits are counted as revisions_ignored.
+  Notes with no summary yet stay in pending_note_ids for up to 7 days, failures
+  dead-letter after DEAD_LETTER_AFTER, list_cursor clears on failure, watermark
+  never resets. Key: COVE_GRANOLA_API_KEY in .env.local (Granola desktop app,
+  Settings, Connectors, API keys; Business or Enterprise plan; personal keys
+  expire). Missing key = heartbeat granola.status "disabled"; 401 = "failed",
+  surfaced by the health collector and the Morning Brief evidence.
+- Granola-pattern Gmail messages are labelled processed without analysis when
+  the API source is on; notification-only stubs (Granola, Gemini failure mails)
+  never reach the analyst. Gemini removed from this machine's active_tools.
+- Grouping: Granola envelopes never join fragment groups and are never join
+  candidates; every other envelope keeps the b272cf3 attendee-overlap behavior.
+- Email count badge: the Email needs you card in Second Current shows the count
+  of pending email items (white pill, black number; inverted in dark mode) and
+  refreshes on the email_items bus, including after archiving from the card.
+- Verification: Sol built (two review rounds, Opus 5 fresh-context), held-out
+  acceptance with a fake Granola server passed (3 owner notes as 3 jobs, foreign
+  owner skipped, idempotent rerun, revision ignored, 401 fail-closed, no key
+  disabled, stub guard, Gemini removal), full suite 1158 pass / 0 fail.
+- Open: Alex must add COVE_GRANOLA_API_KEY (needs a Business plan key). The five
+  existing "Recover ..." tasks were left for Alex to archive. The Email card's
+  third section landed in the same batch (entry above).
 
 ## 2026-09-02 Arrival inline All Work, task-backed items, card editor (DONE, see commit)
 
@@ -75,7 +125,7 @@ Next: Phase 2 folds Buddy into the same session; consider driver-side reclassifi
   scrolls inside itself (it used to clip its top at 100% zoom with a long description).
   Both editor panels contain overscroll so the layer behind stays put.
 
-## 2026-09-02 Closing Your Day: Mark complete and Reopen (DONE, UNCOMMITTED)
+## 2026-09-02 Closing Your Day: Mark complete and Reopen (DONE, aa63cbc)
 
 - Goal: let Alex mark an open item done while closing the day instead of only
   choosing Progress, Carry, Defer, or Drop.
