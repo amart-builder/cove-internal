@@ -16,10 +16,10 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** cowork
-- **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-09-02T17:29:32-0700
-- **task:** Commit Granola source, email badge, email handled log
+- **system:** none
+- **device:** —
+- **since:** —
+- **task:** —
 <!-- END active-session -->
 
 ---
