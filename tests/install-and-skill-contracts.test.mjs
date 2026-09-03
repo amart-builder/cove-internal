@@ -24,6 +24,7 @@ test("meeting and progress plists render the absolute Node executable", async (t
     "com.cove.progress.plist",
     "com.cove.voice-review.plist",
     "com.cove.chief-of-staff-drain.plist",
+    "com.cove.chief-of-staff-sweep.plist",
     "com.cove.chief-of-staff-nightly.plist",
     "com.cove.chief-of-staff-review.plist",
   ]) {
@@ -36,11 +37,12 @@ test("meeting and progress plists render the absolute Node executable", async (t
       atlasRoot: "/Users/client/Atlas",
       dataDir: "/Users/client/Cove/data",
       nodePath: "/opt/homebrew/Cellar/node/24.1.0/bin/node",
+      notificationApp: "/Users/client/Applications/Cove Notifications.app/Contents/MacOS/CoveNotifier",
     });
     assert.match(rendered, /<string>\/opt\/homebrew\/Cellar\/node\/24\.1\.0\/bin\/node<\/string>/);
     assert.doesNotMatch(
       rendered,
-      /__COVE_(?:NODE_REAL|JOB_RUNNER|CODEX_BIN)__|<string>\/usr\/bin\/env<\/string>/,
+      /__COVE_(?:NODE_REAL|JOB_RUNNER|CODEX_BIN|NOTIFICATION_APP)__|<string>\/usr\/bin\/env<\/string>/,
     );
     assert.doesNotMatch(rendered, /--env-file/);
     if (name.startsWith("com.cove.chief-of-staff-")) {
@@ -164,11 +166,11 @@ test("voice review plist runs Sundays at 18:00 without login catch-up", async (t
   assert.equal("StartInterval" in plist, false);
 });
 
-test("chief-of-staff plists render the drain, nightly, and weekly review schedules", async (t) => {
+test("chief-of-staff plists render drain, sweep, nightly, and weekly review schedules", async (t) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "cove-cos-plists-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const rendered = {};
-  for (const name of ["drain", "nightly", "review"]) {
+  for (const name of ["drain", "sweep", "nightly", "review"]) {
     const destination = path.join(dir, `com.cove.chief-of-staff-${name}.plist`);
     renderLanePlist({
       source: path.join(ROOT, "scripts", "launchd", `com.cove.chief-of-staff-${name}.plist`),
@@ -179,6 +181,7 @@ test("chief-of-staff plists render the drain, nightly, and weekly review schedul
       dataDir: "/Users/client/Cove/data",
       nodePath: "/opt/homebrew/bin/node",
       codexPath: "/Users/client/.local/bin/codex",
+      notificationApp: "/Users/client/Applications/Cove Notifications.app/Contents/MacOS/CoveNotifier",
     });
     rendered[name] = JSON.parse(execFileSync(
       "/usr/bin/plutil",
@@ -188,6 +191,18 @@ test("chief-of-staff plists render the drain, nightly, and weekly review schedul
   }
   assert.equal(rendered.drain.StartInterval, 300);
   assert.deepEqual(rendered.drain.ProgramArguments.slice(-3), ["drain", "--max", "3"]);
+  assert.equal(
+    rendered.drain.EnvironmentVariables.COVE_NOTIFICATION_APP,
+    "/Users/client/Applications/Cove Notifications.app/Contents/MacOS/CoveNotifier",
+  );
+  assert.equal(rendered.drain.EnvironmentVariables.COVE_NOTIFY, "1");
+  assert.deepEqual(rendered.sweep.StartCalendarInterval, [
+    { Hour: 11, Minute: 30 },
+    { Hour: 16, Minute: 0 },
+  ]);
+  assert.deepEqual(rendered.sweep.ProgramArguments.slice(-7), [
+    "enqueue", "--reason", "sweep", "--slot", "11:30", "--slot", "16:00",
+  ]);
   assert.deepEqual(rendered.nightly.StartCalendarInterval, { Hour: 21, Minute: 30 });
   assert.deepEqual(rendered.nightly.ProgramArguments.slice(-3), ["enqueue", "--reason", "nightly"]);
   assert.deepEqual(rendered.review.StartCalendarInterval, { Weekday: 0, Hour: 18, Minute: 0 });
@@ -229,8 +244,13 @@ test("installer creates the optional env file safely and treats a slow worker as
   assert.match(installer, /Claude worker status: not started/);
   assert.doesNotMatch(installer, /Claude worker did not become healthy[\s\S]{0,200}exit 1/);
   assert.match(installer, /com\.cove\.chief-of-staff-drain\.plist/);
+  assert.match(installer, /com\.cove\.chief-of-staff-sweep\.plist/);
   assert.match(installer, /com\.cove\.chief-of-staff-nightly\.plist/);
   assert.match(installer, /com\.cove\.chief-of-staff-review\.plist/);
+  assert.match(installer, /launchctl bootout "gui\/\$UID_NUM\/com\.cove\.attention-sweep"/);
+  assert.match(installer, /rm -f "\$LA_DIR\/com\.cove\.attention-sweep\.plist"/);
+  assert.doesNotMatch(installer, /launchctl bootstrap[^\n]*ATTENTION_SWEEP/);
+  assert.doesNotMatch(installer, /launchctl enable[^\n]*com\.cove\.attention-sweep/);
 });
 
 test("task and contact skills authenticate every documented generic mutation", () => {

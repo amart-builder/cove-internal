@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 
-export type AttentionKind = "sweep_nudge" | "floor_nudge" | "urgent_email";
-export type AttentionRefKind = "task" | "commitment" | "email";
+export type AttentionKind = "sweep_nudge" | "floor_nudge" | "urgent_email" | "chief_of_staff";
+export type AttentionRefKind = "task" | "commitment" | "email" | "deal";
 export type AttentionLevel = "text" | "banner" | "board" | "suppressed" | "shadow";
 
 export type AttentionLedgerRow = {
@@ -20,18 +20,21 @@ export const ATTENTION_LIMITS: Readonly<{
   textsPerDay: number;
   bannersPerDay: number;
   modelTextsPerDay: number;
+  floorTextsPerDay: number;
 }>;
 
 export function attentionCooldown(db: Database.Database, input: {
   refKind: AttentionRefKind;
   refId: string;
   now: Date | string;
+  shadow?: boolean;
 }): { allowed: boolean; priorNudges: number; nextAllowedAt: string | null };
 
 export function dailyAttentionUsage(db: Database.Database, now?: Date): {
   texts: number;
   banners: number;
   modelTexts: number;
+  floorTexts: number;
 };
 
 export function allocateAttention(db: Database.Database, input: {

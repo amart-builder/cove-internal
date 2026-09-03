@@ -45,7 +45,10 @@
           "description",
           "reason",
           "due_date",
-          "claim_key"
+          "claim_key",
+          "ref_kind",
+          "ref_id",
+          "level"
         ],
         "properties": {
           "action_id": { "type": "string", "minLength": 1, "maxLength": 120 },
@@ -58,7 +61,8 @@
               "pipeline_update",
               "pipeline_move",
               "crm_note",
-              "suggest"
+              "suggest",
+              "notify"
             ]
           },
           "why": { "type": "string", "minLength": 1, "maxLength": 200 },
@@ -97,7 +101,10 @@
           "description": { "type": ["string", "null"], "maxLength": 5000 },
           "reason": { "type": ["string", "null"], "maxLength": 2000 },
           "due_date": { "type": ["string", "null"], "maxLength": 10 },
-          "claim_key": { "type": ["string", "null"], "maxLength": 300 }
+          "claim_key": { "type": ["string", "null"], "maxLength": 300 },
+          "ref_kind": { "enum": ["task", "commitment", "deal", null] },
+          "ref_id": { "type": ["string", "null"], "maxLength": 200 },
+          "level": { "enum": ["banner", "text", null] }
         }
       }
     }

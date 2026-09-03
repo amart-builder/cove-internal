@@ -16,6 +16,7 @@ export function surfaceAttentionSuggestion(input: {
   source: string;
   targetTaskId?: string;
   now?: Date;
+  dataDir?: string;
 }): void {
   const now = input.now ?? new Date();
   // Quiet Current uses atomic rename but has no inter-process compare-and-swap.
@@ -31,12 +32,14 @@ export function surfaceAttentionSuggestion(input: {
     targetTaskId: input.targetTaskId,
     claimKey: `${input.row.kind}:${input.row.refKind}:${input.row.refId}`,
     expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1_000).toISOString(),
+    dataDir: input.dataDir,
   });
 }
 
 export function surfaceAttentionSuppression(input: {
   row: AttentionLedgerRow;
   now?: Date;
+  dataDir?: string;
 }): void {
   const now = input.now ?? new Date();
   if (
@@ -56,5 +59,6 @@ export function surfaceAttentionSuppression(input: {
     source: "Cove attention ledger",
     priority: "medium",
     expiresAt: new Date(now.getTime() + 2 * 24 * 60 * 60 * 1_000).toISOString(),
+    dataDir: input.dataDir,
   });
 }

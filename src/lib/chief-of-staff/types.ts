@@ -4,6 +4,7 @@ export const CHIEF_OF_STAFF_REASONS = [
   "brief",
   "triage",
   "meeting",
+  "sweep",
   "nightly",
   "manual",
 ] as const;
@@ -29,7 +30,7 @@ export type ChiefOfStaffOutput = {
   actions: ChiefOfStaffAction[];
 };
 
-const SECRET_LOOKING_TEXT = /(?:[a-f0-9]{40,}|[a-z0-9+/_=-]{40,}|ya29\.|sk-|-----BEGIN|Bearer\s+)/i;
+const SECRET_LOOKING_TEXT = /(?:\b[a-f0-9]{40,}\b|(?<![A-Za-z0-9+/_=-])[A-Za-z0-9+/_=-]{40,}(?![A-Za-z0-9+/_=-])|\bya29\.|\bsk-[A-Za-z0-9_-]{20,}|-----BEGIN\b|\bBearer\s+\S+)/i;
 
 const ACTION_TEXT_LIMITS: Record<string, number> = {
   action_id: 120,
@@ -55,6 +56,21 @@ const ACTION_TEXT_LIMITS: Record<string, number> = {
   reason: 2_000,
   due_date: 10,
   claim_key: 300,
+  ref_kind: 20,
+  ref_id: 200,
+  level: 20,
+};
+
+export const CHIEF_OF_STAFF_ACTION_FIELDS: Record<string, readonly string[]> = {
+  task_create: ["title", "details", "due_at", "remind_at", "priority", "project", "status"],
+  task_update: ["task_id", "title", "details", "due_at", "remind_at", "priority", "status"],
+  pipeline_add: ["contact_id", "stage", "next_action", "next_follow_up_at", "notes"],
+  pipeline_log_touch: ["contact_id", "channel", "summary", "next_action", "next_follow_up_at"],
+  pipeline_update: ["contact_id", "next_action", "next_follow_up_at", "notes"],
+  pipeline_move: ["contact_id", "stage"],
+  crm_note: ["contact_id", "title", "content"],
+  suggest: ["suggestion_kind", "title", "description", "reason", "priority", "due_date", "claim_key"],
+  notify: ["ref_kind", "ref_id", "level", "reason"],
 };
 
 export function scrubModelText(value: string, maximum: number): string {
@@ -112,7 +128,16 @@ export function validateChiefOfStaffOutput(value: unknown): ChiefOfStaffOutput {
   const seen = new Set<string>();
   const actions = input.actions.map((value, index) => {
     const action = record(value, `actions[${index}]`);
+    const ownFields = new Set([
+      "action_id",
+      "kind",
+      "why",
+      ...(typeof action.kind === "string"
+        ? CHIEF_OF_STAFF_ACTION_FIELDS[action.kind] ?? []
+        : []),
+    ]);
     for (const [field, fieldValue] of Object.entries(action)) {
+      if (!ownFields.has(field)) continue;
       if (typeof fieldValue !== "string") continue;
       const maximum = ACTION_TEXT_LIMITS[field] ?? 5_000;
       if (fieldValue.trim().length > maximum) {
@@ -142,6 +167,9 @@ export function validateChiefOfStaffOutput(value: unknown): ChiefOfStaffOutput {
       why: why.trim(),
     });
   });
+  if (actions.filter((action) => action.kind === "notify").length > 4) {
+    throw new Error("actions may contain at most 4 notify items.");
+  }
   return { journal, watching, actions };
 }
 

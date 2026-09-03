@@ -6,10 +6,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { runWake } from "../src/lib/chief-of-staff/driver";
 import { runChiefOfStaffReview } from "../src/lib/chief-of-staff/review";
 import {
+  CHIEF_OF_STAFF_SWEEP_SLOTS,
   enqueueChiefOfStaffWake,
   readChiefOfStaffJournalLines,
   readChiefOfStaffSession,
   resetChiefOfStaffSession,
+  type ChiefOfStaffSweepSlot,
 } from "../src/lib/chief-of-staff/storage";
 import {
   CHIEF_OF_STAFF_JOB_TYPE,
@@ -27,6 +29,12 @@ loadLocalEnv(repoDir);
 function option(name: string): string | undefined {
   const index = process.argv.indexOf(name);
   return index >= 0 ? process.argv[index + 1] : undefined;
+}
+
+function optionValues(name: string): string[] {
+  return process.argv.flatMap((value, index) =>
+    value === name && process.argv[index + 1] ? [process.argv[index + 1]] : []
+  );
 }
 
 function payloadFile(): Record<string, unknown> {
@@ -70,14 +78,25 @@ async function main(): Promise<void> {
   if (command === "enqueue") {
     const reason = option("--reason");
     if (!reason || !(CHIEF_OF_STAFF_REASONS as readonly string[]).includes(reason)) {
-      throw new Error("enqueue requires --reason brief|triage|meeting|nightly|manual.");
+      throw new Error("enqueue requires --reason brief|triage|meeting|sweep|nightly|manual.");
     }
+    const requestedSlots = optionValues("--slot");
+    if (reason !== "sweep" && requestedSlots.length > 0) {
+      throw new Error("--slot can only be used with --reason sweep.");
+    }
+    if (requestedSlots.some((slot) =>
+      !(CHIEF_OF_STAFF_SWEEP_SLOTS as readonly string[]).includes(slot)
+    )) {
+      throw new Error("--slot must be 11:30 or 16:00.");
+    }
+    const slots = requestedSlots as ChiefOfStaffSweepSlot[];
     const db = openLocalDatabase(dbPath);
     try {
       const result = db.transaction(() => enqueueChiefOfStaffWake(db, {
         reason: reason as ChiefOfStaffReason,
         payload: payloadFile(),
         note: option("--note"),
+        ...(slots.length > 0 ? { slot: slots.length === 1 ? slots[0] : slots } : {}),
       })).immediate();
       console.log(JSON.stringify({ id: result.job.id, inserted: result.inserted }));
     } finally {

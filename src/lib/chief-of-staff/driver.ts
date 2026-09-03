@@ -4,6 +4,15 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import {
+  AttentionDeliveryRejected,
+  deliverAttentionNudge,
+} from "../attention/delivery";
+import type { AttentionTransport } from "../attention/transport.mjs";
+import {
+  surfaceAttentionSuggestion,
+  surfaceAttentionSuppression,
+} from "../attention/quiet-current";
 import { LocalCRMBackend } from "../crm/local";
 import {
   isOpenPipelineStage,
@@ -28,11 +37,13 @@ import {
 } from "./storage";
 import { buildChiefOfStaffSnapshot, writeChiefOfStaffSnapshot } from "./snapshot";
 import {
+  CHIEF_OF_STAFF_ACTION_FIELDS,
   CHIEF_OF_STAFF_REASONS,
   optionalActionText,
   requiredActionText,
   scrubChiefOfStaffAction,
   scrubModelText,
+  stripStoredText,
   validateChiefOfStaffOutput,
   type ChiefOfStaffAction,
   type ChiefOfStaffOutput,
@@ -275,20 +286,33 @@ function parseWake(value: unknown): ChiefOfStaffWakePayload {
   };
 }
 
-function exactKeys(
+function prepareActionFields(
   action: ChiefOfStaffAction,
   required: string[],
   optional: string[] = [],
+  conflicts: string[] = [],
 ): void {
-  const allowed = new Set(["action_id", "kind", "why", ...required, ...optional]);
+  const allowed = new Set([
+    "action_id",
+    "kind",
+    "why",
+    ...required,
+    ...optional,
+  ]);
+  const conflictFields = new Set(conflicts);
   for (const field of required) {
     if (!Object.hasOwn(action, field)) throw new Error(`${field} is required.`);
   }
+  const ignoredFields: string[] = [];
   for (const field of Object.keys(action)) {
-    if (!allowed.has(field) && action[field] !== null) {
-      throw new Error(`Unknown ${action.kind} field: ${field}.`);
+    if (allowed.has(field)) continue;
+    if (conflictFields.has(field) && action[field] !== null && action[field] !== undefined) {
+      continue;
     }
+    if (action[field] !== null && action[field] !== undefined) ignoredFields.push(field);
+    delete action[field];
   }
+  if (ignoredFields.length > 0) action.ignored_fields = ignoredFields.sort();
 }
 
 function nullableText(
@@ -351,17 +375,6 @@ function insertLedger(
   );
 }
 
-const ACTION_HASH_FIELDS: Record<string, string[]> = {
-  task_create: ["title", "details", "due_at", "remind_at", "priority", "project", "status"],
-  task_update: ["task_id", "title", "details", "due_at", "remind_at", "priority", "status"],
-  pipeline_add: ["contact_id", "stage", "next_action", "next_follow_up_at", "notes"],
-  pipeline_log_touch: ["contact_id", "channel", "summary", "next_action", "next_follow_up_at"],
-  pipeline_update: ["contact_id", "next_action", "next_follow_up_at", "notes"],
-  pipeline_move: ["contact_id", "stage"],
-  crm_note: ["contact_id", "title", "content"],
-  suggest: ["suggestion_kind", "title", "description", "reason", "priority", "due_date", "claim_key"],
-};
-
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value && typeof value === "object") {
@@ -374,7 +387,7 @@ function canonicalJson(value: unknown): string {
 }
 
 export function chiefOfStaffActionContentHash(action: ChiefOfStaffAction): string {
-  const fields = ACTION_HASH_FIELDS[action.kind] ?? Object.keys(action)
+  const fields = CHIEF_OF_STAFF_ACTION_FIELDS[action.kind] ?? Object.keys(action)
     .filter((field) => field !== "action_id" && field !== "why" && field !== "kind");
   const payload = Object.fromEntries(fields.map((field) => [field, action[field] ?? null]));
   return createHash("sha256").update(`${action.kind}\n${canonicalJson(payload)}`).digest("hex");
@@ -390,7 +403,7 @@ function applyDatabaseAction(input: {
 }): void {
   const { action } = input;
   if (action.kind === "task_create") {
-    exactKeys(action, ["title"], ["details", "due_at", "remind_at", "priority", "project", "status"]);
+    prepareActionFields(action, ["title"], ["details", "due_at", "remind_at", "priority", "project", "status"]);
     if (action.status !== null && action.status !== undefined && action.status !== "open") {
       throw new Error("task_create status must be open.");
     }
@@ -425,7 +438,7 @@ function applyDatabaseAction(input: {
     return;
   }
   if (action.kind === "pipeline_add") {
-    exactKeys(
+    prepareActionFields(
       action,
       ["contact_id", "stage", "next_action"],
       ["next_follow_up_at", "notes"],
@@ -451,7 +464,7 @@ function applyDatabaseAction(input: {
     return;
   }
   if (action.kind === "task_update") {
-    exactKeys(action, ["task_id"], ["title", "details", "due_at", "remind_at", "priority", "status"]);
+    prepareActionFields(action, ["task_id"], ["title", "details", "due_at", "remind_at", "priority", "status"]);
     const taskId = requiredActionText(action, "task_id", 200);
     const existing = input.db.prepare("SELECT id FROM tasks WHERE id = ?").get(taskId);
     if (!existing) throw new Error("Task was not found.");
@@ -491,7 +504,7 @@ function applyDatabaseAction(input: {
     return;
   }
   if (action.kind === "pipeline_log_touch") {
-    exactKeys(action, ["contact_id", "channel", "summary"], ["next_action", "next_follow_up_at"]);
+    prepareActionFields(action, ["contact_id", "channel", "summary"], ["next_action", "next_follow_up_at"]);
     const channel = requiredActionText(action, "channel", 20);
     if (!["call", "email", "text", "meeting", "note"].includes(channel)) {
       throw new Error("Pipeline channel is invalid.");
@@ -512,7 +525,15 @@ function applyDatabaseAction(input: {
     return;
   }
   if (action.kind === "pipeline_update") {
-    exactKeys(action, ["contact_id"], ["next_action", "next_follow_up_at", "notes"]);
+    prepareActionFields(
+      action,
+      ["contact_id"],
+      ["next_action", "next_follow_up_at", "notes"],
+      ["stage"],
+    );
+    if (action.stage !== null && action.stage !== undefined) {
+      throw new Error("pipeline_update cannot change stage. Use pipeline_move.");
+    }
     const patch = validatePipelinePatch({
       ...(action.next_action !== null && Object.hasOwn(action, "next_action")
         ? { next_action: optionalActionText(action, "next_action", 500) ?? "" }
@@ -529,7 +550,7 @@ function applyDatabaseAction(input: {
     return;
   }
   if (action.kind === "pipeline_move") {
-    exactKeys(action, ["contact_id", "stage"]);
+    prepareActionFields(action, ["contact_id", "stage"]);
     const stage = validatePipelineStage(action.stage);
     if (stage === "lost" || stage === "parked") {
       throw new Error("Lost and parked require Alex's judgment. Use suggest instead.");
@@ -538,7 +559,7 @@ function applyDatabaseAction(input: {
     return;
   }
   if (action.kind === "crm_note") {
-    exactKeys(action, ["contact_id", "title", "content"]);
+    prepareActionFields(action, ["contact_id", "title", "content"]);
     input.crm.appendActivity({
       contactId: requiredActionText(action, "contact_id", 200),
       sourceRef: `chief-of-staff:${input.wakeJobId}:${action.action_id}`,
@@ -559,6 +580,14 @@ function applyDatabaseAction(input: {
 type ChiefOfStaffActionCounts = { applied: number; rejected: number; skipped: number };
 
 type ChiefOfStaffActionRejection = { kind: string; reason: string };
+type ChiefOfStaffActionDowngrade = { kind: string; reason: string };
+
+type ChiefOfStaffAttentionDependencies = {
+  shadow?: boolean;
+  transport?: AttentionTransport;
+  surface?: typeof surfaceAttentionSuggestion;
+  surfaceSuppression?: typeof surfaceAttentionSuppression;
+};
 
 function applyChiefOfStaffActionsWithDetails(input: {
   dbPath: string;
@@ -566,27 +595,94 @@ function applyChiefOfStaffActionsWithDetails(input: {
   wakeJobId: string;
   actions: ChiefOfStaffAction[];
   now?: Date;
-}): { counts: ChiefOfStaffActionCounts; rejections: ChiefOfStaffActionRejection[] } {
+  repoDir?: string;
+  attention?: ChiefOfStaffAttentionDependencies;
+}): {
+  counts: ChiefOfStaffActionCounts;
+  rejections: ChiefOfStaffActionRejection[];
+  downgrades: ChiefOfStaffActionDowngrade[];
+} {
   const now = input.now ?? new Date();
   const db = openLocalDatabase(input.dbPath);
   const pipeline = new LocalPipelineStore({ database: db, now: () => now });
   const crm = new LocalCRMBackend({ database: db, now: () => now });
   const result = { applied: 0, rejected: 0, skipped: 0 };
   const rejections: ChiefOfStaffActionRejection[] = [];
+  const downgrades: ChiefOfStaffActionDowngrade[] = [];
+  let textAttemptedThisWake = false;
   try {
     for (const proposedAction of input.actions) {
       const action = scrubChiefOfStaffAction(proposedAction);
+      if (action.kind === "notify" && typeof action.reason === "string") {
+        action.reason = stripStoredText(action.reason, 200);
+      }
       const contentHash = chiefOfStaffActionContentHash(action);
       const existing = db.prepare(
-        `SELECT status FROM chief_of_staff_actions WHERE wake_job_id = ? AND content_hash = ?`,
-      ).get(input.wakeJobId, contentHash) as { status: string } | undefined;
+        `SELECT status, payload_json
+         FROM chief_of_staff_actions WHERE wake_job_id = ? AND content_hash = ?`,
+      ).get(input.wakeJobId, contentHash) as {
+        status: string;
+        payload_json: string;
+      } | undefined;
       if (existing?.status === "applied") {
+        try {
+          const prior = JSON.parse(existing.payload_json) as Record<string, unknown>;
+          textAttemptedThisWake ||= prior.kind === "notify" && prior.text_attempted === true;
+        } catch {
+          // A valid applied row still remains replay-safe if old audit JSON is malformed.
+        }
         result.skipped += 1;
         continue;
       }
       try {
-        if (action.kind === "suggest") {
-          exactKeys(
+        if (action.kind === "notify") {
+          // The flat schema carries both a generic `why` and a notify `reason`.
+          // Models often fill only `why`; treat it as the reason when `reason`
+          // is empty so a real interruption is not lost to a field name.
+          if (typeof action.reason !== "string" || !action.reason.trim()) {
+            action.reason = typeof action.why === "string" ? action.why : null;
+          }
+          prepareActionFields(action, ["ref_kind", "ref_id", "level", "reason"]);
+          const refKind = requiredActionText(action, "ref_kind", 20);
+          if (refKind !== "task" && refKind !== "commitment" && refKind !== "deal") {
+            throw new Error("notify ref_kind must be task, commitment, or deal.");
+          }
+          const level = requiredActionText(action, "level", 20);
+          if (level !== "banner" && level !== "text") {
+            throw new Error("notify level must be banner or text.");
+          }
+          const reason = stripStoredText(requiredActionText(action, "reason", 200), 200);
+          if (!reason) throw new Error("notify reason must contain visible text.");
+          const perWakeDowngrade = level === "text" && textAttemptedThisWake;
+          if (perWakeDowngrade) {
+            action.downgrade_reason = "one_text_per_wake";
+            downgrades.push({ kind: "notify", reason: "one_text_per_wake" });
+          }
+          const outcome = deliverAttentionNudge({
+            ...input.attention,
+            db,
+            dataDir: input.dataDir,
+            repoDir: input.repoDir,
+            refKind,
+            refId: requiredActionText(action, "ref_id", 200),
+            level,
+            reason,
+            now,
+            allowText: !perWakeDowngrade,
+          });
+          textAttemptedThisWake ||= outcome.textAttempted;
+          action.text_attempted = outcome.textAttempted;
+          action.attention_ledger_id = outcome.row.id;
+          action.delivered_level = outcome.finalLevel;
+          db.transaction(() => insertLedger(db, {
+            wakeJobId: input.wakeJobId,
+            contentHash,
+            action,
+            status: "applied",
+            now: now.toISOString(),
+          }))();
+        } else if (action.kind === "suggest") {
+          prepareActionFields(
             action,
             ["title", "description", "reason", "claim_key"],
             ["suggestion_kind", "priority", "due_date"],
@@ -631,6 +727,12 @@ function applyChiefOfStaffActionsWithDetails(input: {
         }
         result.applied += 1;
       } catch (error) {
+        if (error instanceof AttentionDeliveryRejected) {
+          if (error.ledgerRowId) action.attention_ledger_id = error.ledgerRowId;
+          if (error.deliveredLevel) action.delivered_level = error.deliveredLevel;
+          action.text_attempted = error.textAttempted;
+          textAttemptedThisWake ||= error.textAttempted;
+        }
         const message = (error instanceof Error ? error.message : String(error))
           .replace(/\s+/g, " ")
           .trim()
@@ -650,7 +752,7 @@ function applyChiefOfStaffActionsWithDetails(input: {
         });
       }
     }
-    return { counts: result, rejections };
+    return { counts: result, rejections, downgrades };
   } finally {
     crm.close();
     pipeline.close();
@@ -664,6 +766,8 @@ export function applyChiefOfStaffActions(input: {
   wakeJobId: string;
   actions: ChiefOfStaffAction[];
   now?: Date;
+  repoDir?: string;
+  attention?: ChiefOfStaffAttentionDependencies;
 }): ChiefOfStaffActionCounts {
   return applyChiefOfStaffActionsWithDetails(input).counts;
 }
@@ -671,11 +775,17 @@ export function applyChiefOfStaffActions(input: {
 function actionOutcomeJournalLine(
   counts: ChiefOfStaffActionCounts,
   rejections: ChiefOfStaffActionRejection[],
+  downgrades: ChiefOfStaffActionDowngrade[],
 ): string {
   const base = `outcome: applied ${counts.applied}, rejected ${counts.rejected}`;
-  if (counts.rejected === 0) return base;
-  const details = rejections.map(({ kind, reason }) => `${kind}: ${reason}`).join("; ");
-  return scrubModelText(`${base} (${details})`, 400);
+  const rejectionText = counts.rejected > 0
+    ? ` (${rejections.map(({ kind, reason }) => `${kind}: ${reason}`).join("; ")})`
+    : "";
+  const downgradeText = downgrades.length > 0
+    ? `, downgraded ${downgrades.length} (${downgrades.map(({ kind, reason }) =>
+      `${kind}: ${reason}`).join("; ")})`
+    : "";
+  return scrubModelText(`${base}${rejectionText}${downgradeText}`, 400);
 }
 
 export async function runWake(
@@ -690,6 +800,7 @@ export async function runWake(
     timeoutMs?: number;
     spawnImpl?: typeof spawn;
     afterActionsApplied?: () => void;
+    attention?: ChiefOfStaffAttentionDependencies;
   },
 ): Promise<JobHandlerResult> {
   const now = options.now?.() ?? new Date();
@@ -753,6 +864,8 @@ export async function runWake(
       wakeJobId: job.id,
       actions: attempt.output.actions,
       now,
+      repoDir: options.repoDir,
+      attention: options.attention,
     });
     options.afterActionsApplied?.();
     appendChiefOfStaffJournal({
@@ -760,7 +873,11 @@ export async function runWake(
       reason: wake.reason,
       lines: [
         ...attempt.output.journal,
-        actionOutcomeJournalLine(actionResult.counts, actionResult.rejections),
+        actionOutcomeJournalLine(
+          actionResult.counts,
+          actionResult.rejections,
+          actionResult.downgrades,
+        ),
       ],
       now,
       maxCharsPerLine: 400,

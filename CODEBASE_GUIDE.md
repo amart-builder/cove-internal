@@ -240,7 +240,14 @@ action intent replay-safe even when Codex changes its action ID on a retry.
 Unknown actions, missing records, and pipeline moves to
 `lost` or `parked` are rejected and shown in the next snapshot. `pipeline_add`
 can create a non-terminal deal for a contact with no deal. Existing deals must
-use `pipeline_update` or `pipeline_move`.
+use `pipeline_update` or `pipeline_move`. `notify` is the agent's only path to
+Alex's screen. `src/lib/attention/delivery.ts` rechecks the referenced task,
+commitment, or deal, allocates from the shared attention ledger, sanitizes its
+text, surfaces Quiet Current evidence, calls the shared transport, and finalizes
+the ledger row before the action is marked applied. The driver permits one text
+attempt per wake, records any later text request as a banner downgrade, and
+rejects board-only transport fallbacks so the agent does not mistake them for
+an interruption.
 
 The weekly review deliberately uses a fresh, tool-free Claude run. It proposes
 mandate lines in a review file and Quiet Current suggestion. It never edits the
@@ -299,6 +306,9 @@ inbound events and then into tasks or suggestions.
 - `run.ts` is the source-to-triage coordinator.
 - `meeting-detection.ts` and `meeting-pipeline.ts` recognize and process meeting
   notes.
+- `granola-source.ts` polls Granola's read-only REST API, maps one note to the
+  shared meeting envelope, and tracks the first complete summary by the stable
+  `granola:<note_id>` message ID.
 - `task-writer.ts` performs deterministic final task writes and bundling.
 - `message-ingestion.ts` provides shared message claim behavior.
 
@@ -356,7 +366,10 @@ and formats the single policy block shared by the five narrow model surfaces.
 
 `src/lib/attention/` implements the notification ledger, caps, cooldowns,
 transport allocation, and shadow-mode model protocols. The deterministic floor
-and model judgment lanes share a budget but have different authority.
+and persistent chief-of-staff judgment share one budget. The retired
+`scripts/cove-attention-sweep.mjs` remains only as a compatibility and regression
+seam. `data/attention-sweep.json` now controls shadow mode for the agent's
+`notify` action.
 
 `src/lib/intake/notification-transport.mjs` is the shared native-notification
 command boundary. It keeps message text out of a shell and routes banners
@@ -402,13 +415,13 @@ or broken agent.
 | `com.cove.claude-worker` | `scripts/cove-claude-worker.ts` | Brief, dump, execution, and inbound queues | Default profile |
 | `com.cove.jobs` | `scripts/cove-jobs.ts` | Durable scheduled jobs and health work | Default profile |
 | `com.cove.reminders` | `scripts/cove-reminders.mjs` | Due-task notifications and deterministic attention floor | Default profile |
-| `com.cove.attention-sweep` | `scripts/cove-attention-sweep.mjs` | Shadow-first attention judgment at scheduled times | Default profile, shadowed by default |
 | `com.cove.email-triage` | `scripts/cove-email-triage.sh` | Configured Gmail catch-up and triage schedule | Only when Workspace email is configured |
-| `com.cove.meeting-watch` | `scripts/cove-meeting-watch.mjs` | Configured meeting-note ingestion | Only when this Mac claims the meeting lane; the script remains disabled without meeting config |
+| `com.cove.meeting-watch` | `scripts/cove-meeting-watch.mjs` | Polls Granola plus configured Gmail meeting-note sources | Only when this Mac claims the meeting lane; the script remains disabled without meeting config |
 | `com.cove.meeting-drain` | `scripts/cove-meeting-watch.mjs --drain-only` | Always-on local meeting-analysis job drain | Only when this Mac claims the meeting lane |
 | `com.cove.progress` | `scripts/cove-progress-reconcile.mjs` | Read-only project evidence and progress suggestions | Only when this Mac claims the progress lane |
 | `com.cove.voice-review` | `scripts/cove-voice-review.mjs` | Weekly draft-outcome and operator-writing review | Only when this Mac claims the voice-review lane; disabled in email settings by default |
 | `com.cove.chief-of-staff-drain` | `scripts/cove-chief-of-staff.ts drain --max 3` | Runs queued persistent-agent wakes one at a time | Only when this Mac claims the chief-of-staff lane |
+| `com.cove.chief-of-staff-sweep` | `scripts/cove-chief-of-staff.ts enqueue --reason sweep` | Queues attention judgment at 11:30 and 16:00 | Only when this Mac claims the chief-of-staff lane; `data/attention-sweep.json` is the shadow switch |
 | `com.cove.chief-of-staff-nightly` | `scripts/cove-chief-of-staff.ts enqueue --reason nightly` | Queues the 21:30 nightly wake | Only when this Mac claims the chief-of-staff lane |
 | `com.cove.chief-of-staff-review` | `scripts/cove-chief-of-staff.ts review` | Runs the Sunday fresh-context review | Only when this Mac claims the chief-of-staff lane |
 | `com.cove.local.backup` | `scripts/cove-backup.sh` | Daily online SQLite backup | Default profile |

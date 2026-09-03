@@ -16,10 +16,10 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** none
-- **device:** —
-- **since:** —
-- **task:** —
+- **system:** cowork
+- **device:** Alexanders-MacBook-Pro-2
+- **since:** 2026-09-02T17:05:25-0700
+- **task:** chief-of-staff notifications: commit round 3
 <!-- END active-session -->
 
 ---
@@ -35,6 +35,7 @@ Shipped:
 - Morning brief CRM source is now the local pipeline (overdue, due today, due in 7 days, today's attendees with deals). Attio is gone from the brief.
 - Operator policy block: private `data/cove-policy.md` is prepended once to the brief, intake, email classifier, meeting analyst, and Buddy prompts. Template at `prompts/operator-policy.template.md`.
 - One persistent chief-of-staff agent (`scripts/cove-chief-of-staff.ts`, `src/lib/chief-of-staff/`): a single long-lived Codex Sol session, resumed on every wake, sandbox read-only, shell tool off, no MCP (own `data/chief-of-staff/codex-home`, auth symlinked), no network. The driver builds a bounded desk snapshot, the agent returns JSON, and the driver applies seven action kinds (task create/update, pipeline touch/update/move except lost or parked, contact note, Quiet Current suggestion) with a content-hash ledger for replay safety. Wakes are `cove_jobs` rows enqueued at brief, triage, and meeting completion; launchd lanes drain every 5 min, enqueue nightly at 21:30, and run a cross-family Claude review on Sundays at 18:00. Mandate lives in private `data/cove-mandate.md`, rendered read-only to the agent's `AGENTS.md`. Journal in `data/chief-of-staff/journal/`.
+- Notifications: the agent owns model-judged interrupts. A `notify` action (task, commitment, or deal; banner or text) goes through the shared attention ledger (daily caps, cooldowns, reserved floor slot) and the branded transport; non-direct content is sanitized; one text per wake; board-only fallbacks are reported as rejected. The standalone `com.cove.attention-sweep` lane is retired; `com.cove.chief-of-staff-sweep` enqueues wakes at 11:30 and 16:00 instead. `data/attention-sweep.json` `shadow` is the one switch for the agent's notifications (shadow logs "Would have interrupted" instead of sending); it is still `true` as of 2026-09-02 evening, Alex flips it. A notify whose `reason` is null falls back to its `why` (the live model kept filling only `why`). Live shadow proof 2026-09-02: ledger row `level=shadow` plus a Quiet Current "Would have interrupted" card for the Josh follow-up task. Due reminders, pre-deadline nudges, the noon floor, urgent email, Claude worker, and intake triage are unchanged.
 - Buddy is still its own Claude session in this phase (honest label; folding it in is Phase 2).
 
 Verified: fresh Opus reviews of both rounds (all HIGH/MEDIUM fixed), held-out acceptance C1 to C9 and F1 to F11 pass, live schema and sandbox probes against codex 0.146.0.

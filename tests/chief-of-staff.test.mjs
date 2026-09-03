@@ -76,6 +76,26 @@ test("wake enqueue keys dedupe bounded reasons while manual wakes remain unique"
       enqueueChiefOfStaffWake(db, { reason: "meeting", payload: { jobId: "meeting-1" }, now }).job.idempotencyKey,
       "cos:meeting:meeting-1",
     );
+    const sweepA = enqueueChiefOfStaffWake(db, {
+      reason: "sweep",
+      now: new Date("2026-09-03T18:47:00Z"),
+      timezone: "America/Los_Angeles",
+    });
+    const sweepB = enqueueChiefOfStaffWake(db, {
+      reason: "sweep",
+      now: new Date("2026-09-03T18:30:00Z"),
+      timezone: "America/Los_Angeles",
+      slot: "11:30",
+    });
+    const sweepLater = enqueueChiefOfStaffWake(db, {
+      reason: "sweep",
+      now: new Date("2026-09-03T23:00:00Z"),
+      timezone: "America/Los_Angeles",
+    });
+    assert.equal(sweepA.job.idempotencyKey, "cos:sweep:2026-09-03T11:30");
+    assert.equal(sweepB.inserted, false);
+    assert.equal(sweepLater.job.idempotencyKey, "cos:sweep:2026-09-03T16:00");
+    assert.equal(sweepLater.inserted, true);
     const nightly = enqueueChiefOfStaffWake(db, { reason: "nightly", now, timezone: "America/Los_Angeles" });
     assert.equal(nightly.job.idempotencyKey, "cos:nightly:2026-09-03");
     const manualA = enqueueChiefOfStaffWake(db, { reason: "manual", note: "first", now });
@@ -116,20 +136,23 @@ test("chief-of-staff output schema uses the strict structured-output subset", ()
   };
   visit(schema);
   assert.ok(schema.properties.actions.items.properties.kind.enum.includes("pipeline_add"));
+  assert.ok(schema.properties.actions.items.properties.kind.enum.includes("notify"));
 });
 
 test("model text scrubber redacts secret-looking lines and caps retained text", () => {
   for (const secret of [
     "a".repeat(40),
     "ya29.token-value",
-    "sk-example-secret",
+    "sk-abcdefghijklmnopqrstuvwxyz1234",
     "-----BEGIN PRIVATE KEY-----",
     "Bearer token-value",
   ]) assert.equal(scrubModelText(`prefix\n${secret}\nsuffix`, 500), "prefix\n[redacted]\nsuffix");
+  assert.equal(scrubModelText("task-1234 follow up", 500), "task-1234 follow up");
+  assert.equal(scrubModelText("sk-abcdefghijklmnopqrstuvwxyz1234", 500), "[redacted]");
   assert.equal(scrubModelText("ordinary context", 8), "ordinary");
   const output = validateChiefOfStaffOutput({
     journal: ["Bearer model-token", "Safe journal line"],
-    watching: ["sk-watch-secret"],
+    watching: ["sk-abcdefghijklmnopqrstuvwxyz1234"],
     actions: [{
       action_id: "a1",
       kind: "task_create",
@@ -194,12 +217,30 @@ test("snapshot is bounded, includes every desk section, and strips stored angle 
     "## Calendar today and tomorrow",
     "## Receipts since last wake",
     "## Quiet Current",
+    "## Attention budget",
     "## Wake-specific context",
     "## Recent chief-of-staff journal",
   ]) assert.match(snapshot, new RegExp(section));
   assert.doesNotMatch(snapshot, /<Important>|<Cove>|<Review>|<manual>|<task>/);
   assert.match(snapshot, /calendar not connected/);
   assert.match(snapshot, /Reply with one JSON object matching the schema\. Nothing else\.$/);
+});
+
+test("output validation limits notify actions to four per wake", () => {
+  const makeNotify = (index) => ({
+    action_id: `notify-${index}`,
+    kind: "notify",
+    why: `task task-${index} is due`,
+    ref_kind: "task",
+    ref_id: `task-${index}`,
+    level: "banner",
+    reason: "It is due today.",
+  });
+  assert.throws(() => validateChiefOfStaffOutput({
+    journal: ["one", "two"],
+    watching: [],
+    actions: Array.from({ length: 5 }, (_, index) => makeNotify(index)),
+  }), /at most 4 notify/);
 });
 
 test("rejection feedback uses the last finished wake plus this wake's earlier attempt", async () => {
@@ -498,6 +539,49 @@ test("task_create accepts the live flat-schema payload with open status", () => 
   }), { applied: 0, rejected: 1, skipped: 0 });
 });
 
+test("pipeline_update still rejects a non-null stage", () => {
+  const { dataDir, dbPath } = tempCove();
+  const now = new Date("2026-09-03T16:00:00Z");
+  const crm = new LocalCRMBackend({ dbPath, now: () => now });
+  const contact = crm.resolveOrCreateContact({
+    name: "Pipeline Guard",
+    email: "pipeline-guard@example.com",
+    source: "manual",
+  }).contact;
+  crm.close();
+  const pipeline = new LocalPipelineStore({ dbPath, now: () => now });
+  pipeline.create({ contactId: contact.id, stage: "reach_out" });
+  pipeline.close();
+  const wake = enqueue(dbPath, { reason: "manual", note: "guard stage", now }).job;
+  assert.deepEqual(applyChiefOfStaffActions({
+    dbPath,
+    dataDir,
+    wakeJobId: wake.id,
+    actions: [{
+      action_id: "invalid-stage-update",
+      kind: "pipeline_update",
+      why: `pipeline ${contact.id}`,
+      contact_id: contact.id,
+      notes: "Keep the current stage.",
+      stage: "interested",
+    }],
+    now,
+  }), { applied: 0, rejected: 1, skipped: 0 });
+  const db = openLocalDatabase(dbPath);
+  try {
+    assert.equal(db.prepare(
+      "SELECT stage FROM pipeline_deals WHERE contact_id = ?",
+    ).pluck().get(contact.id), "reach_out");
+    const ledger = db.prepare(
+      "SELECT error, payload_json FROM chief_of_staff_actions WHERE wake_job_id = ?",
+    ).get(wake.id);
+    assert.equal(ledger.error, "pipeline_update cannot change stage. Use pipeline_move.");
+    assert.equal(JSON.parse(ledger.payload_json).stage, "interested");
+  } finally {
+    db.close();
+  }
+});
+
 function fakeCodex(file, mode = "success") {
   const resumeFailure = mode === "resume-failure"
     ? `case " $* " in *" resume old-session "*) echo "Error: thread/resume: thread/resume failed: no rollout found for thread id old-session (code -32600)" >&2; exit 1;; esac\n`
@@ -509,6 +593,8 @@ function fakeCodex(file, mode = "success") {
     : `printf '%s\\n' '{"type":"thread.started","thread_id":"new-session-id"}'`;
   const output = mode === "no-session"
     ? '{"journal":["Applied the task.","A fresh session is acceptable."],"watching":[],"actions":[{"action_id":"no-session-task","kind":"task_create","why":"manual payload","title":"Created without session id"}]}'
+    : mode === "two-texts"
+    ? '{"journal":["Reviewed both due tasks.","Requested the necessary interruptions."],"watching":[],"actions":[{"action_id":"text-one","kind":"notify","why":"notice one is due","ref_kind":"task","ref_id":"notice-one","level":"text","reason":"First task is due now."},{"action_id":"text-two","kind":"notify","why":"notice two is due","ref_kind":"task","ref_id":"notice-two","level":"text","reason":"Second task is due now."}]}'
     : mode === "mixed-outcome"
     ? '{"journal":["Created the requested task.","Checked the remaining action."],"watching":[],"actions":[{"action_id":"good-task","kind":"task_create","why":"manual payload","title":"Outcome task","status":"open"},{"action_id":"bad-send","kind":"email_send","why":"manual payload"}]}'
     : '{"journal":["Reviewed the desk.","No urgent gap found."],"watching":[],"actions":[]}';
@@ -680,6 +766,85 @@ test("wake journal ends with the driver-authored ledger outcome", async () => {
   const lines = journal.trim().split("\n");
   assert.match(lines.at(-1), /^- \d{2}:\d{2} \[manual\] outcome: applied 1, rejected 1 \(email_send: Unknown action kind: email_send\.\)$/);
   assert.ok(lines.at(-1).length <= 400);
+});
+
+test("two text notifications in one wake send one text and downgrade the second", async () => {
+  const { dataDir, dbPath, operatorEnv } = tempCove();
+  const binary = path.join(dataDir, "fake-codex");
+  fakeCodex(binary, "two-texts");
+  const now = new Date("2026-09-03T18:30:00Z");
+  const job = enqueue(dbPath, { reason: "manual", note: "check both tasks", now }).job;
+  const db = openLocalDatabase(dbPath);
+  try {
+    const task = db.prepare(
+      `INSERT INTO tasks
+         (id, title, status, source_type, position, created_at, updated_at)
+       VALUES (?, ?, 'open', 'inbound_event', 0, ?, ?)`,
+    );
+    const inbound = db.prepare(
+      `INSERT INTO inbound_events
+         (id, source, source_id, raw_text, state, attempts, created_at, updated_at)
+       VALUES (?, 'chat', ?, 'fixture', 'triaged', 0, ?, ?)`,
+    );
+    for (const id of ["notice-one", "notice-two"]) {
+      task.run(id, `Title for ${id}`, now.toISOString(), now.toISOString());
+      inbound.run(id, `source-${id}`, now.toISOString(), now.toISOString());
+    }
+    assert.equal(db.prepare(
+      "SELECT COUNT(*) FROM tasks WHERE id IN ('notice-one','notice-two') AND status = 'open'",
+    ).pluck().get(), 2);
+  } finally {
+    db.close();
+  }
+  const calls = [];
+  const wakeResult = await runWake(job, {
+    repoDir: ROOT,
+    dataDir,
+    dbPath,
+    codexPath: binary,
+    now: () => now,
+    env: operatorEnv,
+    attention: {
+      shadow: false,
+      transport: {
+        textConfigured: true,
+        banner: (text) => calls.push(["banner", text]),
+        text: (text) => {
+          calls.push(["text", text]);
+          return true;
+        },
+      },
+      surface: () => undefined,
+      surfaceSuppression: () => undefined,
+    },
+  });
+  assert.deepEqual(wakeResult.actions, {
+    applied: 2,
+    rejected: 0,
+    skipped: 0,
+    watching: [],
+  });
+  assert.deepEqual(calls.map(([kind]) => kind), ["text", "banner"]);
+  const verify = openLocalDatabase(dbPath);
+  try {
+    const payloads = verify.prepare(
+      `SELECT action_id, payload_json FROM chief_of_staff_actions
+       WHERE wake_job_id = ? ORDER BY action_id`,
+    ).all(job.id).map((row) => [row.action_id, JSON.parse(row.payload_json)]);
+    assert.equal(payloads[0][1].delivered_level, "text");
+    assert.equal(payloads[1][1].delivered_level, "banner");
+    assert.equal(payloads[1][1].downgrade_reason, "one_text_per_wake");
+  } finally {
+    verify.close();
+  }
+  const journal = readFileSync(
+    path.join(chiefOfStaffPaths(dataDir).journal, "2026-09-03.md"),
+    "utf8",
+  );
+  assert.match(
+    journal.trim().split("\n").at(-1),
+    /outcome: applied 2, rejected 0, downgraded 1 \(notify: one_text_per_wake\)$/,
+  );
 });
 
 test("resume reset requires the exact nonzero thread-resume failure", () => {

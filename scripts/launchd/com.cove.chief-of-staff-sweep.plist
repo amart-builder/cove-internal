@@ -3,32 +3,37 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.cove.chief-of-staff-drain</string>
+  <string>com.cove.chief-of-staff-sweep</string>
   <key>ProgramArguments</key>
   <array>
     <string>__COVE_NODE_REAL__</string>
     <string>--import</string>
     <string>/Users/operator/Atlas/Projects/astack/cove/node_modules/tsx/dist/loader.mjs</string>
     <string>/Users/operator/Atlas/Projects/astack/cove/scripts/cove-chief-of-staff.ts</string>
-    <string>drain</string>
-    <string>--max</string>
-    <string>3</string>
+    <string>enqueue</string>
+    <string>--reason</string>
+    <string>sweep</string>
+    <string>--slot</string>
+    <string>11:30</string>
+    <string>--slot</string>
+    <string>16:00</string>
   </array>
-  <key>WorkingDirectory</key>
-  <string>/Users/operator/Atlas/Projects/astack/cove</string>
+  <key>WorkingDirectory</key><string>/Users/operator/Atlas/Projects/astack/cove</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key><string>/Users/operator</string>
     <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/Users/operator/.local/bin:/usr/bin:/bin</string>
     <key>COVE_DATA_DIR</key><string>/Users/operator/Atlas/Projects/astack/cove/data</string>
     <key>COVE_CODEX_BIN</key><string>__COVE_CODEX_BIN__</string>
-    <key>COVE_NOTIFY</key><string>1</string>
-    <key>COVE_NOTIFICATION_APP</key><string>__COVE_NOTIFICATION_APP__</string>
   </dict>
-  <key>StartInterval</key><integer>300</integer>
-  <key>RunAtLoad</key><true/>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>11</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>16</integer><key>Minute</key><integer>0</integer></dict>
+  </array>
+  <key>RunAtLoad</key><false/>
   <key>KeepAlive</key><false/>
-  <key>StandardOutPath</key><string>/Users/operator/Library/Logs/cove-chief-of-staff-drain.log</string>
-  <key>StandardErrorPath</key><string>/Users/operator/Library/Logs/cove-chief-of-staff-drain.log</string>
+  <key>StandardOutPath</key><string>/Users/operator/Library/Logs/cove-chief-of-staff-sweep.log</string>
+  <key>StandardErrorPath</key><string>/Users/operator/Library/Logs/cove-chief-of-staff-sweep.log</string>
 </dict>
 </plist>

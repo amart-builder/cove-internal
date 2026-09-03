@@ -113,6 +113,19 @@ rerun when the scheduler retries a wake. Each completed wake adds a
 driver-authored journal outcome with the applied count and any rejected action
 kinds and reasons, so model-written journal claims cannot hide ledger failures.
 
+`cove_attention_ledger` accepts `chief_of_staff` decisions for task,
+commitment, and deal references. The driver stores the resulting attention row
+ID inside the chief-of-staff action payload. An action is applied only after a
+live delivery or a shadow record. Cap and cooldown rejections keep their exact
+ledger reason for the next snapshot.
+
+Notify audit payloads include `delivered_level`. Cove attempts at most one text
+per wake. It records a later text request with `downgrade_reason` set to
+`one_text_per_wake`, then sends it as a banner. A successful Quiet Current
+write without a successful notification transport remains a truthful `board`
+row in the attention ledger, while the chief-of-staff action is rejected as
+`delivered_board_only:<transport error>`.
+
 The action vocabulary can add a pipeline deal only when the contact has no
 deal and the requested stage is non-terminal. Existing deals use update or
 move actions. Client, lost, and parked additions are rejected.
@@ -133,6 +146,11 @@ and are not removed when `session.json` is reset.
 The private mandate source is `data/cove-mandate.md`. The distributable fallback
 is `prompts/chief-of-staff-mandate.md`.
 
+`data/attention-sweep.json` retains its `shadow` key but now governs
+chief-of-staff `notify` actions. The old standalone attention sweep LaunchAgent
+is retired. Shadow decisions write ledger and Quiet Current evidence without
+sending a banner or text.
+
 ## Database access
 
 Normal product code opens SQLite through `openLocalDatabase`, which applies all
@@ -148,6 +166,31 @@ claim record so a crash can be reconciled against the provider before retry.
 ## Private files
 
 Machine-private files under `data/` include the database, OAuth settings, heartbeats, relays, brief inputs, logs, and live meeting configuration. They must not be committed or included in a client export. The only distributable meeting file is `data/cove-meetings.example.json`, which is disabled by default.
+
+`data/cove-meeting-state.json` stores Gmail watcher progress plus this Granola
+poll state:
+
+```json
+{
+  "granola": {
+    "watermark_at": "ISO timestamp or null",
+    "list_cursor": "opaque cursor or null",
+    "pending_note_ids": ["not_..."],
+    "revisions": { "not_...": "sha256 hash" },
+    "failures": { "not_...": { "failed_runs": 1 } },
+    "dead_letters": [{ "note_id": "not_...", "failed_runs": 5 }]
+  }
+}
+```
+
+The Granola watermark advances only after a complete successful page walk.
+Every pending note is fetched directly on each poll for up to seven days,
+including notes waiting for a summary and notes waiting for the intake queue.
+After five failed queue attempts, Cove records the note in Granola dead letters
+and stops refetching it. The stable claim ID is `granola:<note_id>`. One note is
+one meeting and never joins the Gmail fragment group. Cove analyzes the first
+complete summary once. Later summary or private-note revisions are counted in
+the heartbeat as ignored and are not analyzed again in this release.
 
 `data/cove-policy.md` is the optional private operator policy for the brief,
 generic intake, email classifier, meeting analyst, and Buddy. Reads are capped

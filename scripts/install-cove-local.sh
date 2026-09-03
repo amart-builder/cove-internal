@@ -481,6 +481,7 @@ MEETING_DRAIN_PLIST="$LA_DIR/com.cove.meeting-drain.plist"
 PROGRESS_PLIST="$LA_DIR/com.cove.progress.plist"
 VOICE_REVIEW_PLIST="$LA_DIR/com.cove.voice-review.plist"
 CHIEF_OF_STAFF_DRAIN_PLIST="$LA_DIR/com.cove.chief-of-staff-drain.plist"
+CHIEF_OF_STAFF_SWEEP_PLIST="$LA_DIR/com.cove.chief-of-staff-sweep.plist"
 CHIEF_OF_STAFF_NIGHTLY_PLIST="$LA_DIR/com.cove.chief-of-staff-nightly.plist"
 CHIEF_OF_STAFF_REVIEW_PLIST="$LA_DIR/com.cove.chief-of-staff-review.plist"
 INSTALL_MEETING_LANE=0
@@ -520,13 +521,13 @@ case "$CHIEF_OF_STAFF_CLAIM" in
   skipped:*)
     CHIEF_OF_STAFF_OWNER="${CHIEF_OF_STAFF_CLAIM#skipped:}"
     echo "Skipping chief-of-staff lanes: $CHIEF_OF_STAFF_OWNER owns this lane."
-    rm -f "$CHIEF_OF_STAFF_DRAIN_PLIST" "$CHIEF_OF_STAFF_NIGHTLY_PLIST" "$CHIEF_OF_STAFF_REVIEW_PLIST"
+    rm -f "$CHIEF_OF_STAFF_DRAIN_PLIST" "$CHIEF_OF_STAFF_SWEEP_PLIST" "$CHIEF_OF_STAFF_NIGHTLY_PLIST" "$CHIEF_OF_STAFF_REVIEW_PLIST"
     ;;
 esac
 render_lane_plist() {
   "$NODE_REAL" "$LANE_PLIST_RENDERER" \
     "$1" "$2" "$REPO_DIR" "$HOME" "$ATLAS_ROOT" "$LANE_DATA_DIR" "$NODE_REAL" \
-    "$JOB_RUNNER" "$CODEX_BIN"
+    "$JOB_RUNNER" "$CODEX_BIN" "$NOTIFICATION_APP_EXECUTABLE"
 }
 if [ "$INSTALL_MEETING_LANE" = "1" ]; then
   render_lane_plist \
@@ -550,6 +551,9 @@ if [ "$INSTALL_CHIEF_OF_STAFF_LANE" = "1" ]; then
   render_lane_plist \
     "$REPO_DIR/scripts/launchd/com.cove.chief-of-staff-drain.plist" \
     "$CHIEF_OF_STAFF_DRAIN_PLIST"
+  render_lane_plist \
+    "$REPO_DIR/scripts/launchd/com.cove.chief-of-staff-sweep.plist" \
+    "$CHIEF_OF_STAFF_SWEEP_PLIST"
   render_lane_plist \
     "$REPO_DIR/scripts/launchd/com.cove.chief-of-staff-nightly.plist" \
     "$CHIEF_OF_STAFF_NIGHTLY_PLIST"
@@ -586,7 +590,6 @@ SERVER_PLIST="$LA_DIR/com.cove.local.plist"
 BACKUP_PLIST="$LA_DIR/com.cove.local.backup.plist"
 JOBS_PLIST="$LA_DIR/com.cove.jobs.plist"
 REMINDERS_PLIST="$LA_DIR/com.cove.reminders.plist"
-ATTENTION_SWEEP_PLIST="$LA_DIR/com.cove.attention-sweep.plist"
 TRIAGE_PLIST="$LA_DIR/com.cove.email-triage.plist"
 WORKER_PLIST="$LA_DIR/com.cove.claude-worker.plist"
 
@@ -817,47 +820,6 @@ $NOTIFICATION_PLIST_ENTRY
 </plist>
 EOF
 
-# --- Judgment sweep: shadow-tested attention ranking at 11:30 and 16:00 ---
-cat > "$ATTENTION_SWEEP_PLIST" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>com.cove.attention-sweep</string>
-  <key>WorkingDirectory</key>
-  <string>$REPO_DIR</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>$NODE_REAL</string>
-    <string>--import</string>
-    <string>$REPO_DIR/node_modules/tsx/dist/loader.mjs</string>
-    <string>$REPO_DIR/scripts/cove-attention-sweep.mjs</string>
-  </array>
-  <key>StartCalendarInterval</key>
-  <array>
-    <dict><key>Hour</key><integer>11</integer><key>Minute</key><integer>30</integer></dict>
-    <dict><key>Hour</key><integer>16</integer><key>Minute</key><integer>0</integer></dict>
-  </array>
-  <key>StandardOutPath</key>
-  <string>$LOG_DIR/cove-attention-sweep.log</string>
-  <key>StandardErrorPath</key>
-  <string>$LOG_DIR/cove-attention-sweep.log</string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>PATH</key>
-    <string>$NODE_BIN:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
-    <key>HOME</key>
-    <string>$HOME</string>
-    <key>COVE_JOB_RUNNER</key>
-    <string>$JOB_RUNNER</string>
-$CODEX_PLIST_ENTRY
-$NOTIFICATION_PLIST_ENTRY
-  </dict>
-</dict>
-</plist>
-EOF
-
 # --- Email triage: run the deterministic runner at the user's chosen times ---
 # Only scheduled once Google is connected (the Email step writes data/cove-workspace.json
 # with triage_times + timezone). launchd fires at LOCAL time on the Mac.
@@ -939,6 +901,7 @@ retire_legacy_agent meeting-drain
 retire_legacy_agent progress
 retire_legacy_agent voice-review
 retire_legacy_agent chief-of-staff-drain
+retire_legacy_agent chief-of-staff-sweep
 retire_legacy_agent chief-of-staff-nightly
 retire_legacy_agent chief-of-staff-review
 # com.forge.web is the pre-rename web server on this same port. Leaving it
@@ -951,6 +914,7 @@ launchctl bootout "gui/$UID_NUM/com.cove.local.backup" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.jobs" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.reminders" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.attention-sweep" 2>/dev/null || true
+rm -f "$LA_DIR/com.cove.attention-sweep.plist"
 launchctl bootout "gui/$UID_NUM/com.cove.email-triage" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.claude-worker" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.meeting-watch" 2>/dev/null || true
@@ -958,6 +922,7 @@ launchctl bootout "gui/$UID_NUM/com.cove.meeting-drain" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.progress" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.voice-review" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.chief-of-staff-drain" 2>/dev/null || true
+launchctl bootout "gui/$UID_NUM/com.cove.chief-of-staff-sweep" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.chief-of-staff-nightly" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.chief-of-staff-review" 2>/dev/null || true
 # Decommission the retired MBP 7:30 brief agent entirely (bootout + plist
@@ -997,7 +962,6 @@ launchctl bootstrap "gui/$UID_NUM" "$SERVER_PLIST"
 launchctl bootstrap "gui/$UID_NUM" "$BACKUP_PLIST"
 launchctl bootstrap "gui/$UID_NUM" "$JOBS_PLIST"
 launchctl bootstrap "gui/$UID_NUM" "$REMINDERS_PLIST"
-launchctl bootstrap "gui/$UID_NUM" "$ATTENTION_SWEEP_PLIST"
 WORKER_START_EPOCH="$(date +%s)"
 if ! launchctl bootstrap "gui/$UID_NUM" "$WORKER_PLIST" 2>/dev/null; then
   # A KeepAlive worker can still be exiting for a moment after bootout. Give
@@ -1021,6 +985,7 @@ if [ "$INSTALL_VOICE_REVIEW_LANE" = "1" ]; then
 fi
 if [ "$INSTALL_CHIEF_OF_STAFF_LANE" = "1" ]; then
   launchctl bootstrap "gui/$UID_NUM" "$CHIEF_OF_STAFF_DRAIN_PLIST"
+  launchctl bootstrap "gui/$UID_NUM" "$CHIEF_OF_STAFF_SWEEP_PLIST"
   launchctl bootstrap "gui/$UID_NUM" "$CHIEF_OF_STAFF_NIGHTLY_PLIST"
   launchctl bootstrap "gui/$UID_NUM" "$CHIEF_OF_STAFF_REVIEW_PLIST"
   mark_lane_installed chief_of_staff
@@ -1029,7 +994,6 @@ if [ -f "$TRIAGE_PLIST" ]; then launchctl bootstrap "gui/$UID_NUM" "$TRIAGE_PLIS
 launchctl enable "gui/$UID_NUM/com.cove.local" 2>/dev/null || true
 launchctl enable "gui/$UID_NUM/com.cove.claude-worker" 2>/dev/null || true
 launchctl enable "gui/$UID_NUM/com.cove.jobs" 2>/dev/null || true
-launchctl enable "gui/$UID_NUM/com.cove.attention-sweep" 2>/dev/null || true
 if [ "$INSTALL_MEETING_LANE" = "1" ]; then
   launchctl enable "gui/$UID_NUM/com.cove.meeting-watch" 2>/dev/null || true
   launchctl enable "gui/$UID_NUM/com.cove.meeting-drain" 2>/dev/null || true
@@ -1042,6 +1006,7 @@ if [ "$INSTALL_VOICE_REVIEW_LANE" = "1" ]; then
 fi
 if [ "$INSTALL_CHIEF_OF_STAFF_LANE" = "1" ]; then
   launchctl enable "gui/$UID_NUM/com.cove.chief-of-staff-drain" 2>/dev/null || true
+  launchctl enable "gui/$UID_NUM/com.cove.chief-of-staff-sweep" 2>/dev/null || true
   launchctl enable "gui/$UID_NUM/com.cove.chief-of-staff-nightly" 2>/dev/null || true
   launchctl enable "gui/$UID_NUM/com.cove.chief-of-staff-review" 2>/dev/null || true
 fi

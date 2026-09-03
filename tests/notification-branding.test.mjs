@@ -57,13 +57,19 @@ test("native notifications retain the AppleScript fallback", () => {
 
 test("the installer passes one branded sender identity to every banner lane", () => {
   const installer = readFileSync(path.join(ROOT, "scripts/install-cove-local.sh"), "utf8");
+  const chiefDrain = readFileSync(
+    path.join(ROOT, "scripts/launchd/com.cove.chief-of-staff-drain.plist"),
+    "utf8",
+  );
   assert.match(installer, /xcrun --find swiftc/);
   assert.match(installer, /xcrun --sdk macosx --show-sdk-path/);
   assert.match(installer, /-sdk "\$MACOS_SDK"/);
   assert.match(installer, /Cove Notifications\.app/);
   assert.match(installer, /COVE_NOTIFICATION_APP/);
   assert.ok(
-    installer.match(/\$NOTIFICATION_PLIST_ENTRY/g)?.length >= 7,
-    "expected every notification-capable LaunchAgent to receive the branding paths",
+    installer.match(/\$NOTIFICATION_PLIST_ENTRY/g)?.length >= 6,
+    "expected inline notification lanes to receive the branding paths",
   );
+  assert.match(chiefDrain, /<key>COVE_NOTIFICATION_APP<\/key><string>__COVE_NOTIFICATION_APP__<\/string>/);
+  assert.match(installer, /"\$JOB_RUNNER" "\$CODEX_BIN" "\$NOTIFICATION_APP_EXECUTABLE"/);
 });

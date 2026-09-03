@@ -8,8 +8,8 @@ export function cleanAttentionText(value) {
     .trim();
 }
 
-export function sanitizeNonDirectBanner(value, provenance) {
-  const sanitized = cleanAttentionText(value)
+export function sanitizeAttentionContent(value) {
+  return cleanAttentionText(value)
     .replace(/\b(?:https?:\/\/|www\.)\S+/gi, "")
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "")
     .replace(/(?:\+?\d[\d().\s-]{6,}\d)/g, "")
@@ -17,6 +17,10 @@ export function sanitizeNonDirectBanner(value, provenance) {
     .replace(/\s+/g, " ")
     .replace(/\s+([,.;:!?])/g, "$1")
     .trim();
+}
+
+export function sanitizeNonDirectBanner(value, provenance) {
+  const sanitized = sanitizeAttentionContent(value);
   return `${cleanAttentionText(provenance)}: ${sanitized || "Open Cove to review this item."}`
     .slice(0, 180);
 }

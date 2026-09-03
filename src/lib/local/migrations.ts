@@ -1524,6 +1524,42 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       `);
     },
   },
+  {
+    version: 24,
+    name: "chief_of_staff_attention",
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE cove_attention_ledger RENAME TO cove_attention_ledger_before_chief_of_staff;
+        CREATE TABLE cove_attention_ledger (
+          id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL
+            CHECK (kind IN ('sweep_nudge','floor_nudge','urgent_email','chief_of_staff')),
+          ref_kind TEXT NOT NULL
+            CHECK (ref_kind IN ('task','commitment','email','deal')),
+          ref_id TEXT NOT NULL,
+          level TEXT NOT NULL
+            CHECK (level IN ('text','banner','board','suppressed','shadow')),
+          reason TEXT NOT NULL,
+          delivered_at TEXT,
+          suppressed_reason TEXT,
+          created_at TEXT NOT NULL
+        );
+        INSERT INTO cove_attention_ledger
+          (id, kind, ref_kind, ref_id, level, reason, delivered_at,
+           suppressed_reason, created_at)
+        SELECT id, kind, ref_kind, ref_id, level, reason, delivered_at,
+               suppressed_reason, created_at
+        FROM cove_attention_ledger_before_chief_of_staff;
+        DROP TABLE cove_attention_ledger_before_chief_of_staff;
+        CREATE INDEX cove_attention_ledger_ref_idx
+          ON cove_attention_ledger(ref_kind, ref_id, created_at DESC);
+        CREATE INDEX cove_attention_ledger_budget_idx
+          ON cove_attention_ledger(level, delivered_at);
+        CREATE INDEX cove_attention_ledger_kind_idx
+          ON cove_attention_ledger(kind, created_at DESC);
+      `);
+    },
+  },
 ];
 
 function migrationTableExists(db: Database.Database, name: string): boolean {

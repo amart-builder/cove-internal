@@ -38,6 +38,9 @@ export type ChiefOfStaffSession = {
   lastWakeReason: ChiefOfStaffReason | null;
 };
 
+export const CHIEF_OF_STAFF_SWEEP_SLOTS = ["11:30", "16:00"] as const;
+export type ChiefOfStaffSweepSlot = (typeof CHIEF_OF_STAFF_SWEEP_SLOTS)[number];
+
 export type ChiefOfStaffPaths = {
   root: string;
   agent: string;
@@ -330,11 +333,58 @@ export function resetChiefOfStaffSession(input: {
   return archived;
 }
 
+function previousLocalDate(localDate: string): string {
+  const date = new Date(`${localDate}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
+function sweepSlotMinutes(slot: ChiefOfStaffSweepSlot): number {
+  const [hour, minute] = slot.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+export function resolveChiefOfStaffSweepSlot(input: {
+  now: Date;
+  timezone: string;
+  slot?: ChiefOfStaffSweepSlot | readonly ChiefOfStaffSweepSlot[];
+}): { date: string; slot: ChiefOfStaffSweepSlot } {
+  const localDate = localDateInTimezone(input.now, input.timezone);
+  const supplied: ChiefOfStaffSweepSlot[] = input.slot === undefined
+    ? [...CHIEF_OF_STAFF_SWEEP_SLOTS]
+    : typeof input.slot === "string"
+      ? [input.slot]
+      : [...input.slot];
+  if (
+    supplied.length === 0 ||
+    supplied.some((slot) => !(CHIEF_OF_STAFF_SWEEP_SLOTS as readonly string[]).includes(slot))
+  ) {
+    throw new Error("Sweep slot must be 11:30 or 16:00.");
+  }
+  if (supplied.length === 1) {
+    return { date: localDate, slot: supplied[0] };
+  }
+  const clock = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: input.timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(input.now).map((part) => [part.type, part.value]));
+  const nowMinutes = Number(clock.hour) * 60 + Number(clock.minute);
+  const ordered = supplied
+    .sort((left, right) => sweepSlotMinutes(left) - sweepSlotMinutes(right));
+  const current = ordered.filter((slot) => sweepSlotMinutes(slot) <= nowMinutes).at(-1);
+  return current
+    ? { date: localDate, slot: current }
+    : { date: previousLocalDate(localDate), slot: ordered.at(-1)! };
+}
+
 function reasonKey(input: {
   reason: ChiefOfStaffReason;
   payload: Record<string, unknown>;
   now: Date;
   timezone: string;
+  sweepSlot?: ChiefOfStaffSweepSlot | readonly ChiefOfStaffSweepSlot[];
 }): string {
   const localDate = localDateInTimezone(input.now, input.timezone);
   if (input.reason === "brief") {
@@ -353,6 +403,14 @@ function reasonKey(input: {
     }
     return `cos:meeting:${input.payload.jobId.trim()}`;
   }
+  if (input.reason === "sweep") {
+    const resolved = resolveChiefOfStaffSweepSlot({
+      now: input.now,
+      timezone: input.timezone,
+      slot: input.sweepSlot,
+    });
+    return `cos:sweep:${resolved.date}T${resolved.slot}`;
+  }
   if (input.reason === "nightly") return `cos:nightly:${localDate}`;
   return `cos:manual:${randomUUID()}`;
 }
@@ -365,6 +423,7 @@ export function enqueueChiefOfStaffWake(
     note?: string;
     now?: Date;
     timezone?: string;
+    slot?: ChiefOfStaffSweepSlot | readonly ChiefOfStaffSweepSlot[];
   },
 ) {
   if (!(CHIEF_OF_STAFF_REASONS as readonly string[]).includes(input.reason)) {
@@ -374,11 +433,20 @@ export function enqueueChiefOfStaffWake(
   const timezone = input.timezone ?? operatorTimezone();
   const payload = input.payload ?? {};
   const note = input.note?.trim();
+  if (input.reason !== "sweep" && input.slot !== undefined) {
+    throw new Error("A sweep slot can only be used with reason sweep.");
+  }
   if (note && note.length > 4_000) throw new Error("Wake note exceeds 4000 characters.");
   return enqueueJobInDatabase(db, {
     type: CHIEF_OF_STAFF_JOB_TYPE,
     payload: { reason: input.reason, payload, ...(note ? { note } : {}) },
-    idempotencyKey: reasonKey({ reason: input.reason, payload, now, timezone }),
+    idempotencyKey: reasonKey({
+      reason: input.reason,
+      payload,
+      now,
+      timezone,
+      sweepSlot: input.slot,
+    }),
     maxAttempts: 2,
   }, now);
 }

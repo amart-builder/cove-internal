@@ -65,3 +65,13 @@ recency, or pencil suggestions. Use `pipeline_update` or `pipeline_move` when a
 deal already exists. It cannot send email, delete or merge records, or change
 its mandate. Cove rejects unknown actions, additions at `client`, `lost`, or
 `parked`, and pipeline moves to `lost` or `parked`.
+
+The agent also owns model-judged interruptions through `notify`. It can request
+a banner or, for something that cannot wait for the board, a text. Cove checks
+that the task, commitment, or deal is still open, applies the shared daily caps
+and cooldown, sanitizes non-direct text, and records the decision in
+`cove_attention_ledger`. `data/attention-sweep.json` remains the one shadow
+switch. In shadow mode the agent sends nothing and files a "Would have
+interrupted" Quiet Current note instead. Cove attempts at most one text per
+wake. Later text requests become banners, and a board-only transport fallback
+is reported back as rejected rather than treated as an interruption.

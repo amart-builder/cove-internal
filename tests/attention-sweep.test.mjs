@@ -88,18 +88,21 @@ test("the frozen validator bounds refs and levels to the supplied snapshot", () 
   }, fixture.snapshot), /level_invalid/);
 });
 
-test("the installer schedules only 11:30 and 16:00 and retires the wake canary", () => {
+test("the installer retires the standalone attention sweep lane", () => {
   const installer = readFileSync(
     new URL("../scripts/install-cove-local.sh", import.meta.url),
     "utf8",
   );
-  const start = installer.indexOf("<string>com.cove.attention-sweep</string>");
-  const end = installer.indexOf("</plist>", start);
-  const block = installer.slice(start, end);
-  assert.ok(start > 0 && end > start);
-  assert.match(block, /<integer>11<\/integer><key>Minute<\/key><integer>30<\/integer>/);
-  assert.match(block, /<integer>16<\/integer><key>Minute<\/key><integer>0<\/integer>/);
-  assert.doesNotMatch(block, /<key>Hour<\/key><integer>7<\/integer>/);
+  const retiredScript = readFileSync(
+    new URL("../scripts/cove-attention-sweep.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.match(retiredScript, /launchd lane is retired/);
+  assert.doesNotMatch(installer, /<string>com\.cove\.attention-sweep<\/string>/);
+  assert.match(installer, /launchctl bootout "gui\/\$UID_NUM\/com\.cove\.attention-sweep"/);
+  assert.match(installer, /rm -f "\$LA_DIR\/com\.cove\.attention-sweep\.plist"/);
+  assert.doesNotMatch(installer, /launchctl bootstrap[^\n]*ATTENTION_SWEEP/);
+  assert.doesNotMatch(installer, /launchctl enable[^\n]*com\.cove\.attention-sweep/);
   assert.match(installer, /launchctl bootout "gui\/\$UID_NUM\/com\.cove\.wake-canary"/);
   assert.match(installer, /rm -f "\$LA_DIR\/com\.cove\.wake-canary\.plist"/);
   assert.doesNotMatch(installer, /bootstrap[^\n]*com\.cove\.wake-canary/);
