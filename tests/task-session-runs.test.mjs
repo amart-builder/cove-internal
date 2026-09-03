@@ -369,11 +369,11 @@ test('task session pills distinguish running, finished, and stopped modes', () =
   );
   assert.equal(
     taskSessionPillLabel({ permissionMode: 'acceptEdits', status: 'output_ready' }),
-    'Auto finished · Open in Claude',
+    'Auto finished · Open',
   );
   assert.equal(
     taskSessionPillLabel({ permissionMode: 'plan', status: 'failed' }),
-    'Planning stopped · Open in Claude',
+    'Planning stopped · Open',
   );
   const running = TaskSessionLauncher({
     input: { taskId: 'task-running-pill', promptSnapshot: SNAPSHOT },

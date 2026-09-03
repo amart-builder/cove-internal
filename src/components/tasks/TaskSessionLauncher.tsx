@@ -20,8 +20,8 @@ export function taskSessionPillLabel(
   run: Pick<TaskSessionRun, 'permissionMode' | 'status'>,
 ): string {
   const mode = modeLabel(run.permissionMode === 'plan' ? 'planning' : 'auto');
-  if (run.status === 'output_ready') return `${mode} finished · Open in Claude`;
-  if (run.status === 'failed') return `${mode} stopped · Open in Claude`;
+  if (run.status === 'output_ready') return `${mode} finished · Open`;
+  if (run.status === 'failed') return `${mode} stopped · Open`;
   return `${mode} · ${TASK_SESSION_STATUS_LABELS[run.status]}`;
 }
 
@@ -94,7 +94,7 @@ export function TaskSessionLauncher({
         onClick={stopPointer}
       >
         <span
-          className={`${baseClass} press-scale inline-flex items-center border-accent-blue/35 bg-accent-blue/10 text-foreground`}
+          className={`${baseClass} press-scale inline-flex items-center whitespace-nowrap border-accent-blue/35 bg-accent-blue/10 text-foreground`}
           title="Claude is working in the background. You'll get a notification when it's ready."
         >
           {taskSessionPillLabel(run)}
@@ -127,7 +127,7 @@ export function TaskSessionLauncher({
         {run && (
           <a
             href={run.resumeUrl}
-            className={`${baseClass} press-scale inline-flex items-center border-accent-blue/35 bg-accent-blue/10 text-foreground`}
+            className={`${baseClass} press-scale inline-flex items-center whitespace-nowrap border-accent-blue/35 bg-accent-blue/10 text-foreground`}
             title={run.hint}
             onPointerDown={stopPointer}
             onMouseDown={stopPointer}

@@ -29,12 +29,12 @@ test('Today focus details use the inline card and shared rich-sheet scrim', () =
   assert.match(css, /-webkit-line-clamp:\s*3/);
   assert.match(css, /\.today2-task-state\.is-compact\s*\{[^}]*font-size:\s*11px/);
   assert.match(stage, /\{mode\} · running/);
-  assert.match(stage, /finished · Open in Claude/);
-  assert.match(stage, /stopped · Open in Claude/);
+  assert.match(stage, /finished`\} ·[\s\S]{0,400}label="Open"/);
+  assert.match(stage, /stopped`\} · Open/);
   assert.match(stage, /You'll get a notification when it's ready/);
   assert.match(stage, /taskSessionRunNeedsEscape/);
   assert.match(stage, /showEscape[\s\S]{0,300}href=\{run\.resumeUrl\}/);
-  assert.match(stage, /<OpenInClaudeCode[\s\S]{0,300}finished · Open in Claude/);
+  assert.match(stage, /finished`\} ·[\s\S]{0,100}<OpenInClaudeCode/);
   assert.match(stage, /resumeCommand=\{run\.resumeCommand\}/);
 });
 

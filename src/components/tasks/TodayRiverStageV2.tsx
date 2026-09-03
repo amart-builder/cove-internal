@@ -150,7 +150,7 @@ function refillCardTemplate(
     owner.textContent = task.owner;
     footer.appendChild(owner);
   }
-  template.querySelectorAll('.today2-task-state, .today2-session-failed').forEach((node) => node.remove());
+  template.querySelectorAll('.today2-task-state, .today2-session-ready, .today2-session-failed').forEach((node) => node.remove());
   return template;
 }
 
@@ -214,18 +214,22 @@ function SessionState({
   }
   if (run.status === 'output_ready') {
     const mode = run.permissionMode === 'plan' ? 'Planning' : 'Auto';
-    return run.claudeSessionId ? (
-      <span className="today2-session-link" onClick={(event) => event.stopPropagation()}>
-        <OpenInClaudeCode
-          sessionId={run.claudeSessionId}
-          title={task.title}
-          label={`${mode} finished · Open in Claude`}
-          resumeCommand={run.resumeCommand}
-          className="today2-ready-button press-scale"
-        />
+    return (
+      <span className={`today2-session-ready ${compact ? 'is-compact' : ''}`} onClick={(event) => event.stopPropagation()}>
+        <i aria-hidden="true" />
+        {compact ? 'Finished' : `${mode} finished`} ·
+        {run.claudeSessionId ? (
+          <OpenInClaudeCode
+            sessionId={run.claudeSessionId}
+            title={task.title}
+            label="Open"
+            resumeCommand={run.resumeCommand}
+            className="today2-ready-link"
+          />
+        ) : (
+          <a className="press-scale" href={run.resumeUrl}>Open</a>
+        )}
       </span>
-    ) : (
-      <span className="today2-task-state">{mode} finished</span>
     );
   }
   if (run.status === 'failed') {
@@ -233,7 +237,7 @@ function SessionState({
     return (
       <span className={`today2-session-failed ${compact ? 'is-compact' : ''}`}>
         <a className="press-scale" href={run.resumeUrl} onClick={(event) => event.stopPropagation()}>
-          {mode} stopped · Open in Claude
+          {compact ? 'Stopped' : `${mode} stopped`} · Open
         </a>
         <button type="button" onClick={(event) => {
           event.stopPropagation();
@@ -267,15 +271,23 @@ function SessionFooter({
   // buttons; the label no longer fits beside them in a compact card.
   const showLabel = live || !(localMode && task.run);
 
+  // A finished or stopped run gets its own line above the launch buttons so
+  // neither has to shrink or wrap inside the narrow footer.
+  const stateLine = !live && localMode && task.run;
+
   return (
-    <div className="today2-session-footer">
+    <div className={`today2-session-footer ${stateLine ? 'has-state' : ''}`}>
       {showLabel && <span className="today2-session-footer-label">Start with Claude</span>}
+      {stateLine && (
+        <span className="today2-session-footer-state">
+          <SessionState task={task} compact={false} onRetry={onRetry} />
+        </span>
+      )}
       <div className="today2-session-footer-actions">
         {live ? (
           <SessionState task={task} compact onRetry={onRetry} />
         ) : localMode ? (
           <>
-            {task.run && <SessionState task={task} compact onRetry={onRetry} />}
             <button
               type="button"
               className="is-planning"

@@ -1926,7 +1926,13 @@ input, textarea, select {
 .today2-session-link button { font-size: 12px; font-weight: 500; }
 @keyframes today2-ready { from { opacity: 0; transform: scale(.92); } 70% { transform: scale(1.02); } }
 @keyframes today2-state-fade { from { opacity: 0; } }
-.today2-session-failed { display: inline-flex; align-items: center; gap: 5px; color: var(--today2-muted); font-size: 12px; font-weight: 500; }
+.today2-session-ready { display: inline-flex; align-items: center; gap: 5px; min-width: 0; color: var(--today2-muted); font-size: 12px; font-weight: 500; white-space: nowrap; animation: today2-state-fade .14s ease both; }
+.today2-session-ready.is-compact { font-size: 11px; letter-spacing: -.01em; }
+.today2-session-ready i { flex: 0 0 4px; width: 4px; height: 4px; border-radius: 50%; background: var(--orb-blue-1); }
+.today2-session-ready a, .today2-session-ready button.today2-ready-link { min-height: 0 !important; border: 0 !important; border-radius: 0 !important; padding: 0 !important; color: var(--current-kicker) !important; background: none !important; box-shadow: none !important; font-size: inherit !important; font-weight: 500 !important; }
+.today2-session-ready > span { display: inline; }
+.today2-session-failed { display: inline-flex; align-items: center; gap: 5px; min-width: 0; color: var(--today2-muted); font-size: 12px; font-weight: 500; white-space: nowrap; }
+.today2-session-failed.is-compact { font-size: 11px; letter-spacing: -.01em; }
 .today2-session-failed a { color: inherit; }
 .today2-session-failed button { border: 0; padding: 0; color: var(--current-kicker); background: none; font-weight: 500; }
 
@@ -1960,6 +1966,8 @@ input, textarea, select {
 .today2-focus-detail-meta { margin: 11px 0 17px; color: rgba(23,33,38,.44); font-size: 12px; font-weight: 500; }
 .today2-session-footer { min-height: 53px; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-inline: -22px; padding: 12px 22px; border-top: 1px solid rgba(32,46,51,.09); }
 .today2-session-footer-label { flex: 0 0 auto; color: rgba(23,33,38,.48); font-size: 12px; font-weight: 500; }
+.today2-session-footer.has-state { flex-wrap: wrap; row-gap: 8px; }
+.today2-session-footer-state { flex: 1 1 100%; min-width: 0; }
 .today2-session-footer-actions { min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
 .today2-session-footer-actions > button { min-height: 30px; border: 1px solid rgba(32,46,51,.11); border-radius: 999px; padding: 5px 12px; color: rgba(23,33,38,.58); background: rgba(255,255,255,.55); font-size: 12px; font-weight: 500; transition: transform .1s var(--ease-out-cove), background .14s ease; }
 .today2-session-footer-actions > button.is-planning { border-color: #2f7fbd; color: #fff; background: #2f7fbd; box-shadow: 0 4px 12px rgba(47,127,189,.2); }
