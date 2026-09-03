@@ -24,6 +24,35 @@
 
 ---
 
+## 2026-09-03 Public release: opt-in gates, chief-of-staff agent, focus sessions (DONE, PUBLISHED)
+
+- Alex asked for everything except the sales dashboard to go to the client
+  repo so Gary Gersh can start installing today.
+- Decision: the sales pipeline ships gated off, not deleted. File-level removal
+  breaks the build (shared CRM types, nav, API). The code is present in the
+  public tree but the page, the Pipeline tab, and the API all return not-found
+  unless `COVE_SALES_PIPELINE=1` and `NEXT_PUBLIC_COVE_SALES_PIPELINE=1` are
+  set in `.env.local`, which is gitignored and never exported. The
+  `skills/cove-pipeline` skill is excluded from the export outright.
+- The chief-of-staff lanes are opt-in the same way (`COVE_CHIEF_OF_STAFF=1`
+  plus codex binary plus `data/cove-mandate.md`); the installer boots them out
+  otherwise. `COVE_NOTIFY=1` is now set on com.cove.local by the installer.
+- Scrubs before publishing: the focus-session system prompt no longer names a
+  hardcoded person and company (it reads the operator profile, falls back to
+  "the Cove operator"); two chief-of-staff strings and the meeting, calendar,
+  voice, and task-session test fixtures lost real names and domains.
+- Source release: `01a73f2b3437` on private `amart-builder/cove-internal`.
+  Public release: `fb920f5` on `amart-builder/cove`, 500 manifest hashes
+  bound to the source SHA, reverified from a fresh anonymous HTTPS clone with
+  zero mismatches.
+- Verification on the exact export directory: `npm ci`, zero-warning lint,
+  tsc, 1191 tests, production build. Client-mode live check (no env switches)
+  earlier in the day: /crm 200, /crm/pipeline 404, /api/crm pipeline action
+  404 `sales_pipeline_disabled`, no Pipeline tab. Alex's own install is
+  unchanged (switches on, 4 chief-of-staff lanes loaded).
+- Release scripts live in the session scratchpad only; the procedure is the
+  documented one in OPERATIONS.md (export, test that directory, publish).
+
 ## 2026-09-02 Email handled log and calendar notices (DONE, see commits)
 
 - The Email card now has a read-only `Things you should know` section with the
