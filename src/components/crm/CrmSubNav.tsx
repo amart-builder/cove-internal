@@ -13,7 +13,7 @@ export default function CrmSubNav() {
   return (
     <nav
       aria-label="Relationship views"
-      className="flex rounded-full border border-[#ded9d1] bg-[#f1ede7] p-0.5 dark:border-[#3b3834] dark:bg-[#25231f]"
+      className="flex rounded-full border bg-muted p-0.5"
     >
       {ITEMS.map((item) => {
         const active = item.exact
@@ -24,9 +24,9 @@ export default function CrmSubNav() {
             key={item.href}
             href={item.href}
             aria-current={active ? 'page' : undefined}
-            className={`rounded-full px-3 py-1.5 text-[11.5px] font-medium transition-colors ${
+            className={`press-scale rounded-full px-3 py-1.5 text-[11.5px] font-medium outline-none transition-[color,background-color,box-shadow] duration-150 ease-[var(--ease-out-cove)] focus-visible:ring-2 focus-visible:ring-accent-blue/40 ${
               active
-                ? 'bg-[#fffdfa] text-foreground shadow-sm dark:bg-[#34312c]'
+                ? 'bg-card text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >

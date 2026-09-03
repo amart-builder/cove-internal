@@ -39,6 +39,18 @@ const TOUCH_TYPES: Array<{ id: LogPipelineTouchInput['activityType']; label: str
   { id: 'note', label: 'Note' },
 ];
 
+const EYEBROW_CLASS = 'text-[10.5px] font-semibold uppercase tracking-[0.24em] text-muted-foreground';
+const SECTION_TITLE_CLASS = 'text-[21px] font-semibold leading-[1.42] tracking-[-0.016em] text-foreground';
+const LABEL_CLASS = 'mb-1.5 block text-[10.5px] font-semibold uppercase tracking-[0.24em] text-muted-foreground';
+const FIELD_CLASS = 'w-full rounded-[12px] border bg-background text-[14px] leading-[1.55] text-foreground outline-none transition-[border-color,background-color,box-shadow] duration-150 ease-[var(--ease-out-cove)] placeholder:text-muted-foreground/70 focus:border-muted-foreground/50 focus:ring-2 focus:ring-accent-blue/20 dark:bg-muted/35';
+const STAGE_SELECT_CLASS = 'w-full rounded-[10px] border bg-background text-[12.5px] leading-[1.55] text-foreground outline-none transition-[border-color,background-color,box-shadow] duration-150 ease-[var(--ease-out-cove)] focus:border-muted-foreground/50 focus:ring-2 focus:ring-accent-blue/20 dark:bg-muted/35';
+const PRIMARY_BUTTON_CLASS = 'press-scale rounded-[13px] bg-foreground font-semibold text-background shadow-lg outline-none transition-[transform,box-shadow,opacity] duration-150 ease-[var(--ease-out-cove)] hover:-translate-y-px hover:shadow-xl focus-visible:ring-2 focus-visible:ring-accent-blue/40 active:translate-y-0 disabled:cursor-default disabled:opacity-50';
+const TEXT_BUTTON_CLASS = 'press-scale text-[13px] font-medium text-muted-foreground outline-none transition-colors duration-150 ease-[var(--ease-out-cove)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40';
+const CARD_CLASS = 'rounded-[14px] border bg-background transition-[transform,box-shadow,background-color,border-color] duration-150 ease-[var(--ease-out-cove)] hover:-translate-y-0.5 hover:border-muted-foreground/40 hover:bg-card hover:shadow-lg active:translate-y-0 active:shadow-sm motion-reduce:transform-none dark:bg-muted/35 dark:hover:bg-muted/70';
+const EMPTY_SLOT_CLASS = 'rounded-[14px] border border-dashed bg-transparent transition-[border-color,background-color] duration-150 ease-[var(--ease-out-cove)] hover:border-muted-foreground/50';
+const TRAY_CLASS = 'rounded-[20px] border-2 p-2';
+const TAG_CLASS = 'inline-block rounded-full bg-muted px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground';
+
 function formatMoney(value: number): string {
   return `$${value.toLocaleString('en-US')}`;
 }
@@ -217,12 +229,14 @@ export default function PipelineView() {
 
   if (!data && loadError) {
     return (
-      <div className="water-workspace flex h-full items-center justify-center p-6">
-        <div className="water-empty-state max-w-lg p-6">
-          <p className="water-eyebrow">Relationships</p>
-          <h1 className="water-workspace-title mt-2">Pipeline could not load.</h1>
-          <p className="mt-2 text-[13.5px] text-muted-foreground">{loadError}</p>
-          <button onClick={() => void load()} className="water-primary-button mt-4 px-4 py-2">
+      <div className="flex h-full items-center justify-center bg-background p-6">
+        <div className="w-full max-w-lg rounded-3xl border bg-card p-8">
+          <p className={EYEBROW_CLASS}>Relationships</p>
+          <h1 className="mt-2 text-[30px] font-semibold leading-[1.15] tracking-[-0.022em] text-foreground">
+            Pipeline could not load.
+          </h1>
+          <p className="mt-3 text-[15px] leading-[1.62] text-foreground/75">{loadError}</p>
+          <button onClick={() => void load()} className={`${PRIMARY_BUTTON_CLASS} mt-6 px-5 py-2.5`}>
             Retry
           </button>
         </div>
@@ -232,8 +246,10 @@ export default function PipelineView() {
 
   if (!data) {
     return (
-      <div className="water-workspace flex h-full items-center justify-center p-6">
-        <div className="water-empty-state px-6 py-5 text-sm">Loading pipeline...</div>
+      <div className="flex h-full items-center justify-center bg-background p-6">
+        <div className={`${EMPTY_SLOT_CLASS} bg-card px-6 py-5 text-[13px] text-muted-foreground`}>
+          Loading pipeline...
+        </div>
       </div>
     );
   }
@@ -241,41 +257,47 @@ export default function PipelineView() {
   const closedCount = data.deals.filter((deal) => CLOSED_STAGES.has(deal.stage)).length;
 
   return (
-    <div className={`water-workspace people-surface flex h-full overflow-hidden ${
+    <div className={`people-surface mx-auto flex h-full w-full max-w-[90rem] gap-5 overflow-hidden bg-background p-4 sm:p-6 lg:p-8 ${
       mobileDetailOpen ? 'is-detail-open' : ''
     }`}>
-      <section className="people-list-pane water-list-panel flex min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="water-toolbar flex flex-wrap items-center gap-3 border-b px-5 pb-4 pt-[64px]">
-          <div className="flex shrink-0 items-end gap-3">
-            <div>
-              <p className="water-eyebrow">Relationships</p>
-              <h1 className="water-workspace-title mt-1">Pipeline</h1>
+      <section className="people-list-pane flex min-w-0 flex-1 flex-col overflow-hidden rounded-3xl border bg-card">
+        <header className="border-b bg-card px-6 pb-7 pt-8 sm:px-10 lg:px-12 lg:pt-[52px]">
+          <div className="mx-auto w-full max-w-[63rem]">
+            <div className="flex flex-wrap items-end justify-between gap-6">
+              <div>
+                <p className={`mb-2.5 ${EYEBROW_CLASS}`}>Relationships</p>
+                <h1 className="text-[30px] font-semibold leading-[1.15] tracking-[-0.022em] text-foreground">
+                  Pipeline
+                </h1>
+              </div>
+              <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-3">
+                <CrmSubNav />
+                <div className="relative min-w-[210px] max-w-[260px] flex-1">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                    ⌕
+                  </span>
+                  <input
+                    type="search"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search name or company"
+                    className={`${FIELD_CLASS} py-2 pl-9 pr-3`}
+                  />
+                </div>
+                <button
+                  onClick={() => {
+                    setAddingLead(true);
+                    setSelectedId(null);
+                    setMobileDetailOpen(true);
+                  }}
+                  className={`${PRIMARY_BUTTON_CLASS} shrink-0 px-5 py-2.5 text-[13px]`}
+                >
+                  + Add lead
+                </button>
+              </div>
             </div>
-            <CrmSubNav />
           </div>
-          <div className="relative min-w-[170px] max-w-[260px] flex-1">
-            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-              ⌕
-            </span>
-            <input
-              type="search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search name or company"
-              className="water-control w-full py-2 pl-8 pr-3"
-            />
-          </div>
-          <button
-            onClick={() => {
-              setAddingLead(true);
-              setSelectedId(null);
-              setMobileDetailOpen(true);
-            }}
-            className="water-primary-button ml-auto shrink-0 px-4 py-2"
-          >
-            + Add lead
-          </button>
-        </div>
+        </header>
 
         {loadError && (
           <div className="border-b bg-accent-red/5 px-5 py-2 text-[12px] text-accent-red">
@@ -283,132 +305,138 @@ export default function PipelineView() {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto px-5 py-5">
-          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-            {[
-              ['Client MRR', formatMoney(data.summary.mrr)],
-              ['Open leads', data.summary.openCount.toLocaleString('en-US')],
-              ['Overdue', data.summary.overdueCount.toLocaleString('en-US')],
-              ['Due in 7 days', data.summary.dueSoonCount.toLocaleString('en-US')],
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-[14px] border border-[#e5e0d9] bg-[#fffdfa] px-4 py-3 dark:border-[#3b3834] dark:bg-[#22211f]">
-                <p className="water-eyebrow">{label}</p>
-                <p className="mt-1 text-[22px] font-[650] tracking-[-0.02em] tabular-nums">{value}</p>
-              </div>
-            ))}
-          </div>
+        <div className="flex-1 overflow-y-auto px-6 py-8 sm:px-10 lg:px-12">
+          <div className="mx-auto w-full max-w-[63rem]">
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+              {[
+                ['Client MRR', formatMoney(data.summary.mrr)],
+                ['Open leads', data.summary.openCount.toLocaleString('en-US')],
+                ['Overdue', data.summary.overdueCount.toLocaleString('en-US')],
+                ['Due in 7 days', data.summary.dueSoonCount.toLocaleString('en-US')],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-[14px] border bg-background px-[18px] py-4 dark:bg-muted/35">
+                  <p className={EYEBROW_CLASS}>{label}</p>
+                  <p className="mt-2 text-[22px] font-semibold tracking-[-0.02em] text-foreground tabular-nums">{value}</p>
+                </div>
+              ))}
+            </div>
 
-          <section className="mt-6">
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="water-eyebrow">Needs attention</h2>
-              {data.attention.length > 0 && (
-                <span className="text-[11px] font-medium text-muted-foreground tabular-nums">
+            <section className="mt-10">
+              <div className="mb-4 flex items-center gap-3">
+                <h2 className={EYEBROW_CLASS}>Needs attention</h2>
+                <span className={`${TAG_CLASS} tabular-nums`}>
                   {data.attention.length}
                 </span>
+              </div>
+              {data.attention.length === 0 ? (
+                <div className={`${EMPTY_SLOT_CLASS} px-[18px] py-5 text-[13px] leading-relaxed text-muted-foreground`}>
+                  Nothing overdue and every open lead has a next step.
+                </div>
+              ) : (
+                <div className={TRAY_CLASS}>
+                  <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-2">
+                    {data.attention.map((item, index) => (
+                      <button
+                        key={item.deal.contact_id}
+                        onClick={() => openDeal(item.deal.contact_id)}
+                        className="press-scale flex min-h-[134px] w-full flex-col rounded-[20px] border border-white/10 bg-[linear-gradient(160deg,#33302b_0%,#2a2724_70%)] px-[22px] pb-[18px] pt-5 text-left shadow-lg outline-none transition-[transform,box-shadow] duration-150 ease-[var(--ease-out-cove)] hover:-translate-y-0.5 hover:shadow-2xl focus-visible:ring-2 focus-visible:ring-accent-blue/70 active:translate-y-0 active:shadow-md motion-reduce:transform-none dark:border-white/15 dark:bg-[linear-gradient(160deg,#262320_0%,#1d1b19_70%)]"
+                      >
+                        <span className="mb-3.5 grid size-6 place-items-center rounded-full bg-white/10 text-xs font-semibold text-white/70">
+                          {index + 1}
+                        </span>
+                        <span className="line-clamp-2 text-[15.5px] font-medium leading-[1.42] tracking-[-0.004em] text-white/95">
+                          {item.deal.name}
+                        </span>
+                        <span className="mt-auto truncate pt-3.5 text-xs leading-[1.4] text-white/60">
+                          {attentionReason(item)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <div className="mt-12 space-y-10">
+              {data.stages.filter((stage) => !CLOSED_STAGES.has(stage.id)).map((stage) => (
+                <StageGroup
+                  key={stage.id}
+                  stage={stage}
+                  deals={visibleDeals.filter((deal) => deal.stage === stage.id)}
+                  today={data.today}
+                  selectedId={selectedId}
+                  stages={data.stages}
+                  stageErrors={stageErrors}
+                  onOpen={openDeal}
+                  onMove={changeStage}
+                />
+              ))}
+            </div>
+
+            <div className="mt-12 border-t pt-6">
+              <button
+                onClick={() => setShowClosed((current) => !current)}
+                className={`${TEXT_BUTTON_CLASS} flex items-center gap-2 px-0 py-1.5`}
+                aria-expanded={showClosed}
+              >
+                <span aria-hidden="true">{showClosed ? '▾' : '▸'}</span>
+                Lost and parked ({closedCount})
+              </button>
+              {showClosed && (
+                <div className="day-ritual-swap-in mt-6 space-y-10">
+                  {data.stages.filter((stage) => CLOSED_STAGES.has(stage.id)).map((stage) => (
+                    <StageGroup
+                      key={stage.id}
+                      stage={stage}
+                      deals={visibleDeals.filter((deal) => deal.stage === stage.id)}
+                      today={data.today}
+                      selectedId={selectedId}
+                      stages={data.stages}
+                      stageErrors={stageErrors}
+                      onOpen={openDeal}
+                      onMove={changeStage}
+                    />
+                  ))}
+                </div>
               )}
             </div>
-            {data.attention.length === 0 ? (
-              <div className="water-empty-state px-4 py-3 text-[12.5px]">
-                Nothing overdue and every open lead has a next step.
-              </div>
-            ) : (
-              <div className="overflow-hidden rounded-[14px] border border-[#e5e0d9] bg-[#fffdfa] dark:border-[#3b3834] dark:bg-[#22211f]">
-                {data.attention.map((item, index) => (
-                  <button
-                    key={item.deal.contact_id}
-                    onClick={() => openDeal(item.deal.contact_id)}
-                    className={`flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-[#f7f4ef] dark:hover:bg-[#282622] ${
-                      index > 0 ? 'border-t border-[#e5e0d9] dark:border-[#3b3834]' : ''
-                    }`}
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-medium">{item.deal.name}</span>
-                      <span className="block truncate text-[11.5px] text-muted-foreground">{item.deal.company || 'No company'}</span>
-                    </span>
-                    <span className={item.reason === 'overdue' ? 'text-[12px] text-accent-red' : 'text-[12px] text-muted-foreground'}>
-                      {attentionReason(item)}
-                    </span>
-                    <span className="water-pill shrink-0 px-2 py-1">{PIPELINE_STAGE_LABELS[item.deal.stage]}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <div className="mt-7 space-y-6">
-            {data.stages.filter((stage) => !CLOSED_STAGES.has(stage.id)).map((stage) => (
-              <StageGroup
-                key={stage.id}
-                stage={stage}
-                deals={visibleDeals.filter((deal) => deal.stage === stage.id)}
-                today={data.today}
-                selectedId={selectedId}
-                stages={data.stages}
-                stageErrors={stageErrors}
-                onOpen={openDeal}
-                onMove={changeStage}
-              />
-            ))}
-          </div>
-
-          <div className="mt-7 border-t border-[#e5e0d9] pt-4 dark:border-[#3b3834]">
-            <button
-              onClick={() => setShowClosed((current) => !current)}
-              className="water-text-button flex items-center gap-2 px-0 py-1.5"
-              aria-expanded={showClosed}
-            >
-              <span aria-hidden="true">{showClosed ? '▾' : '▸'}</span>
-              Lost and parked ({closedCount})
-            </button>
-            {showClosed && (
-              <div className="mt-4 space-y-6">
-                {data.stages.filter((stage) => CLOSED_STAGES.has(stage.id)).map((stage) => (
-                  <StageGroup
-                    key={stage.id}
-                    stage={stage}
-                    deals={visibleDeals.filter((deal) => deal.stage === stage.id)}
-                    today={data.today}
-                    selectedId={selectedId}
-                    stages={data.stages}
-                    stageErrors={stageErrors}
-                    onOpen={openDeal}
-                    onMove={changeStage}
-                  />
-                ))}
-              </div>
-            )}
           </div>
         </div>
       </section>
 
-      <aside className="people-detail-pane water-detail-shell w-[400px] shrink-0 overflow-y-auto max-lg:w-[340px]">
-        {addingLead ? (
-          <AddLeadPanel
-            stages={data.stages}
-            pipelineContactIds={new Set(data.deals.map((deal) => deal.contact_id))}
-            onClose={closeDetail}
-            onCreated={(deal) => {
-              recordWrite(deal);
-              setAddingLead(false);
-              setSelectedId(deal.contact_id);
-            }}
-          />
-        ) : selectedDeal ? (
-          <DealDetailPanel
-            key={selectedDeal.contact_id}
-            deal={selectedDeal}
-            stages={data.stages}
-            onClose={closeDetail}
-            onMove={changeStage}
-            onWritten={recordWrite}
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center p-6 text-center">
-            <p className="max-w-[240px] text-sm text-muted-foreground">
-              Select a lead to update the next move and see relationship history.
-            </p>
-          </div>
-        )}
+      <aside className="people-detail-pane w-[400px] shrink-0 overflow-y-auto rounded-3xl border bg-card max-lg:w-[340px]">
+        <div
+          key={addingLead ? 'add-lead' : selectedDeal ? `deal:${selectedDeal.contact_id}` : 'empty'}
+          className="day-ritual-swap-in min-h-full"
+        >
+          {addingLead ? (
+            <AddLeadPanel
+              stages={data.stages}
+              pipelineContactIds={new Set(data.deals.map((deal) => deal.contact_id))}
+              onClose={closeDetail}
+              onCreated={(deal) => {
+                recordWrite(deal);
+                setAddingLead(false);
+                setSelectedId(deal.contact_id);
+              }}
+            />
+          ) : selectedDeal ? (
+            <DealDetailPanel
+              key={selectedDeal.contact_id}
+              deal={selectedDeal}
+              stages={data.stages}
+              onClose={closeDetail}
+              onMove={changeStage}
+              onWritten={recordWrite}
+            />
+          ) : (
+            <div className="flex min-h-full items-center justify-center p-6 text-center">
+              <p className={`${EMPTY_SLOT_CLASS} max-w-[270px] px-6 py-8 text-[13px] leading-relaxed text-muted-foreground`}>
+                Select a lead to update the next move and see relationship history.
+              </p>
+            </div>
+          )}
+        </div>
       </aside>
     </div>
   );
@@ -438,62 +466,75 @@ function StageGroup({
     : 0;
   return (
     <section>
-      <div className="mb-2 flex items-center gap-2">
-        <h2 className="water-eyebrow">{stage.label}</h2>
-        <span className="water-pill px-2 py-0.5 tabular-nums">{deals.length}</span>
+      <div className="mb-4 flex items-center gap-3">
+        <h2 className={EYEBROW_CLASS}>{stage.label}</h2>
+        <span className={`${TAG_CLASS} tabular-nums`}>
+          {deals.length}
+        </span>
         {stage.id === 'client' && (
-          <span className="text-[11.5px] font-medium text-muted-foreground">
+          <span className="text-[12px] font-medium text-muted-foreground">
             {formatMoney(clientMrr)}/mo
           </span>
         )}
       </div>
-      {deals.length === 0 ? (
-        <div className="rounded-[12px] border border-dashed border-[#d8d2ca] px-4 py-3 text-[12px] text-muted-foreground dark:border-[#3b3834]">
-          No leads in this stage.
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-[14px] border border-[#e5e0d9] bg-[#fffdfa] dark:border-[#3b3834] dark:bg-[#22211f]">
-          {deals.map((deal, index) => {
-            const status = followUpStatus(deal, today);
-            const value = dealValue(deal);
-            return (
-              <div
-                key={deal.contact_id}
-                className={`water-list-row flex flex-wrap items-center gap-3 px-4 py-3 ${
-                  index > 0 ? 'border-t' : ''
-                } ${selectedId === deal.contact_id ? 'is-active' : ''}`}
-              >
-                <button onClick={() => onOpen(deal.contact_id)} className="min-w-[150px] flex-1 text-left">
-                  <span className="block truncate text-[13.5px] font-medium">{deal.name}</span>
-                  <span className="block truncate text-[11.5px] text-muted-foreground">{deal.company || 'No company'}</span>
-                </button>
-                {value && <span className="water-pill shrink-0 px-2 py-1 tabular-nums">{value}</span>}
-                <button onClick={() => onOpen(deal.contact_id)} className="min-w-[170px] flex-[1.25] text-left">
-                  <span className={`block truncate text-[12.5px] ${deal.next_action ? 'text-foreground' : 'text-muted-foreground'}`}>
-                    {deal.next_action || 'No next action'}
-                  </span>
-                  <span className={`block text-[11.5px] ${status === 'overdue' ? 'font-medium text-accent-red' : 'text-muted-foreground'}`}>
-                    {relativeFollowUp(deal.next_follow_up_at, today)}
-                  </span>
-                </button>
-                <select
-                  aria-label={`Stage for ${deal.name}`}
-                  value={deal.stage}
-                  onChange={(event) => void onMove(deal.contact_id, event.target.value as PipelineStage)}
-                  className="water-control max-w-[150px] shrink-0 px-2 py-1.5 text-[12px]"
+      <div className={TRAY_CLASS}>
+        {deals.length === 0 ? (
+          <div className={`${EMPTY_SLOT_CLASS} px-[18px] py-5 text-[13px] text-muted-foreground`}>
+            No leads in this stage.
+          </div>
+        ) : (
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-2">
+            {deals.map((deal) => {
+              const status = followUpStatus(deal, today);
+              const value = dealValue(deal);
+              const followUpLabel = relativeFollowUp(deal.next_follow_up_at, today);
+              return (
+                <div
+                  key={deal.contact_id}
+                  className={`${CARD_CLASS} flex min-h-[168px] flex-col items-stretch px-[18px] py-4 ${
+                    selectedId === deal.contact_id ? 'border-muted-foreground/50 bg-card shadow-md' : ''
+                  }`}
                 >
-                  {stages.map((option) => (
-                    <option key={option.id} value={option.id}>{option.label}</option>
-                  ))}
-                </select>
-                {stageErrors[deal.contact_id] && (
-                  <p className="w-full text-right text-[11.5px] text-accent-red">{stageErrors[deal.contact_id]}</p>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+                  <button onClick={() => onOpen(deal.contact_id)} className="press-scale flex flex-1 flex-col items-start rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-accent-blue/40">
+                    <span className={`${TAG_CLASS} ${status === 'overdue' ? 'bg-accent-red/10 text-accent-red' : ''}`}>
+                      {followUpLabel}
+                    </span>
+                    <span className="mt-3 block truncate text-[14px] font-medium leading-[1.4] tracking-[-0.004em] text-foreground/85 dark:text-foreground/90">
+                      {deal.name}
+                    </span>
+                    <span className="mt-0.5 block truncate text-[12.5px] text-muted-foreground">
+                      {deal.company || 'No company'}
+                    </span>
+                    <span className="mt-3 block w-full truncate text-[12.5px] leading-relaxed text-muted-foreground">
+                      {deal.next_action || 'No next action'}
+                    </span>
+                  </button>
+                  <div className="mt-4 flex items-center gap-3">
+                    <select
+                      aria-label={`Stage for ${deal.name}`}
+                      value={deal.stage}
+                      onChange={(event) => void onMove(deal.contact_id, event.target.value as PipelineStage)}
+                      className={`${STAGE_SELECT_CLASS} min-w-0 flex-1 px-3 py-2`}
+                    >
+                      {stages.map((option) => (
+                        <option key={option.id} value={option.id}>{option.label}</option>
+                      ))}
+                    </select>
+                    {value && (
+                      <span className="shrink-0 text-[11px] font-medium text-muted-foreground tabular-nums">
+                        {value}
+                      </span>
+                    )}
+                  </div>
+                  {stageErrors[deal.contact_id] && (
+                    <p className="mt-2 text-right text-[11.5px] text-accent-red">{stageErrors[deal.contact_id]}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -625,34 +666,34 @@ function DealDetailPanel({
   }
 
   return (
-    <div className="water-detail-panel flex flex-col">
-      <div className="water-detail-heading border-b px-5 pb-4 pt-[64px]">
-        <button type="button" onClick={onClose} className="people-mobile-back water-text-button mb-3 items-center gap-1 px-0 py-1">
+    <div className="flex min-h-full flex-col">
+      <div className="border-b bg-card px-7 pb-7 pt-8 lg:pt-[52px]">
+        <button type="button" onClick={onClose} className={`people-mobile-back ${TEXT_BUTTON_CLASS} mb-4 items-center gap-1 px-0 py-1`}>
           <span aria-hidden="true">←</span> Back
         </button>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h2 className="truncate text-[21px]">{deal.name}</h2>
+              <h2 className={`truncate ${SECTION_TITLE_CLASS}`}>{deal.name}</h2>
               <span role="status" aria-live="polite" className="text-[11.5px] text-muted-foreground">
                 {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : ''}
               </span>
             </div>
-            <p className="mt-0.5 truncate text-[13px] text-muted-foreground">{deal.company || 'No company'}</p>
-            <div className="mt-2 flex flex-col gap-0.5 text-[12px]">
-              {deal.email && <a className="text-accent-blue hover:underline" href={`mailto:${deal.email}`}>{deal.email}</a>}
-              {deal.phone && <a className="text-accent-blue hover:underline" href={`tel:${deal.phone}`}>{deal.phone}</a>}
+            <p className="mt-1 truncate text-[13px] text-muted-foreground">{deal.company || 'No company'}</p>
+            <div className="mt-3 flex flex-col gap-1 text-[12px]">
+              {deal.email && <a className="press-scale text-accent-blue hover:underline" href={`mailto:${deal.email}`}>{deal.email}</a>}
+              {deal.phone && <a className="press-scale text-accent-blue hover:underline" href={`tel:${deal.phone}`}>{deal.phone}</a>}
             </div>
             <select
               value={deal.stage}
               onChange={(event) => void onMove(deal.contact_id, event.target.value as PipelineStage)}
-              className="mt-3 w-full px-2.5 py-2"
+              className={`${FIELD_CLASS} mt-4 px-3 py-2`}
               aria-label={`Stage for ${deal.name}`}
             >
               {stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.label}</option>)}
             </select>
           </div>
-          <button onClick={onClose} className="water-secondary-button flex h-8 w-8 shrink-0 items-center justify-center text-lg" aria-label="Close details">
+          <button onClick={onClose} className="press-scale flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-lg text-muted-foreground outline-none transition-colors duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40" aria-label="Close details">
             &times;
           </button>
         </div>
@@ -660,35 +701,35 @@ function DealDetailPanel({
 
       {saveError && <div className="border-b bg-accent-red/5 px-5 py-2 text-[12px] text-accent-red">{saveError}</div>}
 
-      <div className="space-y-4 px-5 py-4">
-        <div className="grid grid-cols-2 gap-3">
+      <div className="space-y-5 p-7">
+        <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="mb-1.5 block">Monthly value</label>
-            <input type="number" min="0" step="1" value={monthlyValue} onChange={(event) => setMonthlyValue(event.target.value)} onBlur={() => commitAmount('monthlyValue', monthlyValue, deal.monthly_value)} className="w-full px-2.5 py-2" placeholder="0" />
+            <label className={LABEL_CLASS}>Monthly value</label>
+            <input type="number" min="0" step="1" value={monthlyValue} onChange={(event) => setMonthlyValue(event.target.value)} onBlur={() => commitAmount('monthlyValue', monthlyValue, deal.monthly_value)} className={`${FIELD_CLASS} px-3 py-2`} placeholder="0" />
           </div>
           <div>
-            <label className="mb-1.5 block">Discovery price</label>
-            <input type="number" min="0" step="1" value={discoveryPrice} onChange={(event) => setDiscoveryPrice(event.target.value)} onBlur={() => commitAmount('discoveryPrice', discoveryPrice, deal.discovery_price)} className="w-full px-2.5 py-2" placeholder="0" />
+            <label className={LABEL_CLASS}>Discovery price</label>
+            <input type="number" min="0" step="1" value={discoveryPrice} onChange={(event) => setDiscoveryPrice(event.target.value)} onBlur={() => commitAmount('discoveryPrice', discoveryPrice, deal.discovery_price)} className={`${FIELD_CLASS} px-3 py-2`} placeholder="0" />
           </div>
         </div>
         <div>
-          <label className="mb-1.5 block">Next action</label>
-          <textarea value={nextAction} onChange={(event) => setNextAction(event.target.value)} onBlur={() => commitText('nextAction', nextAction, deal.next_action)} rows={2} maxLength={500} className="w-full resize-y px-2.5 py-2" placeholder="What moves this forward?" />
+          <label className={LABEL_CLASS}>Next action</label>
+          <textarea value={nextAction} onChange={(event) => setNextAction(event.target.value)} onBlur={() => commitText('nextAction', nextAction, deal.next_action)} rows={2} maxLength={500} className={`${FIELD_CLASS} resize-y px-3 py-2`} placeholder="What moves this forward?" />
         </div>
         <div>
-          <label className="mb-1.5 block">Follow-up date</label>
+          <label className={LABEL_CLASS}>Follow-up date</label>
           <input type="date" value={nextFollowUpAt} onChange={(event) => setNextFollowUpAt(event.target.value)} onBlur={() => {
             const value = nextFollowUpAt || null;
             if (value !== deal.next_follow_up_at) void saveField('nextFollowUpAt', value);
-          }} className="w-full px-2.5 py-2" />
+          }} className={`${FIELD_CLASS} px-3 py-2`} />
         </div>
         <div>
-          <label className="mb-1.5 block">Source</label>
-          <input value={source} onChange={(event) => setSource(event.target.value)} onBlur={() => commitText('source', source, deal.source)} maxLength={200} className="w-full px-2.5 py-2" placeholder="Who referred them or where they came from" />
+          <label className={LABEL_CLASS}>Source</label>
+          <input value={source} onChange={(event) => setSource(event.target.value)} onBlur={() => commitText('source', source, deal.source)} maxLength={200} className={`${FIELD_CLASS} px-3 py-2`} placeholder="Who referred them or where they came from" />
         </div>
         <div>
-          <label className="mb-1.5 block">Notes</label>
-          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} onBlur={() => commitText('notes', notes, deal.notes)} rows={5} maxLength={5000} className="w-full resize-y px-2.5 py-2" placeholder="Deal context and useful details" />
+          <label className={LABEL_CLASS}>Notes</label>
+          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} onBlur={() => commitText('notes', notes, deal.notes)} rows={5} maxLength={5000} className={`${FIELD_CLASS} resize-y px-3 py-2`} placeholder="Deal context and useful details" />
         </div>
       </div>
 
@@ -784,32 +825,32 @@ function TouchAndTimeline({
   }
 
   return (
-    <div className="border-t border-[#e5e0d9] px-5 py-4 dark:border-[#3b3834]">
-      <h3 className="water-eyebrow mb-2">Log a touch</h3>
-      <div className="water-activity-card space-y-2 border p-3">
-        <select aria-label="Touch type" value={activityType} onChange={(event) => setActivityType(event.target.value as LogPipelineTouchInput['activityType'])} className="w-full px-2.5 py-1.5">
+    <div className="border-t p-7">
+      <h3 className={EYEBROW_CLASS}>Log a touch</h3>
+      <div className="mt-4 space-y-3 rounded-[14px] border bg-background p-4 dark:bg-muted/35">
+        <select aria-label="Touch type" value={activityType} onChange={(event) => setActivityType(event.target.value as LogPipelineTouchInput['activityType'])} className={`${FIELD_CLASS} px-3 py-2`}>
           {TOUCH_TYPES.map((type) => <option key={type.id} value={type.id}>{type.label}</option>)}
         </select>
-        <textarea aria-label="What happened" value={whatHappened} onChange={(event) => setWhatHappened(event.target.value)} rows={3} maxLength={5000} className="w-full resize-y px-2.5 py-2" placeholder="What happened?" />
-        <input aria-label="Next action after this touch" value={nextAction} onChange={(event) => onNextActionChange(event.target.value)} maxLength={500} className="w-full px-2.5 py-1.5" placeholder="Next action" />
-        <input aria-label="Follow-up date after this touch" type="date" value={nextFollowUpAt} onChange={(event) => onNextFollowUpAtChange(event.target.value)} className="w-full px-2.5 py-1.5" />
-        <select aria-label="New stage after this touch" value={newStage} onChange={(event) => setNewStage(event.target.value as PipelineStage | '')} className="w-full px-2.5 py-1.5">
+        <textarea aria-label="What happened" value={whatHappened} onChange={(event) => setWhatHappened(event.target.value)} rows={3} maxLength={5000} className={`${FIELD_CLASS} resize-y px-3 py-2`} placeholder="What happened?" />
+        <input aria-label="Next action after this touch" value={nextAction} onChange={(event) => onNextActionChange(event.target.value)} maxLength={500} className={`${FIELD_CLASS} px-3 py-2`} placeholder="Next action" />
+        <input aria-label="Follow-up date after this touch" type="date" value={nextFollowUpAt} onChange={(event) => onNextFollowUpAtChange(event.target.value)} className={`${FIELD_CLASS} px-3 py-2`} />
+        <select aria-label="New stage after this touch" value={newStage} onChange={(event) => setNewStage(event.target.value as PipelineStage | '')} className={`${FIELD_CLASS} px-3 py-2`}>
           <option value="">Keep current stage</option>
           {stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.label}</option>)}
         </select>
         <div className="flex justify-end">
-          <button onClick={() => void submit()} disabled={saving} className="water-primary-button px-4 py-1.5 disabled:opacity-50">
+          <button onClick={() => void submit()} disabled={saving} className={`${PRIMARY_BUTTON_CLASS} px-5 py-2.5 text-[13px]`}>
             {saving ? 'Saving...' : 'Log touch'}
           </button>
         </div>
       </div>
       {error && <p className="mt-2 text-[12px] text-accent-red">{error}</p>}
 
-      <h3 className="water-eyebrow mb-2 mt-5">Timeline</h3>
+      <h3 className={`${EYEBROW_CLASS} mb-4 mt-8`}>Timeline</h3>
       {activities === null ? (
-        <p className="py-3 text-[12px] text-muted-foreground">Loading activity...</p>
+        <p className={`${EMPTY_SLOT_CLASS} px-4 py-5 text-[12px] text-muted-foreground`}>Loading activity...</p>
       ) : activities.length === 0 ? (
-        <p className="py-3 text-[12px] text-muted-foreground">No activity logged yet.</p>
+        <p className={`${EMPTY_SLOT_CLASS} px-4 py-5 text-[12px] text-muted-foreground`}>No activity logged yet.</p>
       ) : (
         <ul className="space-y-2">
           {activities.map((activity) => {
@@ -828,7 +869,7 @@ function TouchAndTimeline({
               );
             }
             return (
-              <li key={activity.id} className="water-activity-card border px-3 py-2.5">
+              <li key={activity.id} className="rounded-[14px] border bg-background px-4 py-3 dark:bg-muted/35">
                 <div className="flex items-start justify-between gap-2">
                   <span className="text-[13px] font-medium">{activity.title || activity.activity_type}</span>
                   <span className="shrink-0 text-[10.5px] text-muted-foreground">{activityTimestamp(activity.created_at)}</span>
@@ -968,33 +1009,33 @@ function AddLeadPanel({
   }
 
   return (
-    <div className="water-detail-panel flex flex-col">
-      <div className="water-detail-heading border-b px-5 pb-4 pt-[64px]">
-        <button type="button" onClick={onClose} className="people-mobile-back water-text-button mb-3 items-center gap-1 px-0 py-1">
+    <div className="flex min-h-full flex-col">
+      <div className="border-b bg-card px-7 pb-7 pt-8 lg:pt-[52px]">
+        <button type="button" onClick={onClose} className={`people-mobile-back ${TEXT_BUTTON_CLASS} mb-4 items-center gap-1 px-0 py-1`}>
           <span aria-hidden="true">←</span> Back
         </button>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="water-eyebrow">Pipeline</p>
-            <h2 className="mt-1 text-[21px]">Add lead</h2>
+            <p className={EYEBROW_CLASS}>Pipeline</p>
+            <h2 className="mt-2 text-[18px] font-semibold leading-[1.42] tracking-[-0.016em] text-foreground">Add lead</h2>
           </div>
-          <button onClick={onClose} className="water-secondary-button flex h-8 w-8 items-center justify-center text-lg" aria-label="Close add lead panel">&times;</button>
+          <button onClick={onClose} className="press-scale flex size-8 items-center justify-center rounded-full bg-muted text-lg text-muted-foreground outline-none transition-colors duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-blue/40" aria-label="Close add lead panel">&times;</button>
         </div>
       </div>
 
-      <div className="space-y-4 px-5 py-4">
+      <div className="space-y-5 p-7">
         {!selected ? (
           <div>
-            <label className="mb-1.5 block">Find a contact</label>
+            <label className={LABEL_CLASS}>Find a contact</label>
             <input type="search" value={search} onChange={(event) => {
               setSearch(event.target.value);
               setAmbiguous([]);
               setError(undefined);
-            }} className="w-full px-2.5 py-2" placeholder="Name" autoFocus />
+            }} className={`${FIELD_CLASS} px-3 py-2`} placeholder="Name" autoFocus />
             {results.length > 0 && (
-              <div className="mt-2 overflow-hidden rounded-[12px] border border-[#e5e0d9] dark:border-[#3b3834]">
+              <div className="mt-3 space-y-2">
                 {results.slice(0, 8).map((contact) => (
-                  <button key={contact.id} onClick={() => void pickContact(contact.id)} disabled={pipelineContactIds.has(contact.id)} className="flex w-full items-center justify-between border-b border-[#e5e0d9] px-3 py-2 text-left last:border-b-0 disabled:opacity-45 dark:border-[#3b3834]">
+                  <button key={contact.id} onClick={() => void pickContact(contact.id)} disabled={pipelineContactIds.has(contact.id)} className={`press-scale ${CARD_CLASS} flex w-full items-center justify-between px-4 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-45`}>
                     <span>
                       <span className="block text-[13px] font-medium">{contact.name}</span>
                       <span className="block text-[11.5px] text-muted-foreground">{contact.email || 'No email'}</span>
@@ -1005,16 +1046,16 @@ function AddLeadPanel({
               </div>
             )}
             {search.trim() && (
-              <button onClick={() => void resolveTypedName()} disabled={saving} className="water-secondary-button mt-2 w-full px-3 py-2 disabled:opacity-50">
+              <button onClick={() => void resolveTypedName()} disabled={saving} className={`${TEXT_BUTTON_CLASS} mt-3 px-0 py-2 disabled:opacity-50`}>
                 Add {search.trim()}
               </button>
             )}
             {ambiguous.length > 0 && (
               <div className="mt-3">
                 <p className="text-[12px] text-muted-foreground">More than one person could match. Choose one:</p>
-                <div className="mt-2 space-y-1">
+                <div className="mt-3 space-y-2">
                   {ambiguous.map((candidate) => (
-                    <button key={candidate.id} onClick={() => void pickContact(candidate.id)} className="water-secondary-button w-full px-3 py-2 text-left">
+                    <button key={candidate.id} onClick={() => void pickContact(candidate.id)} className={`press-scale ${CARD_CLASS} w-full px-4 py-3 text-left text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-accent-blue/40`}>
                       {candidate.name}{candidate.email ? `, ${candidate.email}` : ''}
                     </button>
                   ))}
@@ -1023,48 +1064,48 @@ function AddLeadPanel({
             )}
           </div>
         ) : (
-          <div className="rounded-[14px] border border-[#e5e0d9] bg-[#faf8f4] px-4 py-3 dark:border-[#3b3834] dark:bg-[#25231f]">
+          <div className="rounded-[14px] border bg-background px-4 py-3 dark:bg-muted/35">
             <p className="text-[13.5px] font-medium">{selected.name}</p>
             <p className="text-[11.5px] text-muted-foreground">{selected.email || 'No email'}</p>
-            <button onClick={() => setSelected(null)} className="water-text-button mt-1 px-0 py-1">Choose someone else</button>
+            <button onClick={() => setSelected(null)} className={`${TEXT_BUTTON_CLASS} mt-2 px-0 py-1`}>Choose someone else</button>
           </div>
         )}
 
         {selected && (
           <>
             <div>
-              <label className="mb-1.5 block">Stage</label>
-              <select value={stage} onChange={(event) => setStage(event.target.value as PipelineStage)} className="w-full px-2.5 py-2">
+              <label className={LABEL_CLASS}>Stage</label>
+              <select value={stage} onChange={(event) => setStage(event.target.value as PipelineStage)} className={`${FIELD_CLASS} px-3 py-2`}>
                 {stages.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
               </select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="mb-1.5 block">Monthly value</label>
-                <input type="number" min="0" step="1" value={monthlyValue} onChange={(event) => setMonthlyValue(event.target.value)} className="w-full px-2.5 py-2" placeholder="0" />
+                <label className={LABEL_CLASS}>Monthly value</label>
+                <input type="number" min="0" step="1" value={monthlyValue} onChange={(event) => setMonthlyValue(event.target.value)} className={`${FIELD_CLASS} px-3 py-2`} placeholder="0" />
               </div>
               <div>
-                <label className="mb-1.5 block">Discovery price</label>
-                <input type="number" min="0" step="1" value={discoveryPrice} onChange={(event) => setDiscoveryPrice(event.target.value)} className="w-full px-2.5 py-2" placeholder="0" />
+                <label className={LABEL_CLASS}>Discovery price</label>
+                <input type="number" min="0" step="1" value={discoveryPrice} onChange={(event) => setDiscoveryPrice(event.target.value)} className={`${FIELD_CLASS} px-3 py-2`} placeholder="0" />
               </div>
             </div>
             <div>
-              <label className="mb-1.5 block">Next action</label>
-              <textarea value={nextAction} onChange={(event) => setNextAction(event.target.value)} rows={2} maxLength={500} className="w-full resize-y px-2.5 py-2" />
+              <label className={LABEL_CLASS}>Next action</label>
+              <textarea value={nextAction} onChange={(event) => setNextAction(event.target.value)} rows={2} maxLength={500} className={`${FIELD_CLASS} resize-y px-3 py-2`} />
             </div>
             <div>
-              <label className="mb-1.5 block">Follow-up date</label>
-              <input type="date" value={nextFollowUpAt} onChange={(event) => setNextFollowUpAt(event.target.value)} className="w-full px-2.5 py-2" />
+              <label className={LABEL_CLASS}>Follow-up date</label>
+              <input type="date" value={nextFollowUpAt} onChange={(event) => setNextFollowUpAt(event.target.value)} className={`${FIELD_CLASS} px-3 py-2`} />
             </div>
             <div>
-              <label className="mb-1.5 block">Source</label>
-              <input value={source} onChange={(event) => setSource(event.target.value)} maxLength={200} className="w-full px-2.5 py-2" />
+              <label className={LABEL_CLASS}>Source</label>
+              <input value={source} onChange={(event) => setSource(event.target.value)} maxLength={200} className={`${FIELD_CLASS} px-3 py-2`} />
             </div>
             <div>
-              <label className="mb-1.5 block">Notes</label>
-              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={4} maxLength={5000} className="w-full resize-y px-2.5 py-2" />
+              <label className={LABEL_CLASS}>Notes</label>
+              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={4} maxLength={5000} className={`${FIELD_CLASS} resize-y px-3 py-2`} />
             </div>
-            <button onClick={() => void createDeal()} disabled={saving} className="water-primary-button w-full px-4 py-2 disabled:opacity-50">
+            <button onClick={() => void createDeal()} disabled={saving} className={`${PRIMARY_BUTTON_CLASS} w-full px-5 py-2.5 text-[13px]`}>
               {saving ? 'Adding...' : 'Add to pipeline'}
             </button>
           </>
