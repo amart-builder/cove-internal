@@ -639,6 +639,7 @@ function meetingWatchHeartbeat(
     ].join(" ");
     const errorCount = Number(heartbeat?.errors);
     const deadLetterCount = Number(heartbeat?.dead_letters);
+    const granola = asRecord(heartbeat?.granola) ?? {};
     if (Number.isFinite(deadLetterCount) && deadLetterCount > 0) {
       return {
         line: `WARNING: meeting watcher has ${deadLetterCount} dead letter${deadLetterCount === 1 ? "" : "s"} (age=${inboundAge(lastRunAt, now)} ${counts}).${standDown}`,
@@ -649,6 +650,41 @@ function meetingWatchHeartbeat(
       return {
         line: `WARNING: meeting watcher heartbeat is stale (age=${inboundAge(lastRunAt, now)} ${counts}).${standDown}`,
         warning: "meeting_watch_heartbeat_stale",
+      };
+    }
+    const granolaDeadLetters = Number(granola.notes_dead_lettered);
+    if (Number.isFinite(granolaDeadLetters) && granolaDeadLetters > 0) {
+      return {
+        line: `WARNING: Granola meeting source has ${granolaDeadLetters} dead letter${granolaDeadLetters === 1 ? "" : "s"} (age=${inboundAge(lastRunAt, now)}).${standDown}`,
+        warning: "meeting_watch_granola_dead_letters",
+      };
+    }
+    if (granola.status === "failed") {
+      const granolaError = typeof granola.error === "string" && granola.error.trim()
+        ? ` error=${compactLine(granola.error, 180)}`
+        : "";
+      return {
+        line: `WARNING: Granola meeting source failed (age=${inboundAge(lastRunAt, now)}${granolaError}).${standDown}`,
+        warning: "meeting_watch_granola_failed",
+      };
+    }
+    const granolaFailures = Number(granola.notes_failed);
+    if (Number.isFinite(granolaFailures) && granolaFailures > 0) {
+      return {
+        line: `WARNING: Granola meeting source had ${granolaFailures} note failure${granolaFailures === 1 ? "" : "s"} in its last poll.${standDown}`,
+        warning: "meeting_watch_granola_note_failures",
+      };
+    }
+    const granolaSeen = Number(granola.notes_seen);
+    const granolaQueued = Number(granola.notes_queued);
+    const granolaSkippedOwner = Number(granola.notes_skipped_owner);
+    if (
+      Number.isFinite(granolaSeen) && granolaSeen > 0 &&
+      granolaQueued === 0 && granolaSkippedOwner >= granolaSeen
+    ) {
+      return {
+        line: `WARNING: Granola saw ${granolaSeen} note${granolaSeen === 1 ? "" : "s"}, but queued none because every note was skipped for owner.${standDown}`,
+        warning: "meeting_watch_granola_owner_skips",
       };
     }
     if (Number.isFinite(errorCount) && errorCount > 0) {

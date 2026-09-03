@@ -903,7 +903,193 @@ test('untriaged inbound is prominent, counts spool lines, and treats Waiting as 
           hostname: MACHINE.hostname,
           meeting_watch: {
             last_run_at: NOW.toISOString(),
+            examined: 0,
+            matched: 0,
+            processed: 0,
+            errors: 1,
+            dead_letters: 0,
+            disabled: false,
+            granola: {
+              status: 'failed',
+              error: 'Granola API request failed with HTTP 401.',
+            },
+          },
+        },
+      },
+    }),
+  );
+  const granolaFailed = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => coveRowsResponse(url),
+  });
+  assert.match(
+    granolaFailed.sources.find((entry) => entry.id === 'untriaged_inbound').content,
+    /WARNING: Granola meeting source failed.*HTTP 401/,
+  );
+  assert.doesNotMatch(
+    granolaFailed.sources.find((entry) => entry.id === 'untriaged_inbound').content,
+    /meeting watcher DISABLED/,
+  );
+
+  writeFileSync(
+    path.join(dir, 'intake', 'heartbeats.json'),
+    JSON.stringify({
+      version: 2,
+      machines: {
+        [MACHINE_ID]: {
+          hostname: MACHINE.hostname,
+          meeting_watch: {
+            last_run_at: NOW.toISOString(),
+            examined: 0,
+            matched: 0,
+            processed: 0,
+            errors: 0,
+            dead_letters: 0,
+            disabled: false,
+            granola: {
+              status: 'ok',
+              notes_seen: 3,
+              notes_queued: 0,
+              notes_skipped_owner: 3,
+              notes_dead_lettered: 0,
+            },
+          },
+        },
+      },
+    }),
+  );
+  const ownerSkipped = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => coveRowsResponse(url),
+  });
+  assert.match(
+    ownerSkipped.sources.find((entry) => entry.id === 'untriaged_inbound').content,
+    /WARNING: Granola saw 3 notes, but queued none because every note was skipped for owner/,
+  );
+
+  writeFileSync(
+    path.join(dir, 'intake', 'heartbeats.json'),
+    JSON.stringify({
+      version: 2,
+      machines: {
+        [MACHINE_ID]: {
+          hostname: MACHINE.hostname,
+          meeting_watch: {
+            last_run_at: NOW.toISOString(),
+            examined: 0,
+            matched: 0,
+            processed: 0,
+            errors: 0,
+            dead_letters: 0,
+            disabled: false,
+            granola: {
+              status: 'ok',
+              notes_failed: 2,
+              notes_dead_lettered: 0,
+            },
+          },
+        },
+      },
+    }),
+  );
+  const granolaNoteFailures = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => coveRowsResponse(url),
+  });
+  assert.match(
+    granolaNoteFailures.sources.find((entry) => entry.id === 'untriaged_inbound').content,
+    /WARNING: Granola meeting source had 2 note failures in its last poll/,
+  );
+
+  writeFileSync(
+    path.join(dir, 'intake', 'heartbeats.json'),
+    JSON.stringify({
+      version: 2,
+      machines: {
+        [MACHINE_ID]: {
+          hostname: MACHINE.hostname,
+          meeting_watch: {
+            last_run_at: '2026-07-16T10:00:00.000Z',
+            examined: 0,
+            matched: 0,
+            processed: 0,
+            errors: 1,
+            dead_letters: 0,
+            disabled: false,
+            granola: {
+              status: 'failed',
+              notes_failed: 2,
+              notes_dead_lettered: 2,
+              error: 'Stale must have priority.',
+            },
+          },
+        },
+      },
+    }),
+  );
+  const staleGranola = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => coveRowsResponse(url),
+  });
+  const staleGranolaContent = staleGranola.sources.find(
+    (entry) => entry.id === 'untriaged_inbound',
+  ).content;
+  assert.match(staleGranolaContent, /WARNING: meeting watcher heartbeat is stale/);
+  assert.doesNotMatch(staleGranolaContent, /Granola meeting source/);
+
+  writeFileSync(
+    path.join(dir, 'intake', 'heartbeats.json'),
+    JSON.stringify({
+      version: 2,
+      machines: {
+        [MACHINE_ID]: {
+          hostname: MACHINE.hostname,
+          meeting_watch: {
+            last_run_at: NOW.toISOString(),
+            examined: 0,
+            matched: 0,
+            processed: 0,
+            errors: 1,
+            dead_letters: 0,
+            disabled: false,
+            granola: {
+              status: 'failed',
+              notes_dead_lettered: 2,
+              error: 'This failure must not mask dead letters.',
+            },
+          },
+        },
+      },
+    }),
+  );
+  const granolaDeadLetters = await collectMorningBriefSources({
+    ...options,
+    fetchImpl: async (url) => coveRowsResponse(url),
+  });
+  assert.match(
+    granolaDeadLetters.sources.find((entry) => entry.id === 'untriaged_inbound').content,
+    /WARNING: Granola meeting source has 2 dead letters/,
+  );
+  assert.doesNotMatch(
+    granolaDeadLetters.sources.find((entry) => entry.id === 'untriaged_inbound').content,
+    /This failure must not mask/,
+  );
+
+  writeFileSync(
+    path.join(dir, 'intake', 'heartbeats.json'),
+    JSON.stringify({
+      version: 2,
+      machines: {
+        [MACHINE_ID]: {
+          hostname: MACHINE.hostname,
+          meeting_watch: {
+            last_run_at: NOW.toISOString(),
             disabled: true,
+            granola: {
+              status: 'failed',
+              notes_dead_lettered: 2,
+              error: 'Disabled must have priority.',
+            },
           },
         },
       },

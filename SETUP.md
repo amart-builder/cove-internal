@@ -410,16 +410,29 @@ If the user has a CSV or contacts export, wait to import it until Step 4. Confir
 
 ### Meeting notes
 
-Ask: "Which meeting-notes tool do you use: Gemini, Granola, Fathom, Otter, something else, or none?"
+Ask: "Do you use Granola for meeting notes, another notes tool, or none?"
 
 Copy `data/cove-meetings.example.json` to the private `data/cove-meetings.json`.
 
-- For Gemini, Granola, Fathom, or Otter, set `enabled` to `true` and put the lowercase name in `active_tools`.
-- For more than one, list each tool.
+- Granola is the recommended path. It requires a Business or Enterprise plan.
+  In the Granola desktop app, open Settings, Connectors, API keys and create a
+  personal key. Put it in the mode-0600 `.env.local` file as
+  `COVE_GRANOLA_API_KEY=<key>`. Personal keys expire. A 401 or 403 sets the
+  Granola health status to `failed` so the expired key is visible.
+- For Granola, set `enabled` to `true`, put `granola` in `active_tools`, and set
+  `granola.enabled` to `true`. Add the user's email to
+  `granola.owner_emails`. An empty owner list accepts every note visible to the
+  key.
+- Granola notes come from the read-only Granola API. Notification emails are
+  labelled processed and are not analyzed. One Granola note becomes one Cove
+  meeting.
+- Gemini email ingestion is a legacy path. Use it only for a person who still
+  relies on Gemini meeting-note emails. Fathom and Otter continue to use their
+  configured Gmail patterns.
 - For another tool, ask for one real sender and subject. Add a narrow `sender_regex` or `subject_regex` and `gmail_query`. Test it. Never use a catch-all inbox query.
 - For none, use `enabled:false`, `active_tools:[]`, `window:"newer_than:4d"`, `processed_label:"Cove/Meeting-Processed"`, and `custom_patterns:[]`.
 
-Keep the four-day watcher window so Friday-evening and weekend notes remain eligible on Monday morning. The Gmail watcher runs every 15 minutes on weekdays from 08:00 through 18:00 local time, including a final 18:00 run, and also runs once at login. A separate local-only drain checks ready meeting-analysis jobs every 15 minutes at all hours; an idle drain does not invoke a model. After durable ingestion the watcher applies the processed label and archives the message by removing `INBOX`; it never deletes or marks meeting mail read. Permanently failed re-picks remain in the inbox as a visible signal. The same meeting is handled only once.
+Keep the four-day watcher window so Friday-evening and weekend notes remain eligible on Monday morning. The watcher polls Granola and Gmail every 15 minutes on weekdays from 08:00 through 18:00 local time, including a final 18:00 run, and also runs once at login. A separate local-only drain checks ready meeting-analysis jobs every 15 minutes at all hours; an idle drain does not invoke a model. After durable Gmail ingestion the watcher applies the processed label and archives the message by removing `INBOX`; it never deletes or marks meeting mail read. Permanently failed re-picks remain in the inbox as a visible signal. The same meeting is handled only once.
 
 The installer in Step 5 follows `scripts/lib/cove-lane-ownership.mjs`. This Mac may claim `meeting_watch` only if another Mac does not own it. After install, verify `data/cove-lane-owners.json`, `data/intake/installed-lanes.json`, and one `node scripts/cove-meeting-watch.mjs --once` run. If another Mac owns the work, verify that Mac. Do not steal the lane.
 

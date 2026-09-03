@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Meeting-note Gmail watcher.
+ * Granola API and meeting-note Gmail watcher.
  *
  * Matcher settings live in the operator's data/cove-meetings.json (falling
  * back to data/forge-meetings.json on pre-rename installs):
@@ -11,7 +11,7 @@
  *   "processed_label": "Cove/Meeting-Processed"
  * }
  *
- * Known tool patterns and custom overrides feed one shared detector.
+ * Granola notes and known Gmail tool patterns feed one shared envelope parser.
  * `--once --dry-run` reads Gmail and
  * parses matches but writes no labels, intake rows, commitments, state, or
  * heartbeat.
@@ -50,6 +50,7 @@ const require = createRequire(import.meta.url);
 require("tsx/cjs");
 const {
   detectMeetingNotes,
+  isNotificationOnlyMeetingMessage,
   loadMeetingDetectionConfig,
 } = require("../src/lib/intake/meeting-detection.ts");
 const {
@@ -57,11 +58,18 @@ const {
   writeWaitingCommitment,
 } = require("../src/lib/intake/meeting-pipeline.ts");
 const {
+  MEETING_FRAGMENT_BODY_THRESHOLD,
   meetingAnalystEnabled,
   parseMeetingEnvelope,
   queueMeetingNotesEmail,
   runMeetingAnalysisSweep,
 } = require("../src/lib/intake/meeting-analysis.ts");
+const {
+  createGranolaClient,
+  granolaNoteHasSummary,
+  granolaNoteRevisionHash,
+  granolaNoteToMeetingInput,
+} = require("../src/lib/intake/granola-source.ts");
 const {
   recordFailure,
 } = require("../src/lib/reliability/failures.ts");
@@ -83,6 +91,15 @@ const MAX_FAILURES = 500;
 const MAX_DEAD_LETTERS = 50;
 const DEAD_LETTER_AFTER = 5;
 const MAX_GMAIL_PAGES = 10;
+export const MAX_GRANOLA_PAGES = 20;
+const MAX_GRANOLA_REVISIONS = 500;
+const GRANOLA_PENDING_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
+const GRANOLA_LOOKBACK_MS = 10 * 60_000;
+const GRANOLA_INITIAL_WINDOW_MS = 4 * 24 * 60 * 60_000;
+const GRANOLA_NOTIFICATION_RECEIPT =
+  "granola notification skipped; notes come from the Granola API";
+const NOTIFICATION_STUB_RECEIPT =
+  "meeting notification skipped; message contained no meeting notes";
 
 function objectValue(value) {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -139,6 +156,9 @@ function loadEmailConfig(file = DEFAULT_EMAIL_CONFIG_PATH) {
 export function readMeetingState(file = DEFAULT_STATE_PATH) {
   const parsed = objectValue(readJson(file, {})) ?? {};
   const failures = objectValue(parsed.failures) ?? {};
+  const granola = objectValue(parsed.granola) ?? {};
+  const revisions = objectValue(granola.revisions) ?? {};
+  const granolaFailures = objectValue(granola.failures) ?? {};
   return {
     processed_ids: Array.isArray(parsed.processed_ids)
       ? parsed.processed_ids.filter((id) => typeof id === "string").slice(-MAX_PROCESSED_IDS)
@@ -160,6 +180,38 @@ export function readMeetingState(file = DEFAULT_STATE_PATH) {
         })
         .slice(-MAX_DEAD_LETTERS)
       : [],
+    granola: {
+      watermark_at: typeof granola.watermark_at === "string"
+        ? granola.watermark_at
+        : null,
+      list_cursor: typeof granola.list_cursor === "string"
+        ? granola.list_cursor
+        : null,
+      pending_note_ids: Array.isArray(granola.pending_note_ids)
+        ? [...new Set(granola.pending_note_ids.filter((id) =>
+            typeof id === "string" && id.trim()
+          ))]
+        : [],
+      revisions: Object.fromEntries(Object.entries(revisions).filter(
+        ([id, hash]) => Boolean(id.trim()) && typeof hash === "string" && hash,
+      ).slice(-MAX_GRANOLA_REVISIONS)),
+      failures: Object.fromEntries(
+        Object.entries(granolaFailures)
+          .filter(([, value]) => {
+            const row = objectValue(value);
+            return Number.isInteger(row?.failed_runs) && row.failed_runs > 0;
+          })
+          .slice(-MAX_FAILURES),
+      ),
+      dead_letters: Array.isArray(granola.dead_letters)
+        ? granola.dead_letters
+          .filter((value) => {
+            const row = objectValue(value);
+            return typeof row?.note_id === "string" && row.note_id;
+          })
+          .slice(-MAX_DEAD_LETTERS)
+        : [],
+    },
   };
 }
 
@@ -178,6 +230,18 @@ export function writeMeetingState(file, state) {
       Object.entries(state.failures ?? {}).slice(-MAX_FAILURES),
     ),
     dead_letters: (state.dead_letters ?? []).slice(-MAX_DEAD_LETTERS),
+    granola: {
+      watermark_at: state.granola?.watermark_at ?? null,
+      list_cursor: state.granola?.list_cursor ?? null,
+      pending_note_ids: [...new Set(state.granola?.pending_note_ids ?? [])],
+      revisions: Object.fromEntries(
+        Object.entries(state.granola?.revisions ?? {}).slice(-MAX_GRANOLA_REVISIONS),
+      ),
+      failures: Object.fromEntries(
+        Object.entries(state.granola?.failures ?? {}).slice(-MAX_FAILURES),
+      ),
+      dead_letters: (state.granola?.dead_letters ?? []).slice(-MAX_DEAD_LETTERS),
+    },
   });
 }
 
@@ -430,6 +494,250 @@ function logArchiveFailure(options, messageId, error) {
 
 export { writeWaitingCommitment };
 
+function granolaOwnerAllowed(owner, ownerEmails) {
+  if (ownerEmails.length === 0) return true;
+  const email = typeof owner?.email === "string"
+    ? owner.email.trim().toLowerCase()
+    : "";
+  return ownerEmails.includes(email);
+}
+
+function noteIsPendingExpired(note, now) {
+  const createdAt = Date.parse(note.created_at);
+  return !Number.isFinite(createdAt) ||
+    now.getTime() - createdAt > GRANOLA_PENDING_MAX_AGE_MS;
+}
+
+export async function runGranolaPoll(options) {
+  const polledAt = options.now();
+  const result = {
+    status: "disabled",
+    last_poll_at: polledAt.toISOString(),
+    notes_seen: 0,
+    notes_queued: 0,
+    notes_pending: 0,
+    notes_failed: 0,
+    notes_dead_lettered: 0,
+    notes_skipped_owner: 0,
+    revisions_ignored: 0,
+    error: null,
+  };
+  if (!options.enabled || !options.apiKey) {
+    return { heartbeat: result, state: options.state };
+  }
+  result.status = "ok";
+  const client = options.client ?? createGranolaClient({
+    apiKey: options.apiKey,
+    fetchImpl: options.fetchImpl ?? fetch,
+    baseUrl: options.baseUrl,
+  });
+  const working = {
+    watermark_at: options.state.watermark_at,
+    list_cursor: options.state.list_cursor,
+    pending_note_ids: [...new Set(options.state.pending_note_ids)],
+    revisions: Object.fromEntries(
+      Object.entries(options.state.revisions).slice(-MAX_GRANOLA_REVISIONS),
+    ),
+    failures: Object.fromEntries(
+      Object.entries(options.state.failures ?? {}).slice(-MAX_FAILURES),
+    ),
+    dead_letters: [...(options.state.dead_letters ?? [])].slice(-MAX_DEAD_LETTERS),
+  };
+  const watermarkTime = working.watermark_at
+    ? Date.parse(working.watermark_at) - GRANOLA_LOOKBACK_MS
+    : polledAt.getTime() - GRANOLA_INITIAL_WINDOW_MS;
+  const updatedAfter = new Date(watermarkTime).toISOString();
+  const summaries = new Map();
+  const seenIds = new Set();
+  const cursors = new Set();
+  let cursor = working.list_cursor ?? undefined;
+  let walkComplete = false;
+  try {
+    for (let pageNumber = 0; pageNumber < MAX_GRANOLA_PAGES; pageNumber += 1) {
+      if (cursor) {
+        if (cursors.has(cursor)) throw new Error("Granola pagination repeated a cursor.");
+        cursors.add(cursor);
+      }
+      const page = await client.listNotes({
+        updatedAfter,
+        pageSize: 30,
+        ...(cursor ? { cursor } : {}),
+      });
+      for (const note of page.notes) {
+        seenIds.add(note.id);
+        summaries.set(note.id, note);
+      }
+      if (!page.hasMore) {
+        working.list_cursor = null;
+        walkComplete = true;
+        break;
+      }
+      cursor = page.cursor;
+      working.list_cursor = cursor;
+      working.pending_note_ids = [...new Set([
+        ...working.pending_note_ids,
+        ...summaries.keys(),
+      ])];
+      if (!options.dryRun && options.persistProgress) {
+        options.persistProgress(working);
+      }
+    }
+  } catch (error) {
+    if (!options.dryRun && options.persistProgress) {
+      options.persistProgress(options.state);
+    }
+    if (error && typeof error === "object") error.granolaState = options.state;
+    throw error;
+  }
+
+  if (!walkComplete) {
+    result.notes_seen = seenIds.size;
+    result.notes_pending = working.pending_note_ids.length;
+    result.notes_dead_lettered = working.dead_letters.length;
+    result.note = `Granola page cap reached at ${MAX_GRANOLA_PAGES} pages; the walk will resume next poll.`;
+    return { heartbeat: result, state: working };
+  }
+
+  const pending = new Set(working.pending_note_ids);
+  const deadLetterIds = new Set(working.dead_letters.map((entry) => entry.note_id));
+  const candidateIds = new Set(pending);
+  for (const note of summaries.values()) {
+    if (deadLetterIds.has(note.id)) {
+      pending.delete(note.id);
+      continue;
+    }
+    if (!granolaOwnerAllowed(note.owner, options.ownerEmails)) {
+      result.notes_skipped_owner += 1;
+      pending.delete(note.id);
+      delete working.failures[note.id];
+      continue;
+    }
+    candidateIds.add(note.id);
+  }
+
+  const deadLetter = (noteId, failedRuns, error) => {
+    delete working.failures[noteId];
+    pending.delete(noteId);
+    working.dead_letters = [
+      ...working.dead_letters.filter((entry) => entry.note_id !== noteId),
+      {
+        note_id: noteId,
+        failed_runs: failedRuns,
+        last_error: boundedError(error),
+        dead_lettered_at: options.now().toISOString(),
+      },
+    ].slice(-MAX_DEAD_LETTERS);
+    deadLetterIds.add(noteId);
+  };
+  const failNote = (noteId, error, immediate = false) => {
+    result.notes_failed += 1;
+    const previous = objectValue(working.failures[noteId]);
+    const failedRuns = (Number.isInteger(previous?.failed_runs)
+      ? previous.failed_runs
+      : 0) + 1;
+    if (immediate || failedRuns >= DEAD_LETTER_AFTER) {
+      deadLetter(noteId, failedRuns, error);
+      return;
+    }
+    delete working.failures[noteId];
+    working.failures[noteId] = {
+      failed_runs: failedRuns,
+      last_error: boundedError(error),
+      last_failed_at: options.now().toISOString(),
+    };
+    pending.add(noteId);
+  };
+
+  for (const noteId of candidateIds) {
+    if (deadLetterIds.has(noteId)) continue;
+    const summary = summaries.get(noteId);
+    if (summary && !granolaOwnerAllowed(summary.owner, options.ownerEmails)) continue;
+    if (pending.has(noteId) && summary && noteIsPendingExpired(summary, polledAt)) {
+      pending.delete(noteId);
+      delete working.failures[noteId];
+      continue;
+    }
+    try {
+      const note = await client.getNote(noteId);
+      seenIds.add(note.id);
+      if (!granolaOwnerAllowed(note.owner, options.ownerEmails)) {
+        if (!summary) result.notes_skipped_owner += 1;
+        pending.delete(note.id);
+        delete working.failures[note.id];
+        continue;
+      }
+      if (pending.has(note.id) && noteIsPendingExpired(note, polledAt)) {
+        pending.delete(note.id);
+        delete working.failures[note.id];
+        continue;
+      }
+      if (!granolaNoteHasSummary(note)) {
+        if (noteIsPendingExpired(note, polledAt)) {
+          pending.delete(note.id);
+          delete working.failures[note.id];
+        } else {
+          pending.add(note.id);
+        }
+        continue;
+      }
+      const revisionHash = granolaNoteRevisionHash(note);
+      const priorRevision = working.revisions[note.id];
+      if (priorRevision) {
+        if (priorRevision !== revisionHash) result.revisions_ignored += 1;
+        pending.delete(note.id);
+        delete working.failures[note.id];
+        continue;
+      }
+      const input = granolaNoteToMeetingInput(note);
+      if (options.dryRun) continue;
+      const queued = await options.queueMeetingEmail(input, {
+        sourceDoor: "watcher",
+        dbPath: options.dbPath,
+        now: options.now,
+      });
+      if (
+        queued.status === "processed" ||
+        (queued.status === "skipped" && queued.reason === "already-processed")
+      ) {
+        delete working.revisions[note.id];
+        working.revisions[note.id] = revisionHash;
+        working.revisions = Object.fromEntries(
+          Object.entries(working.revisions).slice(-MAX_GRANOLA_REVISIONS),
+        );
+        pending.delete(note.id);
+        delete working.failures[note.id];
+        if (queued.status === "processed") result.notes_queued += 1;
+      } else if (queued.status === "skipped" && queued.reason === "lease-active") {
+        pending.add(note.id);
+      } else if (queued.status === "skipped" && queued.reason === "already-failed") {
+        failNote(note.id, "meeting queue reported already-failed", true);
+      } else {
+        failNote(
+          note.id,
+          queued.status === "skipped"
+            ? `meeting queue reported ${queued.reason ?? "skipped"}`
+            : "meeting queue did not process the note",
+        );
+      }
+    } catch (error) {
+      failNote(noteId, error);
+    }
+  }
+  result.notes_seen = seenIds.size;
+
+  if (!options.dryRun) {
+    working.pending_note_ids = [...pending];
+    working.watermark_at = polledAt.toISOString();
+    working.list_cursor = null;
+  }
+  working.failures = Object.fromEntries(
+    Object.entries(working.failures).slice(-MAX_FAILURES),
+  );
+  result.notes_pending = pending.size;
+  result.notes_dead_lettered = working.dead_letters.length;
+  return { heartbeat: result, state: working };
+}
+
 export async function runMeetingAnalysisDrain(options = {}) {
   const now = options.now ?? (() => new Date());
   const runtimeDataDir = options.dataDir ?? defaultDataDir;
@@ -516,6 +824,18 @@ export async function runMeetingWatch(options = {}) {
     standing_down: false,
     standing_down_owner: null,
   };
+  let granolaHeartbeat = {
+    status: "disabled",
+    last_poll_at: now().toISOString(),
+    notes_seen: 0,
+    notes_queued: 0,
+    notes_pending: 0,
+    notes_failed: 0,
+    notes_dead_lettered: 0,
+    notes_skipped_owner: 0,
+    revisions_ignored: 0,
+    error: null,
+  };
   const heartbeat = () => ({
     last_run_at: now().toISOString(),
     examined: summary.examined,
@@ -525,6 +845,7 @@ export async function runMeetingWatch(options = {}) {
     errors: summary.errors,
     dead_letters: summary.dead_letters,
     disabled,
+    granola: granolaHeartbeat,
     ...(summary.standing_down
       ? {
           standing_down: true,
@@ -575,15 +896,75 @@ export async function runMeetingWatch(options = {}) {
     const processed = new Set(state.processed_ids);
     const failures = { ...state.failures };
     let deadLetters = [...state.dead_letters];
+    let granolaState = state.granola;
     const deadLetterIds = new Set(
       deadLetters.map((entry) => entry.message_id),
     );
-    const persistState = () => writeMeetingState(statePath, {
+    const persistState = (nextGranolaState = granolaState) => writeMeetingState(statePath, {
       processed_ids: [...processed],
       cursor_at: now().toISOString(),
       failures,
       dead_letters: deadLetters,
+      granola: nextGranolaState,
     });
+    const granolaApiKey = options.granolaApiKey ??
+      coveEnvTrimmed("GRANOLA_API_KEY");
+    const granolaApiActive = config.granola.enabled &&
+      typeof granolaApiKey === "string" && Boolean(granolaApiKey.trim());
+    if (granolaApiActive) {
+      try {
+        const granolaPoll = await runGranolaPoll({
+          enabled: true,
+          apiKey: granolaApiKey,
+          ownerEmails: config.granola.ownerEmails,
+          state: granolaState,
+          dbPath,
+          now,
+          dryRun,
+          fetchImpl: options.granolaFetchImpl ?? options.fetchImpl ?? fetch,
+          baseUrl: options.granolaBaseUrl,
+          client: options.granolaClient,
+          queueMeetingEmail: options.queueGranolaMeetingEmail ?? queueMeetingNotesEmail,
+          persistProgress: (progress) => persistState(progress),
+        });
+        granolaHeartbeat = granolaPoll.heartbeat;
+        if (!dryRun) {
+          granolaState = granolaPoll.state;
+          persistState();
+        }
+      } catch (error) {
+        const failedGranolaState = objectValue(error?.granolaState) ?? {
+          ...granolaState,
+          list_cursor: null,
+        };
+        granolaHeartbeat = {
+          status: "failed",
+          last_poll_at: now().toISOString(),
+          notes_seen: 0,
+          notes_queued: 0,
+          notes_pending: failedGranolaState.pending_note_ids?.length ?? 0,
+          notes_failed: 0,
+          notes_dead_lettered: failedGranolaState.dead_letters?.length ?? 0,
+          notes_skipped_owner: 0,
+          revisions_ignored: 0,
+          error: boundedError(error),
+        };
+        summary.errors += 1;
+        summary.error_messages.push({
+          source: "granola",
+          error: granolaHeartbeat.error,
+        });
+        if (!dryRun) {
+          granolaState = failedGranolaState;
+          persistState();
+        }
+      }
+    } else {
+      granolaHeartbeat = {
+        ...granolaHeartbeat,
+        last_poll_at: now().toISOString(),
+      };
+    }
     const processedLabelQuery = config.processedLabel.replace(/["\\]/g, "\\$&");
     const query =
       `(${config.query}) ${config.window} -label:"${processedLabelQuery}"`;
@@ -630,11 +1011,19 @@ export async function runMeetingWatch(options = {}) {
           emailConfig.accountEmail,
           message.id,
         );
-        const body = bodyFromThread(fetchedMessage);
         const meetingTitle = titleFromThread(message, fetchedMessage);
         observedSubject = meetingTitle;
         const sender = senderFromThread(message, fetchedMessage);
         observedSender = sender;
+        let body;
+        try {
+          body = bodyFromThread(fetchedMessage);
+        } catch (error) {
+          if (!isNotificationOnlyMeetingMessage({ sender, subject: meetingTitle })) {
+            throw error;
+          }
+          body = "";
+        }
         const detection = detectMeetingNotes(
           { sender, subject: meetingTitle },
           config,
@@ -662,6 +1051,53 @@ export async function runMeetingWatch(options = {}) {
           continue;
         }
         summary.matched += 1;
+
+        const skipReceipt = detection.tool === "granola" && granolaApiActive
+          ? GRANOLA_NOTIFICATION_RECEIPT
+          : body.length < MEETING_FRAGMENT_BODY_THRESHOLD &&
+              isNotificationOnlyMeetingMessage({ sender, subject: meetingTitle })
+            ? NOTIFICATION_STUB_RECEIPT
+            : null;
+        if (skipReceipt) {
+          if (!dryRun) {
+            labelId ??= await processedLabelId(
+              mail,
+              emailConfig,
+              config.processedLabel,
+            );
+            await (options.applyLabel ?? applyProcessedLabel)(
+              mail,
+              emailConfig.accountEmail,
+              message.threadId,
+              labelId,
+            );
+            try {
+              await mail.archiveMessages({ messageIds: [message.id] });
+            } catch (error) {
+              logArchiveFailure(options, message.id, error);
+            }
+            (options.recordSkipReceiptImpl ?? recordReceipt)({
+              dbPath,
+              source: "meeting-watch",
+              startedAt: now().toISOString(),
+              summary: skipReceipt,
+              actions: {
+                messageId: message.id,
+                threadId: message.threadId,
+                detectedTool: detection.tool,
+              },
+              outcome: "skipped",
+              surfaceFailure: false,
+            });
+            processed.add(message.id);
+            delete failures[message.id];
+            persistState();
+            summary.processed += 1;
+            summary.processed_message_ids.push(message.id);
+            summary.quiet_lines.push(skipReceipt);
+          }
+          continue;
+        }
 
         if (dryRun) {
           if (analystEnabled) {

@@ -12,6 +12,11 @@ Cove uses a direct Google OAuth connection. Non-secret settings live in ignored 
 - Calendar: read-only.
 - Google Docs: read-only for explicitly configured sources.
 - Meeting ingestion: disabled until a person creates and enables a live config.
+  The recommended Granola source uses the read-only REST API. Its personal key
+  is `COVE_GRANOLA_API_KEY` in the ignored mode-0600 `.env.local` file. The key
+  is sent only in the Granola `Authorization` header and must never be logged.
+  Missing keys disable only the Granola source. Expired or rejected keys make
+  that source report `failed` without disabling the Gmail watcher.
 
 Every Gmail mutation goes through a durable operation ledger and is finalized only after Gmail confirms it. Partial and failed runs appear in receipts and Issues.
 

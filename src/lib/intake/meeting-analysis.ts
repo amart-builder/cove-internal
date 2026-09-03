@@ -45,6 +45,7 @@ export type MeetingEnvelope = {
   body: string;
   receivedAt: string;
   fragment: boolean;
+  artifactUrl?: string;
 };
 
 export type MeetingAnalystArtifact = {
@@ -363,19 +364,27 @@ export function parseMeetingEnvelope(input: {
   sender?: string;
   headers?: Array<{ name: string; value: string }>;
   receivedAt?: string;
+  attendees?: MeetingAttendee[];
+  startAt?: string;
+  endAt?: string;
+  durationMinutes?: number;
+  fragment?: boolean;
+  artifactUrl?: string;
 }): MeetingEnvelope {
   const body = input.body.trim();
   const explicit = /(?:^|\n)\s*(?:attendees|participants|people)\s*:\s*([^\n]+)/i.exec(body)?.[1] ?? "";
   const fallback = [input.sender ?? header(input.headers, "From"), header(input.headers, "To"), header(input.headers, "Cc")]
     .filter(Boolean)
     .join(", ");
-  const attendees = uniqueAttendees(parseAddressList(explicit || fallback));
+  const attendees = uniqueAttendees(
+    input.attendees ?? parseAddressList(explicit || fallback),
+  );
   const durationMatch = /(?:^|\n)\s*duration\s*:\s*(?:(\d+)\s*h(?:ours?)?\s*)?(\d+)?\s*m(?:in(?:ute)?s?)?/i.exec(body);
-  const durationMinutes = durationMatch
+  const durationMinutes = input.durationMinutes ?? (durationMatch
     ? Number(durationMatch[1] ?? 0) * 60 + Number(durationMatch[2] ?? 0)
-    : undefined;
-  const startAt = dateFromLine(body, ["start", "started"]);
-  const endAt = dateFromLine(body, ["end", "ended"]);
+    : undefined);
+  const startAt = input.startAt ?? dateFromLine(body, ["start", "started"]);
+  const endAt = input.endAt ?? dateFromLine(body, ["end", "ended"]);
   const derivedDuration = durationMinutes ?? (
     startAt && endAt
       ? Math.max(0, Math.round((Date.parse(endAt) - Date.parse(startAt)) / 60_000))
@@ -400,9 +409,10 @@ export function parseMeetingEnvelope(input: {
     ...(derivedDuration !== undefined ? { durationMinutes: derivedDuration } : {}),
     body,
     receivedAt,
-    fragment: derivedDuration !== undefined
+    fragment: input.fragment ?? (derivedDuration !== undefined
       ? derivedDuration < 15
-      : body.length < MEETING_FRAGMENT_BODY_THRESHOLD,
+      : body.length < MEETING_FRAGMENT_BODY_THRESHOLD),
+    ...(input.artifactUrl ? { artifactUrl: input.artifactUrl } : {}),
   };
 }
 
@@ -468,13 +478,20 @@ export function enqueueMeetingEnvelope(
            AND j.status IN ('pending', 'held', 'failed')
          ORDER BY j.created_at, j.id, m.received_at, m.gmail_message_id`,
       ).all(cutoff, ceiling) as Array<{ id: string; status: string; envelope_json: string }>;
-      const leader = candidates.find((candidate) => {
+      const granolaEnvelope = envelope.gmailMessageId.startsWith("granola:");
+      const joinCandidates = granolaEnvelope
+        ? []
+        : candidates.filter((candidate) =>
+            !(JSON.parse(candidate.envelope_json) as MeetingEnvelope)
+              .gmailMessageId.startsWith("granola:")
+          );
+      const leader = joinCandidates.find((candidate) => {
         const prior = JSON.parse(candidate.envelope_json) as MeetingEnvelope;
         return prior.attendees.some((attendee) =>
           Boolean(attendee.email && incomingEmails.has(attendee.email))
         );
       }) ?? (incomingEmails.size === 0
-        ? candidates.find((candidate) =>
+        ? joinCandidates.find((candidate) =>
           identityFingerprint(JSON.parse(candidate.envelope_json) as MeetingEnvelope) === fingerprint)
         : undefined);
       const jobId = leader?.id ?? randomUUID();

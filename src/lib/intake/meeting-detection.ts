@@ -14,6 +14,10 @@ export type MeetingDetectionConfig = {
   query: string;
   window: string;
   processedLabel: string;
+  granola: {
+    enabled: boolean;
+    ownerEmails: string[];
+  };
 };
 
 export type MeetingDetection = {
@@ -49,6 +53,17 @@ export const KNOWN_MEETING_TOOL_PATTERNS: readonly MeetingToolPattern[] = [
     subjectRegex: String.raw`(?:otter).*(?:meeting summary|notes|transcript)|(?:meeting summary).*(?:otter)`,
     gmailQuery:
       'from:(otter.ai) OR subject:(Otter AND ("Meeting Summary" OR notes))',
+  },
+] as const;
+
+export const NOTIFICATION_ONLY_MEETING_PATTERNS: readonly MeetingToolPattern[] = [
+  {
+    tool: "granola",
+    senderRegex: String.raw`(?:^|<)notifications@mail\.granola\.ai>?$`,
+  },
+  {
+    tool: "gemini",
+    subjectRegex: String.raw`(?:couldn['’]?t|could not|unable to) take notes|no notes were generated`,
   },
 ] as const;
 
@@ -154,6 +169,13 @@ export function loadMeetingDetectionConfig(
       "cove-meetings.json is missing window or processed_label.",
     );
   }
+  const granolaConfig = objectValue(parsed.granola);
+  const granolaOwnerEmails = Array.isArray(granolaConfig?.owner_emails)
+    ? granolaConfig.owner_emails.flatMap((value) => {
+        const email = nonEmptyString(value)?.toLowerCase();
+        return email ? [email] : [];
+      })
+    : [];
   return {
     enabled: parsed.enabled,
     activeTools,
@@ -161,7 +183,25 @@ export function loadMeetingDetectionConfig(
     query: query ?? "",
     window,
     processedLabel,
+    granola: {
+      enabled: granolaConfig?.enabled === true,
+      ownerEmails: granolaOwnerEmails,
+    },
   };
+}
+
+export function isNotificationOnlyMeetingMessage(input: {
+  sender?: string;
+  subject?: string;
+}): boolean {
+  const sender = input.sender?.trim() ?? "";
+  const subject = input.subject?.trim() ?? "";
+  return NOTIFICATION_ONLY_MEETING_PATTERNS.some((pattern) =>
+    Boolean(
+      compilePattern(pattern.senderRegex)?.test(sender) ||
+      compilePattern(pattern.subjectRegex)?.test(subject),
+    )
+  );
 }
 
 export function detectMeetingNotes(

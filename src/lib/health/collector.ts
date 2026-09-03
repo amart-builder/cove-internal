@@ -25,6 +25,8 @@ export type CoveHealthSystemSignals = {
     ownerHostname: string | null;
     disabled: boolean | null;
     errors: number | null;
+    granolaStatus: "ok" | "disabled" | "failed" | null;
+    degraded: boolean;
   };
   jobs: {
     queueDepth: number;
@@ -117,6 +119,8 @@ function latestMeetingHeartbeat(dataDir: string): {
   lastHeartbeatAt: string | null;
   disabled: boolean | null;
   errors: number | null;
+  granolaStatus: "ok" | "disabled" | "failed" | null;
+  degraded: boolean;
 } {
   const root = readJson(path.join(dataDir, "intake", "heartbeats.json"));
   const machines = objectValue(root.machines);
@@ -130,14 +134,24 @@ function latestMeetingHeartbeat(dataDir: string): {
     return at ? [{ at, heartbeat }] : [];
   }).sort((left, right) => right.at.localeCompare(left.at));
   const latest = heartbeats[0];
+  const granola = objectValue(latest?.heartbeat.granola);
+  const granolaStatus = granola.status === "ok" ||
+      granola.status === "disabled" || granola.status === "failed"
+    ? granola.status
+    : null;
+  const errors = Number.isFinite(Number(latest?.heartbeat.errors))
+    ? Number(latest?.heartbeat.errors)
+    : null;
   return {
     lastHeartbeatAt: latest?.at ?? null,
     disabled: typeof latest?.heartbeat.disabled === "boolean"
       ? latest.heartbeat.disabled
       : null,
-    errors: Number.isFinite(Number(latest?.heartbeat.errors))
-      ? Number(latest?.heartbeat.errors)
-      : null,
+    errors,
+    granolaStatus,
+    degraded: granolaStatus === "disabled"
+      ? false
+      : granolaStatus === "failed" || (errors !== null && errors > 0),
   };
 }
 

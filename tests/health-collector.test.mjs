@@ -110,6 +110,10 @@ test("health collector writes the deterministic system and adoption row shape", 
             last_run_at: "2026-07-29T17:55:00.000Z",
             disabled: false,
             errors: 0,
+            granola: {
+              status: "failed",
+              error: "Granola API request failed with HTTP 401.",
+            },
           },
         },
       },
@@ -156,12 +160,43 @@ test("health collector writes the deterministic system and adoption row shape", 
   ]);
   assert.equal(snapshot.system.triage.successRate, 0.5);
   assert.equal(snapshot.system.meetingLane.ownerId, "machine1");
+  assert.equal(snapshot.system.meetingLane.disabled, false);
+  assert.equal(snapshot.system.meetingLane.granolaStatus, "failed");
+  assert.equal(snapshot.system.meetingLane.degraded, true);
   assert.equal(snapshot.system.backup.lastRestoreTestPassed, true);
   assert.equal(snapshot.adoption.daysSinceArrival, 1);
   assert.equal(snapshot.adoption.daysSinceSettlement, 2);
   assert.equal(snapshot.adoption.draftsWrittenLast30Days, 1);
   assert.equal(snapshot.adoption.recurringStreakBreaksLast30Days, 1);
   assert.deepEqual(latestCoveHealthSnapshot({ dbPath: files.dbPath }), snapshot);
+});
+
+test("disabled Granola health is not degraded", (t) => {
+  const files = fixture(t);
+  openLocalDatabase(files.dbPath).close();
+  writeFileSync(
+    path.join(files.dir, "intake", "heartbeats.json"),
+    JSON.stringify({
+      version: 2,
+      machines: {
+        machine1: {
+          meeting_watch: {
+            last_run_at: "2026-07-29T17:55:00.000Z",
+            disabled: false,
+            errors: 2,
+            granola: { status: "disabled" },
+          },
+        },
+      },
+    }),
+  );
+  const snapshot = collectCoveHealth({
+    dbPath: files.dbPath,
+    dataDir: files.dir,
+    now: NOW,
+  });
+  assert.equal(snapshot.system.meetingLane.granolaStatus, "disabled");
+  assert.equal(snapshot.system.meetingLane.degraded, false);
 });
 
 test("the scheduler enqueues health collection only when two days have elapsed", (t) => {

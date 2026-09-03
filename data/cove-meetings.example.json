@@ -3,5 +3,9 @@
   "active_tools": [],
   "window": "newer_than:4d",
   "processed_label": "Cove/Meeting-Processed",
+  "granola": {
+    "enabled": false,
+    "owner_emails": ["owner@example.com"]
+  },
   "custom_patterns": []
 }

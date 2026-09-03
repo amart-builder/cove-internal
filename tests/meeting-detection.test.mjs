@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   detectMeetingNotes,
+  isNotificationOnlyMeetingMessage,
   KNOWN_MEETING_TOOL_PATTERNS,
   loadMeetingDetectionConfig,
 } from "../src/lib/intake/meeting-detection.ts";
@@ -133,4 +134,43 @@ test("Gemini detector accepts every notes token shape selected by its Gmail quer
       subject,
     );
   }
+});
+
+test("notification-only guard matches Granola stubs and Gemini failures only", () => {
+  assert.equal(isNotificationOnlyMeetingMessage({
+    sender: "Granola <notifications@mail.granola.ai>",
+    subject: "Your notes are ready",
+  }), true);
+  assert.equal(isNotificationOnlyMeetingMessage({
+    sender: "Gemini <gemini-noreply@google.com>",
+    subject: "Gemini couldn't take notes for Client sync",
+  }), true);
+  assert.equal(isNotificationOnlyMeetingMessage({
+    sender: "Gemini <gemini-noreply@google.com>",
+    subject: "Notes: Client sync",
+  }), false);
+});
+
+test("removing Gemini from active_tools removes it from the Gmail query", (t) => {
+  const dir = path.join(os.tmpdir(), `cove-meeting-granola-only-${Date.now()}`);
+  mkdirSync(dir, { recursive: true });
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "cove-meetings.json");
+  writeFileSync(file, JSON.stringify({
+    enabled: true,
+    active_tools: ["granola"],
+    window: "newer_than:4d",
+    processed_label: "Cove/Meeting-Processed",
+    granola: { enabled: true, owner_emails: ["alex@example.com"] },
+  }));
+  const config = loadMeetingDetectionConfig(file);
+  assert.deepEqual(config.activeTools, ["granola"]);
+  assert.doesNotMatch(config.query, /gemini/i);
+  assert.deepEqual(
+    detectMeetingNotes({
+      sender: "Gemini <gemini-noreply@google.com>",
+      subject: "Notes: Client sync",
+    }, config),
+    { matched: false },
+  );
 });
