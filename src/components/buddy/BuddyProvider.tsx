@@ -55,6 +55,7 @@ type BuddyContextValue = {
   confirmDelete: (turnId: string, pending: PendingDelete) => Promise<void>;
   dismissDelete: (turnId: string, pending: PendingDelete) => Promise<void>;
   applyReplan: (turnId: string, replan: BuddyReplanReceipt) => Promise<void>;
+  getCsrfToken: () => Promise<string>;
   sessionInfo?: SessionInfo;
 };
 
@@ -411,7 +412,7 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(() => ({
     open, setOpen, pageContext, setPageContext, turns, busy, send, resetConversation,
-    confirmDelete, dismissDelete, applyReplan, sessionInfo,
+    confirmDelete, dismissDelete, applyReplan, getCsrfToken: ensureCsrf, sessionInfo,
   }), [
     open,
     pageContext,
@@ -422,6 +423,7 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
     confirmDelete,
     dismissDelete,
     applyReplan,
+    ensureCsrf,
     sessionInfo,
   ]);
   const streamValue = useMemo(() => ({ streamingTurn, thinking }), [streamingTurn, thinking]);

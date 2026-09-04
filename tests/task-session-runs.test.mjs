@@ -850,6 +850,60 @@ test('task session failure notifications explain step and execution errors', (t)
   assert.equal(notifications[1].body, 'It hit an error partway.');
 });
 
+test('an expired Claude login becomes a sign-in notification instead of a crash', async (t) => {
+  const { manager, children, notifications } = fixture(t);
+  const fromResult = manager.launch({
+    taskId: 'task-auth-expired-stdout',
+    owner: 'claude',
+    mode: 'auto',
+    promptSnapshot: { ...SNAPSHOT, title: 'Ship the launch package' },
+  });
+  children[0].stdout.write(`${JSON.stringify({
+    type: 'result',
+    subtype: 'success',
+    is_error: true,
+    result: 'Failed to authenticate: OAuth session expired and could not be refreshed',
+  })}\n`);
+  children[0].emit('close', 1, null);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(manager.getRun(fromResult.id).status, 'failed');
+  assert.equal(manager.getRun(fromResult.id).errorCode, 'claude_not_signed_in');
+  assert.equal(
+    notifications[0].body,
+    'Claude needs you to sign in again. Open Buddy and tap Sign in again.',
+  );
+
+  const fromStderr = manager.launch({
+    taskId: 'task-auth-expired-stderr',
+    owner: 'together',
+    mode: 'planning',
+    promptSnapshot: { ...SNAPSHOT, title: 'Plan the launch package' },
+  });
+  children[1].stderr.write('Not logged in. Please run /login\n');
+  children[1].emit('close', 1, null);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(manager.getRun(fromStderr.id).errorCode, 'claude_not_signed_in');
+  assert.equal(
+    notifications[1].body,
+    'Claude needs you to sign in again. Open Buddy and tap Sign in again.',
+  );
+
+  const clean = manager.launch({
+    taskId: 'task-auth-fine',
+    owner: 'claude',
+    mode: 'auto',
+    promptSnapshot: { ...SNAPSHOT, title: 'Finish without auth trouble' },
+  });
+  children[2].stdout.write(`${JSON.stringify({
+    type: 'result',
+    subtype: 'success',
+    result: 'Nothing to authenticate here; the login docs say "failed to authenticate" is a distinct error.',
+  })}\n`);
+  children[2].emit('close', 0, null);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(manager.getRun(clean.id).status, 'output_ready');
+});
+
 test('task session notification failures never change the completed run', async (t) => {
   const { manager, children, notificationWarnings } = fixture(t, {
     notify: () => {

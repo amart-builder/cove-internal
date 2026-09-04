@@ -14,3 +14,14 @@ test('ignores unrelated and empty errors', () => {
   assert.equal(isClaudeNotSignedIn(''), false);
   assert.equal(isClaudeNotSignedIn(null), false);
 });
+
+test('detects an expired or revoked Claude OAuth session', () => {
+  assert.equal(
+    isClaudeNotSignedIn('Failed to authenticate: OAuth session expired and could not be refreshed'),
+    true,
+  );
+  assert.equal(isClaudeNotSignedIn('FAILED TO AUTHENTICATE'), true);
+  assert.equal(isClaudeNotSignedIn('error: OAuth Session Expired'), true);
+  assert.equal(isClaudeNotSignedIn('token could not be refreshed'), true);
+  assert.equal(isClaudeNotSignedIn('{"type":"authentication_error","message":"invalid x-api-key"}'), true);
+});

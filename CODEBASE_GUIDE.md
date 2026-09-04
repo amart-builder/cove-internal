@@ -109,6 +109,8 @@ Treat request bodies, query strings, headers, and stored model text as untrusted
 | `/api/buddy/spawn-session` | Open a new user-visible Claude session in an allowed directory | `src/lib/buddy/spawn-session.ts` |
 | `/api/buddy/confirm-delete` | Mint a confirmation token against a visible pending delete | `src/lib/buddy/store.ts` |
 | `/api/buddy/confirm-delete/consume` | Consume the exact single-use delete token | `src/lib/buddy/store.ts` |
+| `/api/buddy/claude-login` | Open Terminal running `claude auth login` when Claude's sign-in has expired | `src/lib/buddy/claude-login.ts` |
+| `/api/buddy/claude-auth-status` | Read-only probe of `claude auth status` so Buddy can resume after sign-in | `src/lib/buddy/claude-login.ts` |
 | `/api/crm` | Local contact identity, updates, and activities | `src/lib/crm/` |
 | `/api/crm/attio` | Retired-runtime Attio read compatibility | `src/lib/data/attio-crm.ts` |
 | `/api/email/automation` | User-confirmed email card actions | `src/lib/email/automation.ts` |

@@ -15,7 +15,7 @@ import { useBuddy, useBuddyStream } from './BuddyProvider';
 
 export default function BuddyPanel() {
   const {
-    open, setOpen, turns, send, resetConversation, sessionInfo,
+    open, setOpen, turns, send, resetConversation, sessionInfo, getCsrfToken,
   } = useBuddy();
   const { streamingTurn, thinking } = useBuddyStream();
   const [draft, setDraft] = useState('');
@@ -168,6 +168,7 @@ export default function BuddyPanel() {
               hostname={sessionInfo?.hostname}
               deepLinksEnabled={sessionInfo?.deepLinksEnabled}
               onRetry={(text) => void submitText(text)}
+              getCsrfToken={getCsrfToken}
             />
           </Fragment>
         ))}

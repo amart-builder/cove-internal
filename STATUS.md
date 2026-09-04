@@ -16,13 +16,51 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** none
-- **device:** —
-- **since:** —
-- **task:** —
+- **system:** cowork
+- **device:** Alexanders-MacBook-Pro-2
+- **since:** 2026-09-04T14:55:44-0700
+- **task:** commit task origin + buddy sign-in; duplicate fixes
 <!-- END active-session -->
 
 ---
+
+## 2026-09-04 Task provenance: "Reason this task was added" (DONE, DEPLOYED LOCALLY, NOT COMMITTED)
+
+- Alex asked that every task show exactly where it came from, with the quote
+  when Cove has one. New nullable `tasks.origin` column (migration 25), a
+  read-only box in the task sheet and the board detail, and an editable
+  "Reason this task was added" field in both editors. Existing tasks have no
+  origin until edited; the box hides when empty.
+- Every writer now fills it. Inbound events quote the raw text with the
+  channel and date (`src/lib/tasks/origin.ts`, `task-writer.ts`). Meeting
+  analyst tasks get a new optional `origin` field in the artifact schema and
+  prompt, always anchored to the meeting title, date, and note tool
+  (`meetingTaskOrigin`). Chief of staff carries its `why`, recurring tasks
+  name the rhythm, the email card explains itself, Buddy replans quote the
+  user's message when the receipt has it, Morning Brief actions carry the
+  action's `why`, manual UI adds say where on the board. The cove-task skill
+  contract now requires `origin` in the POST body.
+- Verified: 1194 tests pass, lint and tsc clean, production build, app and
+  claude-worker restarted, browser check of the edit-and-save path and the
+  read-only box in the Morning Arrival sheet.
+- Duplicate-task review (read-only) found 11 groups, 31 extra copies. Main
+  causes: a scratch-DB analyst run posting tasks to the live server (default
+  `BRIEF_WEB_BASE`), the same meeting analyzed from Gemini and Granola, and
+  chief-of-staff `task_create` with no dedupe. Fixes await Alex's call.
+- Buddy "OAuth session expired" Retry dead end: fixed. The string comes
+  from the Claude Code binary; Cove's `isClaudeNotSignedIn` only matched the
+  old "/login" wording, so the raw sentence rendered with a Retry that just
+  re-sent the prompt. Root cause on Sep 4 10:15 PT: a failed token refresh
+  blanked the keychain item (likely two Claude processes refreshing at once).
+  Now: matcher covers the new wording, Buddy shows a "Claude needs you to
+  sign in again" card with a "Sign in again" button that opens Terminal
+  running `claude auth login` (POST `/api/buddy/claude-login`), polls
+  `/api/buddy/claude-auth-status` every 4s for 5 min, and retries the turn
+  once signed in. Task sessions map the same failure to a clear notice.
+  Verified in the browser on the four failed turns. The CLI is still signed
+  out as of this write: Alex has to click the button.
+- 1203 tests pass, lint and tsc clean, rebuilt and restarted twice. All
+  changes uncommitted; session lock held by this instance.
 
 ## 2026-09-03 Public release: opt-in gates, chief-of-staff agent, focus sessions (DONE, PUBLISHED)
 

@@ -26,6 +26,7 @@ import os from "node:os";
 import path from "node:path";
 import { Writable } from "node:stream";
 import { resolveProjectDirectory } from "../atlas-projects";
+import { isClaudeNotSignedIn } from "../buddy/errors";
 import { coveEnv } from "../env";
 import { openLocalDatabase } from "../local/database";
 import { coveDataDir, operatorName, operatorTimezone } from "../operator";
@@ -530,6 +531,9 @@ function failedNotificationBody(errorCode: string | undefined): string {
   if (errorCode === "session_timeout") return "It timed out.";
   if (errorCode === "error_max_turns") return "It hit its step limit.";
   if (errorCode === "error_during_execution") return "It hit an error partway.";
+  if (errorCode === "claude_not_signed_in") {
+    return "Claude needs you to sign in again. Open Buddy and tap Sign in again.";
+  }
   if (!errorCode || errorCode === "claude_failed" || errorCode === "orphan_reaped") {
     return "It didn't finish.";
   }
@@ -1170,6 +1174,7 @@ export function createTaskSessionManager(
     let stdoutLog: Writable | undefined;
     let stderrLog: Writable | undefined;
     let stdoutTail = "";
+    let stderrTail = "";
     let settled = false;
     let timedOut = false;
     let killTimer: NodeJS.Timeout | undefined;
@@ -1236,6 +1241,9 @@ export function createTaskSessionManager(
     child.stdout.on("data", (chunk: Buffer | string) => {
       stdoutTail = `${stdoutTail}${chunk.toString()}`.slice(-(1024 * 1024));
     });
+    child.stderr.on("data", (chunk: Buffer | string) => {
+      stderrTail = `${stderrTail}${chunk.toString()}`.slice(-(64 * 1024));
+    });
     child.once("error", (error) => settle({ errorCode: error.message }));
     child.once("close", (code, signal) => {
       let resultSummary: string | undefined;
@@ -1250,15 +1258,20 @@ export function createTaskSessionManager(
           // A resume link and output files still make a clean run output-ready.
         }
       }
+      const failed = code !== 0 || Boolean(signal);
+      const notSignedIn = failed &&
+        (isClaudeNotSignedIn(stdoutTail) || isClaudeNotSignedIn(stderrTail));
       settle({
         exitCode: code ?? undefined,
         errorCode: timedOut
           ? "session_timeout"
           : signal
             ? `signal_${signal}`
-            : resultSubtype?.startsWith("error_")
-              ? resultSubtype
-              : undefined,
+            : notSignedIn
+              ? "claude_not_signed_in"
+              : resultSubtype?.startsWith("error_")
+                ? resultSubtype
+                : undefined,
         resultSummary,
       });
     });
