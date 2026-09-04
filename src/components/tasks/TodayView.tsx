@@ -40,6 +40,7 @@ import {
   type ArrivalTaskStatus,
 } from '@/lib/quiet-current/arrival-cache';
 import { realTimeLabel } from '@/lib/quiet-current/presentation';
+import { originDate, originQuote } from '@/lib/tasks/origin';
 import { taskColumnKeyForName, type TaskColumnKey } from '@/lib/tasks/columns';
 import {
   buildDayPlanCandidates,
@@ -126,12 +127,14 @@ type CreateTaskInput = {
   priority?: 'low' | 'medium' | 'high';
   dueDate?: string;
   tags?: string[];
+  origin?: string;
 };
 
 type UpdateTaskInput = {
   columnId?: string | null;
   title?: string;
   description?: string;
+  origin?: string;
   priority?: 'low' | 'medium' | 'high';
   dueDate?: string | null;
   tags?: string[];
@@ -326,6 +329,7 @@ function normalizeRestTask(task: RestTask): TaskData {
     dueAt: task.due_at ?? undefined,
     tags,
     project: task.project,
+    origin: task.origin ?? undefined,
     status: task.status,
     proposedRecurrenceCadence: task.proposed_recurrence_cadence ?? undefined,
     recurringTemplateId: task.recurring_template_id ?? undefined,
@@ -349,6 +353,7 @@ function applyPatch(task: TaskData, patch: UpdateTaskInput): TaskData {
     columnId: patch.columnId === undefined ? task.columnId : (patch.columnId ?? ''),
     title: patch.title ?? task.title,
     description: patch.description ?? task.description,
+    origin: patch.origin ?? task.origin,
     priority: patch.priority ?? task.priority,
     dueDate: patch.dueDate === undefined ? task.dueDate : (patch.dueDate ?? undefined),
     tags: patch.tags ?? task.tags,
@@ -368,6 +373,7 @@ function toRestPatch(patch: UpdateTaskInput): Partial<RestTask> {
     column_id: patch.columnId,
     title: patch.title,
     description: patch.description,
+    origin: patch.origin,
     priority: patch.priority,
     due_at:
       patch.dueDate === undefined
@@ -589,6 +595,7 @@ function RestTodayView() {
             tags: input.tags,
             position: nextPosition,
             source_type: 'quiet_current',
+            origin: input.origin,
           });
           const normalized = normalizeRestTask(created);
           confirmedTasksRef.current = upsertArrivalTask(
@@ -1220,6 +1227,7 @@ function TodayExperience({
               description: mutation.description,
               priority: mutation.priority,
               tags: mutation.project ? [mutation.project] : [],
+              origin: `Buddy added this while replanning your day in Morning Arrival on ${originDate(mutation.createdAt)}.`,
             });
             if (createdId !== mutation.taskId) throw new Error('Cove could not preserve the new task identity.');
           }
@@ -1414,6 +1422,7 @@ function TodayExperience({
         title,
         tags: ['captured-today'],
         priority: 'medium',
+        origin: `You typed this into the Today capture box on ${originDate(new Date())}: "${originQuote(title)}"`,
       });
       await recordDecision({
         eventType: 'plan_add',
@@ -1521,6 +1530,7 @@ function TodayExperience({
           priority: suggestion.priority,
           dueDate: suggestion.dueDate,
           tags: [],
+          origin: `A Quiet Current suggestion you accepted on ${originDate(new Date())}. Source: ${originQuote(suggestion.source, 120)}. Evidence: ${originQuote(suggestion.reason)}`,
         });
         focusTask(resolvedTaskId, source);
       }
@@ -1833,6 +1843,7 @@ function TodayExperience({
     await updateTask(taskId, {
       title: patch.title,
       description: patch.description,
+      origin: patch.origin,
       priority: patch.priority,
       dueDate: patch.dueDate,
       tags: patch.tags,

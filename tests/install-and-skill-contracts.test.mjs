@@ -294,6 +294,7 @@ test("task and contact skills authenticate every documented generic mutation", (
   const contact = readFileSync(path.join(ROOT, "skills", "cove-contact", "SKILL.md"), "utf8");
   assert.match(task, /csrfToken/);
   assert.match(task, /X-Cove-CSRF: <token from the day-plan GET>/);
+  assert.match(task, /"origin": "<who asked, where, and when, then their exact words in quotes>"/);
   assert.match(contact, /api\/cove-rest\/companies[\s\S]{0,300}X-Cove-CSRF/);
 });
 

@@ -19,7 +19,9 @@ const {
   queueMeetingNotesEmail,
   runMeetingAnalysisSweep,
   validateMeetingAnalystArtifact,
+  meetingTaskOrigin,
 } = require("../src/lib/intake/meeting-analysis.ts");
+const { inboundOrigin, originQuote } = require("../src/lib/tasks/origin.ts");
 const { runLocalMigrations } = require("../src/lib/local/migrations.ts");
 const { LocalCRMBackend } = require("../src/lib/crm/local.ts");
 const { createAnalystInboundTask } = require("../src/lib/intake/task-writer.ts");
@@ -250,6 +252,42 @@ test("non-Granola complete envelopes with an overlapping attendee still elect on
   assert.equal(db.prepare("SELECT count(*) FROM meeting_analysis_jobs").pluck().get(), 1);
   assert.equal(db.prepare("SELECT count(*) FROM meeting_analysis_members").pluck().get(), 2);
   db.close();
+});
+
+test("every analyst task carries an origin anchored to the real meeting", () => {
+  const taskSchema = MEETING_ANALYST_JSON_SCHEMA.properties.tasks.items;
+  assert.equal(taskSchema.properties.origin.type, "string");
+  assert.equal(taskSchema.required.includes("origin"), false, "older artifacts still load");
+  assert.match(buildMeetingAnalystPrompt({
+    envelopes: [envelope("prompt", "2026-09-03T17:00:00.000Z")],
+    contacts: [],
+    recentEmailThreads: [],
+    goals: "Grow the business.",
+    operatorProfile: { name: "Operator" },
+    timezone: "UTC",
+  }), /Reason this task was added/);
+
+  const meeting = envelope("origin", "2026-09-03T17:00:00.000Z");
+  const anchored = meetingTaskOrigin(
+    { ...task("Send Ben the overview"), origin: 'In the call with Ben on Sep 3, you said "I will send the pipeline overview by Friday."' },
+    meeting,
+  );
+  assert.match(anchored, /^From the meeting "Launch planning" on Sep 3, 2026 \(granola notes\)\. In the call with Ben/);
+  const named = meetingTaskOrigin(
+    { origin: 'During Launch planning on Sep 3, Pat said "ship it Friday."' },
+    meeting,
+  );
+  assert.equal(named, 'During Launch planning on Sep 3, Pat said "ship it Friday."');
+  const legacy = meetingTaskOrigin(task("Old artifact"), meeting);
+  assert.equal(
+    legacy,
+    'From the meeting "Launch planning" on Sep 3, 2026 (granola notes). The analyst\'s reason: This fulfills the explicit promise early.',
+  );
+  assert.equal(originQuote("  a   b ".repeat(200), 40).length, 40);
+  assert.equal(
+    inboundOrigin({ source: "imessage", raw_text: "call  the\n bank", created_at: "2026-09-04T18:00:00.000Z" }, "America/Los_Angeles"),
+    'You texted Cove over iMessage on Sep 4, 2026: "call the bank"',
+  );
 });
 
 test("analyst prompt fences meeting and email content as untrusted data", () => {

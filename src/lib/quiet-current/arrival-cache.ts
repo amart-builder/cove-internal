@@ -17,6 +17,7 @@ export type ArrivalTask = {
   dueAt?: string;
   tags: string[];
   project?: string;
+  origin?: string;
   status?: ArrivalTaskStatus;
   proposedRecurrenceCadence?: string;
   recurringTemplateId?: string;

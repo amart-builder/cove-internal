@@ -12,6 +12,7 @@ import { localDateInTimezone } from "../day-plan/brief";
 import { openLocalDatabase } from "../local/database";
 import { operatorTimezone } from "../operator";
 import { taskColumnKeyForName } from "./columns";
+import { originDate } from "./origin";
 
 const DAY_NAMES = [
   "sunday",
@@ -126,6 +127,23 @@ function addCalendarDays(localDate: string, days: number): string {
 
 function daysInMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0, 12)).getUTCDate();
+}
+
+// Plain words for the origin box. Mirrors the label the task detail view shows.
+function cadenceLabel(cadenceValue: string): string {
+  const cadence = normalizeCadence(cadenceValue);
+  if (cadence === "daily") return "daily";
+  if (cadence === "weekdays") return "every weekday";
+  if (cadence.startsWith("weekly:")) {
+    const day = cadence.slice("weekly:".length);
+    return `weekly on ${day.charAt(0).toUpperCase()}${day.slice(1)}`;
+  }
+  return `monthly on day ${cadence.slice("monthly:".length)}`;
+}
+
+// "Sep 4, 2026" for a YYYY-MM-DD operator-local date.
+function calendarDateLabel(localDate: string): string {
+  return originDate(`${localDate}T00:00:00Z`, "UTC");
 }
 
 export function cadenceOccursOn(
@@ -346,10 +364,10 @@ export function spawnRecurringTasks(input: {
         `INSERT INTO tasks
            (id, column_id, title, description, priority, due_at, due_date,
             tags, project, position, status, source_type, remind_native,
-            remind_text, created_at, updated_at, recurring_template_id,
+            remind_text, origin, created_at, updated_at, recurring_template_id,
             occurrence_local_date)
          VALUES (?, ?, ?, ?, 'medium', ?, ?, '["recurring"]', 'Atlas', 0,
-                 'open', 'recurring', 1, 0, ?, ?, ?, ?)`,
+                 'open', 'recurring', 1, 0, ?, ?, ?, ?, ?)`,
       );
       let spawned = 0;
       let missed = pastOpen.length;
@@ -387,6 +405,7 @@ export function spawnRecurringTasks(input: {
             template.description ?? "",
             dueAt(date),
             date,
+            `Recurring task. Cove created it from your "${template.title}" rhythm (${cadenceLabel(template.cadence)}) for ${calendarDateLabel(date)}.`,
             nowIso,
             nowIso,
             template.id,

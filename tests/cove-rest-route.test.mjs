@@ -193,6 +193,7 @@ test('a legacy tasks table upgrades in place instead of failing per query', asyn
       nudged_at: null,
       engaged_at: null,
       notification_policy: null,
+      origin: null,
     }]);
   } finally {
     delete globalKey.__coveDb;

@@ -26,6 +26,7 @@ export default function TaskFieldsEditor({
   const [priority, setPriority] = useState(task.priority);
   const [dueDate, setDueDate] = useState(task.dueDate ?? '');
   const [tagsText, setTagsText] = useState(visibleTags(task.tags).join(', '));
+  const [origin, setOrigin] = useState(task.origin ?? '');
 
   async function save() {
     const trimmedTitle = title.trim();
@@ -39,6 +40,7 @@ export default function TaskFieldsEditor({
       description,
       priority,
       dueDate: dueDate || null,
+      origin: origin.trim() || undefined,
       tags: [...new Set(tagsWithBlockedFlag(
         tags,
         task.blocked || task.tags.some(isBlockedTag),
@@ -113,6 +115,19 @@ export default function TaskFieldsEditor({
           disabled={saving}
           onChange={(event) => setTagsText(event.target.value)}
           className={fieldClass}
+        />
+      </div>
+      <div>
+        <label className="mb-1 block text-[10.5px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+          Reason this task was added
+        </label>
+        <textarea
+          value={origin}
+          rows={3}
+          disabled={saving}
+          placeholder="Where this came from: who asked, where, when, and their words."
+          onChange={(event) => setOrigin(event.target.value)}
+          className={`${fieldClass} resize-y py-3`}
         />
       </div>
       {error && <p role="alert" className="text-xs text-accent-red">{error}</p>}

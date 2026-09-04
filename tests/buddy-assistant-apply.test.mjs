@@ -35,7 +35,7 @@ function setupAssistantApply(t) {
       id TEXT PRIMARY KEY, column_id TEXT, title TEXT NOT NULL, description TEXT,
       priority TEXT, due_at TEXT, due_date TEXT, tags TEXT, project TEXT,
       position REAL, status TEXT, archived_at TEXT, archived_from_status TEXT,
-      recurring_template_id TEXT, occurrence_local_date TEXT,
+      recurring_template_id TEXT, occurrence_local_date TEXT, origin TEXT,
       created_at TEXT, updated_at TEXT
     );
     INSERT INTO task_columns (id, name, position) VALUES
@@ -213,13 +213,18 @@ test('assistant apply creates, completes, updates, and reprioritizes task-backed
   assert.equal(result.createdItemIds.length, 2);
   const verify = new Database(path.join(root, 'cove.db'), { readonly: true });
   const createdTasks = verify.prepare(
-    `SELECT id, column_id, status FROM tasks
+    `SELECT id, column_id, status, origin FROM tasks
      WHERE id IN (?, ?) ORDER BY id`,
   ).all(...result.createdItemIds);
   verify.close();
   assert.equal(createdTasks.length, 2);
   assert.equal(createdTasks.every((task) => task.column_id === 'col-today'), true);
   assert.equal(createdTasks.every((task) => task.status === 'open'), true);
+  assert.equal(
+    createdTasks.every((task) =>
+      task.origin === 'Buddy added this while replanning your day in Morning Arrival on Jul 15, 2026.'),
+    true,
+  );
   assert.equal(
     result.plan.items
       .filter((item) => result.createdItemIds.includes(item.id))
@@ -498,6 +503,13 @@ test('a mid-day created item is accepted and survives settlement', (t) => {
   const created = plan.items.find((item) => item.id === 'urgent-created-id');
   assert.equal(created.decision, 'accepted');
   assert.equal(created.whyToday, 'Added during a mid-day replan.');
+  const backing = new Database(path.join(root, 'cove.db'), { readonly: true });
+  const createdOrigin = backing.prepare('SELECT origin FROM tasks WHERE id = ?').pluck().get(created.taskId);
+  backing.close();
+  assert.equal(
+    createdOrigin,
+    'You asked Buddy during Morning Arrival on Jul 15, 2026: "new urgent thing, reshuffle my afternoon"',
+  );
 
   const originalTaskIds = plan.items
     .filter((item) => item.id !== created.id)

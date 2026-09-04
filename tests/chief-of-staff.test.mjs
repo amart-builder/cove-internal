@@ -483,12 +483,13 @@ test("all allowed actions use real stores, rejected actions are fed back, and re
   const verify = openLocalDatabase(dbPath);
   try {
     const created = verify.prepare(
-      "SELECT column_id, position, due_at, due_date FROM tasks WHERE title = 'New task'",
+      "SELECT column_id, position, due_at, due_date, origin FROM tasks WHERE title = 'New task'",
     ).get();
     assert.ok(created.column_id);
     assert.ok(created.position >= 0);
     assert.equal(created.due_at, "2026-09-07");
     assert.equal(created.due_date, "2026-09-07");
+    assert.match(created.origin, /^Added by the chief of staff agent on [A-Z][a-z]{2} \d{1,2}, \d{4}\. Its reason: open task task-1$/);
     assert.equal(verify.prepare("SELECT status FROM tasks WHERE id = 'existing-task'").get().status, "done");
     assert.equal(verify.prepare("SELECT stage FROM pipeline_deals WHERE contact_id = ?").get(pipelineContact.id).stage, "interested");
     assert.deepEqual(

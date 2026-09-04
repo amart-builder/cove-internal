@@ -36,7 +36,8 @@ them, then try again.
 
 Treat the transcript as a task request and follow the **cove-task** skill: pick
 a due date (asking the calendar and current load if none was given), add it to
-the board, set the reminder, and reply.
+the board, set the reminder, and reply. The task's `origin` must quote the
+transcript, for example `You sent a voice note on Sep 4, 2026: "<transcript>"`.
 
 Confirm what you heard, so a mis-hear is easy to catch. For example: *"Got your
 voice note. Added 'email the contractor', due Friday at 9am. Let me know if you

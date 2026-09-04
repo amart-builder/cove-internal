@@ -49,6 +49,31 @@ test('Arrival cards and closeout prefer live task data over the plan snapshot', 
   assert.match(source, /const task = tasksById\.get\(item\.taskId\);/);
 });
 
+test('every task editor shows and edits the reason the task was added', () => {
+  const fields = readFileSync(componentPath('TaskFieldsEditor.tsx'), 'utf8');
+  const detail = readFileSync(componentPath('TaskDetail.tsx'), 'utf8');
+  const sheet = readFileSync(componentPath('arrival', 'TaskSheet.tsx'), 'utf8');
+  const today = readFileSync(componentPath('TodayView.tsx'), 'utf8');
+  const board = readFileSync(componentPath('KanbanBoard.tsx'), 'utf8');
+
+  assert.match(fields, /Reason this task was added/);
+  assert.match(fields, /origin: origin\.trim\(\) \|\| undefined/);
+  assert.match(detail, /Reason this task was added/);
+  assert.match(detail, /origin: origin\.trim\(\) \|\| undefined/);
+  assert.match(sheet, /aria-label="Reason this task was added"/);
+  assert.match(sheet, /const origin = taskRecord\?\.origin\?\.trim\(\);/);
+  assert.match(today, /origin: task\.origin \?\? undefined/);
+  assert.match(today, /origin: patch\.origin,/);
+  assert.match(board, /origin: task\.origin \?\? undefined/);
+  assert.match(board, /origin: patch\.origin,/);
+  for (const site of [
+    /You typed this into the Today capture box on/,
+    /A Quiet Current suggestion you accepted on/,
+    /Buddy added this while replanning your day in Morning Arrival on/,
+  ]) assert.match(today, site);
+  assert.match(board, /You added this by hand on the All Work board on/);
+});
+
 test('both task editors share the blocked tag helpers', () => {
   const fields = readFileSync(componentPath('TaskFieldsEditor.tsx'), 'utf8');
   const detail = readFileSync(componentPath('TaskDetail.tsx'), 'utf8');

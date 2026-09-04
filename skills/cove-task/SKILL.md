@@ -89,6 +89,10 @@ they can correct it.
 
 ## 6. Create the task
 
+`origin` is required. It must hold the person's actual words from the message,
+voice note, or chat that triggered the task, for example
+`You told Claude in chat on Sep 4, 2026: "remind me to send Ben the pipeline overview"`.
+
 ```bash
 curl -s -X POST 'http://localhost:3200/api/cove-rest/tasks' \
   -H 'Content-Type: application/json' \
@@ -101,7 +105,8 @@ curl -s -X POST 'http://localhost:3200/api/cove-rest/tasks' \
     "due_at": "<local ISO datetime>",
     "tags": [],
     "remind_native": true,
-    "remind_text": false
+    "remind_text": false,
+    "origin": "<who asked, where, and when, then their exact words in quotes>"
   }'
 ```
 

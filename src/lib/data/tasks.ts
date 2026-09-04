@@ -99,6 +99,7 @@ export async function createTask(input: {
   project?: string;
   position?: number;
   source_type?: string;
+  origin?: string | null;
 }): Promise<Task> {
   const body = {
     ...(input.id ? { id: input.id } : {}),
@@ -118,6 +119,7 @@ export async function createTask(input: {
       : {}),
     position: input.position ?? 0,
     source_type: input.source_type ?? "manual",
+    origin: input.origin ?? null,
   };
   try {
     const rows = await coveRest<Task[]>("tasks", { method: "POST", body });

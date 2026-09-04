@@ -10,6 +10,7 @@ import type { InboundEvent, Task } from "../data/types";
 import { localDateInTimezone } from "../day-plan/brief";
 import { operatorTimezone } from "../operator";
 import { taskColumnKeyForName, type TaskColumnKey } from "../tasks/columns";
+import { inboundOrigin, originDate } from "../tasks/origin";
 import type { TriageOutput } from "../triage/protocol";
 import { coveEnv } from "../env";
 import { getRuntimeMode } from "../runtime/mode";
@@ -263,6 +264,7 @@ export async function createAnalystInboundTask(
     priority: "low" | "medium" | "high";
     notificationPolicy: "none" | "predeadline" | "due" | "both";
     remindAt?: string | null;
+    origin?: string;
   },
   options: InboundTaskWriterOptions = {},
 ): Promise<string> {
@@ -281,6 +283,7 @@ export async function createAnalystInboundTask(
     tags: ["triaged", "meeting-analyst"],
     position: 0,
     source_type: "inbound_event",
+    origin: input.origin?.trim() || inboundOrigin(event, operatorTimezone()),
   }, options);
 }
 
@@ -460,6 +463,7 @@ export async function createFallbackInboundTask(
       : {}),
     position: 0,
     source_type: "inbound_event",
+    origin: inboundOrigin(event, operatorTimezone()),
   }, options);
 }
 
@@ -471,6 +475,7 @@ export async function createCapturedInboundTask(
     project?: string;
     priority?: "low" | "medium" | "high";
     column?: "Not Started" | "Must happen today";
+    origin?: string;
   },
   options: InboundTaskWriterOptions = {},
 ): Promise<string> {
@@ -504,6 +509,7 @@ export async function createCapturedInboundTask(
       : {}),
     position: 0,
     source_type: "inbound_event",
+    origin: input.origin?.trim() || inboundOrigin(event, operatorTimezone()),
   }, options);
 }
 
@@ -515,6 +521,7 @@ export async function createAutomationTask(
     project?: string;
     priority?: "low" | "medium" | "high";
     tags?: string[];
+    origin?: string;
   },
   options: InboundTaskWriterOptions = {},
 ): Promise<string> {
@@ -542,6 +549,8 @@ export async function createAutomationTask(
     tags: input.tags ?? ["automation"],
     position: 0,
     source_type: "automation",
+    origin: input.origin?.trim() ||
+      `A Cove automation created this on ${originDate(event.created_at, operatorTimezone())}.`,
   }, options);
 }
 
@@ -605,5 +614,6 @@ export async function createTriagedInboundTask(
       : {}),
     position: 0,
     source_type: "inbound_event",
+    origin: inboundOrigin(event, operatorTimezone()),
   }, options);
 }

@@ -24,6 +24,7 @@ import { getRuntimeMode } from "../runtime/mode";
 import { operatorTimezone } from "../operator";
 import { recordReceiptInDatabase } from "../reliability/receipts";
 import { taskColumnKeyForName } from "../tasks/columns";
+import { originDate, originQuote } from "../tasks/origin";
 import { DEFAULT_TASK_SETTINGS, readTaskSettings } from "../tasks/settings";
 import {
   applyLocalMigration,
@@ -280,6 +281,8 @@ function insertBackingTask(
     description: string;
     priority: "low" | "medium" | "high";
     project?: string;
+    // Plain-language answer to "why is this on my board?" (tasks.origin).
+    origin: string;
     changedAt: string;
   },
 ): void {
@@ -297,8 +300,8 @@ function insertBackingTask(
   db.prepare(
     `INSERT INTO tasks
       (id, column_id, title, description, priority, due_at, due_date,
-       tags, project, position, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, NULL, NULL, '[]', ?, ?, 'open', ?, ?)`,
+       tags, project, position, status, origin, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, NULL, NULL, '[]', ?, ?, 'open', ?, ?, ?)`,
   ).run(
     input.id,
     todayColumn.id,
@@ -307,9 +310,15 @@ function insertBackingTask(
     input.priority,
     input.project?.trim() || "Atlas",
     position,
+    input.origin,
     input.changedAt,
     input.changedAt,
   );
+}
+
+// "Sep 4, 2026" for a plan's YYYY-MM-DD local date.
+function planDateLabel(localDate: string): string {
+  return originDate(`${localDate}T00:00:00Z`, "UTC");
 }
 
 type DayDumpRow = {
@@ -1995,6 +2004,8 @@ export function createDayPlanStore(options: {
     baseVersion: number;
     finishedAt: string;
     requestedCreatedItemIds?: string[];
+    // What the operator said to Buddy, when Cove has it; the origin box quotes it.
+    userText?: string;
   }): { plan: DayPlan; createdItemIds: string[] } {
     const {
       plan,
@@ -2004,6 +2015,11 @@ export function createDayPlanStore(options: {
       finishedAt,
       requestedCreatedItemIds,
     } = input;
+    const arrivalDate = planDateLabel(plan.localDate);
+    const userWords = input.userText ? originQuote(input.userText) : "";
+    const createdOrigin = userWords
+      ? `You asked Buddy during Morning Arrival on ${arrivalDate}: "${userWords}"`
+      : `Buddy added this while replanning your day in Morning Arrival on ${arrivalDate}.`;
     const before = clonePlan(plan);
     const createdItemIds: string[] = [];
     let createdIndex = 0;
@@ -2049,6 +2065,7 @@ export function createDayPlanStore(options: {
           description: descriptionFor(item),
           priority: item.priority,
           project: item.project,
+          origin: createdOrigin,
           changedAt: finishedAt,
         });
         item.sourceRefs = [{
@@ -2112,14 +2129,16 @@ export function createDayPlanStore(options: {
       if (!plan) throw new DayPlanNotFound();
       if (plan.version !== input.expectedVersion) throw new DayPlanVersionConflict(plan);
       const proof = input.replanReceiptProof;
+      let buddyUserText: string | undefined;
       if (proof) {
         const row = db.prepare(
-          `SELECT state, finished_at, receipts_json
+          `SELECT state, finished_at, receipts_json, user_text
            FROM buddy_turns WHERE id = ?`,
         ).get(proof.turnId) as {
           state: string;
           finished_at: string | null;
           receipts_json: string | null;
+          user_text: string | null;
         } | undefined;
         const proposed = normalizeBuddyReceipts(
           JSON.parse(proof.expectedReceiptsJson) as unknown,
@@ -2143,6 +2162,7 @@ export function createDayPlanStore(options: {
             "Replan preview does not authorize these changes.",
           );
         }
+        buddyUserText = row.user_text ?? undefined;
       }
       requireAssistantEditing(plan, Boolean(proof));
       if (!Array.isArray(input.operations) || input.operations.length === 0) {
@@ -2181,6 +2201,7 @@ export function createDayPlanStore(options: {
         baseVersion: input.expectedVersion,
         finishedAt: timestamp,
         requestedCreatedItemIds: input.createdItemIds,
+        userText: buddyUserText,
       });
       if (proof) {
         const consumed = db.prepare(
@@ -2981,11 +3002,13 @@ export function createDayPlanStore(options: {
             const position = (db.prepare(
               "SELECT COALESCE(MAX(position), -1) + 1 AS position FROM tasks WHERE column_id = ? AND status = 'open'",
             ).get(columnId) as { position: number }).position;
+            const briefReason = typeof action.why === "string" ? originQuote(action.why) : "";
+            const briefOrigin = `Suggested by your Morning Brief on ${planDateLabel(targetLocalDate)}. Cove created it when the brief was applied${briefReason ? `: ${briefReason}` : "."}`;
             db.prepare(
               `INSERT INTO tasks
                 (id, column_id, title, description, priority, due_at, due_date,
-                 tags, project, position, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, '[]', 'Atlas', ?, 'open', ?, ?)`,
+                 tags, project, position, status, origin, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, '[]', 'Atlas', ?, 'open', ?, ?, ?)`,
             ).run(
               taskId,
               columnId,
@@ -2995,6 +3018,7 @@ export function createDayPlanStore(options: {
               action.dueLocalDate,
               action.dueLocalDate,
               position,
+              briefOrigin,
               terminalAt,
               terminalAt,
             );
@@ -4134,6 +4158,7 @@ export function createDayPlanStore(options: {
             title,
             description: outcome,
             priority: "high",
+            origin: `You added this during Morning Arrival on ${planDateLabel(plan.localDate)}. Your reason: "${originQuote(why)}"`,
             changedAt,
           });
           plan.items.push({

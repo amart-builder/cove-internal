@@ -24,6 +24,7 @@ interface TaskData {
   priority: 'low' | 'medium' | 'high';
   dueDate?: string;
   tags: string[];
+  origin?: string;
   status?: 'open' | 'done' | 'archived';
   proposedRecurrenceCadence?: string;
   recurringTemplateId?: string;
@@ -38,6 +39,7 @@ type UpdateTaskInput = {
   columnId?: string | null;
   title?: string;
   description?: string;
+  origin?: string;
   priority?: 'low' | 'medium' | 'high';
   dueDate?: string | null;
   tags?: string[];
@@ -86,6 +88,7 @@ export default function TaskDetail({
 }: TaskDetailProps) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? '');
+  const [origin, setOrigin] = useState(task.origin ?? '');
   const [priority, setPriority] = useState(task.priority);
   const [dueDate, setDueDate] = useState(task.dueDate ?? '');
   const [tagsStr, setTagsStr] = useState(visibleTags(task.tags).join(', '));
@@ -109,6 +112,7 @@ export default function TaskDetail({
   useEffect(() => {
     setTitle(task.title);
     setDescription(task.description ?? '');
+    setOrigin(task.origin ?? '');
     setPriority(task.priority);
     setDueDate(task.dueDate ?? '');
     setTagsStr(visibleTags(task.tags).join(', '));
@@ -146,6 +150,7 @@ export default function TaskDetail({
         description,
         priority,
         dueDate: dueDate || null,
+        origin: origin.trim() || undefined,
         tags: tagsWithBlockedFlag(tags, blocked),
         columnId,
       });
@@ -331,6 +336,17 @@ export default function TaskDetail({
             />
             <span className="text-foreground">Blocked</span>
           </label>
+
+          <div>
+            <label className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Reason this task was added</label>
+            <textarea
+              value={origin}
+              onChange={(e) => setOrigin(e.target.value)}
+              rows={3}
+              placeholder="Where this came from: who asked, where, when, and their words."
+              className="w-full px-2.5 py-2 text-sm border rounded-md outline-none focus:ring-1 focus:ring-accent-blue/40 resize-y bg-background text-foreground"
+            />
+          </div>
 
           <div>
             <label className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Tags (comma-separated)</label>

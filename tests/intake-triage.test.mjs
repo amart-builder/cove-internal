@@ -203,6 +203,11 @@ test('Supabase intake payloads stay pre-stage even when recurrence is proposed',
   assert.equal(fallbackPosts[0].due_at, '2026-07-29T09:00:00-07:00');
   assert.deepEqual(fallbackPosts[0].tags, ['needs-triage']);
   assert.equal('proposed_recurrence_cadence' in fallbackPosts[0], false);
+  assert.equal(
+    fallbackPosts[0].origin,
+    'You told Claude in chat on Jul 28, 2026: "Post a clip every day."',
+    'every inbound task says where it came from, quoting the actual words',
+  );
 
   const capturedPosts = [];
   await createCapturedInboundTask({ ...event, id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }, {

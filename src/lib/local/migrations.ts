@@ -1560,6 +1560,13 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       `);
     },
   },
+  {
+    version: 25,
+    name: "task-origin",
+    up: (db) => {
+      db.exec("ALTER TABLE tasks ADD COLUMN origin TEXT");
+    },
+  },
 ];
 
 function migrationTableExists(db: Database.Database, name: string): boolean {

@@ -366,6 +366,12 @@ test('wake catch-up expires past open cards, records misses, and spawns only tod
       ).get().n,
       1,
     );
+    assert.equal(
+      db.prepare(
+        "SELECT origin FROM tasks WHERE occurrence_local_date = '2026-07-24' AND status = 'open'",
+      ).get().origin,
+      'Recurring task. Cove created it from your "Morning pages" rhythm (daily) for Jul 24, 2026.',
+    );
   } finally {
     db.close();
   }

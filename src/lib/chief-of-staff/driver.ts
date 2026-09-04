@@ -25,9 +25,11 @@ import { salesPipelineEnabled } from "../crm/sales-pipeline";
 import { coveConfigPath, coveEnvTrimmed } from "../env";
 import { openLocalDatabase } from "../local/database";
 import { validateTaskTiming } from "../local/db";
+import { operatorTimezone } from "../operator";
 import { createWorkSuggestion } from "../quiet-current/store";
 import { syncRecurringOccurrenceForTask } from "../tasks/recurrence";
 import { taskColumnKeyForName } from "../tasks/columns";
+import { originDate, originQuote } from "../tasks/origin";
 import type { JobHandlerResult, ScheduledJob } from "../reliability/jobs";
 import {
   appendChiefOfStaffJournal,
@@ -453,14 +455,19 @@ function applyDatabaseAction(input: {
     const position = input.db.prepare(
       "SELECT COALESCE(MAX(position), -1) + 1 AS position FROM tasks WHERE column_id = ? AND status = 'open'",
     ).pluck().get(todayColumn.id) as number;
+    const why = typeof action.why === "string" ? originQuote(action.why) : "";
+    const addedOn = `Added by the chief of staff agent on ${originDate(input.now, operatorTimezone())}`;
+    const origin = why
+      ? `${addedOn}. Its reason: ${why}`
+      : `${addedOn} without a stated reason.`;
     input.db.prepare(
       `INSERT INTO tasks
          (id, column_id, title, description, priority, due_at, due_date, tags, project,
-          position, status, source_type, remind_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, 'open', 'chief-of-staff', ?, ?, ?)`,
+          position, status, source_type, remind_at, origin, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, 'open', 'chief-of-staff', ?, ?, ?, ?)`,
     ).run(
       randomUUID(), todayColumn.id, title, details, taskPriority, dueAt ?? null,
-      dueAt ?? null, project, position, remindAt ?? null, now, now,
+      dueAt ?? null, project, position, remindAt ?? null, origin, now, now,
     );
     return;
   }

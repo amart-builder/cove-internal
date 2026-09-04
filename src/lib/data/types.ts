@@ -24,6 +24,9 @@ export type Task = {
   position: number;
   status: "open" | "done" | "archived";
   source_type?: string;
+  // Plain-language provenance: who asked for this, where, when, and their
+  // exact words when Cove has them. Shown as "Reason this task was added".
+  origin?: string | null;
   archived_at?: string | null;
   archived_from_status?: "open" | "done" | null;
   proposed_recurrence_cadence?: string | null;
