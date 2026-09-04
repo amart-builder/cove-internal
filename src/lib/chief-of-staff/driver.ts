@@ -55,6 +55,8 @@ import {
 } from "./types";
 
 const WAKE_TIMEOUT_MS = 15 * 60_000;
+/** A task finished this recently still counts as "already exists" for task_create. */
+const RECENT_TASK_DAYS = 14;
 const MAX_PROCESS_OUTPUT = 4 * 1024 * 1024;
 const SALES_PIPELINE_STATUS_PLACEHOLDER = "{{SALES_PIPELINE_STATUS}}";
 
@@ -418,6 +420,20 @@ export function chiefOfStaffActionContentHash(action: ChiefOfStaffAction): strin
   return createHash("sha256").update(`${action.kind}\n${canonicalJson(payload)}`).digest("hex");
 }
 
+function normalizedTaskTitle(value: string): string {
+  return value.replace(/\s+/g, " ").trim().replace(/[.!?:;,]+$/, "").toLowerCase();
+}
+
+function existingTaskWithTitle(db: Database.Database, title: string, now: Date): string | undefined {
+  const cutoff = new Date(now.getTime() - RECENT_TASK_DAYS * 86_400_000).toISOString();
+  const wanted = normalizedTaskTitle(title);
+  const rows = db.prepare(
+    `SELECT id, title FROM tasks
+     WHERE status = 'open' OR (status IN ('done', 'archived') AND updated_at >= ?)`,
+  ).all(cutoff) as Array<{ id: string; title: string }>;
+  return rows.find((row) => normalizedTaskTitle(row.title) === wanted)?.id;
+}
+
 function applyDatabaseAction(input: {
   db: Database.Database;
   pipeline: LocalPipelineStore;
@@ -437,6 +453,10 @@ function applyDatabaseAction(input: {
       throw new Error("task_create status must be open.");
     }
     const title = requiredActionText(action, "title", 500);
+    const duplicateId = existingTaskWithTitle(input.db, title, input.now);
+    if (duplicateId) {
+      throw new Error(`A task with this title already exists (${duplicateId}). Use task_update instead.`);
+    }
     const details = optionalActionText(action, "details", 5_000) ?? "";
     const dueAt = action.due_at === null ? undefined : nullableText(action, "due_at", 40);
     const remindAt = action.remind_at === null ? undefined : nullableText(action, "remind_at", 40);

@@ -90,7 +90,13 @@ function boundedSection(title: string, content: string[], maximum: number): stri
   return `${header}${body.slice(0, Math.max(0, maximum - header.length - marker.length))}${marker}`;
 }
 
-function taskSection(db: Database.Database): string[] {
+const RECENTLY_CREATED_HOURS = 48;
+
+function taskLine(task: Record<string, unknown>): string {
+  return `- ${stripStoredText(task.id, 200)} | ${stripStoredText(task.title, 500)} | due ${stripStoredText(task.due_at, 40) || "none"} | ${stripStoredText(task.priority, 20) || "medium"} | ${stripStoredText(task.status, 20)} | ${stripStoredText(task.project, 200) || "none"}`;
+}
+
+function taskSection(db: Database.Database, now: Date): string[] {
   const counts = db.prepare(
     `SELECT status, COUNT(*) AS count FROM tasks GROUP BY status ORDER BY status`,
   ).all() as Array<{ status: string | null; count: number }>;
@@ -103,11 +109,20 @@ function taskSection(db: Database.Database): string[] {
               updated_at DESC, id ASC
      LIMIT 40`,
   ).all() as Array<Record<string, unknown>>;
+  // The 40-task cap above can hide a task that was added minutes ago, so the
+  // model also sees everything created recently, whatever its status.
+  const recentCutoff = new Date(now.getTime() - RECENTLY_CREATED_HOURS * 3_600_000).toISOString();
+  const recent = db.prepare(
+    `SELECT id, title, due_at, status, project, priority
+     FROM tasks WHERE created_at >= ?
+     ORDER BY created_at DESC, id ASC
+     LIMIT 20`,
+  ).all(recentCutoff) as Array<Record<string, unknown>>;
   return [
     `Counts: ${counts.map((row) => `${stripStoredText(row.status, 30)}=${row.count}`).join(", ") || "none"}`,
-    ...tasks.map((task) =>
-      `- ${stripStoredText(task.id, 200)} | ${stripStoredText(task.title, 500)} | due ${stripStoredText(task.due_at, 40) || "none"} | ${stripStoredText(task.priority, 20) || "medium"} | ${stripStoredText(task.status, 20)} | ${stripStoredText(task.project, 200) || "none"}`
-    ),
+    ...tasks.map(taskLine),
+    `Recently created (any status, last ${RECENTLY_CREATED_HOURS} hours):`,
+    ...(recent.length > 0 ? recent.map(taskLine) : ["none"]),
   ];
 }
 
@@ -407,7 +422,7 @@ export async function buildChiefOfStaffSnapshot(input: {
         `Payload: ${safeJson(input.wake.payload, 1200)}`,
       ], 1_600),
       boundedSection("Rejected actions from previous wake", previousRejections(db, input.jobId), 1_800),
-      boundedSection("Open tasks", taskSection(db), 4_400),
+      boundedSection("Open tasks", taskSection(db, now), 4_400),
       ...(salesPipelineEnabled(input.env) ? [
         boundedSection("Pipeline", pipelineSection({
           dbPath: input.dbPath,

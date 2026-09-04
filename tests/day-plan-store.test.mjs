@@ -2386,3 +2386,58 @@ test('staging an older artifact preserves the newer actions and leaves the GET p
   db.exec('ROLLBACK');
   db.close();
 });
+
+test('brief task creation treats a title finished two days ago as a conflict', (t) => {
+  const { file, store } = isolatedStore(t, '2026-07-10T16:00:00.000Z');
+  const db = new Database(file);
+  createManagedBoardTables(db);
+  db.prepare(
+    `INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, position, status, created_at, updated_at)
+     VALUES ('done-agreement', 'col-ns', ?, '', 'medium', '[]', 0, 'done', ?, ?)`,
+  ).run(
+    "Review Asher's founders agreement",
+    '2026-07-01T16:00:00.000Z',
+    '2026-07-08T16:00:00.000Z',
+  );
+  const queued = store.enqueueMorningBrief('2026-07-10', {
+    modelAlias: 'opus', effort: 'high', budgetUsd: 1.5,
+  }).brief;
+  store.claimNextMorningBrief();
+  const completed = store.completeMorningBrief(queued.id, JSON.stringify({
+    headline: 'Focus.',
+    narrativeParagraphs: ['Review the agreement.'],
+    lensNarrative: 'Focus.\n\nReview the agreement.',
+    existingTaskCandidates: [],
+    watchItems: [],
+    boardActions: [{
+      op: 'create_task',
+      title: "review asher's founders agreement",
+      description: 'Already finished this week, so no new card.',
+      priority: 'high',
+      dueLocalDate: '2026-07-10',
+      why: 'Duplicate of finished work.',
+      evidenceRefs: ['sprint_memo:asher'],
+    }],
+  }));
+  assert.ok(completed);
+  assert.equal(store.stageMorningBriefBoardActions(completed.id), 1);
+  assert.deepEqual(store.activateBriefBoardActions('2026-07-10'), {
+    activated: true,
+    artifactId: completed.id,
+    applied: 0,
+    skippedConflict: 1,
+    skippedOfflimits: 0,
+  });
+  assert.equal(db.prepare('SELECT COUNT(*) FROM tasks').pluck().get(), 1);
+  const actionRow = db.prepare(
+    'SELECT state, after_json FROM day_plan_brief_actions WHERE artifact_id = ?',
+  ).get(completed.id);
+  assert.equal(actionRow.state, 'skipped_conflict');
+  const resolved = JSON.parse(actionRow.after_json);
+  assert.equal(resolved.id, 'done-agreement');
+  assert.equal(resolved.status, 'done');
+  // A finished task blocks the duplicate but never becomes a Today pick.
+  assert.deepEqual(store.morningBriefCreatedTaskPicks(completed.id), []);
+  db.close();
+});

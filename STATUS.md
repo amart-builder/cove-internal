@@ -59,8 +59,17 @@
   once signed in. Task sessions map the same failure to a clear notice.
   Verified in the browser on the four failed turns. The CLI is still signed
   out as of this write: Alex has to click the button.
-- 1203 tests pass, lint and tsc clean, rebuilt and restarted twice. All
-  changes uncommitted; session lock held by this instance.
+- Committed as `cd34bfd` (task origin) and `bc9cf3a` (Buddy sign-in).
+- Three safe duplicate guards, Alex's call, committed after: (A) the inbound
+  writer and meeting drain refuse to post tasks when `COVE_DB_PATH` is not
+  the default database and no `BRIEF_WEB_BASE` is set (`inbound_web_base_required`),
+  so a scratch run can never land on the live board; installed plists set
+  neither var, so production lanes pass. (B) Chief-of-staff `task_create`
+  rejects a title that matches an open task or one done or archived in the
+  last 14 days, and its snapshot lists tasks created in the last 48 hours.
+  (C) Morning Brief `create_task` dedupe now also sees done or archived
+  tasks from the last 14 days. Still open, needs a design call: the same
+  meeting analyzed from both Gemini email notes and Granola.
 
 ## 2026-09-03 Public release: opt-in gates, chief-of-staff agent, focus sessions (DONE, PUBLISHED)
 

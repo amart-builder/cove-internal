@@ -1275,3 +1275,99 @@ test("weekly review uses tool-free Claude, writes a review, and files one sugges
   assert.equal(suggestions.length, 1);
   assert.equal(suggestions[0].title, "Weekly chief-of-staff review");
 });
+
+test("task_create rejects a title that already exists as open or recently finished work", () => {
+  const { dataDir, dbPath } = tempCove();
+  const now = new Date("2026-09-03T16:00:00Z");
+  const daysAgo = (days) => new Date(now.getTime() - days * 86_400_000).toISOString();
+  const db = openLocalDatabase(dbPath);
+  try {
+    const insert = db.prepare(
+      `INSERT INTO tasks (id, title, priority, status, project, created_at, updated_at)
+       VALUES (?, ?, 'medium', ?, 'Atlas', ?, ?)`,
+    );
+    insert.run("task-open", "Send Maya the revised scope.", "open", daysAgo(5), daysAgo(5));
+    insert.run("task-done-recent", "Book the Cabo flights", "done", daysAgo(10), daysAgo(3));
+    insert.run("task-done-old", "Renew the domain", "done", daysAgo(40), daysAgo(30));
+  } finally {
+    db.close();
+  }
+  const create = (actionId, title) => {
+    const wake = enqueue(dbPath, { reason: "manual", note: actionId, now }).job;
+    const result = applyChiefOfStaffActions({
+      dbPath,
+      dataDir,
+      wakeJobId: wake.id,
+      actions: [{ action_id: actionId, kind: "task_create", why: "test", title }],
+      now,
+    });
+    const audit = openLocalDatabase(dbPath);
+    try {
+      const row = audit.prepare(
+        "SELECT status, error FROM chief_of_staff_actions WHERE wake_job_id = ?",
+      ).get(wake.id);
+      const count = audit.prepare("SELECT COUNT(*) FROM tasks").pluck().get();
+      return { result, row, count };
+    } finally {
+      audit.close();
+    }
+  };
+
+  const openMatch = create("dupe-open", "  send   maya the revised scope ");
+  assert.deepEqual(openMatch.result, { applied: 0, rejected: 1, skipped: 0 });
+  assert.equal(openMatch.row.status, "rejected");
+  assert.equal(openMatch.row.error, "A task with this title already exists (task-open). Use task_update instead.");
+  assert.equal(openMatch.count, 3);
+
+  const recentDone = create("dupe-recent-done", "Book the Cabo flights");
+  assert.deepEqual(recentDone.result, { applied: 0, rejected: 1, skipped: 0 });
+  assert.equal(recentDone.row.error, "A task with this title already exists (task-done-recent). Use task_update instead.");
+  assert.equal(recentDone.count, 3);
+
+  const oldDone = create("dupe-old-done", "Renew the domain");
+  assert.deepEqual(oldDone.result, { applied: 1, rejected: 0, skipped: 0 });
+  assert.equal(oldDone.row.status, "applied");
+  assert.equal(oldDone.count, 4);
+});
+
+test("snapshot lists recently created tasks of any status after the open list", async () => {
+  const { dataDir, dbPath } = tempCove();
+  const now = new Date("2026-09-03T16:00:00Z");
+  const hoursAgo = (hours) => new Date(now.getTime() - hours * 3_600_000).toISOString();
+  const wake = enqueue(dbPath, { reason: "manual", note: "recent tasks", now }).job;
+  const db = openLocalDatabase(dbPath);
+  try {
+    const insert = db.prepare(
+      `INSERT INTO tasks (id, title, priority, status, project, created_at, updated_at)
+       VALUES (?, ?, 'medium', ?, 'Atlas', ?, ?)`,
+    );
+    insert.run("task-fresh-done", "Fresh finished task", "done", hoursAgo(1), hoursAgo(1));
+    insert.run("task-fresh-open", "Fresh open task", "open", hoursAgo(20), hoursAgo(20));
+    insert.run("task-stale-open", "Stale open task", "open", hoursAgo(72), hoursAgo(72));
+  } finally {
+    db.close();
+  }
+  const snapshot = await buildChiefOfStaffSnapshot({
+    jobId: wake.id,
+    wake: wake.payload,
+    session: {
+      sessionId: null,
+      createdAt: now.toISOString(),
+      mandateHash: "hash",
+      wakes: 0,
+      lastWakeAt: null,
+      lastWakeReason: null,
+    },
+    dataDir,
+    dbPath,
+    now,
+    timezone: "America/Los_Angeles",
+    calendar: null,
+  });
+  const recentIndex = snapshot.indexOf("Recently created (any status, last 48 hours):");
+  assert.ok(recentIndex > snapshot.indexOf("## Open tasks"));
+  const recentBlock = snapshot.slice(recentIndex, snapshot.indexOf("## Pipeline"));
+  assert.match(recentBlock, /task-fresh-done \| Fresh finished task .* \| done \|/);
+  assert.match(recentBlock, /task-fresh-open \| Fresh open task/);
+  assert.doesNotMatch(recentBlock, /task-stale-open/);
+});

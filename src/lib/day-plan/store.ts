@@ -2894,6 +2894,9 @@ export function createDayPlanStore(options: {
     return value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
   }
 
+  /** A task finished this recently still blocks a brief from creating the same title again. */
+  const RECENT_TASK_DAYS = 14;
+
   function activateBriefBoardActions(targetLocalDate: string, activationNow: Date = now()) {
     const hasStagedActions = db.prepare(
       `SELECT 1 FROM day_plan_brief_actions actions
@@ -2986,8 +2989,12 @@ export function createDayPlanStore(options: {
           const title = managedText(action.title, 240).trim();
           const description = managedText(action.description, 4_000, { preserveFormatting: true });
           const normalizedTitle = normalizedManagedTaskTitle(title);
+          const recentCutoff = new Date(activationNow.getTime() - RECENT_TASK_DAYS * 86_400_000).toISOString();
           const duplicate = title
-            ? (db.prepare("SELECT id, title FROM tasks WHERE status = 'open'").all() as Array<{ id: string; title: string }>)
+            ? (db.prepare(
+                `SELECT id, title FROM tasks
+                 WHERE status = 'open' OR (status IN ('done', 'archived') AND updated_at >= ?)`,
+              ).all(recentCutoff) as Array<{ id: string; title: string }>)
                 .find((task) => normalizedManagedTaskTitle(task.title) === normalizedTitle)
             : undefined;
           const columnId = columnIds.get("today");

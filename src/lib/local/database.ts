@@ -13,8 +13,11 @@ import { coveEnv } from "../env";
 import { runLocalMigrations } from "./migrations";
 
 export function localDatabasePath(): string {
-  const configured = coveEnv("DB_PATH");
-  if (configured) return configured;
+  return coveEnv("DB_PATH") ?? defaultLocalDatabasePath();
+}
+
+/** The database Cove opens when COVE_DB_PATH is not set. */
+export function defaultLocalDatabasePath(): string {
   const canonical = path.join(process.cwd(), "data", "cove.db");
   // Pre-rename installs may still own data/forge.db. This fallback exists only
   // to migrate that one store forward; new features and docs use cove.db.
