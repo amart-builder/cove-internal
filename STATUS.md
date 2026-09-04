@@ -16,10 +16,10 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** cowork
-- **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-09-04T14:55:44-0700
-- **task:** commit task origin + buddy sign-in; duplicate fixes
+- **system:** none
+- **device:** —
+- **since:** —
+- **task:** —
 <!-- END active-session -->
 
 ---
