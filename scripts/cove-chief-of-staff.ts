@@ -22,6 +22,9 @@ import { localDatabasePath, openLocalDatabase } from "../src/lib/local/database"
 import { coveDataDir } from "../src/lib/operator";
 import { JobScheduler } from "../src/lib/reliability/jobs";
 import { loadLocalEnv } from "./lib/load-local-env.mjs";
+import { chiefOfStaffEnabled } from "../src/lib/chief-of-staff/hooks";
+import { readAgentSettings } from "../src/lib/agent-settings.mjs";
+import { reconcileResponsibilities, listResponsibilities } from "../src/lib/responsibility/store";
 
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 loadLocalEnv(repoDir);
@@ -54,6 +57,20 @@ export async function drainChiefOfStaff(input: {
   max: number;
   runWakeImpl?: typeof runWake;
 }): Promise<{ claimed: number; done: number; failed: number; dead: number }> {
+  if (!chiefOfStaffEnabled()) return {claimed:0,done:0,failed:0,dead:0};
+  if (readAgentSettings({...process.env,COVE_DATA_DIR:input.dataDir,COVE_DB_PATH:input.dbPath})) {
+    const db=openLocalDatabase(input.dbPath);
+    try {
+      const now=new Date();
+      reconcileResponsibilities(db,now);
+      const due=listResponsibilities(db).some(row=>Date.parse(row.next_check_at)<=+now);
+      // Existing pending wakes already carry the same fresh desk. A denied
+      // budget retains its job, so the five-minute timer cannot flood the queue.
+      if(due && !db.prepare("SELECT 1 FROM cove_jobs WHERE type=? AND status IN ('queued','leased','failed')").get(CHIEF_OF_STAFF_JOB_TYPE)) {
+        db.transaction(()=>enqueueChiefOfStaffWake(db,{reason:'follow_through',now})).immediate();
+      }
+    } finally {db.close();}
+  }
   const scheduler = new JobScheduler({ dbPath: input.dbPath, leaseMs: 20 * 60_000 });
   scheduler.register(CHIEF_OF_STAFF_JOB_TYPE, (job) =>
     (input.runWakeImpl ?? runWake)(job, input)
@@ -78,7 +95,7 @@ async function main(): Promise<void> {
   if (command === "enqueue") {
     const reason = option("--reason");
     if (!reason || !(CHIEF_OF_STAFF_REASONS as readonly string[]).includes(reason)) {
-      throw new Error("enqueue requires --reason brief|triage|meeting|sweep|nightly|manual.");
+      throw new Error("enqueue requires --reason brief|triage|meeting|sweep|nightly|manual|follow_through.");
     }
     const requestedSlots = optionValues("--slot");
     if (reason !== "sweep" && requestedSlots.length > 0) {

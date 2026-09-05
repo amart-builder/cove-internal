@@ -134,8 +134,10 @@ respect 8am to 6pm in the profile timezone. Explicit due reminders retain their
 existing timing contract. Calendar access remains a separately authorized
 connection.
 
-Issues > On your radar shows freshness, pending notices, uncertain delivery and
-one-hour snooze. Snooze can repeat a notice only while it is still relevant;
+Your follow-through (linked from Today) and Issues > On your radar show
+freshness, pending notices, missed or uncertain delivery, acknowledgement and
+one-hour snooze. Ordinary banners reserve two of the existing six daily slots
+for meetings or urgent email, with a separate slot kept for the noon floor. Snooze can repeat a notice only while it is still relevant;
 it cannot replay a meeting after its start. An interrupted or timed-out handoff
 stays uncertain instead of being silently retried. Ordinary explicit reminders
 continue if this additional checker fails. No service can notify while the Mac

@@ -199,7 +199,7 @@ function safeItemTitle(item: AttentionItem): string {
 function deliveryBanner(item: AttentionItem, reason: string, includeReason: boolean): string {
   if (!includeReason) return safeItemTitle(item);
   return cleanAttentionText(sanitizeNonDirectBanner(
-    `${cleanAttentionText(item.title) || "Item"}. ${cleanAttentionText(reason)}`,
+    `${(sanitizeAttentionContent(item.title) || "Item").slice(0, 70)}. ${sanitizeAttentionContent(reason).slice(0, 100)}`,
     item.direct ? "from you" : item.provenance,
   ));
 }

@@ -38,7 +38,7 @@ export default function AgentUsage() {
         {windows.hour.calls} of {limits.callsPerHour} calls in the past hour. {windows.day.calls} of {limits.callsPerDay} calls in the past 24 hours. {windows.week.calls} of {limits.callsPerWeek} in the past 7 days.
       </p>
       {paused && <p role="status" className="mt-2 text-sm text-amber-800 dark:text-amber-200">AI reviews are paused until a usage window clears. Your scheduled task reminders can still run.</p>}
-      <p className="mt-2 text-xs text-muted-foreground">These are Cove&apos;s call limits. Your provider&apos;s subscription allowance is not available here. Retries count toward the limit.</p>
+      <p className="mt-2 text-xs text-muted-foreground">These are Cove&apos;s call limits. Your provider&apos;s subscription allowance is not available here. Retries count toward the limit. Routine work leaves part of this same allowance for the chief of staff and Morning Brief. Jobs held by the allowance wait for capacity instead of using up retries.</p>
     </section>
   );
 }

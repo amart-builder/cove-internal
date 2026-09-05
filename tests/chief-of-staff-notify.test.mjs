@@ -133,6 +133,7 @@ test("notify delivers sanitized task text and finalizes the shared attention led
   assert.equal(calls[0][0], "banner");
   assert.doesNotMatch(calls[0][1], /josh@example\.com|https?:\/\/|example\.com/i);
   assert.match(calls[0][1], /^from email:/);
+  assert.match(calls[0][1], /It needs attention today\./);
 
   const db = openLocalDatabase(dbPath);
   try {
@@ -254,7 +255,7 @@ test("notify resolves commitments and open deals by contact id", (t) => {
   assert.deepEqual(result, { applied: 2, rejected: 0, skipped: 0 });
   assert.match(calls[0], /^from email:/);
   assert.doesNotMatch(calls[0], /dana@|https?:\/\//i);
-  assert.match(calls[1], /^Follow up with Dana Rivera:/);
+  assert.match(calls[1], /^from you: Follow up with Dana Rivera:/);
   assert.doesNotMatch(calls[1], /310|https?:\/\//i);
 
   const closedDb = openLocalDatabase(dbPath);
@@ -761,4 +762,31 @@ test("notify falls back to the action's why when reason is left null", (t) => {
   } finally {
     db.close();
   }
+});
+
+
+test("agent banner retains its reason and sanitizes complete fields before shortening", (t) => {
+  const { dataDir, dbPath } = fixture(t);
+  const now = new Date("2026-09-03T18:30:00.000Z");
+  const job = enqueue(dbPath, now);
+  insertTask(dbPath, {
+    id: "long-title", source: "email", now,
+    title: "Review " + "x".repeat(47) + " alice@example.com",
+  });
+  const calls = [];
+  const result = applyChiefOfStaffActions({
+    dbPath, dataDir, wakeJobId: job.id, now,
+    actions: [notifyAction({ refKind: "task", refId: "long-title",
+      reason: "Due tomorrow. " + "Make time for the next step. ".repeat(3).slice(0, 71) + " bob@example.com" })],
+    attention: {
+      shadow: false,
+      transport: { textConfigured: false, banner: text => calls.push(text), text: () => undefined },
+      surface: () => undefined, surfaceSuppression: () => undefined,
+    },
+  });
+  assert.equal(result.applied, 1);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0], /Due tomorrow/);
+  assert.doesNotMatch(calls[0], /alice|bob|@|example/);
+  assert.ok(calls[0].length <= 180);
 });

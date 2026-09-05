@@ -138,7 +138,7 @@ test('competing processes cannot reserve past a shared cap', async (t) => {
   const moduleUrl = pathToFileURL(path.resolve('src/lib/background-usage.mjs')).href;
   const outcomes = await Promise.all(Array.from({ length: 8 }, () => new Promise((resolve, reject) => {
     const source = `import {reserveBackgroundAttempt} from ${JSON.stringify(moduleUrl)};
-      try { reserveBackgroundAttempt({env:${JSON.stringify(env)},settings:${JSON.stringify(settings)},lane:'race',inputBytes:1}); }
+      try { reserveBackgroundAttempt({env:${JSON.stringify(env)},settings:${JSON.stringify(settings)},lane:'chief-of-staff-race',inputBytes:1}); }
       catch(error) { if(error.message.startsWith('background_usage_limit')) process.exitCode=2; else throw error; }`;
     const child = spawn(process.execPath, ['--input-type=module', '-e', source], { stdio: ['ignore', 'ignore', 'pipe'] });
     let stderr = '';
@@ -184,4 +184,14 @@ test('an explicitly absent selection does not adopt a provider during an in-flig
 test('a misspelled usage limit fails instead of silently retaining a higher default', () => {
   assert.throws(() => validateAgentSettings({ version: 1, ...RECOMMENDED_AGENTS.claude,
     backgroundLimits: { callsPerday: 1 } }), /documented limit names/);
+});
+
+test('routine calls cannot consume the chief and brief reserve, and reset time respects every rolling window',t=>{
+ const {env,settings}=fixture(t,'codex',{callsPerHour:4,callsPerDay:8,callsPerWeek:16});const now=Date.now();
+ for(let i=0;i<3;i++)reserveBackgroundAttempt({env,settings,lane:'email-triage',inputBytes:1,now:now+i});
+ assert.throws(()=>reserveBackgroundAttempt({env,settings,lane:'email-triage',inputBytes:1,now:now+5}),/cove_budget_retry_at=/);
+ assert.doesNotThrow(()=>reserveBackgroundAttempt({env,settings,lane:'chief-of-staff',inputBytes:1,now:now+6}));
+ let reset;try{reserveBackgroundAttempt({env,settings,lane:'brief',inputBytes:1,now:now+7});}catch(e){reset=e.retryAt;}
+ assert.equal(reset,new Date(now+3600001).toISOString());
+ assert.doesNotThrow(()=>reserveBackgroundAttempt({env,settings,lane:'brief',inputBytes:1,now:Date.parse(reset)}));
 });

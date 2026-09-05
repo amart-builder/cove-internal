@@ -313,7 +313,7 @@ async function runEmailTriageUnchecked(
           })
       : undefined,
   });
-  tryEnqueueChiefOfStaffWake({
+  if (observed > 0 || classified > 0 || surfacedItemIds.length > 0 || reconciled.autoChecked > 0) tryEnqueueChiefOfStaffWake({
     reason: "triage",
     payload: { receiptId: receipt.id, observed, classified, surfacedItemIds },
     dbPath,

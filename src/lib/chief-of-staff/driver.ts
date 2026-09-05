@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
@@ -26,12 +26,10 @@ import { coveConfigPath, coveEnvTrimmed } from "../env";
 import { openLocalDatabase } from "../local/database";
 import { readAgentSettings } from "../agent-settings.mjs";
 import { runJob } from "../model-runner";
+import { assertSourceVersion, markResponsibilitiesReviewed, updateResponsibility, savePreparation, type PlanPatch, type Responsibility } from "../responsibility/store";
 import { validateTaskTiming } from "../local/db";
-import { operatorTimezone } from "../operator";
 import { createWorkSuggestion } from "../quiet-current/store";
 import { syncRecurringOccurrenceForTask } from "../tasks/recurrence";
-import { taskColumnKeyForName } from "../tasks/columns";
-import { originDate, originQuote } from "../tasks/origin";
 import type { JobHandlerResult, ScheduledJob } from "../reliability/jobs";
 import {
   appendChiefOfStaffJournal,
@@ -87,7 +85,8 @@ function renderChiefOfStaffMandateForWake(input: {
   const rendered = source.includes(SALES_PIPELINE_STATUS_PLACEHOLDER)
     ? source.replace(SALES_PIPELINE_STATUS_PLACEHOLDER, status).trim()
     : status ? `${source}\n\n${status}` : source;
-  const expected = `${rendered}\n`;
+  const contract = readFileSync(path.join(input.repoDir, "prompts", "responsibility-contract.md"), "utf8");
+  const expected = `${rendered}\n\n${contract}\n`;
   if (readFileSync(input.mandatePath, "utf8") === expected) return;
   atomicWrite(input.mandatePath, expected, 0o444);
 }
@@ -449,48 +448,20 @@ function applyDatabaseAction(input: {
   if (action.kind.startsWith("pipeline_") && !input.salesPipelineEnabled) {
     throw new Error("sales_pipeline_disabled");
   }
-  if (action.kind === "task_create") {
-    prepareActionFields(action, ["title"], ["details", "due_at", "remind_at", "priority", "project", "status"]);
-    if (action.status !== null && action.status !== undefined && action.status !== "open") {
-      throw new Error("task_create status must be open.");
-    }
-    const title = requiredActionText(action, "title", 500);
-    const duplicateId = existingTaskWithTitle(input.db, title, input.now);
-    if (duplicateId) {
-      throw new Error(`A task with this title already exists (${duplicateId}). Use task_update instead.`);
-    }
-    const details = optionalActionText(action, "details", 5_000) ?? "";
-    const dueAt = action.due_at === null ? undefined : nullableText(action, "due_at", 40);
-    const remindAt = action.remind_at === null ? undefined : nullableText(action, "remind_at", 40);
-    validateDueAt(dueAt, "due_at");
-    const taskPriority = priority(action.priority);
-    const project = optionalActionText(action, "project", 200) ?? "Atlas";
-    const timing = { remind_at: remindAt ?? null };
-    validateTaskTiming(timing);
-    const now = input.now.toISOString();
-    const todayColumn = (input.db.prepare(
-      "SELECT id, name FROM task_columns ORDER BY position ASC",
-    ).all() as Array<{ id: string; name: string }>).find(
-      (column) => taskColumnKeyForName(column.name) === "today",
-    );
-    if (!todayColumn) throw new Error("Cove needs a Today list to add work.");
-    const position = input.db.prepare(
-      "SELECT COALESCE(MAX(position), -1) + 1 AS position FROM tasks WHERE column_id = ? AND status = 'open'",
-    ).pluck().get(todayColumn.id) as number;
-    const why = typeof action.why === "string" ? originQuote(action.why) : "";
-    const addedOn = `Added by the chief of staff agent on ${originDate(input.now, operatorTimezone())}`;
-    const origin = why
-      ? `${addedOn}. Its reason: ${why}`
-      : `${addedOn} without a stated reason.`;
-    input.db.prepare(
-      `INSERT INTO tasks
-         (id, column_id, title, description, priority, due_at, due_date, tags, project,
-          position, status, source_type, remind_at, notification_policy, origin, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, 'open', 'chief-of-staff', ?, ?, ?, ?, ?)`,
-    ).run(
-      randomUUID(), todayColumn.id, title, details, taskPriority, dueAt ?? null,
-      dueAt ?? null, project, position, remindAt ?? null, remindAt ? "both" : null, origin, now, now,
-    );
+  if (action.kind === "plan_update") {
+    prepareActionFields(action, ["ref_kind", "ref_id", "expected_version", "expected_revision", "next_action", "owner", "plan_state", "next_check_at"], ["planned_for", "estimate_minutes", "blocker", "goal", "completion_criterion"]);
+    if (action.ref_kind !== "task" && action.ref_kind !== "commitment") throw new Error("Invalid plan source.");
+    updateResponsibility(input.db, { ...action, state: action.plan_state } as unknown as PlanPatch, input.now);
+    return;
+  }
+  if (action.kind === "prepare") {
+    prepareActionFields(action,["ref_kind", "ref_id", "expected_version", "title", "content"]);
+    if (action.ref_kind !== "task" && action.ref_kind !== "commitment") throw new Error("Invalid preparation source.");
+    action.preparation_id = savePreparation(input.db, {
+      ref_kind: action.ref_kind, ref_id: requiredActionText(action,"ref_id",200),
+      expected_version: requiredActionText(action,"expected_version",40),
+      title: requiredActionText(action,"title",160), content: requiredActionText(action,"content",5000),
+    },input.now);
     return;
   }
   if (action.kind === "pipeline_add") {
@@ -520,10 +491,15 @@ function applyDatabaseAction(input: {
     return;
   }
   if (action.kind === "task_update") {
-    prepareActionFields(action, ["task_id"], ["title", "details", "due_at", "remind_at", "priority", "status"]);
+    prepareActionFields(action, ["task_id", "expected_version"], ["title", "details", "due_at", "remind_at", "priority", "status"]);
     const taskId = requiredActionText(action, "task_id", 200);
-    const existing = input.db.prepare("SELECT id FROM tasks WHERE id = ?").get(taskId);
-    if (!existing) throw new Error("Task was not found.");
+    const existing = assertSourceVersion(input.db,"task",taskId,action.expected_version);
+    if (action.status != null && action.status !== existing.status) {
+      throw new Error("Completion or reopening requires the person's confirmation or the existing verified completion flow. Propose it with suggest.");
+    }
+    if (action.due_at != null && action.due_at !== existing.due_at) {
+      throw new Error("Keep the recorded deadline. Use plan_update.planned_for for proposed work time; suggest a deadline change for confirmation.");
+    }
     const fields: string[] = [];
     const values: unknown[] = [];
     const add = (field: string, value: unknown) => {
@@ -725,6 +701,7 @@ function applyChiefOfStaffActionsWithDetails(input: {
             refId: requiredActionText(action, "ref_id", 200),
             level,
             reason,
+            includeReasonInBanner: true,
             now,
             allowText: !perWakeDowngrade,
             env: input.env,
@@ -740,6 +717,20 @@ function applyChiefOfStaffActionsWithDetails(input: {
             status: "applied",
             now: now.toISOString(),
           }))();
+        } else if (action.kind === "task_create") {
+          // Compatibility for older mandates and queued outputs: model inference
+          // is a proposal, never proof that the person accepted a new obligation.
+          prepareActionFields(action,["title"],["details","due_at","remind_at","priority","project","status"]);
+          if(action.status!=null && action.status!=="open")throw new Error("task_create status must be open.");
+          const title=requiredActionText(action,"title",500);
+          if(existingTaskWithTitle(db,title,now))throw new Error("A task with this title already exists. Read the current task.");
+          const due=optionalActionText(action,"due_at",40);validateDueAt(due,"due_at");
+          const description=[optionalActionText(action,"details",4000),due?`Proposed deadline, not yet confirmed: ${due}`:null].filter(Boolean).join("\n");
+          createWorkSuggestion({kind:"create_task",title,description,reason:requiredActionText(action,"why",200),source:"chief-of-staff",priority:priority(action.priority),
+            claimKey:`cos:proposed:${createHash("sha256").update(normalizedTaskTitle(title)).digest("hex").slice(0,24)}`,dataDir:input.dataDir});
+          action.downgraded_to="suggest";
+          downgrades.push({kind:"task_create",reason:"new_work_requires_confirmation"});
+          db.transaction(()=>insertLedger(db,{wakeJobId:input.wakeJobId,contentHash,action,status:"applied",now:now.toISOString()}))();
         } else if (action.kind === "suggest") {
           prepareActionFields(
             action,
@@ -888,10 +879,12 @@ export async function runWake(
     env: parentEnv,
   });
   if (!selection || selection.provider === "codex") ensureChiefOfStaffCodexHome({ dataDir: options.dataDir, env: parentEnv });
+  let reviewed: Responsibility[] = [];
   const snapshot = await buildChiefOfStaffSnapshot({
     jobId: job.id,
     wake,
     session: home.session,
+    onResponsibilities: (seen) => { reviewed=seen; },
     dataDir: options.dataDir,
     dbPath: options.dbPath,
     now,
@@ -983,6 +976,9 @@ export async function runWake(
       env: parentEnv,
       attention: options.attention,
     });
+    const markDb=openLocalDatabase(options.dbPath);
+    try { if (actionResult.counts.rejected === 0) markResponsibilitiesReviewed(markDb,reviewed,now); }
+    finally { markDb.close(); }
     options.afterActionsApplied?.();
     appendChiefOfStaffJournal({
       dataDir: options.dataDir,

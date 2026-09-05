@@ -83,6 +83,7 @@ JSON.
 | People | `src/app/crm/page.tsx` | `src/components/crm/CRMView.tsx`, `LocalCRMView.tsx` | `src/lib/crm/`, `src/lib/data/crm.ts` |
 | Sales pipeline | `src/app/crm/pipeline/page.tsx` | `src/components/crm/PipelineView.tsx` | `src/lib/crm/pipeline.ts`, `pipeline-store.ts`, `src/lib/data/crm.ts` |
 | Buddy | Mounted from the root layout | `src/components/buddy/BuddyProvider.tsx`, `BuddyDock.tsx` | `src/lib/buddy/`, `/api/buddy/*` |
+| Follow-through | `src/app/follow-through/page.tsx` | `src/components/reliability/ResponsibilityOverview.tsx` | `src/lib/responsibility/`, `src/lib/attention/follow-through.mjs` |
 | Issues | `src/app/failures/page.tsx` | `src/components/reliability/FailureInbox.tsx` | `src/lib/reliability/failures.ts` |
 | Guide | `src/app/guide/page.tsx` | Page-local presentation | User education only |
 
@@ -116,7 +117,8 @@ Treat request bodies, query strings, headers, and stored model text as untrusted
 | `/api/email/automation` | User-confirmed email card actions | `src/lib/email/automation.ts` |
 | `/api/recurrence` | Recurring template confirmation and lifecycle | `src/lib/tasks/recurrence.ts` |
 | `/api/failures` | Visible failure inbox | `src/lib/reliability/failures.ts` |
-| `/api/follow-through` | Native reminder coverage, source freshness and one-hour snooze | `src/lib/attention/follow-through.mjs` |
+| `/api/responsibilities` | Local review queue, proposed day capacity, draft artifacts and versioned acknowledgement | `src/lib/responsibility/` |
+| `/api/follow-through` | Native reminder coverage, source freshness, acknowledgement and one-hour snooze | `src/lib/attention/follow-through.mjs` |
 | `/api/buddy/codex-auth` | Local Codex sign-in status and explicit Terminal login | `src/lib/buddy/codex-auth.ts` |
 | `/api/agent-usage` | Selected model and rolling bounded-job usage, local read-only | `src/lib/agent-settings.mjs`, `src/lib/background-usage.mjs` |
 | `/api/health` | Read-only readiness and latest health snapshot | `src/lib/health/` |
@@ -586,3 +588,29 @@ Before declaring done:
    configuration, or an invariant changed.
 5. If the public repository changes, build the sanitized export and test that
    exact tree. A clean internal checkout does not prove the client artifact.
+
+## Responsibility and feasible planning
+
+`src/lib/responsibility/store.ts` reconciles active tasks and commitments into
+review metadata. It preserves the first observed deadline separately from a
+proposed work time, owns versioned next checks, and records preparation drafts.
+It is not a second task store. Closing a source resolves its review metadata.
+`planning.ts` merges overlapping calendar intervals, counts estimated work,
+labels unknowns, and identifies repeated closeout carryovers. These local reads
+do not expand the background model's access to goals or closeouts.
+
+The chief's five-minute drain checks durable due reviews before invoking a model.
+A pending or budget-deferred wake coalesces later checks. Fair bounded selection
+includes new work, imminent deadlines, undated high-priority work, waiting work
+and older reviews. Only rows actually included in a successful snapshot advance.
+Rejected source versions do not authorize an overwrite. The mandatory
+`prompts/responsibility-contract.md` overrides older personal instructions to
+roll deadlines or assume completion. Morning Brief board actions also cannot
+rewrite an existing deadline. People can still edit dates and confirm completion.
+
+`/follow-through` shows the local plan, unknown capacity, queued reviews,
+acknowledgements and saved drafts. A running checker and successful delivery are
+separate states. Tests in `responsibility-outcomes.test.mjs` cover these contracts.
+
+Legacy chief `task_create` actions are saved as Quiet Current suggestions with
+a stable claim key. Model inference alone cannot create an accepted obligation.

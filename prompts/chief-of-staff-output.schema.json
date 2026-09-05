@@ -2,18 +2,30 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["journal", "watching", "actions"],
+  "required": [
+    "journal",
+    "watching",
+    "actions"
+  ],
   "properties": {
     "journal": {
       "type": "array",
       "minItems": 2,
       "maxItems": 6,
-      "items": { "type": "string", "minLength": 1, "maxLength": 240 }
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 240
+      }
     },
     "watching": {
       "type": "array",
       "maxItems": 8,
-      "items": { "type": "string", "minLength": 1, "maxLength": 240 }
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 240
+      }
     },
     "actions": {
       "type": "array",
@@ -48,10 +60,24 @@
           "claim_key",
           "ref_kind",
           "ref_id",
-          "level"
+          "level",
+          "expected_version",
+          "owner",
+          "plan_state",
+          "next_check_at",
+          "planned_for",
+          "blocker",
+          "goal",
+          "completion_criterion",
+          "expected_revision",
+          "estimate_minutes"
         ],
         "properties": {
-          "action_id": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "action_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
           "kind": {
             "enum": [
               "task_create",
@@ -62,24 +88,118 @@
               "pipeline_move",
               "crm_note",
               "suggest",
-              "notify"
+              "notify",
+              "plan_update",
+              "prepare"
             ]
           },
-          "why": { "type": "string", "minLength": 1, "maxLength": 200 },
-          "title": { "type": ["string", "null"], "maxLength": 500 },
-          "details": { "type": ["string", "null"], "maxLength": 5000 },
-          "due_at": { "type": ["string", "null"], "maxLength": 40 },
-          "remind_at": { "type": ["string", "null"], "maxLength": 40 },
-          "priority": { "enum": ["low", "medium", "high", null] },
-          "project": { "type": ["string", "null"], "maxLength": 200 },
-          "status": { "enum": ["open", "done", null] },
-          "task_id": { "type": ["string", "null"], "maxLength": 200 },
-          "contact_id": { "type": ["string", "null"], "maxLength": 200 },
-          "channel": { "enum": ["call", "email", "text", "meeting", "note", null] },
-          "summary": { "type": ["string", "null"], "maxLength": 5000 },
-          "next_action": { "type": ["string", "null"], "maxLength": 500 },
-          "next_follow_up_at": { "type": ["string", "null"], "maxLength": 10 },
-          "notes": { "type": ["string", "null"], "maxLength": 5000 },
+          "why": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "details": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 5000
+          },
+          "due_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 40
+          },
+          "remind_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 40
+          },
+          "priority": {
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              null
+            ]
+          },
+          "project": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "status": {
+            "enum": [
+              "open",
+              "done",
+              null
+            ]
+          },
+          "task_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "contact_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "channel": {
+            "enum": [
+              "call",
+              "email",
+              "text",
+              "meeting",
+              "note",
+              null
+            ]
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 5000
+          },
+          "next_action": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "next_follow_up_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 10
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 5000
+          },
           "stage": {
             "enum": [
               "reach_out",
@@ -96,15 +216,138 @@
               null
             ]
           },
-          "content": { "type": ["string", "null"], "maxLength": 5000 },
-          "suggestion_kind": { "enum": ["create_task", "attention_nudge", null] },
-          "description": { "type": ["string", "null"], "maxLength": 5000 },
-          "reason": { "type": ["string", "null"], "maxLength": 2000 },
-          "due_date": { "type": ["string", "null"], "maxLength": 10 },
-          "claim_key": { "type": ["string", "null"], "maxLength": 300 },
-          "ref_kind": { "enum": ["task", "commitment", "deal", null] },
-          "ref_id": { "type": ["string", "null"], "maxLength": 200 },
-          "level": { "enum": ["banner", "text", null] }
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 5000
+          },
+          "suggestion_kind": {
+            "enum": [
+              "create_task",
+              "attention_nudge",
+              null
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 5000
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          },
+          "due_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 10
+          },
+          "claim_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 300
+          },
+          "ref_kind": {
+            "enum": [
+              "task",
+              "commitment",
+              "deal",
+              null
+            ]
+          },
+          "ref_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "level": {
+            "enum": [
+              "banner",
+              "text",
+              null
+            ]
+          },
+          "expected_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 40
+          },
+          "owner": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 160
+          },
+          "plan_state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 20
+          },
+          "next_check_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 40
+          },
+          "planned_for": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 40
+          },
+          "blocker": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          },
+          "goal": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          },
+          "completion_criterion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          },
+          "expected_revision": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "estimate_minutes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
         }
       }
     }

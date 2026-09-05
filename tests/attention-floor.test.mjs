@@ -115,7 +115,7 @@ test("the noon floor excludes production meeting tasks from its direct count", (
   const first = run();
   assert.equal(first.status, 0, first.stderr);
   const banners = readFileSync(calls, "utf8");
-  assert.match(banners, /Due today, not done: Review launch/);
+  assert.match(banners, /Due today and still open in Cove: Review launch/);
   assert.match(banners, /from meeting:/);
   assert.doesNotMatch(banners, /secret\.example|alice@example|13105551212/);
   assert.doesNotMatch(banners, /Already done/);
@@ -223,7 +223,7 @@ test("a broken text channel produces one fallback banner, not one every tick", (
   const banners = readFileSync(calls, "utf8");
   // The fallback banner is a real interruption, so it must start a cooldown
   // instead of firing again on the next sixty-second tick.
-  assert.equal(banners.match(/Text failed:/g)?.length, 1);
+  assert.equal(banners.match(/I couldn't deliver your text reminder:/g)?.length, 1);
   const check = new Database(dbPath, { readonly: true });
   assert.equal(check.prepare(
     `SELECT level FROM cove_attention_ledger

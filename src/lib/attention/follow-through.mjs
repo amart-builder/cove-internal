@@ -1,7 +1,7 @@
 /** Local, model-free follow-through. Claims survive restarts; uncertain delivery
  * stays visible instead of being called success or blindly sent a second time. */
 import { createHash } from 'node:crypto';
-import { allocateAttention, dailyAttentionUsage, finalizeAttentionDelivery } from './ledger.mjs';
+import { allocateAttention, finalizeAttentionDelivery } from './ledger.mjs';
 import { cleanAttentionText, sanitizeAttentionContent } from './safety.mjs';
 
 export const FOLLOW_THROUGH_SCHEMA = `
@@ -25,14 +25,19 @@ function safeTitle(value) { return cleanAttentionText(sanitizeAttentionContent(S
 
 export function followThroughStatus(db, now = new Date()) {
  const heartbeat = state(db,'heartbeat'); const calendar = state(db,'calendar');
- return { lastCheckedAt: heartbeat?.updatedAt ?? null, healthy: Boolean(heartbeat && now - new Date(heartbeat.updatedAt) < 5*MINUTE),
+ const unresolved = Number(db.prepare("SELECT COUNT(*) FROM cove_follow_through_notices WHERE updated_at > ? AND (status IN ('uncertain','failed','missed') OR (status='pending' AND error IS NOT NULL))").pluck().get(new Date(now-86400000).toISOString()));
+ return { protection: unresolved ? 'attention_required' : 'current', unresolved, lastCheckedAt: heartbeat?.updatedAt ?? null, healthy: Boolean(heartbeat && now - new Date(heartbeat.updatedAt) < 5*MINUTE),
   calendar: { status: calendar?.status ?? 'not_checked', checkedAt: calendar?.updatedAt ?? null, fresh: Boolean(calendar?.status === 'ready' && now - new Date(calendar.updatedAt) < 10*MINUTE) },
-  notices: db.prepare("SELECT id, title, ref_kind AS refKind, ref_id AS refId, stage, due_at AS dueAt, status, snoozed_until AS snoozedUntil FROM cove_follow_through_notices WHERE updated_at > ? ORDER BY updated_at DESC LIMIT 20").all(new Date(now-7*86400000).toISOString()) };
+  notices: db.prepare("SELECT id, title, ref_kind AS refKind, ref_id AS refId, stage, due_at AS dueAt, status, snoozed_until AS snoozedUntil, error FROM cove_follow_through_notices WHERE updated_at > ? ORDER BY updated_at DESC LIMIT 20").all(new Date(now-7*86400000).toISOString()) };
 }
 export function snoozeFollowThrough(db, id, now = new Date()) {
  // Snoozing dismisses this advance warning for one hour; completion and meeting
  // cancellation are re-read before any later delivery.
- return db.prepare("UPDATE cove_follow_through_notices SET status='pending', snoozed_until=?, updated_at=? WHERE id=? AND status <> 'sending'").run(new Date(+now+60*MINUTE).toISOString(),now.toISOString(),id).changes === 1;
+ return db.prepare("UPDATE cove_follow_through_notices SET status='pending', snoozed_until=?, updated_at=? WHERE id=? AND status IN ('pending','delivered','uncertain','failed')").run(new Date(+now+60*MINUTE).toISOString(),now.toISOString(),id).changes === 1;
+}
+
+export function acknowledgeFollowThrough(db,id,now=new Date()) {
+ return db.prepare("UPDATE cove_follow_through_notices SET status='acknowledged',error=NULL,updated_at=? WHERE id=? AND status <> 'sending'").run(now.toISOString(),id).changes===1;
 }
 
 export async function runFollowThrough({ db, now = new Date(), timezone, calendar, notify }) {
@@ -68,6 +73,15 @@ export async function runFollowThrough({ db, now = new Date(), timezone, calenda
   if (task.notification_policy !== 'predeadline' && (dateOnly ? local.date>task.due_at : +now>=due+86400000)) stage=`overdue:${local.date}`;
   if (stage) candidates.push({kind:'task',ref:task.id,due:task.due_at,stage,title:safeTitle(task.title)});
  }
+ // Accepted promises and waiting-on commitments also need deterministic
+ // coverage; they need not first be copied into the task board.
+ for(const commitment of db.prepare("SELECT id,title,due_at FROM commitments WHERE status='open' AND confirmed=1 AND kind<>'idea' AND due_at IS NOT NULL").all()) {
+  const dateOnly=/^\d{4}-\d{2}-\d{2}$/.test(commitment.due_at);const due=Date.parse(commitment.due_at);if(!Number.isFinite(due))continue;
+  let stage;
+  if(dateOnly?local.date===previousDate(commitment.due_at)&&local.hour>=15:+now>=due-60*MINUTE&&+now<due)stage='advance';
+  if(dateOnly?local.date>commitment.due_at:+now>=due)stage=`overdue:${local.date}`;
+  if(stage)candidates.push({kind:'commitment',ref:commitment.id,due:commitment.due_at,stage,title:safeTitle(commitment.title)});
+ }
  const cached=state(db,'calendar');
  if (cached?.status==='ready' && now-new Date(cached.updatedAt)<10*MINUTE) for (const event of cached.events) {
   const until=Date.parse(event.start)-now;
@@ -82,15 +96,27 @@ export async function runFollowThrough({ db, now = new Date(), timezone, calenda
   const claim=db.transaction(()=>{
    const row=db.prepare('SELECT * FROM cove_follow_through_notices WHERE id=?').get(id);
    if (!row || row.status!=='pending' || (row.snoozed_until && Date.parse(row.snoozed_until)>+now) || row.attempts>=3 || (row.attempts && now-new Date(row.updated_at)<5*MINUTE)) return null;
-   if (dailyAttentionUsage(db,now).banners>=5) return null;
    if (candidate.kind==='task' && !db.prepare("SELECT 1 FROM tasks WHERE id=? AND status='open' AND archived_at IS NULL AND due_at=? AND remind_native=1 AND (? <> 'advance' OR remind_at IS NULL OR remind_at = '') AND (notification_policy IS NULL OR notification_policy IN ('both', ?)) AND (engaged_at IS NULL OR julianday(engaged_at) <= julianday(?))").get(candidate.ref,candidate.due,candidate.stage,candidate.stage==='advance'?'predeadline':'due',new Date(now-60*MINUTE).toISOString())) return null;
+   if(candidate.kind==='commitment'&&!db.prepare("SELECT 1 FROM commitments WHERE id=? AND status='open' AND confirmed=1 AND kind<>'idea' AND due_at=?").get(candidate.ref,candidate.due))return null;
+   if (db.prepare("SELECT 1 FROM sqlite_master WHERE name='cove_responsibilities' AND type='table'").get() && db.prepare("SELECT 1 FROM cove_responsibilities WHERE ref_kind=? AND ref_id=? AND acknowledged_at>?").get(candidate.kind,candidate.ref,new Date(+now-60*MINUTE).toISOString())) return null;
    const allocation=allocateAttention(db,{kind:'chief_of_staff',refKind:candidate.kind,refId:row.snoozed_until ? `${candidate.ref}:snooze:${row.snoozed_until}` : candidate.kind==='meeting'?`${candidate.ref}:${candidate.due}`:candidate.ref,requestedLevel:'banner',reason:'Scheduled follow-through',now});
-   if (!allocation.row || allocation.finalLevel!=='banner') return null;
+   if (!allocation.row || allocation.finalLevel!=='banner') {
+    db.prepare("UPDATE cove_follow_through_notices SET error=? WHERE id=?").run('Reminder held by the attention allowance or a prior alert. Review this item in Cove.',id);
+    return null;
+   }
    db.prepare("UPDATE cove_follow_through_notices SET status='sending', attempts=attempts+1, updated_at=? WHERE id=?").run(nowIso,id);
    return allocation.row.id;
   }).immediate();
   if (!claim) continue;
-  const message=candidate.kind==='meeting' ? `Meeting in ${Math.ceil((Date.parse(candidate.due)-now)/MINUTE)} minutes: ${candidate.title}. Ready to prep?` : candidate.stage==='advance' ? `Coming due: ${candidate.title}. Make time for the next step.` : `Still open past its deadline: ${candidate.title}. Review the next step.`;
+  // Explain the trigger from known schedule data, without another model call.
+  const minutes = Math.ceil((Date.parse(candidate.due)-now)/MINUTE);
+  const dueSoon = /^\d{4}-\d{2}-\d{2}$/.test(candidate.due)
+   ? 'Due tomorrow' : `Due in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
+  const message=candidate.kind==='meeting'
+   ? `Your meeting starts in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}: ${candidate.title}. Take a moment to prep.`
+   : candidate.stage==='advance'
+    ? `${dueSoon}: ${candidate.title}. Make time for the next step.`
+    : `Past due and still open in Cove: ${candidate.title}. Check what needs to happen next.`;
   let handedOff = false;
   try {
    await notify({id,message,taskId:candidate.kind==='task'?candidate.ref:undefined});
@@ -107,7 +133,13 @@ export async function runFollowThrough({ db, now = new Date(), timezone, calenda
  }
  // Obsolete pending notices are historical evidence, not actionable UI work.
  const active = new Set(candidates.map(c=>noticeId(c.kind,c.ref,c.due,c.stage)));
- for (const row of db.prepare("SELECT id FROM cove_follow_through_notices WHERE status='pending'").all()) if (!active.has(row.id)) db.prepare("UPDATE cove_follow_through_notices SET status='expired' WHERE id=?").run(row.id);
+ for (const row of db.prepare("SELECT id,ref_kind,due_at FROM cove_follow_through_notices WHERE status='pending'").all()) if (!active.has(row.id)) {
+  // Unavailable calendar data does not prove a meeting was cancelled. Retain
+  // its pending reminder until fresh evidence or the recorded start time.
+  if (row.ref_kind==='meeting' && Date.parse(row.due_at)>+now && cached?.status!=='ready') continue;
+  const missed=row.ref_kind==='meeting' && Date.parse(row.due_at)<=+now;
+  db.prepare("UPDATE cove_follow_through_notices SET status=?,error=?,updated_at=? WHERE id=?").run(missed?'missed':'expired',missed?'Meeting reminder was not delivered before its start.':null,nowIso,row.id);
+ }
  put(db,'heartbeat',{status:'ready'},now);
  return followThroughStatus(db,now);
 }

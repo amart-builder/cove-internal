@@ -268,3 +268,19 @@ A manual archive, deletion or completion prevents automatic restoration.
 Editor writes may carry `_expected` field values. Local SQLite compares those
 values in the same transaction as the update and returns conflict (409) before
 any write when an edited field changed. Unrelated field changes remain intact.
+
+## Durable responsibility records
+
+Migration 31 adds `cove_responsibilities`, `cove_responsibility_events` and
+`cove_preparations` to the same backed-up SQLite database. The task or commitment
+remains authoritative. Metadata records the first observed deadline, source
+fingerprint, plan revision, owner, next action, next review and proposed work time.
+The fingerprint protects against same-timestamp source edits; the plan revision
+protects against competing reviews. Original deadlines are not reconstructed from
+old history. A person's later deadline edit remains possible and is audited.
+
+Preparation artifacts are local drafts with source fingerprints. Exact retries
+reuse the existing artifact; revised drafts remain separate. Source changes make
+a draft visibly stale. Saving a draft never sends anything or completes work.
+These records persist until the user removes their database; they currently have
+no automatic deletion policy. Backups include them.

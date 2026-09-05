@@ -412,6 +412,7 @@ function reasonKey(input: {
     return `cos:sweep:${resolved.date}T${resolved.slot}`;
   }
   if (input.reason === "nightly") return `cos:nightly:${localDate}`;
+  if (input.reason === "follow_through") return `cos:follow-through:${Math.floor(+input.now / 900000)}`;
   return `cos:manual:${randomUUID()}`;
 }
 

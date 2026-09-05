@@ -24,7 +24,119 @@
 
 ---
 
-## 2026-09-04 Published and deployed (CURRENT)
+## 2026-09-05 Notification wording update (NOT DEPLOYED)
+
+- Alex requested short messages from Cove explaining the item and why it needs
+  attention now. Routine banners now distinguish reminders, upcoming meetings,
+  advance notice, work due today, and work still open past its deadline.
+- Chief-of-staff banners now include the existing agent reason, with prompt
+  guidance for concise, evidence-based language. Full text is sanitized before
+  length caps; a boundary regression covers partial-address disclosure.
+- Independent review passed. Typecheck and scoped zero-warning lint passed.
+  Focused notification/chief tests passed after updating the new synthetic
+  regression fixture to avoid triggering the existing secret redactor.
+- This update is in the responsibility candidate, not the public release or
+  running Cove. Native banner delivery was already confirmed by Alex.
+- The earlier staged deployment build is STALE. The deployment state is marked
+  `stale_after_notification_change`, which prevents pausing services with the
+  old build. Rebuild from the new committed candidate and prepare a fresh
+  deployment state before cutover. Preserve existing recovery assets.
+- Private PR #8 merge approval remains pending after automatic review rejected
+  the merge as distinct from the approved push/open-PR. Expanded model context
+  is separately pending; neither permission is inferred from this copy request.
+
+
+## 2026-09-05 Responsibility release published (PERSONAL CUTOVER PENDING)
+
+- Public PR https://github.com/amart-builder/cove/pull/2 is merged. Public main
+  is `3cb57435c3933e122c6c88ba511b5db0836658cd`; release head was `9e755f5`.
+  All 541 exported file hashes were verified against the manifest on public main.
+  The manifest identifies clean private source `617b2ec`; later private changes
+  are handoff documentation only. No private history or live data was published.
+- Final code and documentation reviews found no unresolved landing blockers.
+  Runtime code is identical to the client build that passed 1,294 tests,
+  typecheck, lint, production build, UI checks and copied-database migration.
+  Public GitHub has no CI status checks; validation evidence is local.
+- Alex explicitly approved the private destination. The release branch is now
+  pushed to `amart-builder/cove-internal`, with PR #8 open and conflict-free:
+  https://github.com/amart-builder/cove-internal/pull/8 . The prior private-push
+  approval rejection is resolved; do not ask for that permission again.
+  Worktree: `/private/tmp/cove-responsibility-work`, branch
+  `codex/chief-of-staff-responsibility`. No source changes followed review.
+- Additional goals/closeout/accepted-focus context remains absent from background
+  model calls pending its separate permission. This is not a reason to withhold
+  the already approved public implementation. Intelligent attention and urgent
+  email still remain shadow. Full unattended chief-of-staff reliability is not
+  claimed by this release.
+- Personal source, build, database and services were not replaced. All 14 known
+  Cove services are loaded; a point-in-time app/worker running status is not
+  proof of sustained health. Swap rose to 8.35 GB, above memwatch's stop threshold.
+  Do not disable the monitor or force a cutover under that condition.
+- Next: resolve memory pressure, then perform
+  the prepared, backup-protected personal update with restart/UI checks. Human
+  confirmation of the final native banner is also still outstanding; macOS logged
+  the prior test as displayed after Cove's Do Not Disturb exception was added.
+
+## 2026-09-05 Responsibility implementation candidate (NOT DEPLOYED)
+
+- Alex authorized all four proposed improvements. Candidate branch:
+  `codex/chief-of-staff-responsibility` in `/private/tmp/cove-responsibility-work`,
+  based on `1a280d1`. Live source and services retain the prior release.
+- Implemented preserved deadlines and source guards, inferred-work proposals,
+  durable next checks with fair selection, local capacity and carryover view,
+  persisted drafts, notification reserves/acknowledgement, and AI budget deferral.
+  Full details and actual boundaries: `docs/responsibility-rollout-2026-09-05.md`.
+- Independent review findings resolved. Actual Astra low fictional rehearsal
+  applied two next-step plans and one saved outline without changing deadlines
+  or marking tasks complete. Final `npm run verify` passed typecheck, lint, 1,294 tests and production build;
+  one opt-in model test skipped. The 541-file client candidate independently
+  passed the same full release gate and export secret/allowlist checks. Nothing from this candidate is published or deployed.
+- Background personal goals/latest closeout/accepted focus context remains
+  paused. Automatic approval review requires specific consent to transmit that
+  context to the selected provider. The question is pending; no such payload
+  expansion is connected. Existing personal Codex configuration is unchanged.
+- Follow-up browser checks now pass: acknowledgement persists through reload
+  and server restart, draft expansion/copy feedback works, and Today links to
+  follow-through. A small copy-feedback fix passed independent review and the
+  full client release gate again (1,294 passed, one opt-in skip).
+- Migration rehearsal passed against a verified copy of the personal database:
+  all 57 existing tables and 247 tasks were unchanged, including after repeat
+  reconciliation; 363 responsibility records initialized, integrity checks passed.
+  No live DB migration, service cutover or publication has happened.
+- Added Cove Notifications to Alex's Do Not Disturb Allowed Apps as requested.
+  Existing exceptions, broad time-sensitive bypass and sharing privacy unchanged.
+  macOS logged the second test as displayed with no Focus suppression, but Alex
+  did not notice it. A final normal-sound test awaits his confirmation.
+- Next: resolve the specific background-context permission and confirm the
+  notification experience, then complete reviewed publication and a backed-up
+  live cutover with restart checks. Do not claim the full vision is proven yet.
+
+## 2026-09-05 Chief-of-staff methodology reviewed (CURRENT PRODUCT ASSESSMENT)
+
+- Alex clarified the intended outcome: remove the burden of remembering,
+  prioritizing and following through, so the person can focus with confidence.
+  Draft: `docs/cove-north-star-draft.md`. This is proposed direction, not a
+  replacement for active prompts or a claim that the full promise is shipped.
+- Full audit: `docs/chief-of-staff-methodology-review-2026-09-05.md`. Found eight
+  gaps, including deadline rewriting, bounded-context omissions, no accountable
+  next-check state for watching, shadow intelligent alerts, notification budget
+  conflicts, weak completion evidence, shared AI budget starvation and missing
+  outcome evaluation. The prior client recommendation means a supported pilot.
+- Read-only live audit observed three overdue task dates moved to new times by
+  the chief. Shadow settings remain enabled. The latest desk task section was
+  truncated. No live task/settings/service change was made in this review.
+- All 76 focused existing tests passed. Three no-model, no-notification synthetic
+  probes reproduced omitted important work, unsupported completion accepted by
+  the handler, and an upcoming meeting suppressed after five old-task banners.
+- Private evidence is in `data/review-artifacts/2026-09-05-chief-methodology/`.
+  Review documents are included in the isolated candidate. No public publication or deployment.
+- Next proposed work: preserve original deadlines and require completion evidence;
+  then shared context and durable next checks; then attention/budget priorities,
+  feasible-day planning and scenario-based client acceptance. Intelligent alert
+  activation remains a deliberate acceptance step. No change to the inherited
+  shared Codex configuration isolation previously deferred by Alex.
+
+## 2026-09-04 Published and deployed (DEPLOYED BASELINE)
 
 - Public release is merged: https://github.com/amart-builder/cove/pull/1,
   public main `badb7af61245d887a086f4ef42cd4271c9ce8ddb`. Its 533-file

@@ -1,5 +1,6 @@
 import { FOLLOW_THROUGH_SCHEMA } from "../attention/follow-through.mjs";
 import { BACKGROUND_USAGE_SCHEMA } from "../background-usage.mjs";
+import { RESPONSIBILITY_SCHEMA } from "../responsibility/store";
 /**
  * Ordered, append-only schema history for Cove's local SQLite database.
  *
@@ -1627,6 +1628,11 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
         CREATE UNIQUE INDEX recurring_occurrences_task_idx ON recurring_occurrences(task_id) WHERE task_id IS NOT NULL;
         CREATE INDEX recurring_occurrences_template_date_idx ON recurring_occurrences(template_id, occurrence_local_date DESC);`);
     },
+  },
+  {
+    version: 31,
+    name: "commitment-responsibility",
+    up: (db) => { db.exec(RESPONSIBILITY_SCHEMA); },
   },
 ];
 

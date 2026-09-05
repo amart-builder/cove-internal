@@ -7,6 +7,7 @@ export const CHIEF_OF_STAFF_REASONS = [
   "sweep",
   "nightly",
   "manual",
+  "follow_through",
 ] as const;
 
 export type ChiefOfStaffReason = (typeof CHIEF_OF_STAFF_REASONS)[number];
@@ -59,11 +60,21 @@ const ACTION_TEXT_LIMITS: Record<string, number> = {
   ref_kind: 20,
   ref_id: 200,
   level: 20,
+  expected_version: 40,
+  owner: 160,
+  next_check_at: 40,
+  planned_for: 40,
+  plan_state: 20,
+  blocker: 1000,
+  goal: 1000,
+  completion_criterion: 1000,
 };
 
 export const CHIEF_OF_STAFF_ACTION_FIELDS: Record<string, readonly string[]> = {
   task_create: ["title", "details", "due_at", "remind_at", "priority", "project", "status"],
-  task_update: ["task_id", "title", "details", "due_at", "remind_at", "priority", "status"],
+  task_update: ["expected_version", "task_id", "title", "details", "due_at", "remind_at", "priority", "status"],
+  plan_update: ["ref_kind", "ref_id", "expected_version", "expected_revision", "next_action", "owner", "plan_state", "next_check_at", "planned_for", "estimate_minutes", "blocker", "goal", "completion_criterion"],
+  prepare: ["ref_kind", "ref_id", "expected_version", "title", "content"],
   pipeline_add: ["contact_id", "stage", "next_action", "next_follow_up_at", "notes"],
   pipeline_log_touch: ["contact_id", "channel", "summary", "next_action", "next_follow_up_at"],
   pipeline_update: ["contact_id", "next_action", "next_follow_up_at", "notes"],
@@ -170,6 +181,7 @@ export function validateChiefOfStaffOutput(value: unknown): ChiefOfStaffOutput {
   if (actions.filter((action) => action.kind === "notify").length > 4) {
     throw new Error("actions may contain at most 4 notify items.");
   }
+  if (actions.filter(action => action.kind === "prepare").length > 1) throw new Error("A wake may prepare at most one draft.");
   return { journal, watching, actions };
 }
 

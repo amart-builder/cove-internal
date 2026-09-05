@@ -31,6 +31,7 @@ import { openLocalDatabase } from "../src/lib/local/database.ts";
 import { createWorkSuggestion, getQuietCurrentSnapshot } from "../src/lib/quiet-current/store.ts";
 import { JobScheduler } from "../src/lib/reliability/jobs.ts";
 
+import { sourceRecord, sourceVersion } from "../src/lib/responsibility/store.ts";
 const ROOT = process.cwd();
 process.env.COVE_SALES_PIPELINE = "1";
 
@@ -464,9 +465,12 @@ test("all allowed actions use real stores, rejected actions are fed back, and re
   pipeline.create({ contactId: pipelineContact.id, stage: "reach_out" });
   pipeline.close();
   const first = enqueue(dbPath, { reason: "manual", note: "apply", now }).job;
+  const versionDb=openLocalDatabase(dbPath);
+  const expectedVersion=sourceVersion(sourceRecord(versionDb,"task","existing-task"));
+  versionDb.close();
   const actions = [
     { action_id: "create", kind: "task_create", why: "open task task-1", title: "New task", due_at: "2026-09-07", priority: "high", project: "Cove" },
-    { action_id: "update", kind: "task_update", why: "open task existing-task", task_id: "existing-task", title: "Updated", status: "done" },
+    { action_id: "update", kind: "task_update", why: "open task existing-task", task_id: "existing-task", expected_version: expectedVersion, title: "Updated", status: "open" },
     { action_id: "pipeline-add", kind: "pipeline_add", why: `meeting contact ${newPipelineContact.id}`, contact_id: newPipelineContact.id, stage: "pitched", next_action: "Send the scheduling options", next_follow_up_at: "2026-09-09", notes: "Introduced after the meeting." },
     { action_id: "touch", kind: "pipeline_log_touch", why: `pipeline ${pipelineContact.id}`, contact_id: pipelineContact.id, channel: "email", summary: "Sent the requested follow-up", next_action: "Wait for reply", next_follow_up_at: "2026-09-08" },
     { action_id: "pipeline-update", kind: "pipeline_update", why: `pipeline ${pipelineContact.id}`, contact_id: pipelineContact.id, notes: "Decision maker is reviewing." },
@@ -482,15 +486,9 @@ test("all allowed actions use real stores, rejected actions are fed back, and re
   }), { applied: 0, rejected: 0, skipped: 8 });
   const verify = openLocalDatabase(dbPath);
   try {
-    const created = verify.prepare(
-      "SELECT column_id, position, due_at, due_date, origin FROM tasks WHERE title = 'New task'",
-    ).get();
-    assert.ok(created.column_id);
-    assert.ok(created.position >= 0);
-    assert.equal(created.due_at, "2026-09-07");
-    assert.equal(created.due_date, "2026-09-07");
-    assert.match(created.origin, /^Added by the chief of staff agent on [A-Z][a-z]{2} \d{1,2}, \d{4}\. Its reason: open task task-1$/);
-    assert.equal(verify.prepare("SELECT status FROM tasks WHERE id = 'existing-task'").get().status, "done");
+    assert.equal(verify.prepare("SELECT COUNT(*) FROM tasks WHERE title='New task'").pluck().get(),0);
+    assert.equal(getQuietCurrentSnapshot(dataDir).suggestions.filter(item=>item.title==='New task').length,1);
+    assert.equal(verify.prepare("SELECT status FROM tasks WHERE id = 'existing-task'").get().status, "open");
     assert.equal(verify.prepare("SELECT stage FROM pipeline_deals WHERE contact_id = ?").get(pipelineContact.id).stage, "interested");
     assert.deepEqual(
       verify.prepare("SELECT stage, next_action, next_follow_up_at FROM pipeline_deals WHERE contact_id = ?").get(newPipelineContact.id),
@@ -554,7 +552,7 @@ test("all allowed actions use real stores, rejected actions are fed back, and re
   assert.match(feedback, /Contact was not found/);
 });
 
-test("task_create accepts the live flat-schema payload with open status", () => {
+test("legacy task_create becomes a suggestion, preserving the proposed deadline without committing it", () => {
   const { dataDir, dbPath } = tempCove();
   const now = new Date("2026-09-03T16:00:00Z");
   const wake = enqueue(dbPath, { reason: "manual", note: "live task", now }).job;
@@ -596,16 +594,10 @@ test("task_create accepts the live flat-schema payload with open status", () => 
   }), { applied: 1, rejected: 0, skipped: 0 });
   const db = openLocalDatabase(dbPath);
   try {
-    assert.deepEqual(db.prepare(
-      "SELECT status, priority, due_at, due_date, remind_at, notification_policy FROM tasks WHERE title = ?",
-    ).get(action.title), {
-      status: "open",
-      priority: "medium",
-      due_at: action.due_at,
-      due_date: action.due_at,
-      remind_at: action.remind_at,
-      notification_policy: "both",
-    });
+    assert.equal(db.prepare("SELECT COUNT(*) FROM tasks WHERE title=?").pluck().get(action.title),0);
+    const suggestion=getQuietCurrentSnapshot(dataDir).suggestions.find(item=>item.title===action.title);
+    assert.ok(suggestion);
+    assert.match(suggestion.description,/Proposed deadline, not yet confirmed/);
   } finally {
     db.close();
   }
@@ -844,7 +836,7 @@ test("wake journal ends with the driver-authored ledger outcome", async () => {
     "utf8",
   );
   const lines = journal.trim().split("\n");
-  assert.match(lines.at(-1), /^- \d{2}:\d{2} \[manual\] outcome: applied 1, rejected 1 \(email_send: Unknown action kind: email_send\.\)$/);
+  assert.match(lines.at(-1), /^- \d{2}:\d{2} \[manual\] outcome: applied 1, rejected 1 \(email_send: Unknown action kind: email_send\.\), downgraded 1 \(task_create: new_work_requires_confirmation\)$/);
   assert.ok(lines.at(-1).length <= 400);
 });
 
@@ -1009,7 +1001,8 @@ test("successful wake without a captured session applies actions and starts fres
   });
   const db = openLocalDatabase(dbPath);
   try {
-    assert.equal(db.prepare("SELECT COUNT(*) FROM tasks WHERE title = ?").pluck().get("Created without session id"), 1);
+    assert.equal(db.prepare("SELECT COUNT(*) FROM tasks WHERE title = ?").pluck().get("Created without session id"), 0);
+    assert.equal(getQuietCurrentSnapshot(dataDir).suggestions.filter(item=>item.title==="Created without session id").length,1);
   } finally {
     db.close();
   }
@@ -1085,7 +1078,8 @@ printf '%s\\n' '{"type":"thread.started","thread_id":"retry-session"}'
   });
   const db = openLocalDatabase(dbPath);
   try {
-    assert.equal(db.prepare("SELECT COUNT(*) FROM tasks WHERE title = ?").pluck().get("Exactly once task"), 1);
+    assert.equal(db.prepare("SELECT COUNT(*) FROM tasks WHERE title = ?").pluck().get("Exactly once task"), 0);
+    assert.equal(getQuietCurrentSnapshot(dataDir).suggestions.filter(item=>item.title==="Exactly once task").length,1);
     assert.equal(db.prepare("SELECT COUNT(*) FROM chief_of_staff_actions WHERE wake_job_id = ? AND status = 'applied'").pluck().get(job.id), 1);
   } finally {
     db.close();
@@ -1317,18 +1311,19 @@ test("task_create rejects a title that already exists as open or recently finish
   const openMatch = create("dupe-open", "  send   maya the revised scope ");
   assert.deepEqual(openMatch.result, { applied: 0, rejected: 1, skipped: 0 });
   assert.equal(openMatch.row.status, "rejected");
-  assert.equal(openMatch.row.error, "A task with this title already exists (task-open). Use task_update instead.");
+  assert.equal(openMatch.row.error, "A task with this title already exists. Read the current task.");
   assert.equal(openMatch.count, 3);
 
   const recentDone = create("dupe-recent-done", "Book the Cabo flights");
   assert.deepEqual(recentDone.result, { applied: 0, rejected: 1, skipped: 0 });
-  assert.equal(recentDone.row.error, "A task with this title already exists (task-done-recent). Use task_update instead.");
+  assert.equal(recentDone.row.error, "A task with this title already exists. Read the current task.");
   assert.equal(recentDone.count, 3);
 
   const oldDone = create("dupe-old-done", "Renew the domain");
   assert.deepEqual(oldDone.result, { applied: 1, rejected: 0, skipped: 0 });
   assert.equal(oldDone.row.status, "applied");
-  assert.equal(oldDone.count, 4);
+  assert.equal(oldDone.count, 3);
+  assert.equal(getQuietCurrentSnapshot(dataDir).suggestions.filter(item=>item.title==="Renew the domain").length,1);
 });
 
 test("snapshot lists recently created tasks of any status after the open list", async () => {

@@ -9,6 +9,10 @@ this directory.
 
 | Document | Status | Use it for |
 | --- | --- | --- |
+| `cove-north-star-draft.md` | Proposed product direction | The responsibility Cove should assume; not an activated agent mandate. |
+| `chief-of-staff-methodology-review-2026-09-05.md` | Current methodology audit | Confirmed gaps, synthetic reproductions and acceptance criteria for reliable follow-through. |
+| `handoff-sales-pipeline-gpt6.md` | Prior implementation handoff | Sales pipeline ownership and remaining implementation context. |
+| `responsibility-rollout-2026-09-05.md` | Implementation and acceptance record | Four-part chief-of-staff improvement, verification and activation limits. |
 | `email-architecture-redesign.md` | Current design record | Gmail and Cove state ownership, crash recovery, and no-send acceptance criteria. |
 | `morning-brief.md` | Current core with historical sections | Brief collection, artifact, validation, and consumption. Its cross-machine relay section is retained as history; the supported product is now one Mac. |
 | `demo-runbook.md` | Current internal runbook | Isolated demo data and port 3300 rehearsal. Never use it during a real install. |

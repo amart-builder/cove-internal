@@ -43,7 +43,7 @@ test("global caps span judgment kinds and preserve the floor text slot", (t) => 
   assert.equal(allocate("floor_nudge", "floor-1").finalLevel, "text");
 
   allocate("urgent_email", "email-2", "banner");
-  allocate("sweep_nudge", "sweep-3", "banner");
+  allocate("urgent_email", "reserved-meeting-slot", "banner");
   const exhausted = allocate("urgent_email", "email-3", "banner");
   assert.equal(exhausted.row, null);
   assert.equal(exhausted.suppressionRows.at(-1).suppressedReason, "daily_banner_cap");
@@ -196,7 +196,7 @@ test("the floor spends at most one text a day no matter how many items come due"
   assert.equal(dailyAttentionUsage(db, new Date("2026-08-06T14:00:00-07:00")).floorTexts, 1);
 });
 
-test("model lanes stop one short so the floor text survives a busy morning", (t) => {
+test("routine lanes preserve the floor and two time-sensitive slots", (t) => {
   const db = fixture(t);
   const morning = new Date("2026-08-06T09:00:00-07:00");
   const attempts = [];
@@ -210,9 +210,9 @@ test("model lanes stop one short so the floor text survives a busy morning", (t)
       now: morning,
     }).finalLevel);
   }
-  // Five get through; the sixth is held back to protect the reserved slot.
+  // Three routine banners leave one floor slot and two time-sensitive slots.
   assert.deepEqual(attempts, [
-    "banner", "banner", "banner", "banner", "banner", "suppressed",
+    "banner", "banner", "banner", "suppressed", "suppressed", "suppressed",
   ]);
   const floor = allocateAttention(db, {
     kind: "floor_nudge",

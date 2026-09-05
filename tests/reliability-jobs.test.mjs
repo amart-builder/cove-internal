@@ -283,7 +283,7 @@ test('scheduler ticks sweep terminal reliability history by age', async (t) => {
        (id, type, payload, priority, run_after, attempts, max_attempts, status,
         idempotency_key, created_at)
      VALUES (?, 'test', '{}', 0, ?, 0, 1, 'queued', ?, ?)`,
-  ).run('old-queued', '2026-08-01T00:00:00.000Z', 'old-queued', old);
+  ).run('old-queued', old, 'old-queued', old);
   db.prepare(
     `INSERT INTO cove_receipts
        (id, source, started_at, finished_at, summary, actions_json,
@@ -357,4 +357,13 @@ test('jobs LaunchAgent polls every five minutes', () => {
     jobsPlist,
     /<key>StartInterval<\/key>\s*<integer>300<\/integer>/,
   );
+});
+
+test('budget exhaustion defers the original job without consuming execution retries or claiming abandonment', async t=>{
+ const {scheduler,dbPath,advance}=schedulerFixture(t);let calls=0;
+ scheduler.register('budgeted',()=>{calls++;if(calls===1)throw new Error('background_usage_limit: cove_budget_retry_at=2026-07-30T12:00:00.000Z.');return {summary:'Reviewed'};});
+ const {job}=scheduler.enqueue({type:'budgeted',payload:{},idempotencyKey:'budgeted:test',maxAttempts:1});assert.equal(await scheduler.runJob(job.id),'deferred');
+ const db=new Database(dbPath);t.after(()=>db.close());const row=db.prepare('SELECT status,attempts,run_after FROM cove_jobs WHERE id=?').get(job.id);assert.deepEqual(row,{status:'queued',attempts:0,run_after:'2026-07-30T12:00:00.000Z'});
+ advance(25*3600000);await scheduler.runAvailable();assert.equal(calls,1);assert.equal(listFailures({dbPath}).some(f=>f.source==='jobs-unclaimed'),false);
+ advance(24*3600000);assert.equal(await scheduler.runJob(job.id),'done');assert.equal(calls,2);
 });

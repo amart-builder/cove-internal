@@ -133,16 +133,18 @@ test('default Quiet Current storage follows COVE_DATA_DIR instead of cwd', (t) =
   assert.equal(existsSync(path.join(dir, 'cove.db')), true);
 });
 
-test('expired pencil retires without changing accepted work', async (t) => {
+test('expired pencil retires without changing accepted work', (t) => {
   isolatedStore(t);
+  const now=new Date('2026-09-01T12:00:00Z');
+  setQuietCurrentNowForTests(now);
   const suggestion = createWorkSuggestion({
     title: 'Possibly review an old thread',
     reason: 'The thread was recently active.',
     source: 'email',
-    expiresAt: new Date(Date.now() + 30).toISOString(),
+    expiresAt: new Date(+now + 30).toISOString(),
   });
 
-  await new Promise((resolve) => setTimeout(resolve, 45));
+  setQuietCurrentNowForTests(new Date(+now+45));
   const snapshot = getQuietCurrentSnapshot();
   assert.equal(
     snapshot.suggestions.find((item) => item.id === suggestion.id)?.state,

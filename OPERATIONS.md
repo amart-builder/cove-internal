@@ -51,3 +51,43 @@ Neither tokens observed nor calls remaining measure a subscription balance.
 When a Codex task needs permission, use its Continue button to resume in an
 interactive session. Update the CLI and verify the exact selected model before
 initial installation; an older CLI may reject a model available on the account.
+
+## Reviewing follow-through
+
+Open the link beside Today for Your follow-through. The page separates scheduled
+agent reviews, proposed work, preparation drafts and reminder delivery. Unknown
+calendar availability or missing task estimates do not count as free time. The
+capacity estimate currently assumes 9am to 5pm in the operator timezone and keeps
+30% of non-meeting time free. It does not book calendar appointments.
+
+On my radar acknowledges an item without completing it. Responsibility
+acknowledgement postpones the agent check and supported attention alerts for one
+hour. Explicit user-set task alarms retain their existing reminder policy. A
+missed or uncertain native delivery remains visible for review. Seeing the native
+banner on the person's own Mac is still part of installation acceptance.
+
+For a person who keeps Do Not Disturb on, add **Cove Notifications** to that
+Focus's Allowed Apps, then test without turning Focus off. Its app name in
+Notifications settings is **Cove**. Terminal and terminal-notifier exceptions
+do not apply to Cove's sender. If submission succeeds but no banner appears,
+check Cove's desktop notification style and whether screen sharing, mirroring,
+screen lock or display sleep is suppressing presentation. Do not broaden those
+privacy settings automatically; successful submission alone is not delivery
+acceptance.
+
+AI-capacity denial keeps a queued job until the indicated rolling window clears;
+it does not spend execution retries. Actual process failures still count. Routine
+work leaves a quarter of the same bounded allowance for chief-of-staff and brief
+calls, while total hourly, daily and weekly caps remain authoritative. This is a
+call allowance, not a provider subscription balance or a guarantee of equal token
+cost. Check pending reviews and Issues when the allowance is resting.
+
+### Native notification wording
+
+Cove's banners should read like a short note from your chief of staff. Name the
+item and explain why it needs attention now, using plain language. For example:
+“Your meeting starts in 15 minutes: Planning. Take a moment to prep.” or
+“Due tomorrow: Send Bob the proposal. Make time for the next step.”
+Use the actual schedule, never invent a deadline or claim that open work is
+definitely unfinished. Keep source labels and content sanitization for inferred
+work. Routine reminders use local templates and require no extra model calls.

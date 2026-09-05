@@ -3075,7 +3075,7 @@ export function createDayPlanStore(options: {
               state = "applied";
               applied += 1;
             } else if (action.op === "set_due") {
-              if (!managedDueLocalDate(action.dueLocalDate)) {
+              if (!managedDueLocalDate(action.dueLocalDate) || (live?.due_at && live.due_at !== action.dueLocalDate)) {
                 state = "skipped_offlimits";
                 skippedOfflimits += 1;
               } else {
