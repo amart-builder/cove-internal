@@ -24,7 +24,7 @@ Saved `agent-settings.json` selects the provider, exact model and effort for
 standard model jobs and takes precedence over environment-based model selection.
 Without that file, `COVE_JOB_RUNNER` selects the legacy background backend.
 Older installs may still set `COVE_BRIEF_WRITER`, `COVE_DUMP_WRITER`, or their
-`FORGE_*` aliases as per-lane overrides when `COVE_JOB_RUNNER` is absent. The
+`FORGE_*` aliases as legacy per-lane overrides when `COVE_JOB_RUNNER` is absent. The
 installer does not emit those older per-lane variables.
 
 Email voice settings may also live in private `data/cove-email.json`. That file
