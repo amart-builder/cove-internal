@@ -296,7 +296,7 @@ test('predeadline nudges wait for the window, claim once, and yield to due remin
   runReminderTick(fixture, '2026-08-28T09:01:00-04:00');
   assert.doesNotMatch(
     readFileSync(fixture.notificationCapture, 'utf8'),
-    /Before it's due: Due and nudge collide/,
+    /Coming up: Due and nudge collide/,
   );
 });
 

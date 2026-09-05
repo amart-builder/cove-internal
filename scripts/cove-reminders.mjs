@@ -99,15 +99,15 @@ function telegramToken() {
 }
 
 function notifyNative(taskTitle) {
-  const command = nativeNotificationCommand(taskTitle, {
+  const command = nativeNotificationCommand(`Here's your reminder: ${taskTitle}`, {
     title: "Cove",
-    subtitle: "Task due",
+    subtitle: "Your reminder",
     sound: "Glass",
   }, nativeNotificationDependencies);
   execFileSync(command.executable, command.args);
 }
 
-function notifyAttentionBanner(message, subtitle = "Attention check") {
+function notifyAttentionBanner(message, subtitle = "Needs your attention") {
   const command = nativeNotificationCommand(message, {
     title: "Cove",
     subtitle,
@@ -117,7 +117,7 @@ function notifyAttentionBanner(message, subtitle = "Attention check") {
 }
 
 function notifyTextFailure(taskTitle) {
-  const command = nativeNotificationCommand(`Text failed: ${taskTitle}`, {
+  const command = nativeNotificationCommand(`I couldn't deliver your text reminder: ${taskTitle}. Check it here in Cove.`, {
     title: "Cove",
     subtitle: "Reminder delivery failed",
     sound: "Glass",
@@ -407,7 +407,7 @@ async function runDeterministicFloor(db, config, token, now = new Date()) {
 
   for (const candidate of open) {
     const title = plainAttentionText(candidate.title) || "Item";
-    const reason = `Due today, not done: ${title}`;
+    const reason = `Due today and still open in Cove: ${title}. Check the next step.`;
     const allocation = allocateAttention(db, {
       kind: "floor_nudge",
       refKind: candidate.refKind,
@@ -433,8 +433,8 @@ async function runDeterministicFloor(db, config, token, now = new Date()) {
     }
 
     const banner = candidate.provenance.direct
-      ? `Due today, not done: ${title}`
-      : sanitizedNonDirectText(title, candidate.provenance.prefix);
+      ? `Due today and still open in Cove: ${title}. Check the next step.`
+      : `Due today and still open in Cove. ${sanitizedNonDirectText(title, candidate.provenance.prefix)}`;
     let bannerDelivered = false;
     try {
       notifyAttentionBanner(banner);
@@ -744,8 +744,8 @@ async function firePredeadlineNudges(db, dueTaskIds, now) {
     }
     const provenance = taskProvenance(task);
     const banner = provenance.direct
-      ? `Before it's due: ${title}`
-      : sanitizedNonDirectText(title, provenance.prefix);
+      ? `Coming up: ${title}. This is your advance reminder.`
+      : `This is your advance reminder. ${sanitizedNonDirectText(title, provenance.prefix)}`;
     let delivered = false;
     try {
       notifyAttentionBanner(banner, "Upcoming task");

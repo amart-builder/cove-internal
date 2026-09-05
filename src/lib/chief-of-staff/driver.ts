@@ -701,6 +701,7 @@ function applyChiefOfStaffActionsWithDetails(input: {
             refId: requiredActionText(action, "ref_id", 200),
             level,
             reason,
+            includeReasonInBanner: true,
             now,
             allowText: !perWakeDowngrade,
             env: input.env,

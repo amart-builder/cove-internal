@@ -13,7 +13,7 @@ function run(db,now=instant,extra={}) {return runFollowThrough({db,now,timezone,
 test('date-only advance is local 3pm the preceding day, dedupes across restarts, completion cancels',async t=>{
  const db=fixture(t);task(db,'proposal','2026-09-04');const messages=[];
  await run(db,new Date('2026-09-03T21:59:00Z'),{notify:x=>messages.push(x)});assert.equal(messages.length,0);
- await run(db,instant,{notify:x=>messages.push(x)});await run(db,new Date(+instant+60000),{notify:x=>messages.push(x)});assert.equal(messages.length,1);assert.match(messages[0].message,/Coming due/);
+ await run(db,instant,{notify:x=>messages.push(x)});await run(db,new Date(+instant+60000),{notify:x=>messages.push(x)});assert.equal(messages.length,1);assert.match(messages[0].message,/Due tomorrow/);
  const id=followThroughStatus(db,instant).notices[0].id;assert.ok(snoozeFollowThrough(db,id,instant));db.prepare("UPDATE tasks SET status='done' WHERE id='proposal'").run();
  await run(db,new Date(+instant+3600000),{notify:x=>messages.push(x)});assert.equal(messages.length,1);assert.equal(followThroughStatus(db,instant).notices[0].status,'expired');
 });

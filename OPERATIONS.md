@@ -81,3 +81,13 @@ work leaves a quarter of the same bounded allowance for chief-of-staff and brief
 calls, while total hourly, daily and weekly caps remain authoritative. This is a
 call allowance, not a provider subscription balance or a guarantee of equal token
 cost. Check pending reviews and Issues when the allowance is resting.
+
+### Native notification wording
+
+Cove's banners should read like a short note from your chief of staff. Name the
+item and explain why it needs attention now, using plain language. For example:
+“Your meeting starts in 15 minutes: Planning. Take a moment to prep.” or
+“Due tomorrow: Send Bob the proposal. Make time for the next step.”
+Use the actual schedule, never invent a deadline or claim that open work is
+definitely unfinished. Keep source labels and content sanitization for inferred
+work. Routine reminders use local templates and require no extra model calls.

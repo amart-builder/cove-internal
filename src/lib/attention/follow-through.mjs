@@ -108,7 +108,15 @@ export async function runFollowThrough({ db, now = new Date(), timezone, calenda
    return allocation.row.id;
   }).immediate();
   if (!claim) continue;
-  const message=candidate.kind==='meeting' ? `Meeting in ${Math.ceil((Date.parse(candidate.due)-now)/MINUTE)} minutes: ${candidate.title}. Ready to prep?` : candidate.stage==='advance' ? `Coming due: ${candidate.title}. Make time for the next step.` : `Still open past its deadline: ${candidate.title}. Review the next step.`;
+  // Explain the trigger from known schedule data, without another model call.
+  const minutes = Math.ceil((Date.parse(candidate.due)-now)/MINUTE);
+  const dueSoon = /^\d{4}-\d{2}-\d{2}$/.test(candidate.due)
+   ? 'Due tomorrow' : `Due in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
+  const message=candidate.kind==='meeting'
+   ? `Your meeting starts in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}: ${candidate.title}. Take a moment to prep.`
+   : candidate.stage==='advance'
+    ? `${dueSoon}: ${candidate.title}. Make time for the next step.`
+    : `Past due and still open in Cove: ${candidate.title}. Check what needs to happen next.`;
   let handedOff = false;
   try {
    await notify({id,message,taskId:candidate.kind==='task'?candidate.ref:undefined});

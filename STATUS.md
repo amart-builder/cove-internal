@@ -24,6 +24,28 @@
 
 ---
 
+## 2026-09-05 Notification wording update (NOT DEPLOYED)
+
+- Alex requested short messages from Cove explaining the item and why it needs
+  attention now. Routine banners now distinguish reminders, upcoming meetings,
+  advance notice, work due today, and work still open past its deadline.
+- Chief-of-staff banners now include the existing agent reason, with prompt
+  guidance for concise, evidence-based language. Full text is sanitized before
+  length caps; a boundary regression covers partial-address disclosure.
+- Independent review passed. Typecheck and scoped zero-warning lint passed.
+  Focused notification/chief tests passed after updating the new synthetic
+  regression fixture to avoid triggering the existing secret redactor.
+- This update is in the responsibility candidate, not the public release or
+  running Cove. Native banner delivery was already confirmed by Alex.
+- The earlier staged deployment build is STALE. The deployment state is marked
+  `stale_after_notification_change`, which prevents pausing services with the
+  old build. Rebuild from the new committed candidate and prepare a fresh
+  deployment state before cutover. Preserve existing recovery assets.
+- Private PR #8 merge approval remains pending after automatic review rejected
+  the merge as distinct from the approved push/open-PR. Expanded model context
+  is separately pending; neither permission is inferred from this copy request.
+
+
 ## 2026-09-05 Responsibility release published (PERSONAL CUTOVER PENDING)
 
 - Public PR https://github.com/amart-builder/cove/pull/2 is merged. Public main
