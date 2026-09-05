@@ -138,10 +138,10 @@ hashes matches the committed export manifest. Final independent code and docs
 reviews found no unresolved blockers. No new source changes followed the passing
 1,294-test client gate; Focus guidance passed its separate docs/export checks.
 
-The private development push was rejected by automatic approval review because
-its destination was not covered by the prior public-publication authorization.
-That specific permission is pending. This did not block the authorized public
-release. The personal installation is unchanged: memory pressure again exceeded
+The private development push was initially rejected by automatic approval
+review. Alex subsequently explicitly approved `cove-internal`; that permission
+is resolved. The branch is pushed and [private PR #8](https://github.com/amart-builder/cove-internal/pull/8)
+is open with no merge conflicts. This did not block the public release. The personal installation is unchanged: memory pressure again exceeded
 the existing monitor's server-stop threshold. Personal cutover needs a healthy
 Mac and the already prepared backup/restart checks. Additional personal planning
 context still requires its own permission before being added to model calls.

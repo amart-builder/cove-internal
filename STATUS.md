@@ -35,11 +35,12 @@
   Runtime code is identical to the client build that passed 1,294 tests,
   typecheck, lint, production build, UI checks and copied-database migration.
   Public GitHub has no CI status checks; validation evidence is local.
-- Private release branch remains local in `/private/tmp/cove-responsibility-work`
-  (`codex/chief-of-staff-responsibility`). Automatic approval review rejected
-  pushing to `amart-builder/cove-internal`, stating the prior authorization
-  covered public Cove but not this separate private destination. A specific
-  permission question is pending. Do not retry without that permission.
+- Alex explicitly approved the private destination. The release branch is now
+  pushed to `amart-builder/cove-internal`, with PR #8 open and conflict-free:
+  https://github.com/amart-builder/cove-internal/pull/8 . The prior private-push
+  approval rejection is resolved; do not ask for that permission again.
+  Worktree: `/private/tmp/cove-responsibility-work`, branch
+  `codex/chief-of-staff-responsibility`. No source changes followed review.
 - Additional goals/closeout/accepted-focus context remains absent from background
   model calls pending its separate permission. This is not a reason to withhold
   the already approved public implementation. Intelligent attention and urgent
@@ -49,7 +50,7 @@
   Cove services are loaded; a point-in-time app/worker running status is not
   proof of sustained health. Swap rose to 8.35 GB, above memwatch's stop threshold.
   Do not disable the monitor or force a cutover under that condition.
-- Next: obtain private-push permission and resolve memory pressure, then perform
+- Next: resolve memory pressure, then perform
   the prepared, backup-protected personal update with restart/UI checks. Human
   confirmation of the final native banner is also still outstanding; macOS logged
   the prior test as displayed after Cove's Do Not Disturb exception was added.
