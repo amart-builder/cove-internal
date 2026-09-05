@@ -67,9 +67,12 @@ will ever be missed. Release and live-cutover evidence will be recorded below.
   acknowledgement and its persistence across reload/restart, draft expansion,
   honest unknown calendar status, and navigation from Today. No browser console
   errors were reported. Memory protection and live runtime remained unchanged.
-- Required before rollout: resolve the pending planning-context consent and
-  finish user-visible notification acceptance; review and merge the release,
-  then perform the live backup/cutover and restart checks.
+- Release scope uses the currently approved background context. Additional
+  goals/closeout/focus sharing remains a separate pending change and is absent
+  from this release. Native sender acceptance has OS display evidence; personal
+  confirmation is still outstanding. Before personal cutover, require healthy
+  memory, a fresh backup and successful restart checks. New intelligent alert
+  lanes remain shadow until their own supervised acceptance.
 - Adding private goals, closeout and accepted focus to the chief remains paused.
   The code does not yet deliver shared personal-goal context across all agent
   lanes. Its local feasible-day view is useful but is not a claim that the full
@@ -110,3 +113,19 @@ Verification logs and the fictional model result are retained locally under
 - SETUP.md and OPERATIONS.md now cover Focus exceptions and distinguish Cove
   Notifications from Terminal and terminal-notifier. A successful sender exit
   still does not by itself count as a visible-banner acceptance.
+
+## Release preparation
+
+Alex asked to continue. Release the already tested implementation with existing
+context permissions; do not treat that instruction as consent to add new private
+context to model calls. The original four-part vision is only partially proven.
+The selected model and total call caps remain unchanged.
+
+The source and client code are unchanged since the passing release gate. The
+client export from clean commit `617b2ec` contains 541 files and passed the
+allowlist, secrets and live-data checks. Its only differences from the last fully
+verified client tree are the tested setup/operations Focus documentation.
+
+At release preparation, the Mac again had more than 8 GB swap in use, above the
+existing monitor's server-stop threshold. Public/private review preparation can
+proceed independently. Do not bypass the memory monitor for a personal cutover.
