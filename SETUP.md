@@ -239,7 +239,7 @@ For Full Cove, the safe baseline is:
 - the person's profile and goals;
 - five or more real open tasks, including the work they most fear dropping;
 - the local task board, People, Buddy, Morning Arrival, and Close My Day;
-- a Morning Brief written through the user's signed-in Claude Code subscription;
+- a Morning Brief written through the user's selected signed-in provider;
 - a successful local backup, restart, and health check.
 
 Email, meeting-note ingestion, Telegram, iMessage, and voice notes remain

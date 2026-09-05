@@ -14,17 +14,18 @@ The sales pipeline is owner-only and stays off unless both `COVE_SALES_PIPELINE=
 | `COVE_CODEX_BIN` | Codex CLI path for background model jobs | discovered from PATH |
 | `COVE_CLAUDE_WORKER_ENABLED` | Enable supervised background execution | installer-managed |
 | `COVE_BRIEF_TIMEZONE` | Morning Brief target timezone | operator timezone |
-| `COVE_JOB_RUNNER` | Background model backend: `codex-sol-high` or the manual `claude` override | `codex-sol-high` |
+| `COVE_JOB_RUNNER` | Legacy background backend when no saved agent selection exists: `codex-sol-high` or `claude` | `codex-sol-high` |
 | `COVE_MEETING_ANALYST` | Deep meeting analysis workflow. Set to `0` or `off` to use legacy extraction wholesale | on |
 | `COVE_VOICE_FINGERPRINT_PATH` | Measured writing fingerprint appended to the email voice guide | unset |
 | `COVE_VOICE_REVIEW` | Enable the Sunday draft-outcome review when set to `1` | off |
 | `COVE_VOICE_JUDGE` | Measure each generated draft against the fingerprint when set to `1` | off |
 
-`COVE_JOB_RUNNER` is the supported backend selector for every non-interactive
-model lane. Older installs may still set `COVE_BRIEF_WRITER`,
-`COVE_DUMP_WRITER`, or their `FORGE_*` aliases. Cove accepts those only as
-legacy per-lane overrides when `COVE_JOB_RUNNER` is absent; the installer does
-not emit them.
+Saved `agent-settings.json` selects the provider, exact model and effort for
+standard model jobs and takes precedence over environment-based model selection.
+Without that file, `COVE_JOB_RUNNER` selects the legacy background backend.
+Older installs may still set `COVE_BRIEF_WRITER`, `COVE_DUMP_WRITER`, or their
+`FORGE_*` aliases as per-lane overrides when `COVE_JOB_RUNNER` is absent. The
+installer does not emit those older per-lane variables.
 
 Email voice settings may also live in private `data/cove-email.json`. That file
 may already exist with other keys on an older install; add these keys to it

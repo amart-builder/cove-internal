@@ -1128,7 +1128,7 @@ if [ -n "$UP" ]; then
   fi
   echo "Morning Brief: on-open backfill/post-settlement; --mini optionally adds a 7:30 always-on lane"
   echo "Day-plan batch execution remains off until COVE_CLAUDE_EXECUTION_ENABLED=1 and an allowlisted workspace config are explicitly added."
-  echo "Task owner chips open Claude sessions: Claude works the task with automatic file edits; Together opens a planning session. Neither can send, publish, or purchase."
+  echo "Task controls use your selected agent: Auto works the task; Planning prepares a plan. Codex retains on-request approvals. Sending, publishing, or purchasing still requires your approval."
 else
   echo "Cove did not respond on http://localhost:3200 within 20 seconds." >&2
   echo "See the log for why: $LOG_DIR/cove.error.log" >&2

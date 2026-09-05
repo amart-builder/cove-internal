@@ -234,9 +234,10 @@ and meeting lanes only enqueue. They never run the persistent agent inline.
 
 `src/lib/chief-of-staff/snapshot.ts` builds a fresh 24,000-character desk
 snapshot from existing local stores. Every database value is data, never
-instructions. `driver.ts` runs one continuing Codex session in a nested,
-read-only agent home, validates its structured output, and applies only the
-documented action vocabulary. A dedicated `data/chief-of-staff/codex-home/`
+instructions. With saved agent settings, `driver.ts` makes fresh bounded calls
+to the selected Claude or Codex model using the durable desk and journal.
+Without saved settings, it retains the legacy continuing Codex session. It
+validates structured output and applies only the documented action vocabulary. A dedicated `data/chief-of-staff/codex-home/`
 provides a minimal config with shell, web, apps, and MCP absent. Its `auth.json`
 is a symlink to the operator's live Codex auth file, and its isolated sessions
 hold the resumable rollout. The model has no shell, file reads, MCP, network,
@@ -255,7 +256,8 @@ attempt per wake, records any later text request as a banner downgrade, and
 rejects board-only transport fallbacks so the agent does not mistake them for
 an interruption.
 
-The weekly review deliberately uses a fresh, tool-free Claude run. It proposes
+The weekly review uses a fresh, tool-free run of the selected provider, or the
+legacy Claude default when no selection is saved. It proposes
 mandate lines in a review file and Quiet Current suggestion. It never edits the
 mandate itself.
 
