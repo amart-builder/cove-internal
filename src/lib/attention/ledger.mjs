@@ -136,14 +136,16 @@ export function dailyAttentionUsage(db, now = new Date()) {
   };
 }
 
-// A text counts against the banner budget too, so model lanes running earlier
-// in the day could otherwise spend every slot and leave the noon floor unable
-// to send its one reserved text. They stop one short until the floor has gone.
-function bannerCapFor(kind, usage) {
+// Texts also consume banner capacity. Preserve two of the six slots for
+// meetings or urgent email, plus one floor slot until the floor has run.
+function bannerCapFor(kind, usage, refKind) {
+  // Keep two of the existing six slots available for meetings/urgent mail.
+  // This reserves capacity; it does not increase the person's interruption cap.
+  if (refKind === "meeting" || kind === "urgent_email") return ATTENTION_LIMITS.bannersPerDay;
   if (kind === "floor_nudge" || usage.floorTexts >= ATTENTION_LIMITS.floorTextsPerDay) {
-    return ATTENTION_LIMITS.bannersPerDay;
+    return ATTENTION_LIMITS.bannersPerDay - 2;
   }
-  return ATTENTION_LIMITS.bannersPerDay - 1;
+  return ATTENTION_LIMITS.bannersPerDay - 3;
 }
 
 function boundedLevel(requestedLevel, maximumLevel) {
@@ -167,6 +169,11 @@ export function allocateAttention(db, input) {
       shadow: input.shadow === true,
       now,
     });
+    const acknowledged = db.prepare("SELECT 1 FROM sqlite_master WHERE name='cove_responsibilities' AND type='table'").get() && db.prepare("SELECT 1 FROM cove_responsibilities WHERE ref_kind=? AND ref_id=? AND acknowledged_at>?").get(input.refKind,input.refId,new Date(+now-3600000).toISOString());
+    if (acknowledged) {
+      appendSuppression(suppressionRows,db,{kind:input.kind,refKind:input.refKind,refId:input.refId,level:'suppressed',reason:input.reason,suppressedReason:'acknowledged_for_one_hour',createdAt});
+      return {row:null,suppressionRows,cooldown,finalLevel:'suppressed'};
+    }
     if (!cooldown.allowed) {
       appendSuppression(suppressionRows, db, {
         kind: input.kind,
@@ -205,7 +212,7 @@ export function allocateAttention(db, input) {
       // than its reserved slot no matter how many items come due.
       const floorTextBlocked = input.kind === "floor_nudge" &&
         usage.floorTexts >= ATTENTION_LIMITS.floorTextsPerDay;
-      const bannerBlocked = usage.banners >= bannerCapFor(input.kind, usage);
+      const bannerBlocked = usage.banners >= bannerCapFor(input.kind, usage, input.refKind);
       if (
         usage.texts >= ATTENTION_LIMITS.textsPerDay ||
         bannerBlocked ||
@@ -238,7 +245,7 @@ export function allocateAttention(db, input) {
       }
     }
 
-    if (finalLevel === "banner" && usage.banners >= bannerCapFor(input.kind, usage)) {
+    if (finalLevel === "banner" && usage.banners >= bannerCapFor(input.kind, usage, input.refKind)) {
       appendSuppression(suppressionRows, db, {
         kind: input.kind,
         refKind: input.refKind,

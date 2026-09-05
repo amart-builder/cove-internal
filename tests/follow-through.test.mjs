@@ -67,3 +67,21 @@ test('an explicit reminder added after nomination takes ownership before advance
  assert.equal(messages.length,1);assert.match(messages[0].message,/first/);
  assert.equal(followThroughStatus(db,instant).notices.find(x=>x.refId==='second').status,'pending');
 });
+
+test('five earlier banners cannot hide the imminent meeting; acknowledgement prevents a duplicate',async t=>{
+ const db=fixture(t);for(let i=0;i<5;i++)db.prepare("INSERT INTO cove_attention_ledger(id,kind,ref_kind,ref_id,level,reason,delivered_at,created_at) VALUES(?,'chief_of_staff','task',?,'banner','old',?,?)").run(`old-${i}`,`old-${i}`,instant.toISOString(),instant.toISOString());
+ const messages=[];const calendar=async()=>({listEvents:async()=>[{id:'meeting',summary:'Planning',start:new Date(+instant+10*60000).toISOString()}]});await run(db,instant,{calendar,notify:x=>messages.push(x)});assert.equal(messages.length,1);
+ const {acknowledgeFollowThrough}=await import('../src/lib/attention/follow-through.mjs');const notice=followThroughStatus(db,instant).notices[0];assert.equal(acknowledgeFollowThrough(db,notice.id,instant),true);await run(db,new Date(+instant+60000),{calendar,notify:x=>messages.push(x)});assert.equal(messages.length,1);
+});
+test('a suppressed meeting becomes visibly missed, while a cancelled future meeting expires',async t=>{
+ const db=fixture(t);for(let i=0;i<6;i++)db.prepare("INSERT INTO cove_attention_ledger(id,kind,ref_kind,ref_id,level,reason,delivered_at,created_at) VALUES(?,'chief_of_staff','task',?,'banner','old',?,?)").run(`old-${i}`,`old-${i}`,instant.toISOString(),instant.toISOString());
+ const calendar=async()=>({listEvents:async()=>[{id:'meeting',summary:'Planning',start:new Date(+instant+10*60000).toISOString()}]});let s=await run(db,instant,{calendar});assert.equal(s.protection,'attention_required');assert.equal(s.notices[0].status,'pending');
+ s=await run(db,new Date(+instant+11*60000),{calendar:async()=>({listEvents:async()=>[]})});assert.equal(s.notices[0].status,'missed');assert.equal(s.protection,'attention_required');
+});
+test('confirmed commitments receive deadline coverage without being copied to tasks',async t=>{
+ const db=fixture(t);db.prepare("INSERT INTO commitments(id,kind,title,source_kind,due_at,confirmed,created_at,updated_at) VALUES('promise','promise','Send Bob the proposal','manual','2026-09-04',1,?,?)").run(instant.toISOString(),instant.toISOString());const messages=[];await run(db,instant,{notify:x=>messages.push(x)});assert.equal(messages.length,1);assert.match(messages[0].message,/Bob/);assert.equal(db.prepare('SELECT COUNT(*) FROM tasks').pluck().get(),0);
+});
+
+test('responsibility acknowledgement quiets the native follow-through for one hour',async t=>{
+ const db=fixture(t);task(db,'proposal',new Date(+instant+20*60000).toISOString());const {reconcileResponsibilities,listResponsibilities,acknowledgeResponsibility}=await import('../src/lib/responsibility/store.ts');reconcileResponsibilities(db,instant);const row=listResponsibilities(db)[0];acknowledgeResponsibility(db,'task','proposal',row.revision,instant);let sends=0;await run(db,new Date(+instant+60000),{notify:()=>sends++});assert.equal(sends,0);
+});

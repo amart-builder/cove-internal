@@ -34,9 +34,21 @@ export function reserveBackgroundAttempt({ env, settings, lane, inputBytes, now 
   try {
     return db.transaction(() => {
       const windows = [["callsPerHour", 3_600_000], ["callsPerDay", 86_400_000], ["callsPerWeek", 604_800_000]];
+      const essential = /^(chief-of-staff(?:$|-)|brief(?:$|-)|morning-brief)/.test(lane);
+      const blocked = [];
       for (const [key, duration] of windows) {
-        const count = db.prepare("SELECT COUNT(*) FROM cove_background_attempts WHERE started_at > ?").pluck().get(now - duration);
-        if (count >= settings.backgroundLimits[key]) throw new Error(`background_usage_limit: Cove reached its ${key} limit. Scheduled task reminders remain available.`);
+        const rows = db.prepare("SELECT started_at,lane FROM cove_background_attempts WHERE started_at > ? ORDER BY started_at").all(now-duration);
+        const limit = settings.backgroundLimits[key];
+        if(rows.length>=limit) blocked.push(rows[rows.length-limit].started_at+duration+1);
+        // Reserve a quarter of capacity for planning and consequential reviews.
+        // Routine work can never consume that reserve; the total cap still wins.
+        const routine = rows.filter(r=>!/^(chief-of-staff(?:$|-)|brief(?:$|-)|morning-brief)/.test(r.lane));
+        const routineLimit = Math.max(1,limit-Math.max(1,Math.floor(limit/4)));
+        if(!essential && routine.length>=routineLimit) blocked.push(routine[routine.length-routineLimit].started_at+duration+1);
+      }
+      if(blocked.length) {
+        const retryAt=new Date(Math.max(...blocked)).toISOString();
+        throw Object.assign(new Error(`background_usage_limit: Cove is preserving its bounded AI allowance. cove_budget_retry_at=${retryAt}. Scheduled task reminders remain available.`),{retryAt});
       }
       const id = randomUUID();
       db.prepare("INSERT INTO cove_background_attempts (id, started_at, lane, provider, model, effort, input_bytes) VALUES (?, ?, ?, ?, ?, ?, ?)")

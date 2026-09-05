@@ -372,8 +372,9 @@ test('predeadline backlog sends at most three banners per tick', (t) => {
   assert.equal(db.prepare('SELECT count(*) FROM tasks WHERE nudged_at IS NOT NULL').pluck().get(), 3);
   assert.equal(readFileSync(fixture.notificationCapture, 'utf8').trim().split('\n').length, 3);
   runReminderTick(fixture, '2026-08-28T09:01:00-04:00');
-  assert.equal(db.prepare('SELECT count(*) FROM tasks WHERE nudged_at IS NOT NULL').pluck().get(), 4);
-  assert.equal(readFileSync(fixture.notificationCapture, 'utf8').trim().split('\n').length, 4);
+  // The remaining slots belong to the noon floor and time-sensitive alerts.
+  assert.equal(db.prepare('SELECT count(*) FROM tasks WHERE nudged_at IS NOT NULL').pluck().get(), 3);
+  assert.equal(readFileSync(fixture.notificationCapture, 'utf8').trim().split('\n').length, 3);
 });
 
 test('cooldown-suppressed nudges do not starve an eligible candidate behind them', (t) => {
@@ -404,7 +405,7 @@ test('cooldown-suppressed nudges do not starve an eligible candidate behind them
       `INSERT INTO cove_attention_ledger
          (id, kind, ref_kind, ref_id, level, reason, delivered_at,
           suppressed_reason, created_at)
-       VALUES (?, 'sweep_nudge', 'task', ?, 'banner', 'Earlier nudge', ?, NULL, ?)`,
+       VALUES (?, 'sweep_nudge', 'task', ?, 'board', 'Earlier nudge', ?, NULL, ?)`,
     ).run(`prior-${index}`, id, '2026-08-28T12:30:00.000Z', '2026-08-28T12:30:00.000Z');
   }
   insert.run(

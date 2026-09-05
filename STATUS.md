@@ -24,7 +24,57 @@
 
 ---
 
-## 2026-09-04 Published and deployed (CURRENT)
+## 2026-09-05 Responsibility implementation candidate (NOT DEPLOYED)
+
+- Alex authorized all four proposed improvements. Candidate branch:
+  `codex/chief-of-staff-responsibility` in `/private/tmp/cove-responsibility-work`,
+  based on `1a280d1`. Live source and services retain the prior release.
+- Implemented preserved deadlines and source guards, inferred-work proposals,
+  durable next checks with fair selection, local capacity and carryover view,
+  persisted drafts, notification reserves/acknowledgement, and AI budget deferral.
+  Full details and actual boundaries: `docs/responsibility-rollout-2026-09-05.md`.
+- Independent review findings resolved. Actual Astra low fictional rehearsal
+  applied two next-step plans and one saved outline without changing deadlines
+  or marking tasks complete. Final `npm run verify` passed typecheck, lint, 1,294 tests and production build;
+  one opt-in model test skipped. The 541-file client candidate independently
+  passed the same full release gate and export secret/allowlist checks. Nothing from this candidate is published or deployed.
+- Background personal goals/latest closeout/accepted focus context remains
+  paused. Automatic approval review requires specific consent to transmit that
+  context to the selected provider. The question is pending; no such payload
+  expansion is connected. Existing personal Codex configuration is unchanged.
+- Browser acceptance is pending because the memory monitor stopped the temporary
+  port-3320 server at over 9 GB swap. No memory protection was disabled. No live
+  DB migration, service cutover or publication of this candidate has happened.
+- Next: resolve the context decision, complete the browser/native-banner check
+  with adequate memory, then perform a backup-protected live cutover. Do not
+  describe the full vision or client unattended operation as proven yet.
+
+## 2026-09-05 Chief-of-staff methodology reviewed (CURRENT PRODUCT ASSESSMENT)
+
+- Alex clarified the intended outcome: remove the burden of remembering,
+  prioritizing and following through, so the person can focus with confidence.
+  Draft: `docs/cove-north-star-draft.md`. This is proposed direction, not a
+  replacement for active prompts or a claim that the full promise is shipped.
+- Full audit: `docs/chief-of-staff-methodology-review-2026-09-05.md`. Found eight
+  gaps, including deadline rewriting, bounded-context omissions, no accountable
+  next-check state for watching, shadow intelligent alerts, notification budget
+  conflicts, weak completion evidence, shared AI budget starvation and missing
+  outcome evaluation. The prior client recommendation means a supported pilot.
+- Read-only live audit observed three overdue task dates moved to new times by
+  the chief. Shadow settings remain enabled. The latest desk task section was
+  truncated. No live task/settings/service change was made in this review.
+- All 76 focused existing tests passed. Three no-model, no-notification synthetic
+  probes reproduced omitted important work, unsupported completion accepted by
+  the handler, and an upcoming meeting suppressed after five old-task banners.
+- Private evidence is in `data/review-artifacts/2026-09-05-chief-methodology/`.
+  Review documents are included in the isolated candidate. No public publication or deployment.
+- Next proposed work: preserve original deadlines and require completion evidence;
+  then shared context and durable next checks; then attention/budget priorities,
+  feasible-day planning and scenario-based client acceptance. Intelligent alert
+  activation remains a deliberate acceptance step. No change to the inherited
+  shared Codex configuration isolation previously deferred by Alex.
+
+## 2026-09-04 Published and deployed (DEPLOYED BASELINE)
 
 - Public release is merged: https://github.com/amart-builder/cove/pull/1,
   public main `badb7af61245d887a086f4ef42cd4271c9ce8ddb`. Its 533-file

@@ -159,3 +159,12 @@ The main rule is simple: models may interpret and propose, but deterministic
 Cove code authorizes and writes. SQLite owns product state. Gmail owns email.
 New code must preserve those boundaries and include a regression test for the
 invariant it changes.
+
+### Follow-through you can inspect
+
+Cove keeps a next review for each open task and commitment. The chief can propose
+work times and prepare local drafts while preserving recorded deadlines. It does
+not infer that work is complete. Open Your follow-through from Today to see next
+steps, proposed capacity, repeated carryovers and anything prepared for you.
+Calendar and estimate gaps stay visible. You remain in control of completion,
+changed promises and anything sent outside Cove.

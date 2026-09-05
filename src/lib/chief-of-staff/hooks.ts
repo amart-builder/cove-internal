@@ -4,7 +4,7 @@ import { enqueueChiefOfStaffWake } from "./storage";
 import type { ChiefOfStaffReason } from "./types";
 
 export function chiefOfStaffEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return coveEnv("CHIEF_OF_STAFF", env)?.trim().toLowerCase() !== "off";
+  return !["off","0","false"].includes(coveEnv("CHIEF_OF_STAFF", env)?.trim().toLowerCase() ?? "");
 }
 
 export function tryEnqueueChiefOfStaffWake(input: {

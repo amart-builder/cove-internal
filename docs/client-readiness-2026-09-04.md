@@ -2,6 +2,11 @@
 
 ## Current state
 
+September 5 assessment: this release supports a supervised client pilot. The
+[new chief-of-staff methodology review](chief-of-staff-methodology-review-2026-09-05.md)
+identifies additional gaps before the stronger promise of dependable end-to-end
+commitment management. The release evidence below does not prove that promise.
+
 The implementation is published in the public Cove repository and deployed to
 Alex's personal running Cove. Public PR 1 merged as `badb7af`; the sanitized
 manifest records clean source `9451a59`. Private PRs 6 and 7 merged the matching

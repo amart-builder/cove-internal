@@ -235,9 +235,9 @@ export class JobScheduler {
       ).run(receiptCutoff);
       const unclaimedTypes = this.db.prepare(
         `SELECT DISTINCT type FROM cove_jobs
-         WHERE status = 'queued' AND created_at <= ?
+         WHERE status = 'queued' AND created_at <= ? AND run_after <= ?
          ORDER BY type`,
-      ).pluck().all(unclaimedCutoff) as string[];
+      ).pluck().all(unclaimedCutoff, nowIso) as string[];
       if (unclaimedTypes.length > 0) {
         recordFailureInDatabase(this.db, {
           source: "jobs-unclaimed",
@@ -421,7 +421,7 @@ export class JobScheduler {
     }
   }
 
-  private async execute(job: ClaimedJob): Promise<"done" | "failed" | "dead" | "lost"> {
+  private async execute(job: ClaimedJob): Promise<"done" | "failed" | "dead" | "lost" | "deferred"> {
     const startedAt = this.now().toISOString();
     const renewLease = () => {
       try {
@@ -493,6 +493,16 @@ export class JobScheduler {
     } catch (error) {
       const finishedAt = this.now().toISOString();
       const message = errorText(error);
+      // Capacity is an expected pause, not an execution failure. Preserve the
+      // job until the rolling window actually resets, without burning retries.
+      const budgetReset = message.includes("background_usage_limit:")
+        ? /cove_budget_retry_at=(\d{4}-\d{2}-\d{2}T[\d:.]+Z)/.exec(message)?.[1]
+        : undefined;
+      if (budgetReset && Number.isFinite(Date.parse(budgetReset)) && Date.parse(budgetReset)>Date.parse(finishedAt) && Date.parse(budgetReset)<=Date.parse(finishedAt)+8*86400000) {
+        const deferred = this.db.prepare(`UPDATE cove_jobs SET status='queued',run_after=?,attempts=MAX(0,attempts-1),lease_until=NULL,lease_token=NULL,last_error=?
+          WHERE id=? AND status='leased' AND lease_token=?`).run(budgetReset,message,job.id,job.leaseToken);
+        return deferred.changes === 1 ? "deferred" : "lost";
+      }
       const nextStatus: "failed" | "dead" = job.attempts >= job.maxAttempts
         ? "dead"
         : "failed";
@@ -624,7 +634,7 @@ export class JobScheduler {
     return result;
   }
 
-  async runJob(id: string): Promise<"done" | "failed" | "dead" | "lost" | "unavailable"> {
+  async runJob(id: string): Promise<"done" | "failed" | "dead" | "lost" | "deferred" | "unavailable"> {
     // Explicit actions recover only their own lease. Other queue housekeeping
     // belongs to runAvailable, not a manual backup or an email-card action.
     this.recoverExpiredLeases(id);

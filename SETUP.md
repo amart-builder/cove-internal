@@ -567,7 +567,10 @@ It still needs this Mac awake, and connected sources must stay healthy."
 2. Create private `data/cove-mandate.md` from
    `prompts/chief-of-staff-mandate.md`. Preserve its safety and action boundaries.
    Add the user's priorities, watch list, and decisions that must return to them.
-   Read those additions back. Never copy another person's mandate.
+   Read those additions back. Never copy another person's mandate. Explain that
+   this mandate is sent to the selected provider on background reviews. The
+   mandatory responsibility contract preserves deadlines, requires completion
+   confirmation and keeps inferred new work in suggestions.
 3. Full installs with saved agent settings enable chief service by default.
    Record `COVE_CHIEF_OF_STAFF=1` in private `.env.local` for clarity. Keep both
    values in `data/attention-sweep.json` true. Shadow mode suppresses model-judged
@@ -577,7 +580,11 @@ It still needs this Mac awake, and connected sources must stay healthy."
    `node --import tsx scripts/cove-chief-of-staff.ts enqueue --reason manual --note "Review my current commitments"`.
    Let the installed drain handle it. Inspect its `status`, journal, and board.
    Acceptance requires a completed wake and review of its actual changes.
-5. Check Issues > On your radar. Deadline checks must be current. Connect
+5. Open Your follow-through from Today. Confirm a real obligation has a next
+   action and review time, while its deadline is unchanged. Check any prepared
+   draft and verify no send or completion was inferred. Explain the capacity
+   assumptions and any unknown calendar or estimates.
+6. Check On your radar on that page. Deadline checks must be current. Connect
    Calendar only with the user's permission, then verify a real upcoming event.
    Meeting banners occur within 15 minutes of a timed event. Advance deadline
    checks need no model call. They respect quiet hours, recent task engagement,
