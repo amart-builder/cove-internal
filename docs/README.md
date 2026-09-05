@@ -21,6 +21,8 @@ code.
 | Document | Historical scope |
 | --- | --- |
 | `arrival-trigger-spike.md` | Reversible browser-arrival experiment. Not part of the production installer. |
+| `codebase-review-2026-09-04.md` | Review, implemented fixes, remaining decisions, validation, and activation limits. |
+| `client-readiness-2026-09-04.md` | Client setup and empty-day improvements, exported-package rehearsal, and rollout limits. |
 | `code-review-2026-07-26.md` | Point-in-time audit. Many findings were fixed or superseded later. |
 | `cove-plan-2026-07.md` | Settled July build plan and product decisions. Implementation status is historical. |
 | `wave-summary-2026-07-29.md` | Build-wave completion summary. Product and repository status in it is stale. |

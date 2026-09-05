@@ -271,8 +271,8 @@ test("installer creates the optional env file safely and treats a slow worker as
   assert.match(installer, /com\.cove\.chief-of-staff-nightly\.plist/);
   assert.match(installer, /com\.cove\.chief-of-staff-review\.plist/);
   assert.match(installer, /CHIEF_OF_STAFF_OPT_IN="\$\(local_env_value COVE_CHIEF_OF_STAFF\)"/);
-  assert.match(installer, /\[ "\$CHIEF_OF_STAFF_OPT_IN" = "1" \][\s\S]{0,180}\[ -n "\$CODEX_BIN" \][\s\S]{0,180}\[ -f "\$LANE_DATA_DIR\/cove-mandate\.md" \]/);
-  assert.match(installer, /Chief of staff: off \(set COVE_CHIEF_OF_STAFF=1 in \.env\.local, install codex, and add data\/cove-mandate\.md to enable\)/);
+  assert.match(installer, /\[ "\$CHIEF_OF_STAFF_OPT_IN" = "1" \][\s\S]{0,180}\[ -s "\$LANE_DATA_DIR\/cove-mandate\.md" \]/);
+  assert.match(installer, /Chief of staff: off \(set COVE_CHIEF_OF_STAFF=1, verify the selected agent, and add data\/cove-mandate\.md to enable\)/);
   const disabledLaneBlock = installer.match(
     /if \[ "\$INSTALL_CHIEF_OF_STAFF_LANE" != "1" \]; then([\s\S]*?)\nfi/,
   )?.[1] ?? "";
@@ -294,6 +294,7 @@ test("task and contact skills authenticate every documented generic mutation", (
   const contact = readFileSync(path.join(ROOT, "skills", "cove-contact", "SKILL.md"), "utf8");
   assert.match(task, /csrfToken/);
   assert.match(task, /X-Cove-CSRF: <token from the day-plan GET>/);
+  assert.match(task, /"origin": "<who asked, where, and when, then their exact words in quotes>"/);
   assert.match(contact, /api\/cove-rest\/companies[\s\S]{0,300}X-Cove-CSRF/);
 });
 

@@ -24,6 +24,247 @@
 
 ---
 
+## 2026-09-04 Reviewed candidate committed locally
+
+- Full reviewed implementation is committed on `codex/chief-of-staff-client-ready`.
+  This worktree shares the main Cove Git repository; use `git log -1` on that
+  branch for the exact commit. The main daily-driver checkout remains unchanged.
+- Immediately before commit, all 530 untransformed exported files matched the
+  verified 533-file package; the other three retain their intentional export
+  transformations. No implementation changed after the passing 1,278-test gate.
+- No push, merge, live migration, service replacement or publication. Claude
+  live sign-in and client-specific workflow/calendar acceptance are still needed.
+- Next: approved release/publication, then supervised activation using the
+  target installation's own private settings and backup.
+
+## 2026-09-04 Client readiness implementation complete (ISOLATED, NOT DEPLOYED)
+
+- Continue from `/private/tmp/cove-chief-client-work`, branch
+  `codex/chief-of-staff-client-ready`, base `bf15ba0` plus reviewed local changes.
+  Earlier milestone notes below are historical; current state is in
+  `docs/client-readiness-2026-09-04.md`.
+- Implemented exact Claude/Codex selection across standard jobs, chief, Buddy,
+  compaction, sign-in recovery, spawned sessions and task Planning/Auto/resume.
+  Full setup requires only the chosen CLI and includes the chief after preflight.
+  Legacy day-plan execution remains Claude-only and refuses selected Codex.
+- Deterministic meeting/deadline follow-through adds quiet hours, freshness,
+  engagement suppression, durable claims, bounded native banners and one-hour
+  snooze. It uses no model calls. Uncertain delivery is visible, not blindly
+  retried. Archived tasks and newly added explicit reminders cannot acquire an
+  automatic advance claim. Existing explicit reminders survive checker failure.
+- Quiet Current SQLite migration, atomic same-field edit guards and recurrence
+  pause/resume identity are implemented. Metadata edits preserve paused state.
+  Backup, dependency/security hardening and docs from the initial pass remain.
+- Selected Codex Buddy uses on-request automatic approval review and only Cove's
+  MCP data tool. Task work retains on-request approvals. Automatic review rejected
+  disabled write approval and cross-provider chat transfer; those choices were
+  not shipped. Shared background Codex isolation remains unchanged as requested.
+- Exact sanitized package `/private/tmp/cove-client-final`: 533 files, secret and
+  setup checks passed; locked dependency install reports zero advisories; final
+  release gate passed TypeScript, zero-warning lint, 1,278 tests, zero failures,
+  one intentional live-model skip and production build. Independent reviews
+  completed; findings fixed and retested.
+- Actual GPT-6 low on Codex 0.153.4 passed conversation, tool-backed fictional task
+  capture/edit with a verified UI receipt and DB effect, and a planning run with
+  native session head and ready result. Old CLI 0.146.0 could not use GPT-6;
+  Alex authorized and received the 0.153.4 global CLI upgrade. Personal config
+  and sign-in were preserved. Claude CLI reports not signed in, so live Claude
+  acceptance remains unverified. No client install or real calendar/banner check.
+- Browser checks verified task conflict text preservation, reminder/usage health
+  and snooze after restart. Test server/browser are stopped. No live app source
+  activation, DB migration, service restart, commit, push or publication.
+- Durable recovery copies in ignored `data/review-artifacts/2026-09-04-client-readiness/`:
+  sanitized client tarball, internal tracked patch and new-file tarball. Their
+  README identifies exact base and recovery procedure. Do not copy a synthetic
+  build or another person's settings into a live installation.
+- Next: reviewed commit/release and separately authorized deployment; then chosen
+  provider sign-in, real open work, first brief, supervised chief wake, capture,
+  edit, closeout, backup/restart and chosen integration acceptance on the client.
+  Call caps are not a subscription-balance guarantee; interactive usage is separate.
+
+## 2026-09-04 Buddy provider integration (ISOLATED, NOT DEPLOYED)
+
+- Continue in `/private/tmp/cove-chief-client-work` on
+  `codex/chief-of-staff-client-ready`. This extends the foundations below.
+- Buddy conversation and replan calls use the saved exact Claude or Codex model
+  and effort. Claude recovery preserves the selection. Codex uses a separate
+  configuration home and a narrow stdio MCP bridge into existing validated Cove
+  data commands. Shell, web and app tools are disabled in this path.
+- Provider-specific session IDs prevent cross-provider resume. Switching starts
+  fresh with a visible notice; previous private chat is not transferred.
+  Automatic approval review rejected cross-provider chat transfer, so that
+  behavior was omitted. Saved tasks remain available through validated tools.
+- Added exact model/provider and unknown-cost metadata, Codex setup recovery
+  messages, bounded subprocess output, and forced cleanup after output overflow.
+  Existing deletion confirmation and receipt authority remain intact.
+- Full testing exposed and fixed a concurrent first-open SQLite journal race.
+  Journal setup now retries SQLITE_BUSY within a bounded window; failed setup
+  and migrations close their connections.
+- Verification: full release gate passed (1,253 tests, zero failures, three
+  skips, typecheck, lint, production build). Two skipped restore-lock tests were
+  rerun with `/usr/sbin` on PATH; all 16 backup tests passed. The remaining skip
+  is the intentional live-model test. 127 targeted tests passed. Independent
+  review passed. Native Codex MCP config listing passed with synthetic auth.
+  Sanitized 522-file export passed. No paid model call or live UI acceptance.
+- Next: implement task-session provider parity, Codex conversation compaction
+  and sign-in polish; then standard installer acceptance and reliable proactive
+  meeting/deadline notifications. Background caps do not cover interactive
+  Buddy/task sessions. Do not present this as a complete client install.
+- No live source activation, database migration, service restart, notification,
+  commit, push, or publication. No long-lived test processes remain.
+
+## 2026-09-04 Chief-of-staff foundations (ISOLATED, NOT DEPLOYED)
+
+- Implementation checkout: `/private/tmp/cove-chief-client-work`, branch
+  `codex/chief-of-staff-client-ready`, based on `bf15ba0` plus the earlier local
+  review fixes. Continue implementation there. The daily-driver source and data
+  have not received these new runtime changes.
+- Quiet Current now uses transactional SQLite with one-time validated JSON
+  import, exact recovery backup, concurrent claim deduplication, rollback and
+  database-only restore coverage. No live migration has run.
+- Added explicit shared provider/model/effort settings for bounded jobs and
+  both-provider chief/review execution. Fresh bounded calls use saved desk and
+  journal context. Existing installs without settings retain legacy behavior.
+- Durable usage reservations enforce provisional rolling call caps and per-call
+  input/output/time ceilings. Failures and retries count. Usage is visible in
+  Issues; unknown provider usage stays unknown. These limits are not a guarantee
+  about remaining subscription allowance or hidden reasoning tokens.
+- Setup settings command verifies a chosen model before saving, uses local env,
+  and handles concurrent changes. It does not install/restart services.
+- Chief-created explicit advance reminders now enable the matching notification
+  policy. Independent review findings were fixed and regression-tested.
+- Validation: full release gate passed (1,244 tests, zero failures, one live
+  skip, typecheck, lint and production build); final settings/usage regressions
+  passed separately. Both providers used fake CLI executables, not paid model
+  calls. Sanitized 518-file export passed.
+- Next: finish Buddy and task-session provider parity before changing the
+  standard installer; implement reliable meeting/deadline follow-through and
+  visible source freshness; evaluate real Fable/Astra workloads before final
+  budgets and client acceptance. No client install, live model call, commit,
+  push or deployment occurred in this implementation pass.
+
+## 2026-09-04 Codebase review and bounded hardening (SOURCE READY, NOT COMMITTED)
+
+### Clarified client product direction (TARGET, NOT IMPLEMENTED)
+
+- Alex wants the complete chief-of-staff experience by default, patterned on
+  his working setup. The earlier separate chief-of-staff opt-in recommendation
+  is superseded. Clients should not select internal feature bundles.
+- Recommend the provider receiving the setup request and ask one model
+  question. Proposed defaults: Claude Fable 5.1/low or GPT-6 Astra/low, subject
+  to the client's CLI access and Cove acceptance. Apply the saved selection
+  consistently across every model feature.
+- At the start of this review, code was mixed-provider: background jobs
+  supported both; chief was Codex-only; Buddy/task sessions were Claude-only. The complete
+  either-provider experience needs implementation, not just setup doc edits.
+- Updated `docs/client-readiness-2026-09-04.md` to separate completed changes,
+  confirmed product direction, and remaining engineering work. No runtime or
+  live model settings were changed in this clarification pass.
+- Alex approved continuing with the migration and provider/usage foundations.
+  The isolated implementation above supersedes that pending decision. Finish
+  complete provider paths before changing setup claims or publishing.
+
+### Client-readiness follow-up (SOURCE VERIFIED, NOT PUBLISHED)
+
+- Alex added the one-link client setup and intuitive first-day UI as key goals.
+  Scoped CRM/meeting-email reads informed general requirements; no private
+  client notes were added to the public export.
+- Setup now explicitly carries the supported first-day Claude backend into
+  installer calls, offers a complete opt-in persistent chief-of-staff path,
+  adapts the interview for individuals, and states actual model/storage limits.
+  Existing model execution and runtime defaults remain unchanged.
+- An explicitly requested chief service now fails early on missing Codex or a
+  missing/empty mandate. Empty Today links directly to choosing or adding work.
+  Release tests run two files at a time to bound laptop memory use.
+- Fresh client export: 510 files; privacy checks and npm ci passed, zero npm
+  advisories. Full npm run verify: 1226 passed, 0 failed, 1 live-model skip,
+  TypeScript/lint/production build passed. Browser capture, edit, CTA, and
+  restart persistence passed with synthetic data. Independent review passed.
+  Test server and browser tab stopped; live app was not restarted.
+- Public main remains `7b67caf`; no commit, push, client install, or publication.
+  Details: `docs/client-readiness-2026-09-04.md`.
+- Next action: awaiting Alex's decision on transactional Quiet Current storage
+  before the recommended client rollout. No live migration is authorized or
+  performed. Client sign-in, actual brief quality, selected integrations, and
+  uncoached daily use still require supervised client acceptance.
+
+### Initial review
+
+- Reviewed after `bf15ba0`; preserved the preceding provenance, sign-in, and
+  duplicate-task commits. Full findings, scope, and deferred decisions:
+  `docs/codebase-review-2026-09-04.md`.
+- Fixed manual backup false-success, stale same-day snapshots, and unrelated
+  queue execution/lease recovery. New snapshots are integrity-checked before
+  rotation. Manual names are unique; scheduled `--daily` remains deduplicated.
+- Task editors submit only edited fields, preserving unrelated background
+  updates and allowing origin text to be cleared. Same-field conflicts still
+  need a conditional-write design.
+- Added loopback defaults for npm start/dev and anti-framing response headers;
+  patched three dependency advisory groups through compatible lockfile updates.
+- Corrected security/privacy/recovery docs and documented Quiet Current's actual
+  JSON storage and cross-process lost-update risk. Alex chose to leave model
+  execution unchanged; inherited Codex config and Buddy seed hooks are documented.
+- Validation in an exact disposable copy with separate dependencies, Node
+  24.19.0: 1221 tests passed, 0 failed, 1 intentional live-model skip; TypeScript,
+  zero-warning lint, production Webpack build, browser stale-field/origin checks,
+  and response-header/loopback checks passed. npm audit: 0 advisories. Independent
+  final review: no material findings. Temporary server and browser tab stopped.
+- Live app/dependency tree were not rebuilt, replaced, or restarted. Scheduled
+  scripts may read updated source on their next run. The tested synthetic build
+  must not be deployed over the install's own settings.
+- Next: review the larger Quiet Current transactional-storage proposal, decide
+  same-day recurrence resume and reminder-policy behavior, and activate web/
+  dependency changes with supported Node and the intended install settings.
+  No live state migration, notification policy change, commit, or push performed.
+
+## 2026-09-04 Task provenance: "Reason this task was added" (COMMITTED)
+
+- Alex asked that every task show exactly where it came from, with the quote
+  when Cove has one. New nullable `tasks.origin` column (migration 25), a
+  read-only box in the task sheet and the board detail, and an editable
+  "Reason this task was added" field in both editors. Existing tasks have no
+  origin until edited; the box hides when empty.
+- Every writer now fills it. Inbound events quote the raw text with the
+  channel and date (`src/lib/tasks/origin.ts`, `task-writer.ts`). Meeting
+  analyst tasks get a new optional `origin` field in the artifact schema and
+  prompt, always anchored to the meeting title, date, and note tool
+  (`meetingTaskOrigin`). Chief of staff carries its `why`, recurring tasks
+  name the rhythm, the email card explains itself, Buddy replans quote the
+  user's message when the receipt has it, Morning Brief actions carry the
+  action's `why`, manual UI adds say where on the board. The cove-task skill
+  contract now requires `origin` in the POST body.
+- Verified: 1194 tests pass, lint and tsc clean, production build, app and
+  claude-worker restarted, browser check of the edit-and-save path and the
+  read-only box in the Morning Arrival sheet.
+- Duplicate-task review (read-only) found 11 groups, 31 extra copies. Main
+  causes: a scratch-DB analyst run posting tasks to the live server (default
+  `BRIEF_WEB_BASE`), the same meeting analyzed from Gemini and Granola, and
+  chief-of-staff `task_create` with no dedupe. The follow-up duplicate guards
+  recorded below address these writer paths.
+- Buddy "OAuth session expired" Retry dead end: fixed. The string comes
+  from the Claude Code binary; Cove's `isClaudeNotSignedIn` only matched the
+  old "/login" wording, so the raw sentence rendered with a Retry that just
+  re-sent the prompt. Root cause on Sep 4 10:15 PT: a failed token refresh
+  blanked the keychain item (likely two Claude processes refreshing at once).
+  Now: matcher covers the new wording, Buddy shows a "Claude needs you to
+  sign in again" card with a "Sign in again" button that opens Terminal
+  running `claude auth login` (POST `/api/buddy/claude-login`), polls
+  `/api/buddy/claude-auth-status` every 4s for 5 min, and retries the turn
+  once signed in. Task sessions map the same failure to a clear notice.
+  Verified in the browser on the four failed turns. The CLI is still signed
+  out as of this write: Alex has to click the button.
+- Committed as `cd34bfd` (task origin) and `bc9cf3a` (Buddy sign-in).
+- Three safe duplicate guards, Alex's call, committed after: (A) the inbound
+  writer and meeting drain refuse to post tasks when `COVE_DB_PATH` is not
+  the default database and no `BRIEF_WEB_BASE` is set (`inbound_web_base_required`),
+  so a scratch run can never land on the live board; installed plists set
+  neither var, so production lanes pass. (B) Chief-of-staff `task_create`
+  rejects a title that matches an open task or one done or archived in the
+  last 14 days, and its snapshot lists tasks created in the last 48 hours.
+  (C) Morning Brief `create_task` dedupe now also sees done or archived
+  tasks from the last 14 days. Still open, needs a design call: the same
+  meeting analyzed from both Gemini email notes and Granola.
+
 ## 2026-09-03 Public release: opt-in gates, chief-of-staff agent, focus sessions (DONE, PUBLISHED)
 
 - Alex asked for everything except the sales dashboard to go to the client

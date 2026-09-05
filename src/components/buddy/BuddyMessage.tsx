@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import { ThinkingOrb } from 'thinking-orbs';
 import type { BuddyTurnView } from './BuddyProvider';
 import { isClaudeNotSignedIn } from '@/lib/buddy/errors';
@@ -9,42 +10,147 @@ import SessionLinkCard from './SessionLinkCard';
 import ReplanPreviewCard from './ReplanPreviewCard';
 import FeedbackReceiptCard from './FeedbackReceiptCard';
 
-export default function BuddyMessage({ turn, thinking, hostname, deepLinksEnabled, onRetry }: {
+const AUTH_POLL_INTERVAL_MS = 4_000;
+const AUTH_POLL_LIMIT_MS = 5 * 60 * 1000;
+const SIGN_IN_FALLBACK = 'Open Terminal and run: claude auth login, then tap Retry.';
+
+type SignInPhase = 'idle' | 'opening' | 'waiting' | 'fallback';
+
+/**
+ * Shown when a turn failed because the Claude login on this computer expired.
+ * Retry alone cannot fix that, so this card opens the login in Terminal, then
+ * watches the auth status and retries the turn once the login is back.
+ */
+export function ClaudeSignInCard({ hostname, deepLinksEnabled, onRetry, getCsrfToken, provider = 'claude' }: {
+  provider?: 'claude' | 'codex';
+  hostname?: string;
+  deepLinksEnabled?: boolean;
+  onRetry: () => void;
+  getCsrfToken?: () => Promise<string>;
+}) {
+  const providerName = provider === 'codex' ? 'Codex' : 'Claude';
+  const loginCommand = provider === 'codex' ? 'codex login' : 'claude auth login';
+  const [phase, setPhase] = useState<SignInPhase>('idle');
+  const hostLabel = hostname ?? 'this computer';
+  const retriedRef = useRef(false);
+  const onRetryRef = useRef(onRetry);
+  onRetryRef.current = onRetry;
+
+  useEffect(() => {
+    if (phase !== 'waiting') return;
+    let stopped = false;
+    let timer: number | undefined;
+    const startedAt = Date.now();
+    const poll = async () => {
+      if (stopped) return;
+      if (Date.now() - startedAt > AUTH_POLL_LIMIT_MS) {
+        setPhase('fallback');
+        return;
+      }
+      let signedIn = false;
+      try {
+        const response = await fetch(provider === 'codex' ? '/api/buddy/codex-auth' : '/api/buddy/claude-auth-status', { cache: 'no-store' });
+        const payload = await response.json().catch(() => ({}));
+        signedIn = response.ok && payload?.signedIn === true;
+      } catch {
+        signedIn = false;
+      }
+      if (stopped) return;
+      if (signedIn && !retriedRef.current) {
+        retriedRef.current = true;
+        onRetryRef.current();
+        return;
+      }
+      timer = window.setTimeout(() => void poll(), AUTH_POLL_INTERVAL_MS);
+    };
+    timer = window.setTimeout(() => void poll(), AUTH_POLL_INTERVAL_MS);
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+  }, [phase, provider]);
+
+  const startSignIn = async () => {
+    setPhase('opening');
+    try {
+      if (!getCsrfToken) throw new Error('Cove request token is unavailable.');
+      const token = await getCsrfToken();
+      const response = await fetch(provider === 'codex' ? '/api/buddy/codex-auth' : '/api/buddy/claude-login', {
+        method: 'POST',
+        headers: { 'X-Cove-CSRF': token },
+        cache: 'no-store',
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload?.ok !== true) throw new Error('Could not open Terminal.');
+      setPhase('waiting');
+    } catch {
+      setPhase('fallback');
+    }
+  };
+
+  return (
+    <div className="space-y-2 rounded-lg border border-border/60 bg-background/60 p-3">
+      <p className="font-medium">{providerName} needs you to sign in again</p>
+      <p className="text-muted-foreground">
+        Your {providerName} login is unavailable. Sign in to continue this conversation.
+      </p>
+      {deepLinksEnabled === false && (
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Cove runs on {hostLabel}, so sign in on that machine with <code className="font-mono">{loginCommand}</code>.
+        </p>
+      )}
+      {phase === 'waiting' ? (
+        <p className="text-sm leading-relaxed text-muted-foreground" role="status">
+          Finish signing in in the Terminal window that just opened. Buddy will retry on its own once you&apos;re back.
+        </p>
+      ) : phase === 'fallback' ? (
+        <p className="text-sm leading-relaxed text-muted-foreground" role="status">
+          {provider === 'codex' ? 'Open Terminal and run: codex login, then tap Retry.' : SIGN_IN_FALLBACK}
+        </p>
+      ) : (
+        <button
+          type="button"
+          disabled={phase === 'opening'}
+          className="rounded-md bg-accent-blue px-3 py-1.5 text-xs font-semibold text-white transition-transform duration-150 ease-out hover:opacity-90 active:scale-[0.97] disabled:opacity-60 motion-reduce:transform-none"
+          onClick={() => void startSignIn()}
+        >
+          {phase === 'opening' ? 'Opening Terminal…' : 'Sign in again'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+export default function BuddyMessage({ turn, thinking, hostname, deepLinksEnabled, onRetry, getCsrfToken }: {
   turn: BuddyTurnView;
   thinking?: boolean;
   hostname?: string;
   deepLinksEnabled?: boolean;
   onRetry: (text: string) => void;
+  getCsrfToken?: () => Promise<string>;
 }) {
   const isConfirmedDelete = /^CONFIRM_DELETE\b/.test(turn.user_text);
-  const needsClaudeSignIn = turn.state === 'failed' && isClaudeNotSignedIn(turn.assistant_text);
-  const hostLabel = hostname ?? 'this computer';
+  const needsClaudeSignIn = turn.provider !== 'codex' && turn.state === 'failed' && isClaudeNotSignedIn(turn.assistant_text);
+  const needsCodexSignIn = turn.provider === 'codex' && turn.state === 'failed' && /sign in|login|authentication|unauthorized/i.test(turn.assistant_text);
   return (
     <article className="space-y-2">
+      {turn.provider_changed === 1 && (
+        <p className="text-xs text-muted-foreground">
+          Now using {turn.provider === 'codex' ? 'Codex' : 'Claude'} in a new conversation. Earlier chat has not been shared with this provider. Your saved Cove tasks are still available.
+        </p>
+      )}
       <div className="ml-auto w-fit max-w-[86%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-accent-blue px-3.5 py-2.5 text-sm leading-relaxed text-white">
         {isConfirmedDelete ? 'Confirmed delete' : turn.user_text}
       </div>
       <div className="mr-auto max-w-[92%] rounded-2xl rounded-bl-md bg-muted px-3.5 py-2.5 text-sm leading-relaxed text-foreground">
-        {needsClaudeSignIn ? (
-          <div className="space-y-2 rounded-lg border border-border/60 bg-background/60 p-3">
-            <p className="font-medium">Claude needs to be signed in on this computer first.</p>
-            <p className="text-muted-foreground">
-              I run on Claude, and Claude&apos;s sign-in on {hostLabel} has expired or was never done. It takes about a minute to fix, one time, in the Terminal app.
-            </p>
-            {deepLinksEnabled === false && (
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                Heads up: Cove here runs on {hostLabel}, so the sign-in has to happen on that machine (Screen Sharing into it, or ssh, then the same steps).
-              </p>
-            )}
-            <ol className="list-decimal space-y-1.5 pl-5 text-sm leading-relaxed text-muted-foreground">
-              <li>Open the Terminal app (press Cmd+Space, type &quot;Terminal&quot;, press Return).</li>
-              <li>Type <code className="font-mono">claude</code> and press Return.</li>
-              <li>Type <code className="font-mono">/login</code> and press Return, then pick &quot;Claude account with subscription&quot;.</li>
-              <li>Your web browser will open. Approve the sign-in, then copy the code it shows you.</li>
-              <li>Paste that code back into Terminal and press Return.</li>
-              <li>Come back here and tap Retry.</li>
-            </ol>
-          </div>
+        {needsClaudeSignIn || needsCodexSignIn ? (
+          <ClaudeSignInCard
+            provider={turn.provider ?? 'claude'}
+            hostname={hostname}
+            deepLinksEnabled={deepLinksEnabled}
+            onRetry={() => onRetry(turn.user_text)}
+            getCsrfToken={getCsrfToken}
+          />
         ) : turn.assistant_text ? (
           <p className="whitespace-pre-wrap">{turn.assistant_text}</p>
         ) : thinking || turn.state === 'running' ? (

@@ -292,6 +292,11 @@ export async function runVoiceReview(options = {}) {
         dataDir: paths.dataDir,
         now: () => now,
       }));
+    const reviewDate = now.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
     await createTask({
       id: `voice-review:${localDateKey(now)}`,
       title: "Review weekly voice digest",
@@ -299,6 +304,7 @@ export async function runVoiceReview(options = {}) {
       project: "Cove",
       priority: "medium",
       tags: ["voice-review"],
+      origin: `Cove's weekly voice review ran on ${reviewDate}. It compared ${rows.length} drafts you sent or dropped and found ${candidates.length} emails you wrote yourself, then wrote its notes to ${reviewPath}.`,
     });
     if (rows.length > 0) {
       const markReviewed = db.prepare(

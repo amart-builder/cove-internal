@@ -115,7 +115,7 @@ function createManagedBoardTables(db) {
       id TEXT PRIMARY KEY, column_id TEXT, title TEXT NOT NULL, description TEXT,
       priority TEXT, due_at TEXT, due_date TEXT, tags TEXT, project TEXT,
       position REAL, status TEXT, archived_at TEXT, archived_from_status TEXT,
-      recurring_template_id TEXT, occurrence_local_date TEXT,
+      recurring_template_id TEXT, occurrence_local_date TEXT, origin TEXT,
       created_at TEXT, updated_at TEXT
     );
     INSERT OR IGNORE INTO task_columns (id, name, position) VALUES
@@ -989,6 +989,13 @@ test('an arrival addition remains exactly identifiable after the plan is reopene
 
   assert.equal(matchingItems.length, 1);
   assert.equal(matchingItems[0].outcomeKey, arrivalAdditionOutcomeKey(addition));
+  const backing = new Database(file, { readonly: true });
+  const origin = backing.prepare('SELECT origin FROM tasks WHERE id = ?').pluck().get(matchingItems[0].taskId);
+  backing.close();
+  assert.equal(
+    origin,
+    'You added this during Morning Arrival on Jul 10, 2026. Your reason: "The client is waiting on the next step."',
+  );
 });
 
 test('an unsupported mutation throws without bumping the plan version', (t) => {
@@ -1990,6 +1997,10 @@ test('grounded brief task creation writes one real Today task and deduplicates l
   assert.equal(created[0].column_name, 'Must happen today');
   assert.equal(created[0].priority, 'high');
   assert.equal(created[0].due_date, '2026-07-10');
+  assert.equal(
+    created[0].origin,
+    'Suggested by your Morning Brief on Jul 10, 2026. Cove created it when the brief was applied: Concrete work from the brief.',
+  );
   assert.deepEqual(
     db.prepare('SELECT state FROM day_plan_brief_actions ORDER BY action_index').pluck().all(),
     ['applied', 'skipped_conflict'],
@@ -2373,5 +2384,60 @@ test('staging an older artifact preserves the newer actions and leaves the GET p
   db.exec('BEGIN IMMEDIATE');
   assert.doesNotThrow(() => store.initialize());
   db.exec('ROLLBACK');
+  db.close();
+});
+
+test('brief task creation treats a title finished two days ago as a conflict', (t) => {
+  const { file, store } = isolatedStore(t, '2026-07-10T16:00:00.000Z');
+  const db = new Database(file);
+  createManagedBoardTables(db);
+  db.prepare(
+    `INSERT INTO tasks
+      (id, column_id, title, description, priority, tags, position, status, created_at, updated_at)
+     VALUES ('done-agreement', 'col-ns', ?, '', 'medium', '[]', 0, 'done', ?, ?)`,
+  ).run(
+    "Review Asher's founders agreement",
+    '2026-07-01T16:00:00.000Z',
+    '2026-07-08T16:00:00.000Z',
+  );
+  const queued = store.enqueueMorningBrief('2026-07-10', {
+    modelAlias: 'opus', effort: 'high', budgetUsd: 1.5,
+  }).brief;
+  store.claimNextMorningBrief();
+  const completed = store.completeMorningBrief(queued.id, JSON.stringify({
+    headline: 'Focus.',
+    narrativeParagraphs: ['Review the agreement.'],
+    lensNarrative: 'Focus.\n\nReview the agreement.',
+    existingTaskCandidates: [],
+    watchItems: [],
+    boardActions: [{
+      op: 'create_task',
+      title: "review asher's founders agreement",
+      description: 'Already finished this week, so no new card.',
+      priority: 'high',
+      dueLocalDate: '2026-07-10',
+      why: 'Duplicate of finished work.',
+      evidenceRefs: ['sprint_memo:asher'],
+    }],
+  }));
+  assert.ok(completed);
+  assert.equal(store.stageMorningBriefBoardActions(completed.id), 1);
+  assert.deepEqual(store.activateBriefBoardActions('2026-07-10'), {
+    activated: true,
+    artifactId: completed.id,
+    applied: 0,
+    skippedConflict: 1,
+    skippedOfflimits: 0,
+  });
+  assert.equal(db.prepare('SELECT COUNT(*) FROM tasks').pluck().get(), 1);
+  const actionRow = db.prepare(
+    'SELECT state, after_json FROM day_plan_brief_actions WHERE artifact_id = ?',
+  ).get(completed.id);
+  assert.equal(actionRow.state, 'skipped_conflict');
+  const resolved = JSON.parse(actionRow.after_json);
+  assert.equal(resolved.id, 'done-agreement');
+  assert.equal(resolved.status, 'done');
+  // A finished task blocks the duplicate but never becomes a Today pick.
+  assert.deepEqual(store.morningBriefCreatedTaskPicks(completed.id), []);
   db.close();
 });

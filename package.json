@@ -7,9 +7,9 @@
     "node": "^20.19.0 || ^22.13.0 || >=24"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -H 127.0.0.1",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -H 127.0.0.1",
     "lint": "eslint --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "test": "tsc --noEmit && node --import tsx --test tests/*.test.mjs",

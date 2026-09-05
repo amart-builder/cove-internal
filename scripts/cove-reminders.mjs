@@ -19,6 +19,9 @@
  * fire when it next wakes; for always-on delivery the user needs a Mac Mini/VPS.
  */
 import Database from "better-sqlite3";
+import { loadLocalEnv } from "./lib/load-local-env.mjs";
+import { readAgentSettings } from "../src/lib/agent-settings.mjs";
+import { runFollowThrough } from "../src/lib/attention/follow-through.mjs";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -44,7 +47,8 @@ import { coveConfigPath, coveEnv } from "../src/lib/env-runtime.mjs";
 import { operatorTimezone } from "../src/lib/operator-runtime.mjs";
 
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const dbPath = coveEnv("DB_PATH") || path.join(repoDir, "data", "cove.db");
+loadLocalEnv(repoDir);
+const dbPath = coveEnv("DB_PATH") || path.join(coveEnv("DATA_DIR") || path.join(repoDir, "data"), "cove.db");
 const DIRECT_AUTHOR_SOURCES = new Set([
   "chat",
   "imessage",
@@ -780,6 +784,26 @@ async function main() {
   if (!db) return;
   const now = attentionNow();
   await runDeterministicFloor(db, config, token, now);
+  // Only explicit new agent settings activate the additional native checks.
+  // Existing installs keep their reminder behavior until their setup is changed.
+  try {
+  if (readAgentSettings() && coveEnv("FOLLOW_THROUGH") !== "0" && db.prepare("SELECT 1 FROM sqlite_schema WHERE name='cove_follow_through_notices'").get()) {
+    await runFollowThrough({ db, now, timezone: operatorTimezone(),
+      calendar: async () => {
+        const { createGoogleWorkspaceGateway } = await import("../src/lib/workspace/google/gateway.ts");
+        return createGoogleWorkspaceGateway({ dataDir: path.dirname(dbPath) }).calendar ?? null;
+      },
+      notify: ({ id, message, taskId }) => {
+        const command = nativeNotificationCommand(message, { title: "Cove", subtitle: "On your radar", group: `follow-through-${id}`,
+          openUrl: `${coveEnv("BUDDY_APP_URL") ?? "http://127.0.0.1:3200"}/tasks${taskId ? `?task=${encodeURIComponent(taskId)}` : ""}` }, nativeNotificationDependencies);
+        execFileSync(command.executable, command.args, { timeout: 10_000, maxBuffer: 64_000 });
+      },
+    });
+  }
+
+  } catch (error) {
+    console.error("Follow-through check failed; explicit reminders will continue:", errorMessage(error));
+  }
 
   const due = db
     .prepare(

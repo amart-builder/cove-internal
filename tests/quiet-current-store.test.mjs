@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -15,17 +15,14 @@ import {
 } from '../src/lib/quiet-current/store.ts';
 
 function isolatedStore(t) {
-  const file = path.join(
-    os.tmpdir(),
-    `cove-quiet-current-${process.pid}-${Date.now()}-${Math.random()}.json`,
-  );
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cove-quiet-current-'));
+  const file = path.join(dir, 'quiet-current.json');
   setQuietCurrentStorePathForTests(file);
   setQuietCurrentNowForTests(undefined);
   t.after(() => {
     setQuietCurrentNowForTests(undefined);
     setQuietCurrentStorePathForTests(undefined);
-    rmSync(file, { force: true });
-    rmSync(`${file}.token`, { force: true });
+    rmSync(dir, { recursive: true, force: true });
   });
   return file;
 }
@@ -133,7 +130,7 @@ test('default Quiet Current storage follows COVE_DATA_DIR instead of cwd', (t) =
     reason: 'Verify the configured data directory.',
     source: 'test',
   });
-  assert.equal(existsSync(path.join(dir, 'quiet-current.json')), true);
+  assert.equal(existsSync(path.join(dir, 'cove.db')), true);
 });
 
 test('expired pencil retires without changing accepted work', async (t) => {

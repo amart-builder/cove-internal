@@ -1,3 +1,5 @@
+import { FOLLOW_THROUGH_SCHEMA } from "../attention/follow-through.mjs";
+import { BACKGROUND_USAGE_SCHEMA } from "../background-usage.mjs";
 /**
  * Ordered, append-only schema history for Cove's local SQLite database.
  *
@@ -1558,6 +1560,72 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
         CREATE INDEX cove_attention_ledger_kind_idx
           ON cove_attention_ledger(kind, created_at DESC);
       `);
+    },
+  },
+  {
+    version: 25,
+    name: "task-origin",
+    up: (db) => {
+      db.exec("ALTER TABLE tasks ADD COLUMN origin TEXT");
+    },
+  },
+  {
+    version: 26,
+    name: "quiet-current-transactions",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE cove_quiet_current (
+          store_key TEXT PRIMARY KEY,
+          state_json TEXT NOT NULL CHECK (json_valid(state_json)),
+          legacy_sha256 TEXT,
+          imported_at TEXT NOT NULL
+        );
+      `);
+    },
+  },
+  {
+    version: 27,
+    name: "background-model-usage",
+    up: (db) => { db.exec(BACKGROUND_USAGE_SCHEMA); },
+  },
+  {
+    version: 28,
+    name: "task-session-providers",
+    up: (db) => db.exec(`
+      ALTER TABLE cove_task_session_runs ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude' CHECK(provider IN ('claude','codex'));
+      ALTER TABLE cove_task_session_runs ADD COLUMN model_id TEXT;
+      ALTER TABLE cove_task_session_runs ADD COLUMN reasoning_effort TEXT CHECK(reasoning_effort IN ('low','medium','high'));
+      ALTER TABLE cove_task_session_runs ADD COLUMN provider_session_id TEXT;
+      ALTER TABLE cove_task_session_runs ADD COLUMN provider_home TEXT;
+      ALTER TABLE cove_task_session_runs ADD COLUMN provider_executable TEXT;
+    `),
+  },
+  {
+    version: 29,
+    name: "deterministic-follow-through",
+    up: (db) => {
+      db.exec(FOLLOW_THROUGH_SCHEMA);
+      db.exec(`ALTER TABLE cove_attention_ledger RENAME TO cove_attention_ledger_before_meetings;`);
+      const previous = (db.prepare("SELECT sql FROM sqlite_schema WHERE name='cove_attention_ledger_before_meetings'").get() as { sql: string }).sql;
+      db.exec(previous.replace('"cove_attention_ledger_before_meetings"', 'cove_attention_ledger').replace("'email','deal'", "'email','deal','meeting'"));
+      db.exec(`INSERT INTO cove_attention_ledger SELECT * FROM cove_attention_ledger_before_meetings;
+        DROP TABLE cove_attention_ledger_before_meetings;
+        CREATE INDEX cove_attention_ledger_ref_idx ON cove_attention_ledger(ref_kind, ref_id, created_at DESC);
+        CREATE INDEX cove_attention_ledger_budget_idx ON cove_attention_ledger(level, delivered_at);
+        CREATE INDEX cove_attention_ledger_kind_idx ON cove_attention_ledger(kind, created_at DESC);`);
+    },
+  },
+  {
+    version: 30,
+    name: "paused-recurring-occurrences",
+    up: (db) => {
+      db.exec(`ALTER TABLE recurring_occurrences RENAME TO recurring_occurrences_before_pause;`);
+      const previous = (db.prepare("SELECT sql FROM sqlite_schema WHERE name='recurring_occurrences_before_pause'").get() as { sql: string }).sql;
+      db.exec(previous.replace('"recurring_occurrences_before_pause"', 'recurring_occurrences').replace("'open','completed','missed'", "'open','completed','missed','paused'"));
+      db.exec(`INSERT INTO recurring_occurrences SELECT * FROM recurring_occurrences_before_pause;
+        DROP TABLE recurring_occurrences_before_pause;
+        CREATE UNIQUE INDEX recurring_occurrences_task_idx ON recurring_occurrences(task_id) WHERE task_id IS NOT NULL;
+        CREATE INDEX recurring_occurrences_template_date_idx ON recurring_occurrences(template_id, occurrence_local_date DESC);`);
     },
   },
 ];

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Enqueue the daily local database backup and drain the scheduler once.
+# Create a fresh local database backup. --daily deduplicates scheduled runs.
 # Run by the com.cove.local.backup LaunchAgent and safe to invoke by hand.
 set -euo pipefail
 
@@ -23,4 +23,4 @@ fi
 
 exec env COVE_DB_PATH="$DB" \
   "$NODE_REAL" --import "$TSX_LOADER" \
-  "$REPO_DIR/scripts/cove-jobs.ts" enqueue-backup --run
+  "$REPO_DIR/scripts/cove-jobs.ts" enqueue-backup --run "$@"

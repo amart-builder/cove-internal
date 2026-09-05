@@ -1279,7 +1279,7 @@ test('brief me anyway attaches a refused-management artifact without buying anot
       id TEXT PRIMARY KEY, column_id TEXT, title TEXT NOT NULL, description TEXT,
       priority TEXT, due_at TEXT, due_date TEXT, tags TEXT, project TEXT,
       position REAL, status TEXT, archived_at TEXT, archived_from_status TEXT,
-      recurring_template_id TEXT, occurrence_local_date TEXT,
+      recurring_template_id TEXT, occurrence_local_date TEXT, origin TEXT,
       created_at TEXT, updated_at TEXT
     );
     INSERT OR IGNORE INTO task_columns (id, name, position) VALUES ('col-ns', 'Not Started', 0);

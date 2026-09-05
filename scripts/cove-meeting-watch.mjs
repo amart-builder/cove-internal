@@ -64,6 +64,7 @@ const {
   queueMeetingNotesEmail,
   runMeetingAnalysisSweep,
 } = require("../src/lib/intake/meeting-analysis.ts");
+const { assertWebBaseMatchesDatabase } = require("../src/lib/intake/task-writer.ts");
 const {
   createGranolaClient,
   granolaNoteHasSummary,
@@ -744,9 +745,9 @@ export async function runMeetingAnalysisDrain(options = {}) {
   const dbPath = options.dbPath ||
     coveEnvTrimmed("DB_PATH") ||
     path.join(runtimeDataDir, "cove.db");
-  const baseUrl = options.baseUrl ??
-    coveEnvTrimmed("BRIEF_WEB_BASE") ??
-    "http://127.0.0.1:3200";
+  const explicitBaseUrl = options.baseUrl ?? coveEnvTrimmed("BRIEF_WEB_BASE");
+  assertWebBaseMatchesDatabase({ webBaseUrl: explicitBaseUrl, dbPath });
+  const baseUrl = explicitBaseUrl ?? "http://127.0.0.1:3200";
   return (options.runMeetingAnalysisSweepImpl ?? runMeetingAnalysisSweep)({
     dbPath,
     dataDir: runtimeDataDir,

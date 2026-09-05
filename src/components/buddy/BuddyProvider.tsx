@@ -25,6 +25,8 @@ export type BuddyTurnView = {
   user_text: string;
   page_context: string;
   model: 'sonnet' | 'opus';
+  provider?: 'claude' | 'codex';
+  provider_changed?: number;
   effort: 'low' | 'medium' | 'high';
   router_reason: string;
   state: 'running' | 'succeeded' | 'failed';
@@ -55,6 +57,7 @@ type BuddyContextValue = {
   confirmDelete: (turnId: string, pending: PendingDelete) => Promise<void>;
   dismissDelete: (turnId: string, pending: PendingDelete) => Promise<void>;
   applyReplan: (turnId: string, replan: BuddyReplanReceipt) => Promise<void>;
+  getCsrfToken: () => Promise<string>;
   sessionInfo?: SessionInfo;
 };
 
@@ -271,6 +274,7 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
               ...live,
               state: 'failed',
               error_code: typeof event.errorCode === 'string' ? event.errorCode : 'interrupted',
+              ...(typeof event.resultText === 'string' && event.resultText ? { assistant_text: event.resultText } : {}),
               ...(receipts ? { receipts } : {}),
             };
             queueStreamingTurn(live);
@@ -411,7 +415,7 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(() => ({
     open, setOpen, pageContext, setPageContext, turns, busy, send, resetConversation,
-    confirmDelete, dismissDelete, applyReplan, sessionInfo,
+    confirmDelete, dismissDelete, applyReplan, getCsrfToken: ensureCsrf, sessionInfo,
   }), [
     open,
     pageContext,
@@ -422,6 +426,7 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
     confirmDelete,
     dismissDelete,
     applyReplan,
+    ensureCsrf,
     sessionInfo,
   ]);
   const streamValue = useMemo(() => ({ streamingTurn, thinking }), [streamingTurn, thinking]);

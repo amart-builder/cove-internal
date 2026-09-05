@@ -711,6 +711,10 @@ class GoogleCalendarGateway implements ReadonlyCalendarGateway {
       {},
       { idempotent: true },
     );
+    if (row.nextPageToken) throw new WorkspaceGatewayError({
+      code: "provider_contract", operation: "calendar_list_events",
+      safeMessage: "Calendar returned more events than this bounded check can cover.",
+    });
     return (Array.isArray(row.items) ? row.items : []).flatMap((value) => {
       if (!value || typeof value !== "object" || Array.isArray(value)) return [];
       const event = value as Json;

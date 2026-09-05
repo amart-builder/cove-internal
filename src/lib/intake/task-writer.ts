@@ -5,13 +5,16 @@
  * source provenance, applies recurrence and autonomy defaults, performs the
  * actual REST write, and degrades to a safe fallback task when triage fails.
  */
+import path from "node:path";
 import { ensureCoveAutonomySettings } from "../autonomy/settings";
 import type { InboundEvent, Task } from "../data/types";
 import { localDateInTimezone } from "../day-plan/brief";
 import { operatorTimezone } from "../operator";
 import { taskColumnKeyForName, type TaskColumnKey } from "../tasks/columns";
+import { inboundOrigin, originDate } from "../tasks/origin";
 import type { TriageOutput } from "../triage/protocol";
 import { coveEnv } from "../env";
+import { defaultLocalDatabasePath, localDatabasePath } from "../local/database";
 import { getRuntimeMode } from "../runtime/mode";
 
 export type InboundTaskWriterOptions = {
@@ -43,7 +46,27 @@ function shouldWriteProject(
     clockMs(options) - cached.checkedAt >= PROJECT_COLUMN_REPROBE_MS;
 }
 
+/**
+ * A scratch database must never post tasks to the live server. Jobs and events
+ * live in whichever SQLite file COVE_DB_PATH names, but tasks are created over
+ * HTTP, and that web base defaults to the live app. So when the database is
+ * not the default one, the caller has to name the matching server explicitly.
+ */
+export function assertWebBaseMatchesDatabase(input: {
+  webBaseUrl?: string;
+  dbPath?: string;
+} = {}): void {
+  if (input.webBaseUrl || coveEnv("BRIEF_WEB_BASE")) return;
+  const dbPath = path.resolve(input.dbPath ?? localDatabasePath());
+  if (dbPath === path.resolve(defaultLocalDatabasePath())) return;
+  throw new Error(
+    "inbound_web_base_required. COVE_DB_PATH points at a non-default database, " +
+      "so set BRIEF_WEB_BASE to the matching server before creating tasks.",
+  );
+}
+
 function webBase(options: InboundTaskWriterOptions): string {
+  assertWebBaseMatchesDatabase({ webBaseUrl: options.webBaseUrl });
   return (
     options.webBaseUrl ??
     coveEnv("BRIEF_WEB_BASE") ??
@@ -263,6 +286,7 @@ export async function createAnalystInboundTask(
     priority: "low" | "medium" | "high";
     notificationPolicy: "none" | "predeadline" | "due" | "both";
     remindAt?: string | null;
+    origin?: string;
   },
   options: InboundTaskWriterOptions = {},
 ): Promise<string> {
@@ -281,6 +305,7 @@ export async function createAnalystInboundTask(
     tags: ["triaged", "meeting-analyst"],
     position: 0,
     source_type: "inbound_event",
+    origin: input.origin?.trim() || inboundOrigin(event, operatorTimezone()),
   }, options);
 }
 
@@ -460,6 +485,7 @@ export async function createFallbackInboundTask(
       : {}),
     position: 0,
     source_type: "inbound_event",
+    origin: inboundOrigin(event, operatorTimezone()),
   }, options);
 }
 
@@ -471,6 +497,7 @@ export async function createCapturedInboundTask(
     project?: string;
     priority?: "low" | "medium" | "high";
     column?: "Not Started" | "Must happen today";
+    origin?: string;
   },
   options: InboundTaskWriterOptions = {},
 ): Promise<string> {
@@ -504,6 +531,7 @@ export async function createCapturedInboundTask(
       : {}),
     position: 0,
     source_type: "inbound_event",
+    origin: input.origin?.trim() || inboundOrigin(event, operatorTimezone()),
   }, options);
 }
 
@@ -515,6 +543,7 @@ export async function createAutomationTask(
     project?: string;
     priority?: "low" | "medium" | "high";
     tags?: string[];
+    origin?: string;
   },
   options: InboundTaskWriterOptions = {},
 ): Promise<string> {
@@ -542,6 +571,8 @@ export async function createAutomationTask(
     tags: input.tags ?? ["automation"],
     position: 0,
     source_type: "automation",
+    origin: input.origin?.trim() ||
+      `A Cove automation created this on ${originDate(event.created_at, operatorTimezone())}.`,
   }, options);
 }
 
@@ -605,5 +636,6 @@ export async function createTriagedInboundTask(
       : {}),
     position: 0,
     source_type: "inbound_event",
+    origin: inboundOrigin(event, operatorTimezone()),
   }, options);
 }

@@ -334,6 +334,8 @@ test('a populated pre-migration database reaches the same schema as a fresh inst
         { version: 200, name: 'buddy-baseline' },
         { version: 201, name: 'buddy-required-columns' },
         { version: 202, name: 'buddy-indexes' },
+        { version: 203, name: 'buddy-provider-metadata' },
+        { version: 204, name: 'buddy-spawned-session-providers' },
       ],
     );
   } finally {

@@ -2,9 +2,11 @@
 
 import { useState } from 'react';
 import type { ArrivalTask } from '@/lib/quiet-current/arrival-cache';
-import { isBlockedTag, tagsWithBlockedFlag, visibleTags } from '@/lib/tasks/tags';
+import { visibleTags } from '@/lib/tasks/tags';
+import { type TaskEditGuard } from '@/lib/tasks/edit-conflict';
+import { taskEditorDraft, taskEditorPatch, taskEditorExpected } from '@/lib/tasks/editor-patch';
 
-export type Task = Omit<ArrivalTask, 'dueDate'> & {
+export type Task = Omit<ArrivalTask, 'dueDate'> & TaskEditGuard & {
   dueDate?: string | null;
 };
 
@@ -21,29 +23,31 @@ export default function TaskFieldsEditor({
   onSave: (patch: Partial<Task>) => Promise<void>;
   onCancel: () => void;
 }) {
+  const [baseline] = useState(() => taskEditorDraft(task));
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? '');
   const [priority, setPriority] = useState(task.priority);
   const [dueDate, setDueDate] = useState(task.dueDate ?? '');
   const [tagsText, setTagsText] = useState(visibleTags(task.tags).join(', '));
+  const [origin, setOrigin] = useState(task.origin ?? '');
 
   async function save() {
     const trimmedTitle = title.trim();
     if (!trimmedTitle || saving) return;
-    const tags = tagsText
-      .split(',')
-      .map((tag) => tag.trim())
-      .filter(Boolean);
-    await onSave({
-      title: trimmedTitle,
+    const patch = taskEditorPatch(baseline, {
+      ...baseline,
+      title,
       description,
       priority,
-      dueDate: dueDate || null,
-      tags: [...new Set(tagsWithBlockedFlag(
-        tags,
-        task.blocked || task.tags.some(isBlockedTag),
-      ))],
-    });
+      dueDate,
+      origin,
+      tagsText,
+    }, task.tags);
+    if (Object.keys(patch).length === 0) {
+      onCancel();
+      return;
+    }
+    await onSave({ ...patch, _expected: taskEditorExpected(baseline, patch, task.tags) });
   }
 
   const fieldClass = 'min-h-11 w-full rounded-xl border bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-accent-blue/40 disabled:opacity-50';
@@ -113,6 +117,19 @@ export default function TaskFieldsEditor({
           disabled={saving}
           onChange={(event) => setTagsText(event.target.value)}
           className={fieldClass}
+        />
+      </div>
+      <div>
+        <label className="mb-1 block text-[10.5px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+          Reason this task was added
+        </label>
+        <textarea
+          value={origin}
+          rows={3}
+          disabled={saving}
+          placeholder="Where this came from: who asked, where, when, and their words."
+          onChange={(event) => setOrigin(event.target.value)}
+          className={`${fieldClass} resize-y py-3`}
         />
       </div>
       {error && <p role="alert" className="text-xs text-accent-red">{error}</p>}

@@ -6,6 +6,37 @@
 
 Gmail remains authoritative for message content, drafts, sent replies, inbox membership, and archives. Cove stores the workflow state it needs to make those actions reliable. When voice review is enabled, it also stores the normalized pre-signature draft and matching sent body needed to measure edits; those bounded copies are review evidence, not a mailbox mirror.
 
+## Quiet Current transactions
+
+Suggestions and decision events live together in `cove_quiet_current` inside the
+main SQLite database. A single state document preserves the existing lifecycle
+contract; an immediate transaction serializes reading, deduplication, lifecycle
+changes and saving across processes. SQLite backups now include this state.
+
+On first access, Cove validates and imports `quiet-current.json` once. It keeps
+the source and an exact, permission-restricted `pre-sqlite-<hash>.bak` copy.
+Invalid input stops the operation. If an older process changes the source after
+import, Cove stops instead of overwriting newer database decisions. Stop all old
+workers before activation. A restored database works without the legacy JSON;
+if a legacy file is present it must match the imported fingerprint. Do not restore
+an older JSON over the current SQLite state or run old and new workers together.
+The existing `.token` path is unchanged. Settings and credentials still need
+separate recovery copies; database backups do not include those files.
+
+Background model attempts live in `cove_background_attempts` in the same database.
+Reservations count before launch and remain counted after failures or crashes.
+Unknown provider token counts are stored as null, never as zero or a subscription
+percentage. The ledger contains lane, model and usage metadata, not prompts.
+
+Buddy conversation and receipt history remain in `buddy_turns`, with its
+separate migration ledger owned by `src/lib/buddy/store.ts`. Migration 203 adds
+`provider`, exact `model_id`, `cost_known`, and `provider_changed`. Legacy model
+aliases remain for compatibility; `model_id` records an explicit selection.
+Codex does not report a dollar cost, so `cost_known = 0` qualifies the legacy
+numeric cost field. Aggregate dollar totals include reported costs only.
+Codex session IDs use a `codex:` prefix in Cove's session-head field. Transcripts
+stay with their provider and are not transferred when the selection changes.
+
 ## State families
 
 | Family | Examples | Primary owner |
@@ -210,10 +241,30 @@ runtime state. They must never be included in a client export or commit.
 ## Backups and restore
 
 - The scheduler creates online SQLite backups in `data/backups/` and keeps 14 snapshots.
-- Create one now with `bash scripts/cove-backup.sh`.
+- Create a fresh snapshot now with `bash scripts/cove-backup.sh`. It runs only the requested backup and exits nonzero if it fails.
+- Scheduled backups use `bash scripts/cove-backup.sh --daily` to deduplicate the day's job. Repeating a completed daily job verifies that its snapshot still exists and passes SQLite integrity checks. Manual snapshots have unique filenames and capture intervening edits.
 - Restore only with `bash scripts/cove-restore-backup.sh --yes <backup-file>`. The script validates the source and preserves the replaced database.
 - Never copy a database over a running Cove process.
 
 ## Retention
 
 Jobs, receipts, failure records, brief inputs, relays, and backups have bounded cleanup paths. Any new operational table or file collection must define retention before it ships.
+
+
+Follow-through state lives in `cove_follow_through_state` and
+`cove_follow_through_notices` (migration 29). The first stores bounded calendar
+observations and worker freshness. The second stores deterministic notice IDs,
+claims, delivery uncertainty and snooze. Native task sessions store exact
+provider/model/effort and resume metadata (migration 28); Buddy-spawned sessions
+have equivalent provider metadata in Buddy migration 204. These tables are
+included in the normal database backup. Provider transcript files and isolated
+Codex homes remain local artifacts outside a database-only restore.
+
+
+Migration 30 preserves paused recurring occurrences with a `paused` state.
+Same-day resume restores the same task only if Cove's pause still owns its
+archive marker. Paused days do not become missed work or erase streak history.
+A manual archive, deletion or completion prevents automatic restoration.
+Editor writes may carry `_expected` field values. Local SQLite compares those
+values in the same transaction as the update and returns conflict (409) before
+any write when an edited field changed. Unrelated field changes remain intact.

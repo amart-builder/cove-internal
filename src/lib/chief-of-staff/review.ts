@@ -1,11 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { localDateInTimezone } from "../day-plan/brief";
+import { readAgentSettings } from "../agent-settings.mjs";
 import { runJob } from "../model-runner";
 import { operatorTimezone } from "../operator";
 import { getQuietCurrentSnapshot, createWorkSuggestion } from "../quiet-current/store";
 import { openLocalDatabase } from "../local/database";
-import { chiefOfStaffPaths, ensureChiefOfStaffHome } from "./storage";
+import { chiefOfStaffPaths, ensureChiefOfStaffHome, ensureChiefOfStaffCodexHome } from "./storage";
 import { scrubModelText, stripStoredText } from "./types";
 
 export type ChiefOfStaffReview = {
@@ -155,7 +156,12 @@ export async function runChiefOfStaffReview(input: {
     .slice(0, 10)
     .map((item) => `- ${item.title} | ${item.state} | ${item.dismissReason ?? item.resolvedTaskId ?? "no outcome yet"}`)
     .join("\n") || "none";
+  const env = { ...process.env, COVE_DATA_DIR: input.dataDir, COVE_DB_PATH: input.dbPath };
+  const selection = readAgentSettings(env);
+  if (selection?.provider === "codex") ensureChiefOfStaffCodexHome({ dataDir: input.dataDir, env });
   const result = await (input.runJobImpl ?? runJob)({
+    agentSettings: selection,
+    env: selection?.provider === "codex" ? { ...env, CODEX_HOME: home.paths.codexHome } : env,
     backend: "claude",
     lane: "chief-of-staff-review",
     kind: "structured",

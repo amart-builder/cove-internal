@@ -35,7 +35,7 @@ export default function useTaskSessionRuns(taskIds: readonly string[]) {
       setError(
         nextError instanceof Error
           ? nextError.message
-          : "Cove couldn't refresh Claude session runs.",
+          : "Cove couldn't refresh agent session runs.",
       );
       return undefined;
     }
@@ -97,7 +97,7 @@ export default function useTaskSessionRuns(taskIds: readonly string[]) {
       setError(
         nextError instanceof Error
           ? nextError.message
-          : "Cove couldn't start the Claude session.",
+          : "Cove couldn't start the agent session.",
       );
       throw nextError;
     } finally {
@@ -117,7 +117,7 @@ export default function useTaskSessionRuns(taskIds: readonly string[]) {
       ? {
           ...run,
           status: 'abandoned',
-          hint: 'Stopping the Claude session.',
+          hint: 'Stopping the agent session.',
           errorCode: 'user_closed',
           updatedAt: optimisticTime,
           finishedAt: optimisticTime,
@@ -134,7 +134,7 @@ export default function useTaskSessionRuns(taskIds: readonly string[]) {
       setError(
         nextError instanceof Error
           ? nextError.message
-          : "Cove couldn't stop the Claude session.",
+          : "Cove couldn't stop the agent session.",
       );
       await refresh();
       throw nextError;

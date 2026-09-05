@@ -87,11 +87,13 @@ export function ensureRollingEmailCardInDatabase(
     db.prepare(
       `INSERT INTO tasks
          (id, column_id, title, description, priority, tags, project, position,
-          status, source_type, remind_native, remind_text, created_at, updated_at)
+          status, source_type, remind_native, remind_text, origin, created_at, updated_at)
        VALUES (?, ?, 'Email',
          'Replies and actions that still need you. Gmail Inbox is the source of truth.',
          'high', '["email","email-current"]', 'Cove', -1000, ?, 'email',
-         0, 0, ?, ?)`,
+         0, 0,
+         'Cove''s standing email card. It appears whenever Gmail still has replies or actions waiting on you.',
+         ?, ?)`,
     ).run(id, columnId, input.open ? "open" : "done", input.now, input.now);
   } else {
     db.prepare(

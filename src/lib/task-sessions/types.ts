@@ -1,11 +1,8 @@
 export type TaskSessionOwner = "claude" | "together";
 export type TaskSessionLaunchMode = "planning" | "auto";
 export type TaskSessionPermissionMode = "acceptEdits" | "plan";
-export type TaskSessionModel =
-  | "claude-opus-5"
-  | "claude-sonnet-5"
-  | "claude-haiku-4-5";
-export type TaskSessionEffort = "medium" | "high";
+export type TaskSessionModel = `claude-${string}` | `gpt-${string}`;
+export type TaskSessionEffort = "low" | "medium" | "high";
 export type TaskSessionRunStatus =
   | "running"
   | "awaiting_approval"
@@ -32,6 +29,8 @@ export type TaskSessionRun = {
   owner: TaskSessionOwner;
   permissionMode: TaskSessionPermissionMode;
   model: TaskSessionModel;
+  provider?: "claude" | "codex";
+  providerSessionId?: string;
   effort: TaskSessionEffort;
   modelReason: string;
   status: TaskSessionRunStatus;

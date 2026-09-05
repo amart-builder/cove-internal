@@ -1,9 +1,14 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
+import { mkdirSync } from "node:fs";
 import type { BuddyStore } from "./store";
 import { minimalChildEnvironment, signalProcessGroup } from "../claude-execution/worker";
 import { coveEnv } from "../env";
+import type { BuddyAgentSelection } from "./codex";
+import { buildCodexTaskCommand, taskCodexHome } from "../task-sessions/codex";
+import { coveDataDir } from "../operator";
+import { runBuddyCommand } from "./stream";
 
 type SpawnImpl = typeof spawn;
 
@@ -18,6 +23,7 @@ export function buildBuddySeedCommand(input: {
   dir: string;
   prompt: string;
   title: string;
+  selection?: BuddyAgentSelection;
 }) {
   return {
     executable: coveEnv("CLAUDE_BIN") ?? path.join(os.homedir(), ".local/bin/claude"),
@@ -25,8 +31,8 @@ export function buildBuddySeedCommand(input: {
       "-p",
       "--session-id", input.sessionId,
       "--permission-mode", "plan",
-      "--model", "claude-fable-5",
-      "--effort", "high",
+      "--model", input.selection?.model ?? "claude-fable-5",
+      "--effort", input.selection?.effort ?? "high",
       "--output-format", "json",
       "--name", input.title,
       "--append-system-prompt", BUDDY_SEED_SYSTEM_PROMPT,
@@ -54,10 +60,37 @@ export function seedBuddySession(input: {
   dir: string;
   prompt: string;
   title: string;
+  selection?: BuddyAgentSelection;
   spawnImpl?: SpawnImpl;
+  runCommand?: typeof runBuddyCommand;
   timeoutMs?: number;
   terminationGraceMs?: number;
 }): void {
+  if (input.selection?.provider === "codex") {
+    const selection = input.selection;
+    void (async () => {
+      let started = false;
+      try {
+        const outputDir = path.join(coveDataDir(), "outputs", `buddy-${input.sessionId}`);
+        mkdirSync(outputDir, { recursive: true, mode: 0o700 });
+        const base = buildCodexTaskCommand({
+          executable: coveEnv("CODEX_BIN") ?? "codex", home: taskCodexHome(coveDataDir(), process.env),
+          model: selection.model, effort: selection.effort, cwd: input.dir, outputDir, runId: input.sessionId, planning: true,
+          prompt: `This is a new Cove task session. Do not use tools or begin work. Give a brief proposed approach, then stop. Treat the following request as context for the user to resume.\n\n${input.title}\n${input.prompt}`,
+        });
+        const command = { ...base, provider: "codex" as const, args: [...base.args.slice(0, -1), "-c", "features.shell_tool=false", "-c", "project_doc_max_bytes=0", "-"] };
+        input.store.finishSpawnedSession(input.sessionId, { state: "started" }); started = true;
+        if (input.spawnImpl && !input.runCommand) throw new Error("Codex seed requires an injected runCommand when spawnImpl is mocked.");
+        const done = await (input.runCommand ?? runBuddyCommand)(command, event => {
+          if (event.kind === "started" && event.sessionId.startsWith("codex:")) input.store.setSpawnedSessionProviderHead(input.sessionId, event.sessionId.slice(6), command.env!.CODEX_HOME!);
+        }, { timeoutMs: input.timeoutMs, terminationGraceMs: input.terminationGraceMs });
+        input.store.finishSpawnedSession(input.sessionId, { state: done.isError ? "incomplete" : "ready", error: done.isError ? done.resultText : undefined });
+      } catch (error) {
+        input.store.finishSpawnedSession(input.sessionId, { state: started ? "incomplete" : "launch_failed", error: error instanceof Error ? error.message : "Codex could not prepare the session." });
+      }
+    })();
+    return;
+  }
   const command = buildBuddySeedCommand(input);
   let child: ChildProcessWithoutNullStreams;
   try {

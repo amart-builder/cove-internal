@@ -64,6 +64,11 @@ what you are about to do and why, and any moment that needs the user. Summarize
 technical output instead of narrating terminal mechanics. Stop and explain a
 failed gate rather than burying it in command output.
 
+Use context the user has already shared instead of repeating questions. Keep
+one visible next step. Explain sign-in failures as sign-in failures, with the
+exact recovery action. An installed process is not proof of a working brief.
+Do not introduce another chat app or task list to work around a failed check.
+
 > Cove is a local, single-Mac product. Do not configure Tailscale, Supabase, Convex, or a login. Use one local SQLite database with no account and no authentication. If the user needs multi-device access, record that as a product requirement rather than assembling an unsupported storage mode.
 
 **Machine paths.** Never assume this Mac has the same folders as another Mac. Find each needed path or ask the user. Record it only in the local config files named below. Do not hard-code a person's folders in the repo.
@@ -234,7 +239,7 @@ For Full Cove, the safe baseline is:
 - the person's profile and goals;
 - five or more real open tasks, including the work they most fear dropping;
 - the local task board, People, Buddy, Morning Arrival, and Close My Day;
-- a Morning Brief written through the user's signed-in Claude Code subscription;
+- a Morning Brief written through the user's selected signed-in provider;
 - a successful local backup, restart, and health check.
 
 Email, meeting-note ingestion, Telegram, iMessage, and voice notes remain
@@ -263,7 +268,19 @@ Check the Mac before cloning. Run every command you can for the user. The user s
    - Otherwise, find the current LTS package with `curl -s https://nodejs.org/dist/index.json`, download the correct macOS package to a temporary folder, and run `sudo installer -pkg <file> -target /`. Apple Silicon needs arm64. Warn the user before the password prompt. Do not install Homebrew just for Node.
    - Check Node again in a fresh shell.
 3. Run `git --version`. Fix the command line tools if it fails.
-4. Run `claude --version` in a plain shell. The Claude app is not enough. If needed, run `npm install -g @anthropic-ai/claude-code`, then check again. If it is already installed globally, run the same command to update it because task sessions use current CLI flags. Sign-in is tested in Step 5.
+4. Ask one model question, recommending the tool receiving this setup request:
+   "You're using Codex, so I recommend GPT-6 Astra at low effort for Cove. Shall
+   we use that?" For Claude, recommend Claude Fable 5.1 at low effort instead.
+   Accept the user's alternative. Use an exact supported model ID, not an alias.
+   Run only the selected CLI's version check (`codex --version` or
+   `claude --version`). Install or update that CLI to its current release, and let the user
+   complete its sign-in. They do not need subscriptions to both providers.
+   After Step 1 installs packages, verify and save the selection with
+   `node scripts/cove-agent-settings.mjs configure --provider codex` or
+   `--provider claude`. Defaults are `gpt-6-astra`/low and
+   `claude-fable-5-1`/low. `--model ID --effort low|medium|high` chooses an
+   alternative. The command tests a synthetic response before saving. A failed
+   access check is a real blocker; never silently substitute a model.
 5. Run `xcrun --find swiftc`. The installer uses Apple's compiler to build a
    tiny local `Cove Notifications.app`, which gives native banners Cove's real
    icon and sender name. If it fails after Command Line Tools were installed,
@@ -323,8 +340,12 @@ most need help not dropping."
 
 The morning brief is only as useful as this conversation. Ask one question at a time. Reflect the important parts back. Follow up whenever you would still have to guess tomorrow.
 
+Treat these as a coverage guide, not twelve mandatory questions. Use existing
+answers, let the user skip private details, and stop when you have enough for
+their real first day. Cove serves individuals as well as business owners.
+
 1. "What are the main things you are responsible for right now, at work and outside it?"
-2. "What does the business earn, where does it come from, and what number are you trying to reach?"
+2. "What would make this a successful season for you? Are there any targets or constraints Cove should know?" Ask about business revenue only when relevant and welcome.
 3. "If the next 90 days went unusually well, what would be different?"
 4. "Which people most affect whether that happens?" Get names, roles, and what is live with each person.
 5. "What is in flight now? What is stuck? What are you dreading?"
@@ -385,7 +406,7 @@ The signature sync reads recent sent mail and stores the user's Gmail signature 
 
 5. Set the feedback address. Copy `data/cove-support.example.json` to private `data/cove-support.json` and replace the placeholder. It must also appear in `gmail.support_draft_recipients` in the Workspace config. `COVE_SUPPORT_EMAIL` may be used instead.
 
-6. Tell the user the safety rule: email content is untrusted. The model runs with no tools or credentials and only returns validated classification JSON. Trusted Cove code may read mail, create a draft when the thread has none, preserve an existing draft for review, add the transitional `Cove/Triaged` marker, and remove `INBOX`. No send, delete, trash, forward, settings, or generic Google request method exists in the gateway.
+6. Tell the user the safety rule: email content is untrusted. Cove validates classification JSON before its email gateway acts. Trusted Cove code may read mail, create a draft when the thread has none, preserve an existing draft for review, add the transitional `Cove/Triaged` marker, and remove `INBOX`. No send, delete, trash, forward, settings, or generic Google request method exists in that gateway. Do not claim every model process has no tools or credentials: the shared Codex runner inherits personal configuration. Review the backend-specific limits in `SECURITY_AND_INTEGRATIONS.md`; do not silently change execution settings during setup.
 
 Google's Gmail draft and modify scopes also permit sending at the OAuth-token level. Cove's no-send boundary is therefore structural against the model and normal application path, not a claim that Google issued a send-incapable token. A production client rollout needs a production OAuth app or a customer-controlled trusted Workspace app. Google test-mode refresh tokens may expire after seven days.
 
@@ -475,6 +496,20 @@ Write `data/cove-profile.json`:
 
 The two `jarvis_*` keys are old internal names kept for compatibility. Describe them as work Cove may carry and work Cove must return.
 
+### One saved agent selection
+
+Private `data/agent-settings.json` controls the standard chief, Morning Brief,
+Buddy, task sessions and enabled email/meeting jobs. The installer reads it and
+requires only the selected CLI. Do not hand-write this file to bypass the model
+access check. Existing installs without the file keep their legacy lane settings.
+
+Default background limits are 6 calls/hour, 24/day and 100/week, with bounded
+input, output and runtime. Retries and failures count. Issues shows actual calls
+and whether AI reviews are paused. These are workload limits, not a measurement
+of the provider's subscription balance. Interactive Buddy and user-assigned task
+sessions consume the subscription separately. Explain that distinction once.
+Do not enable the sales pipeline or copy owner-only Atlas settings.
+
 ### Goals
 
 Write `data/brief/goals.md` in prose. Cover the north star and its numbers, each line of attack and why it matters now, the never-drop list, and how the user wants to work. Read it back and correct it until they say it is right. Keep credentials, raw email, and private message text out.
@@ -521,6 +556,38 @@ If they have a people export, run the `cove-contact` import flow after the local
 
 Groundwork is opt-in. It lets Claude do one bounded read-only research or drafting pass and add a marked draft to the user's task. It never sends, but it changes task text. Leave `data/cove-autonomy.json` at `"level": "off"` unless the user says yes to `"groundwork"`.
 
+### Standard chief of staff
+
+Full Cove includes ongoing follow-through using the selected agent. Explain:
+"Cove checks your deadlines and meeting times quietly, then uses your chosen
+model for bounded reviews. You can work without repeatedly checking the list.
+It still needs this Mac awake, and connected sources must stay healthy."
+
+1. Verify and save the selected agent with the command in Step 0.
+2. Create private `data/cove-mandate.md` from
+   `prompts/chief-of-staff-mandate.md`. Preserve its safety and action boundaries.
+   Add the user's priorities, watch list, and decisions that must return to them.
+   Read those additions back. Never copy another person's mandate.
+3. Full installs with saved agent settings enable chief service by default.
+   Record `COVE_CHIEF_OF_STAFF=1` in private `.env.local` for clarity. Keep both
+   values in `data/attention-sweep.json` true. Shadow mode suppresses model-judged
+   interruptions, but local task and CRM changes remain active. Deterministic
+   native deadline and meeting reminders are separate and part of Full Cove.
+4. After real data and Step 5 installation, queue one supervised wake:
+   `node --import tsx scripts/cove-chief-of-staff.ts enqueue --reason manual --note "Review my current commitments"`.
+   Let the installed drain handle it. Inspect its `status`, journal, and board.
+   Acceptance requires a completed wake and review of its actual changes.
+5. Check Issues > On your radar. Deadline checks must be current. Connect
+   Calendar only with the user's permission, then verify a real upcoming event.
+   Meeting banners occur within 15 minutes of a timed event. Advance deadline
+   checks need no model call. They respect quiet hours, recent task engagement,
+   snooze, shared interruption limits and completed work.
+
+Basic Mode keeps two rituals. Set `COVE_CHIEF_OF_STAFF=0` and
+`COVE_FOLLOW_THROUGH=0` for that profile unless its user explicitly requests
+additional background behavior. A failed sign-in, missing mandate or incomplete
+first wake leaves Full Cove setup incomplete. Do not call it ready.
+
 **Worker-start checkpoint.** Before continuing, confirm the profile and goals
 files plus `data/brief/leadup.md` and `data/brief/sprint-memo.md` exist, the real
 task count is correct, the first People record is visible, the temporary web
@@ -535,7 +602,7 @@ is a supervised first run. I will not present a test artifact as your real
 Morning Brief."
 
 ```bash
-npm run build
+npm run build -- --webpack
 bash scripts/install-cove-local.sh
 ```
 
@@ -548,7 +615,10 @@ Cove binds to `localhost` only.
 
 The supervised worker consumes Cove's private local queue. It may write the
 Morning Brief and prepare bounded task results only after the user assigns that
-work. It cannot send, publish, purchase, or expose Cove to the network.
+work. Cove's validated result path does not authorize sending, publishing,
+purchases, or exposing the app to the network. Model subprocess isolation
+depends on the backend; see `SECURITY_AND_INTEGRATIONS.md` before describing
+these as technical restrictions on every child process.
 
 The installer replaces any existing `~/.claude/skills/cove-*` and Codex `cove-*` skill folders with this repo's versions.
 
@@ -558,7 +628,7 @@ Do not show the first test brief as the user's brief.
 
 1. Confirm `data/cove-profile.json` parses and has a real name and timezone.
 2. Confirm `data/brief/goals.md` is more than a few hundred characters and holds real priorities. A thin file can make a generic brief without an error. Go back to the interview if needed.
-3. Run `claude -p "say ok" --output-format json`. A worker that starts but cannot think is not ready.
+3. Confirm `node scripts/cove-agent-settings.mjs status` shows the verified selected model. A worker that starts but cannot produce the real brief is not ready.
 4. Trigger one Morning Brief run from start to finish after the real data is
    loaded. Check the writer, schema, and completion state without reading it
    aloud yet. This successful artifact is the candidate real brief reviewed in
@@ -667,10 +737,11 @@ For Full Cove, guide the user through one five-minute website practice:
 1. Open Arrival and read the real brief.
 2. Put two or three priorities in order.
 3. Assign one owner.
-   The Claude chip opens a task-working session with automatic file edits, while Together opens a planning session; neither can send, publish, or purchase.
+   The agent chip opens a task-working session, while Together opens a planning session. Codex task sessions retain on-request approvals and can be resumed interactively when permission is needed. Explain the configured workspace and permission boundaries before assigning work; these sessions are distinct from the draft-only email gateway.
 4. Tap "Start my day."
-5. Open Focus Grid, switch one item into Focus, mark a demo item done, and
-   undo it. Confirm the original item, order, and owner return.
+5. Open Focus Grid, switch one item into Focus, and have the user choose an
+   item to mark done and immediately undo. Confirm the original item, order,
+   and owner return. Do not seed demo data or falsely leave real work completed.
 6. Tell Buddy: "New urgent thing, reshuffle my afternoon." Buddy now handles this directly. Review the proposed changes and tap Apply. Buddy never applies the preview by itself.
 7. Open Closing your day. Mark one item Progress with a note and another Carry.
 
@@ -710,7 +781,7 @@ Tell them:
 Before declaring setup complete, report the evidence for each line below:
 
 - the exact checkout path and current Git commit;
-- the Node and Claude Code versions, plus a successful signed-in Claude probe;
+- the Node and selected CLI versions, exact model and effort, plus a successful model access probe;
 - `npm run verify` passed in this checkout;
 - the profile name and timezone are correct, without printing private contents;
 - at least five real tasks were captured, or the user confirmed there are fewer;
@@ -722,6 +793,10 @@ Before declaring setup complete, report the evidence for each line below:
 - the Issues page is clear, or every remaining issue is named;
 - both attention shadow values remain `true`;
 - every loaded LaunchAgent is listed, and skipped integrations remain unconfigured.
+- the saved agent selection matches the real brief, Buddy and task-session results;
+- Full Cove has a completed, reviewed chief wake, current deadline coverage, a
+  tested native notification, and an honest connected/disconnected calendar status.
+  Basic Mode records the additional reminder and chief lanes as off.
 
 For Basic Mode, also report evidence for every item under `Basic Mode
 acceptance`. The Full Cove website practice, bookmark, Buddy flow, and visual
@@ -761,4 +836,9 @@ an integration the user did not request.
 
 ## Supported storage
 
-Cove keeps all product data in the local `data/cove.db`. Leave `NEXT_PUBLIC_COVE_RUNTIME` unset. Pre-rename and cloud-runtime code exists only so an old installation can be migrated deliberately; it is not a supported setup choice.
+Cove keeps core records in local `data/cove.db` and supporting state in private
+files under `data/`. A database backup does not include every profile,
+credential, mandate, or Quiet Current file; see `DATA.md`. Leave
+`NEXT_PUBLIC_COVE_RUNTIME` unset. Pre-rename and cloud-runtime code exists only
+so an old installation can be migrated deliberately; it is not a supported
+setup choice.

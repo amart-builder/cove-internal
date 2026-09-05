@@ -13,12 +13,13 @@ test('first-day practice requires only controls present in the shipped Today sur
   const setup = readFileSync(setupPath, 'utf8');
   const practice = setup.slice(
     setup.indexOf('## Step 7: Practice one morning and close'),
-    setup.indexOf('## Step 8: Leave the user three ways back in'),
+    setup.indexOf('## Step 8: Leave the user a clear way back in'),
   );
 
   assert.match(practice, /Open Focus Grid, switch one item into Focus/);
-  assert.match(practice, /mark a demo item done, and\s+undo it/);
-  assert.match(practice, /original item, order, and owner return/);
+  assert.match(practice, /user choose an\s+item to mark done and immediately undo/);
+  assert.match(practice, /original item, order,\s+and owner return/);
+  assert.match(practice, /Do not seed demo data/);
   assert.doesNotMatch(practice, /hold it for Cove/i);
   assert.doesNotMatch(practice, /bring it back/i);
 });

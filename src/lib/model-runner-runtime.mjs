@@ -3,11 +3,19 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync } fr
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { coveEnv } from "./env-runtime.mjs";
+import { readAgentSettings, validateAgentSettings } from "./agent-settings.mjs";
+import { reserveBackgroundAttempt, finishBackgroundAttempt } from "./background-usage.mjs";
 
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const MAX_DIAGNOSTIC_BYTES = 64 * 1024;
 
 export function configuredJobBackend(env = process.env, legacySetting) {
+  const selected = readAgentSettings(env);
+  if (selected) return selected.provider === "claude" ? "claude" : "codex-sol-high";
+  return legacyJobBackend(env, legacySetting);
+}
+
+function legacyJobBackend(env, legacySetting) {
   const configured = coveEnv("JOB_RUNNER", env)?.trim().toLowerCase();
   if (configured) {
     if (configured === "codex-sol-high" || configured === "claude") return configured;
@@ -54,12 +62,13 @@ export function createCodexJobAttempt(input) {
     "read-only",
     "--skip-git-repo-check",
     "-m",
-    "gpt-5.6-sol",
+    input.selection?.model ?? "gpt-5.6-sol",
     "-c",
-    "model_reasoning_effort=high",
+    `model_reasoning_effort=${input.selection?.effort ?? "high"}`,
     "--output-last-message",
     outputPath,
   ];
+  if (input.selection) args.push("--json");
   if (input.webSearch) args.push("-c", "tools.web_search=true");
   args.push("-");
   return {
@@ -143,7 +152,7 @@ function runCommand(command, options) {
       } catch {
         // The lane's durable state remains authoritative if cleanup bookkeeping fails.
       }
-      resolve(result);
+      resolve({ ...result, observedOutputBytes: stdoutBytes });
     };
     const terminate = () => {
       signalGroup(child, "SIGTERM");
@@ -177,10 +186,10 @@ function runCommand(command, options) {
     child.stdout.on("data", (chunk) => {
       if (overflowed) return;
       const bytes = Buffer.byteLength(chunk, "utf8");
-      const remaining = MAX_OUTPUT_BYTES - stdoutBytes;
+      const remaining = (options.maxOutputBytes ?? MAX_OUTPUT_BYTES) - stdoutBytes;
       if (bytes > remaining) {
         overflowed = true;
-        stdoutBytes = MAX_OUTPUT_BYTES;
+        stdoutBytes += bytes;
         terminate();
         return;
       }
@@ -306,8 +315,8 @@ function claudeCommand(input, env) {
     "-p", "--no-session-persistence", "--permission-mode", "plan",
     "--tools", input.claudeTools ?? "", "--strict-mcp-config", "--mcp-config",
     input.claudeMcpConfigPath ?? path.join(process.cwd(), "scripts", "cove-empty-mcp.json"),
-    "--model", "claude-opus-5", "--effort", "high",
-    "--output-format", input.kind === "structured" ? "json" : "text",
+    "--model", input.selection?.model ?? "claude-opus-5", "--effort", input.selection?.effort ?? "high",
+    "--output-format", input.kind === "structured" || input.selection ? "json" : "text",
   ];
   if (input.claudeNoChrome) args.push("--no-chrome");
   if (input.claudeDisableSlashCommands) args.push("--disable-slash-commands");
@@ -333,15 +342,19 @@ function unwrapClaudeStructured(raw) {
 export async function runJob(input) {
   const env = input.env ?? process.env;
   let backend;
+  let selection;
   try {
-    backend = input.backend ?? configuredJobBackend(env);
+    selection = Object.hasOwn(input, "agentSettings")
+      ? input.agentSettings ? validateAgentSettings(input.agentSettings) : undefined
+      : readAgentSettings(env);
+    backend = selection ? (selection.provider === "claude" ? "claude" : "codex-sol-high") : input.backend ?? legacyJobBackend(env);
   } catch (error) {
     return failure("runner_failed", input.lane, error instanceof Error ? error.message : error);
   }
   if (input.kind === "structured" && (!input.schema || typeof input.schema !== "object")) {
     return failure("runner_failed", input.lane, "Structured jobs require a JSON Schema.");
   }
-  const timeoutMs = input.timeoutMs ?? 120_000;
+  const timeoutMs = selection ? Math.min(input.timeoutMs ?? 120_000, selection.backgroundLimits.timeoutMs) : input.timeoutMs ?? 120_000;
   const basePrompt = input.kind === "structured" && backend === "codex-sol-high"
     ? `${input.prompt}\n\nJSON_SCHEMA=${JSON.stringify(input.schema)}\nReturn only a JSON value matching JSON_SCHEMA.`
     : input.prompt;
@@ -350,81 +363,126 @@ export async function runJob(input) {
     const prompt = attemptNumber === 0
       ? basePrompt
       : `${basePrompt}\n\nCORRECTION: Your previous output failed validation: ${lastReason}. Return only a result that matches the supplied JSON Schema.`;
+    let reservation;
+    try {
+      if (selection) reservation = reserveBackgroundAttempt({ env, settings: selection, lane: input.lane, inputBytes: Buffer.byteLength(prompt) + (backend === "claude" && input.kind === "structured" ? Buffer.byteLength(JSON.stringify(input.schema)) : 0) });
+    } catch (error) {
+      return failure("runner_budget_exceeded", input.lane, error instanceof Error ? error.message : error);
+    }
     let raw;
-    if (backend === "codex-sol-high") {
-      const attempt = createCodexJobAttempt({
-        prompt,
-        executable: input.codexPath,
-        env,
-        webSearch: input.webSearch === true,
-        tempPrefix: `cove-${String(input.lane).replace(/[^a-z0-9_-]/gi, "-")}-`,
-      });
-      if (!attempt) return failure("codex_unavailable", input.lane, "Codex executable is unavailable.");
-      try {
-        const result = await runCommand(attempt.command, {
+    let usage;
+    let observedOutputBytes = null;
+    let attemptStatus = "failed";
+    try {
+      if (backend === "codex-sol-high") {
+        const attempt = createCodexJobAttempt({
+          prompt,
+          selection,
+          executable: input.codexPath,
+          env,
+          webSearch: input.webSearch === true,
+          tempPrefix: `cove-${String(input.lane).replace(/[^a-z0-9_-]/gi, "-")}-`,
+        });
+        if (!attempt) return failure("codex_unavailable", input.lane, "Codex executable is unavailable.");
+        try {
+          const result = await runCommand(attempt.command, {
+            env,
+            spawnImpl: input.spawnImpl,
+            timeoutMs,
+            maxOutputBytes: selection?.backgroundLimits.outputBytesPerCall,
+            abortSignal: input.abortSignal,
+            terminationGraceMs: input.terminationGraceMs,
+            onSpawn: input.onSpawn,
+            onSettled: input.onSettled,
+          });
+          observedOutputBytes = result.observedOutputBytes ?? null;
+          usage = providerUsage(result.stdout, "codex");
+          if (result.overflowed) {
+            return failure("runner_output_too_large", input.lane, "Codex output exceeded the allowed byte limit.");
+          }
+          if (result.aborted) return failure("runner_interrupted", input.lane, "Codex job was interrupted.");
+          if (result.timedOut) return failure("codex_timeout", input.lane, "Codex job timed out.");
+          if (!result.ok) {
+            return failure("runner_failed", input.lane, result.stderr || result.error || `Codex exited ${result.code}.`);
+          }
+          try {
+            raw = readCodexJobOutput(attempt);
+          } catch (error) {
+            if (error instanceof Error && error.message === "model_output_too_large") {
+              return failure("runner_output_too_large", input.lane, "Codex output exceeded the allowed byte limit.");
+            }
+            return failure("runner_failed", input.lane, error instanceof Error ? error.message : error);
+          }
+        } finally {
+          attempt.cleanup();
+        }
+      } else {
+        const result = await runCommand(claudeCommand({ ...input, prompt, selection }, env), {
           env,
           spawnImpl: input.spawnImpl,
           timeoutMs,
+          maxOutputBytes: selection?.backgroundLimits.outputBytesPerCall,
           abortSignal: input.abortSignal,
           terminationGraceMs: input.terminationGraceMs,
           onSpawn: input.onSpawn,
           onSettled: input.onSettled,
         });
+        observedOutputBytes = result.observedOutputBytes ?? null;
+        usage = providerUsage(result.stdout, "claude");
         if (result.overflowed) {
-          return failure("runner_output_too_large", input.lane, "Codex output exceeded 4 MB.");
+          return failure("runner_output_too_large", input.lane, "Claude output exceeded the allowed byte limit.");
         }
-        if (result.aborted) return failure("runner_interrupted", input.lane, "Codex job was interrupted.");
-        if (result.timedOut) return failure("codex_timeout", input.lane, "Codex job timed out.");
-        if (!result.ok) {
-          return failure("runner_failed", input.lane, result.stderr || result.error || `Codex exited ${result.code}.`);
-        }
+        if (result.aborted) return failure("runner_interrupted", input.lane, "Claude job was interrupted.");
+        if (result.timedOut) return failure("runner_timeout", input.lane, "Claude job timed out.");
+        if (!result.ok) return failure("runner_failed", input.lane, result.stderr || result.error || `Claude exited ${result.code}.`);
+        raw = input.kind === "structured" || selection ? unwrapClaudeStructured(result.stdout) : result.stdout;
+      }
+      if (selection && Buffer.byteLength(raw) > selection.backgroundLimits.outputBytesPerCall) {
+        return failure("runner_output_too_large", input.lane, "The model response exceeded Cove's per-call output limit.");
+      }
+      if (input.kind === "text") {
+        attemptStatus = "succeeded";
+        return { ok: true, lane: input.lane, backend, text: raw };
+      }
+      const parsed = parseStructuredArtifact(raw, input.schema);
+      if (parsed.ok) {
         try {
-          raw = readCodexJobOutput(attempt);
+          const value = input.validate
+            ? await input.validate(raw, parsed.value)
+            : parsed.value;
+          attemptStatus = "succeeded";
+          return { ok: true, lane: input.lane, backend, text: raw, value };
         } catch (error) {
-          if (error instanceof Error && error.message === "model_output_too_large") {
-            return failure("runner_output_too_large", input.lane, "Codex output exceeded 4 MB.");
-          }
-          return failure("runner_failed", input.lane, error instanceof Error ? error.message : error);
+          lastReason = error instanceof Error ? error.message : String(error);
+          continue;
         }
-      } finally {
-        attempt.cleanup();
       }
-    } else {
-      const result = await runCommand(claudeCommand({ ...input, prompt }, env), {
-        env,
-        spawnImpl: input.spawnImpl,
-        timeoutMs,
-        abortSignal: input.abortSignal,
-        terminationGraceMs: input.terminationGraceMs,
-        onSpawn: input.onSpawn,
-        onSettled: input.onSettled,
-      });
-      if (result.overflowed) {
-        return failure("runner_output_too_large", input.lane, "Claude output exceeded 4 MB.");
-      }
-      if (result.aborted) return failure("runner_interrupted", input.lane, "Claude job was interrupted.");
-      if (result.timedOut) return failure("runner_timeout", input.lane, "Claude job timed out.");
-      if (!result.ok) return failure("runner_failed", input.lane, result.stderr || result.error || `Claude exited ${result.code}.`);
-      raw = input.kind === "structured" ? unwrapClaudeStructured(result.stdout) : result.stdout;
+      lastReason = parsed.reason;
+    } finally {
+      if (reservation) finishBackgroundAttempt({ env, id: reservation, status: attemptStatus, outputBytes: raw === undefined ? observedOutputBytes : Buffer.byteLength(raw), usage });
     }
-    if (input.kind === "text") return { ok: true, lane: input.lane, backend, text: raw };
-    const parsed = parseStructuredArtifact(raw, input.schema);
-    if (parsed.ok) {
-      try {
-        const value = input.validate
-          ? await input.validate(raw, parsed.value)
-          : parsed.value;
-        return { ok: true, lane: input.lane, backend, text: raw, value };
-      } catch (error) {
-        lastReason = error instanceof Error ? error.message : String(error);
-        continue;
-      }
-    }
-    lastReason = parsed.reason;
   }
   return failure(
     backend === "codex-sol-high" ? "codex_invalid_output" : "runner_failed",
     input.lane,
     lastReason,
   );
+}
+
+
+function providerUsage(raw, provider) {
+  if (!raw) return undefined;
+  for (const line of raw.trim().split("\n").reverse()) {
+    try {
+      const value = JSON.parse(line);
+      const usage = value.usage;
+      if (!usage || (provider === "codex" && value.type !== "turn.completed")) continue;
+      return {
+        inputTokens: usage.input_tokens,
+        cachedInputTokens: provider === "codex" ? usage.cached_input_tokens : usage.cache_read_input_tokens,
+        outputTokens: usage.output_tokens,
+      };
+    } catch { /* CLI progress text is not usage evidence. */ }
+  }
+  return undefined;
 }

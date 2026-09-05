@@ -1,5 +1,7 @@
 'use client';
 
+import type { TaskEditGuard } from '@/lib/tasks/edit-conflict';
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   DndContext,
@@ -20,6 +22,7 @@ import type {
 } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { getRuntimeMode } from '@/lib/runtime/mode';
+import { originDate } from '@/lib/tasks/origin';
 import {
   createTask as createSupabaseTask,
   createTaskColumn as createSupabaseTaskColumn,
@@ -63,6 +66,7 @@ interface TaskData {
   priority: 'low' | 'medium' | 'high';
   dueDate?: string;
   tags: string[];
+  origin?: string;
   status?: TaskStatus;
   proposedRecurrenceCadence?: string;
   recurringTemplateId?: string;
@@ -81,12 +85,14 @@ type CreateTaskInput = {
   priority?: 'low' | 'medium' | 'high';
   dueDate?: string | null;
   tags?: string[];
+  origin?: string;
 };
 
-type UpdateTaskInput = {
+type UpdateTaskInput = TaskEditGuard & {
   columnId?: string | null;
   title?: string;
   description?: string;
+  origin?: string;
   priority?: 'low' | 'medium' | 'high';
   dueDate?: string | null;
   tags?: string[];
@@ -182,6 +188,7 @@ function normalizeSupabaseTask(task: SupabaseTask): TaskData {
     priority: task.priority,
     dueDate: toDateInput(task.due_at),
     tags,
+    origin: task.origin ?? undefined,
     status: task.status,
     proposedRecurrenceCadence: task.proposed_recurrence_cadence ?? undefined,
     recurringTemplateId: task.recurring_template_id ?? undefined,
@@ -200,6 +207,7 @@ function applyTaskPatch(task: TaskData, patch: UpdateTaskInput): TaskData {
     columnId: patch.columnId === undefined ? task.columnId : (patch.columnId ?? ''),
     title: patch.title ?? task.title,
     description: patch.description ?? task.description,
+    origin: patch.origin ?? task.origin,
     priority: patch.priority ?? task.priority,
     dueDate: patch.dueDate === undefined ? task.dueDate : (patch.dueDate ?? undefined),
     tags: patch.tags ?? task.tags,
@@ -209,11 +217,13 @@ function applyTaskPatch(task: TaskData, patch: UpdateTaskInput): TaskData {
   };
 }
 
-function toSupabaseTaskPatch(patch: UpdateTaskInput): Partial<SupabaseTask> {
+function toSupabaseTaskPatch(patch: UpdateTaskInput): Partial<SupabaseTask> & TaskEditGuard {
   return {
+    _expected: patch._expected,
     column_id: patch.columnId,
     title: patch.title,
     description: patch.description,
+    origin: patch.origin,
     priority: patch.priority,
     due_at:
       patch.dueDate === undefined
@@ -312,6 +322,7 @@ function SupabaseKanbanBoard() {
           due_at: toSupabaseDueAt(input.dueDate),
           tags: input.tags,
           position: nextPosition,
+          origin: input.origin,
         });
         setTasks((currentTasks) => [
           ...currentTasks,
@@ -802,6 +813,7 @@ function KanbanBoardContent({
         description: newTask.description || undefined,
         dueDate: newTask.dueDate || undefined,
         tags: tags.length > 0 ? tags : undefined,
+        origin: `You added this by hand on the All Work board on ${originDate(new Date())}.`,
       });
 
       setNewTask({ title: '', priority: 'medium', dueDate: '', description: '', tags: '' });

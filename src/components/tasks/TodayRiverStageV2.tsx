@@ -34,10 +34,11 @@ import type {
   TaskSessionRun,
 } from '@/lib/task-sessions/types';
 import { reconcileFocusSeatTaskChanges } from '@/lib/tasks/focus-seats';
-import { taskSessionModeButtons, taskSessionRunNeedsEscape } from './TaskSessionLauncher';
+import { SessionLink, taskSessionModeButtons, taskSessionRunNeedsEscape } from './TaskSessionLauncher';
 import { OpenInClaudeCode } from './ClaudeRunIndicators';
 import DayRitualLayer from './DayRitualLayer';
 import ModalScrim from './arrival/ModalScrim';
+import { announceTaskWorkspaceView } from './task-workspace-view';
 import {
   beginCompletionMotion,
   beginUndoMotion,
@@ -179,28 +180,26 @@ function SessionState({
       <span className="inline-flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
         <span
           className={`today2-task-state ${compact ? 'is-compact' : ''}`}
-          title="Claude is working in the background. You'll get a notification when it's ready."
+          title="Your agent is working in the background. You'll get a notification when it's ready."
           aria-label={planning
-            ? 'Planning with Claude in the background'
-            : 'Claude working in the background'}
+            ? 'Planning in the background'
+            : 'Agent working in the background'}
         >
           <i aria-hidden="true" />
           {mode} · running
         </span>
         {showEscape && (
-          <a
-            href={run.resumeUrl}
+          <SessionLink run={run}
             className="press-scale text-[11px] font-medium text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
-            onClick={(event) => event.stopPropagation()}
           >
-            Open in Claude
-          </a>
+            Open session
+          </SessionLink>
         )}
       </span>
     );
   }
   if (run.status === 'awaiting_approval') {
-    return run.claudeSessionId ? (
+    return run.provider === 'codex' ? <SessionLink run={run} className="today2-needs-you">Needs you</SessionLink> : run.claudeSessionId ? (
       <span className="today2-session-link" onClick={(event) => event.stopPropagation()}>
         <OpenInClaudeCode
           sessionId={run.claudeSessionId}
@@ -227,7 +226,7 @@ function SessionState({
             className="today2-ready-link"
           />
         ) : (
-          <a className="press-scale" href={run.resumeUrl}>Open</a>
+          <SessionLink className="press-scale" run={run}>Open</SessionLink>
         )}
       </span>
     );
@@ -236,9 +235,9 @@ function SessionState({
     const mode = run.permissionMode === 'plan' ? 'Planning' : 'Auto';
     return (
       <span className={`today2-session-failed ${compact ? 'is-compact' : ''}`}>
-        <a className="press-scale" href={run.resumeUrl} onClick={(event) => event.stopPropagation()}>
+        <SessionLink className="press-scale" run={run}>
           {compact ? 'Stopped' : `${mode} stopped`} · Open
-        </a>
+        </SessionLink>
         <button type="button" onClick={(event) => {
           event.stopPropagation();
           onRetry(run.permissionMode === 'plan' ? 'planning' : 'auto');
@@ -277,7 +276,7 @@ function SessionFooter({
 
   return (
     <div className={`today2-session-footer ${stateLine ? 'has-state' : ''}`}>
-      {showLabel && <span className="today2-session-footer-label">Start with Claude</span>}
+      {showLabel && <span className="today2-session-footer-label">Start with your agent</span>}
       {stateLine && (
         <span className="today2-session-footer-state">
           <SessionState task={task} compact={false} onRetry={onRetry} />
@@ -483,7 +482,7 @@ function SortableGridCard({
   });
   const inBand = position < focusCount;
   const state = task.run?.status === 'running'
-    ? task.run.owner === 'together' ? 'Planning with Claude' : 'Claude working'
+    ? task.run.owner === 'together' ? 'Planning with your agent' : 'Agent working'
     : task.run?.status === 'awaiting_approval'
       ? 'Needs you'
       : task.run?.status === 'output_ready'
@@ -1214,7 +1213,12 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
             </div>
           ) : (
             <div className="today2-clear-state">
-              <h2>You&apos;re clear for now.</h2>
+              <h2>{model.doneCount > 0 ? "You're clear for now." : 'Nothing planned for today yet.'}</h2>
+              <p>Choose something from All Work, or add a task you want to remember.</p>
+              <button type="button" onClick={() => announceTaskWorkspaceView('all-work')}>
+                Choose or add a task
+              </button>
+              {model.doneCount > 0 && (
               <button
                 type="button"
                 disabled={model.closeDayDisabled}
@@ -1222,6 +1226,7 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
               >
                 Close My Day
               </button>
+              )}
             </div>
           )}
 

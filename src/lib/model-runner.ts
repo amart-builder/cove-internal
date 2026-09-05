@@ -1,3 +1,4 @@
+import type { readAgentSettings } from "./agent-settings.mjs";
 import type { ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { runJob as runRuntimeJob } from "./model-runner-runtime.mjs";
 
@@ -8,12 +9,14 @@ export type ModelRunnerFailureCode =
   | "runner_interrupted"
   | "runner_output_too_large"
   | "runner_timeout"
-  | "runner_failed";
+  | "runner_failed"
+  | "runner_budget_exceeded";
 
 export type ModelRunnerBackend = "codex-sol-high" | "claude";
 
 export type RunJobRuntimeInput = {
   lane: string;
+  agentSettings?: NonNullable<ReturnType<typeof readAgentSettings>>;
   kind: "structured" | "text";
   prompt: string;
   schema?: Record<string, unknown>;

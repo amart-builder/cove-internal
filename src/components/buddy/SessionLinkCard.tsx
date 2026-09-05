@@ -9,12 +9,15 @@ import {
 } from '@/lib/buddy/spawned-session-state';
 import { OpenInClaudeCode } from '@/components/tasks/ClaudeRunIndicators';
 import { buildClaudeResumeCommand } from '@/lib/claude-execution/resume-command';
+import { getDayPlanCsrfToken } from '@/lib/data/day-plan';
 
 type SpawnedSessionStatus = SpawnedSessionReceipt & {
   state: BuddySpawnedSessionState;
   error?: string | null;
   hostname?: string;
   deepLinksEnabled?: boolean;
+  provider?: 'claude' | 'codex';
+  providerSessionId?: string | null;
 };
 
 function abbreviatedDir(dir: string): string {
@@ -25,6 +28,8 @@ function abbreviatedDir(dir: string): string {
 export default function SessionLinkCard({ session }: { session: SpawnedSessionReceipt }) {
   const [status, setStatus] = useState<SpawnedSessionStatus>({ ...session, state: 'seeding' });
   const [copied, setCopied] = useState(false);
+  const [opening, setOpening] = useState(false);
+  const [openError, setOpenError] = useState<string>();
 
   useEffect(() => {
     let stopped = false;
@@ -59,7 +64,7 @@ export default function SessionLinkCard({ session }: { session: SpawnedSessionRe
     () => buildClaudeResumeCommand(status.dir, status.sessionId),
     [status.dir, status.sessionId],
   );
-  const openable = isBuddySpawnedSessionOpenable(status.state);
+  const openable = isBuddySpawnedSessionOpenable(status.state) && (status.provider !== 'codex' || Boolean(status.providerSessionId));
 
   return (
     <div className="mt-2 rounded-xl border border-accent-blue/25 bg-card/70 p-3">
@@ -84,7 +89,7 @@ export default function SessionLinkCard({ session }: { session: SpawnedSessionRe
             : status.state === 'launch_failed'
               ? 'Failed'
               : status.state === 'incomplete' || status.state === 'failed'
-                ? 'Ready, prep incomplete'
+                ? (openable ? 'Ready, prep incomplete' : 'Prep failed')
                 : 'Preparing…'}
         </span>
       </div>
@@ -95,11 +100,22 @@ export default function SessionLinkCard({ session }: { session: SpawnedSessionRe
 
       {(status.state === 'incomplete' || status.state === 'failed') && (
         <p className="mt-2 text-[11px] text-muted-foreground">
-          Context prep stopped early. The session can still be opened.
+          {openable ? 'Context prep stopped early. The session can still be opened.' : 'Cove could not create the session. Ask Buddy to try again.'}
         </p>
       )}
 
-      {openable && status.deepLinksEnabled === true && (
+      {status.provider === 'codex' && status.providerSessionId && !isBuddySpawnedSessionPending(status.state) && (
+        <button type="button" className="mt-3 text-xs font-semibold text-accent-blue" disabled={opening} onClick={() => {
+          setOpening(true); setOpenError(undefined);
+          void getDayPlanCsrfToken().then(token => fetch('/api/buddy/spawn-session', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Cove-CSRF': token },
+            body: JSON.stringify({ action: 'resume', sessionId: status.sessionId }),
+          })).then(async response => { const body = await response.json(); if (!response.ok) throw new Error(body.error ?? 'Could not open Codex.'); })
+            .catch(error => setOpenError(error instanceof Error ? error.message : 'Could not open Codex.')).finally(() => setOpening(false));
+        }}>{opening ? 'Opening…' : 'Continue in Codex'}</button>
+      )}
+      {openError && <p role="alert" className="mt-2 text-xs text-accent-red">{openError}</p>}
+      {openable && status.provider !== 'codex' && status.deepLinksEnabled === true && (
         <OpenInClaudeCode
           sessionId={status.sessionId}
           title={status.title}
@@ -108,7 +124,7 @@ export default function SessionLinkCard({ session }: { session: SpawnedSessionRe
         />
       )}
 
-      {openable && status.deepLinksEnabled === false && (
+      {openable && status.provider !== 'codex' && status.deepLinksEnabled === false && (
         <div className="mt-3 space-y-2">
           <p className="text-[10px] text-muted-foreground">
             Created on {status.hostname ?? 'another Cove host'}

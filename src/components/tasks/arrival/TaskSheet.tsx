@@ -1,5 +1,7 @@
 'use client';
 
+import { taskEditError } from '@/lib/tasks/edit-conflict';
+
 import {
   useId,
   useRef,
@@ -66,6 +68,7 @@ export default function TaskSheet({
   const project = today?.project ?? task?.project;
   const due = today?.deadline ?? task?.due;
   const taskRecord = today?.task ?? (task ? tasksById.get(task.id) : undefined);
+  const origin = taskRecord?.origin?.trim();
   const actionBusy = busy || savingTask || pendingAction !== undefined;
 
   async function runTodayAction(
@@ -95,8 +98,8 @@ export default function TaskSheet({
     try {
       await onSaveTask(taskRecord._id, patch);
       onClose();
-    } catch {
-      setTaskError("Cove couldn't save those task details. Try again.");
+    } catch (error) {
+      setTaskError(taskEditError(error));
     } finally {
       setSavingTask(false);
     }
@@ -151,6 +154,19 @@ export default function TaskSheet({
       <p className="mt-4 text-xs text-muted-foreground">
         {project ?? 'No project'} <span aria-hidden="true">·</span> {due ? `due ${due}` : 'no due date'}
       </p>
+      {origin && (
+        <section
+          aria-label="Reason this task was added"
+          className="mt-4 rounded-xl border bg-muted/40 px-4 py-3"
+        >
+          <p className="text-[10.5px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+            Reason this task was added
+          </p>
+          <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground">
+            {origin}
+          </p>
+        </section>
+      )}
 
       {taskRecord && (
         <TaskFieldsEditor

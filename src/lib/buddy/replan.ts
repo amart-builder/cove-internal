@@ -8,6 +8,7 @@
  */
 import os from "node:os";
 import path from "node:path";
+import { buildCodexBuddyCommand } from "./codex";
 import type { ClaudeCommand } from "../claude-execution/commands";
 import { resolveClaudeModel } from "../claude-execution/commands";
 import {
@@ -136,7 +137,10 @@ export function buildReplanPrompt(plan: DayPlan, userText: string): string {
   ].join("\n");
 }
 
-export function buildReplanCommand(plan: DayPlan, userText: string): ClaudeCommand {
+export function buildReplanCommand(plan: DayPlan, userText: string, selection?: import("./codex").BuddyAgentSelection): ClaudeCommand {
+  if (selection?.provider === "codex") {
+    return buildCodexBuddyCommand({ selection, cwd: process.cwd(), prompt: buildReplanPrompt(plan, userText), schema: REPLAN_PROPOSAL_JSON_SCHEMA });
+  }
   return {
     executable: coveEnv("CLAUDE_BIN") ?? path.join(os.homedir(), ".local/bin/claude"),
     cwd: process.cwd(),
@@ -149,9 +153,9 @@ export function buildReplanCommand(plan: DayPlan, userText: string): ClaudeComma
       "--tools",
       "",
       "--model",
-      resolveClaudeModel("sonnet"),
+      selection?.model ?? resolveClaudeModel("sonnet"),
       "--effort",
-      "medium",
+      selection?.effort ?? "medium",
       "--output-format",
       "stream-json",
       "--verbose",

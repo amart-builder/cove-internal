@@ -21,11 +21,11 @@ flowchart LR
 
 ## Trust boundaries
 
-- SQLite is the durable application source of truth. UI optimism is temporary and must roll back when persistence fails.
+- SQLite owns task and workflow records, including transactional Quiet Current suggestions and decisions (see `DATA.md`). UI optimism is temporary and must roll back when persistence fails.
 - Gmail remains the email source of truth. Cove's gateway code exposes read, draft creation, narrow label changes, and archive operations, with no send operation. The `gmail.modify` scope is the narrowest Google scope that still permits drafts and archiving, and it does not permit permanent deletion. The no-send guarantee is enforced by Cove's code, not by the credential.
 - Model output is a proposal. Deterministic code validates schemas, task IDs, evidence references, state versions, and allowed operations before persistence.
 - Background work uses durable jobs, idempotency keys, leases, bounded retries, receipts, and an Issues inbox.
-- Model subprocesses receive explicit tools, isolated settings and MCP configuration, a minimal environment, a spend ceiling, and a wall-clock deadline.
+- Model subprocess controls vary by lane. Structured output and deterministic action validation remain the application boundary; see `SECURITY_AND_INTEGRATIONS.md` for inherited configuration and hook limitations.
 
 ## Product domains
 
@@ -49,9 +49,10 @@ Cove has three kinds of process, each with different authority:
    synchronous product changes.
 2. Scheduled deterministic scripts observe time or provider state and enqueue
    or complete bounded work.
-3. Model workers receive a narrow context envelope and return a proposal. They
-   do not receive an ambient shell, an unrestricted MCP configuration, or a
-   direct database or provider write path.
+3. Model workers receive a context envelope and return a proposal for Cove to
+   validate. Some execution paths still inherit personal tools or hooks; their
+   filesystem sandbox is not a universal no-tool guarantee. The persistent
+   chief-of-staff driver has a separate, explicitly restricted configuration.
 
 The durable queue sits between a request and background model work. Claims,
 leases, retries, and receipts survive a worker restart. A process exit code is
@@ -79,3 +80,24 @@ from discovered machine paths and enabled integrations. See the Background
 processes table in `CODEBASE_GUIDE.md` for the authoritative labels and
 conditions. `--mini` is a separate legacy profile: it installs the Mini brief
 agent and the two rendered lane plists, then stops.
+
+## Selected agent and follow-through
+
+`agent-settings.mjs` owns the verified provider/model/effort selection.
+`background-usage.mjs` reserves shared rolling capacity before model attempts.
+The chief uses durable desk/journal context; Buddy keeps provider-specific
+conversation heads. A provider change starts a fresh conversation without
+transferring private chat history. Tasks remain in the shared Cove database.
+Interactive task runs retain exact provider/model and native resume metadata.
+
+The reminder worker owns deterministic meeting/deadline follow-through.
+`attention/follow-through.mjs` persists bounded source observations and claimed
+notice delivery, independently of model-review availability. Quiet hours,
+engagement suppression, cooldowns and explicit snooze govern interruptions.
+Unknown delivery stays unknown. Calendar pagination or stale source data cannot
+be presented as complete coverage.
+
+Task editors send only changed fields plus their expected original values.
+Local SQLite checks those values in the same transaction as the write, returning
+409 on a same-field conflict. Recurring task pause/resume retains the occurrence
+and task identity; metadata edits cannot turn a paused occurrence into a miss.

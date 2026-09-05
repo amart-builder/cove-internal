@@ -12,6 +12,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { getQuietCurrentSnapshot } from "../src/lib/quiet-current/store.ts";
 import { allocateAttention } from "../src/lib/attention/ledger.mjs";
 import { runLocalMigrations } from "../src/lib/local/migrations.ts";
 
@@ -184,7 +185,7 @@ test("floor cap exhaustion writes suppression rows and one Quiet Current line", 
        AND suppressed_reason = 'daily_banner_cap'`,
   ).get());
   check.close();
-  const quiet = JSON.parse(readFileSync(path.join(dir, "quiet-current.json"), "utf8"));
+  const quiet = getQuietCurrentSnapshot(dir);
   assert.equal(quiet.suggestions.length, 1);
   assert.equal(quiet.suggestions[0].title, "Nudges were suppressed");
 });

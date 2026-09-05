@@ -174,7 +174,7 @@ function meetingOwner(dataDir: string): {
 function backupFileTime(backupDir: string): string | null {
   if (!existsSync(backupDir)) return null;
   const files = readdirSync(backupDir)
-    .filter((name) => /^cove-(?:\d{14}|\d{8}-\d{6})\.db$/.test(name))
+    .filter((name) => /^cove-(?:\d{14}(?:-[a-zA-Z0-9-]{1,80})?|\d{8}-\d{6})\.db$/.test(name))
     .map((name) => statSync(path.join(backupDir, name)).mtime)
     .sort((left, right) => right.getTime() - left.getTime());
   return files[0]?.toISOString() ?? null;

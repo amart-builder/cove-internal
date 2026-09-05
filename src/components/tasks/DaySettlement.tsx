@@ -1,5 +1,7 @@
 'use client';
 
+import { taskEditError } from '@/lib/tasks/edit-conflict';
+
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { DayPlan, DayPlanItem } from '@/lib/day-plan/types';
 import {
@@ -222,8 +224,8 @@ export default function DaySettlement({
     try {
       await onSaveTask(editingTask.task._id, patch);
       setEditingTask(undefined);
-    } catch {
-      setEditorError("Cove couldn't save those task details. Try again.");
+    } catch (error) {
+      setEditorError(taskEditError(error));
     } finally {
       setEditorSaving(false);
     }
@@ -303,7 +305,7 @@ export default function DaySettlement({
                         {item.detail && <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p>}
                         {item.sessionStatus && (
                           <p className="mt-1 text-xs text-muted-foreground">
-                            Claude session: {TASK_SESSION_STATUS_LABELS[item.sessionStatus]}.
+                            Agent session: {TASK_SESSION_STATUS_LABELS[item.sessionStatus]}.
                           </p>
                         )}
                       </div>

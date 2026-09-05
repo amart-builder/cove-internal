@@ -33,7 +33,7 @@ test('Today focus details use the inline card and shared rich-sheet scrim', () =
   assert.match(stage, /stopped`\} · Open/);
   assert.match(stage, /You'll get a notification when it's ready/);
   assert.match(stage, /taskSessionRunNeedsEscape/);
-  assert.match(stage, /showEscape[\s\S]{0,300}href=\{run\.resumeUrl\}/);
+  assert.match(stage, /showEscape[\s\S]{0,300}<SessionLink run=\{run\}/);
   assert.match(stage, /finished`\} ·[\s\S]{0,100}<OpenInClaudeCode/);
   assert.match(stage, /resumeCommand=\{run\.resumeCommand\}/);
 });

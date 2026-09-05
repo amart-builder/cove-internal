@@ -1,5 +1,7 @@
 'use client';
 
+import { taskEditError, type TaskEditGuard } from '@/lib/tasks/edit-conflict';
+
 /**
  * Browser coordinator for Cove's Today surface.
  *
@@ -40,6 +42,7 @@ import {
   type ArrivalTaskStatus,
 } from '@/lib/quiet-current/arrival-cache';
 import { realTimeLabel } from '@/lib/quiet-current/presentation';
+import { originDate, originQuote } from '@/lib/tasks/origin';
 import { taskColumnKeyForName, type TaskColumnKey } from '@/lib/tasks/columns';
 import {
   buildDayPlanCandidates,
@@ -102,6 +105,7 @@ import {
 } from '@/lib/task-sessions/types';
 import CoveReadinessStrip from './CoveReadinessStrip';
 import ClaudeDeskStrip from './ClaudeDeskStrip';
+import FollowThrough from '../reliability/FollowThrough';
 import TodayRiverStageV2, {
   type SecondCurrentItemV2,
   type TodayRiverStageV2MotionHandle,
@@ -126,12 +130,14 @@ type CreateTaskInput = {
   priority?: 'low' | 'medium' | 'high';
   dueDate?: string;
   tags?: string[];
+  origin?: string;
 };
 
-type UpdateTaskInput = {
+type UpdateTaskInput = TaskEditGuard & {
   columnId?: string | null;
   title?: string;
   description?: string;
+  origin?: string;
   priority?: 'low' | 'medium' | 'high';
   dueDate?: string | null;
   tags?: string[];
@@ -326,6 +332,7 @@ function normalizeRestTask(task: RestTask): TaskData {
     dueAt: task.due_at ?? undefined,
     tags,
     project: task.project,
+    origin: task.origin ?? undefined,
     status: task.status,
     proposedRecurrenceCadence: task.proposed_recurrence_cadence ?? undefined,
     recurringTemplateId: task.recurring_template_id ?? undefined,
@@ -349,6 +356,7 @@ function applyPatch(task: TaskData, patch: UpdateTaskInput): TaskData {
     columnId: patch.columnId === undefined ? task.columnId : (patch.columnId ?? ''),
     title: patch.title ?? task.title,
     description: patch.description ?? task.description,
+    origin: patch.origin ?? task.origin,
     priority: patch.priority ?? task.priority,
     dueDate: patch.dueDate === undefined ? task.dueDate : (patch.dueDate ?? undefined),
     tags: patch.tags ?? task.tags,
@@ -363,11 +371,13 @@ function applyPatch(task: TaskData, patch: UpdateTaskInput): TaskData {
 // Due dates are calendar dates, so they are stored at UTC midnight (see the
 // note on toSupabaseDueAt in KanbanBoard). Local midnight would move the stored
 // day for anyone at or ahead of UTC.
-function toRestPatch(patch: UpdateTaskInput): Partial<RestTask> {
+function toRestPatch(patch: UpdateTaskInput): Partial<RestTask> & TaskEditGuard {
   return {
+    _expected: patch._expected,
     column_id: patch.columnId,
     title: patch.title,
     description: patch.description,
+    origin: patch.origin,
     priority: patch.priority,
     due_at:
       patch.dueDate === undefined
@@ -589,6 +599,7 @@ function RestTodayView() {
             tags: input.tags,
             position: nextPosition,
             source_type: 'quiet_current',
+            origin: input.origin,
           });
           const normalized = normalizeRestTask(created);
           confirmedTasksRef.current = upsertArrivalTask(
@@ -1220,6 +1231,7 @@ function TodayExperience({
               description: mutation.description,
               priority: mutation.priority,
               tags: mutation.project ? [mutation.project] : [],
+              origin: `Buddy added this while replanning your day in Morning Arrival on ${originDate(mutation.createdAt)}.`,
             });
             if (createdId !== mutation.taskId) throw new Error('Cove could not preserve the new task identity.');
           }
@@ -1414,6 +1426,7 @@ function TodayExperience({
         title,
         tags: ['captured-today'],
         priority: 'medium',
+        origin: `You typed this into the Today capture box on ${originDate(new Date())}: "${originQuote(title)}"`,
       });
       await recordDecision({
         eventType: 'plan_add',
@@ -1521,6 +1534,7 @@ function TodayExperience({
           priority: suggestion.priority,
           dueDate: suggestion.dueDate,
           tags: [],
+          origin: `A Quiet Current suggestion you accepted on ${originDate(new Date())}. Source: ${originQuote(suggestion.source, 120)}. Evidence: ${originQuote(suggestion.reason)}`,
         });
         focusTask(resolvedTaskId, source);
       }
@@ -1824,15 +1838,17 @@ function TodayExperience({
     try {
       await updateTask(detailTask._id, nextPatch);
     } catch (error) {
-      setSurfaceError("Cove couldn't save those task details. Try again.");
+      setSurfaceError(taskEditError(error));
       throw error;
     }
   }
 
   async function saveRitualTask(taskId: string, patch: Partial<EditableTask>) {
     await updateTask(taskId, {
+      _expected: patch._expected,
       title: patch.title,
       description: patch.description,
+      origin: patch.origin,
       priority: patch.priority,
       dueDate: patch.dueDate,
       tags: patch.tags,
@@ -2342,6 +2358,7 @@ function TodayExperience({
       {TODAY_RIVER_STAGE_V2 ? (
         <TodayRiverStageV2
           ref={today2MotionRef}
+          headerSupplement={localMode ? <FollowThrough compact /> : undefined}
           model={{
             timeLabel,
             timeIso: now.toISOString(),
@@ -2621,7 +2638,7 @@ function TodayExperience({
               </div>
 
               {localMode && focusedBoardSession && dayRitual.plan && (
-                <div className="current-hero-execution" aria-label={`Claude session for ${focusedTask.title}`}>
+                <div className="current-hero-execution" aria-label={`Agent session for ${focusedTask.title}`}>
                   <TaskSessionLauncher
                     input={taskSessionInput(dayRitual.plan.id, focusedBoardSession.item)}
                     run={focusedBoardSession.run}

@@ -2,14 +2,16 @@
  * Durable pencil layer for inferred work and returned agent results.
  *
  * Suggestions expire, defer, reopen, and record human decisions without
- * becoming committed task state on their own. File updates use atomic replace
- * so a process interruption cannot leave half-written JSON.
+ * becoming committed task state on their own. SQLite serializes the complete
+ * read/change/write operation across browser and background processes.
  */
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { coveDataDir } from "../operator";
 import { coveEnv } from "../env";
+import { localDatabasePath } from "../local/database";
+import { transactQuietCurrent } from "./persistence";
 
 export type SuggestionKind =
   | "create_task"
@@ -152,38 +154,20 @@ function emptyStore(): QuietCurrentStore {
   return { version: 1, suggestions: [], decisionEvents: [] };
 }
 
-function readStore(dataDir?: string): QuietCurrentStore {
-  const file = storePath(dataDir);
-  try {
-    const parsed = JSON.parse(
-      readFileSync(/* turbopackIgnore: true */ file, "utf8"),
-    ) as QuietCurrentStore;
-    if (
-      parsed.version !== 1 ||
-      !Array.isArray(parsed.suggestions) ||
-      !Array.isArray(parsed.decisionEvents)
-    ) {
-      throw new Error("Quiet Current data has an unsupported shape.");
-    }
-    return parsed;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return emptyStore();
-    throw error;
-  }
+function quietDatabaseInDirectory(directory: string): string {
+  const canonical = path.join(directory, "cove.db");
+  const legacy = path.join(directory, "forge.db");
+  return existsSync(canonical) || !existsSync(legacy) ? canonical : legacy;
 }
 
-function writeStore(store: QuietCurrentStore, dataDir?: string): void {
+function withStore<T>(dataDir: string | undefined, operation: (store: QuietCurrentStore) => T): T {
   const file = storePath(dataDir);
-  mkdirSync(/* turbopackIgnore: true */ path.dirname(file), { recursive: true });
-  const temporary = `${file}.${process.pid}.tmp`;
-  writeFileSync(/* turbopackIgnore: true */ temporary, `${JSON.stringify(store, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  renameSync(
-    /* turbopackIgnore: true */ temporary,
-    /* turbopackIgnore: true */ file,
-  );
+  const database = testStorePath
+    ? `${testStorePath}.sqlite`
+    : coveEnv("DB_PATH") ?? (dataDir || coveEnv("DATA_DIR")
+      ? quietDatabaseInDirectory(coveDataDir(dataDir))
+      : localDatabasePath());
+  return transactQuietCurrent(database, file, emptyStore, operation);
 }
 
 function appendEvent(
@@ -294,9 +278,10 @@ export function pruneSuggestions(
 }
 
 export function getQuietCurrentSnapshot(dataDir?: string): QuietCurrentStore {
-  const store = readStore(dataDir);
-  if (refreshSuggestionLifecycle(store)) writeStore(store, dataDir);
-  return store;
+  return withStore(dataDir, (store) => {
+    refreshSuggestionLifecycle(store);
+    return store;
+  });
 }
 
 export function createWorkSuggestion(input: {
@@ -329,61 +314,59 @@ export function createWorkSuggestion(input: {
         ? "Observed progress"
         : "A stale-task check"} requires an existing target task.`);
   }
-  const store = readStore(input.dataDir);
-  const lifecycleChanged = refreshSuggestionLifecycle(store);
-  const claimKey = input.claimKey?.trim();
-  if (claimKey) {
-    const existing = store.suggestions.find((suggestion) =>
-      suggestion.claimKey === claimKey && NON_TERMINAL_STATES.has(suggestion.state)
-    );
-    if (existing) {
-      if (lifecycleChanged) writeStore(store, input.dataDir);
-      return existing;
+  return withStore(input.dataDir, (store) => {
+    refreshSuggestionLifecycle(store);
+    const claimKey = input.claimKey?.trim();
+    if (claimKey) {
+      const existing = store.suggestions.find((suggestion) =>
+        suggestion.claimKey === claimKey && NON_TERMINAL_STATES.has(suggestion.state)
+      );
+      if (existing) {
+        return existing;
+      }
     }
-  }
-  if (input.id) {
-    const existing = store.suggestions.find((suggestion) => suggestion.id === input.id);
-    if (existing) {
-      if (lifecycleChanged) writeStore(store, input.dataDir);
-      return existing;
+    if (input.id) {
+      const existing = store.suggestions.find((suggestion) => suggestion.id === input.id);
+      if (existing) {
+        return existing;
+      }
     }
-  }
-  const now = nowDate();
-  const expiresAt = input.expiresAt
-    ? new Date(input.expiresAt)
-    : new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
-  if (Number.isNaN(expiresAt.getTime()) || expiresAt <= now) {
-    throw new Error("Suggestion expiry must be a future date.");
-  }
+    const now = nowDate();
+    const expiresAt = input.expiresAt
+      ? new Date(input.expiresAt)
+      : new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+    if (Number.isNaN(expiresAt.getTime()) || expiresAt <= now) {
+      throw new Error("Suggestion expiry must be a future date.");
+    }
 
-  const suggestion: WorkSuggestion = {
-    id: input.id ?? randomUUID(),
-    kind,
-    title: input.title.trim(),
-    description: input.description?.trim() ?? "",
-    reason: input.reason.trim(),
-    source: input.source.trim(),
-    priority: input.priority ?? "medium",
-    dueDate: input.dueDate,
-    targetTaskId: input.targetTaskId,
-    reviewMaterial: input.reviewMaterial,
-    claimKey,
-    state: "proposed",
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-    expiresAt: expiresAt.toISOString(),
-  };
+    const suggestion: WorkSuggestion = {
+      id: input.id ?? randomUUID(),
+      kind,
+      title: input.title.trim(),
+      description: input.description?.trim() ?? "",
+      reason: input.reason.trim(),
+      source: input.source.trim(),
+      priority: input.priority ?? "medium",
+      dueDate: input.dueDate,
+      targetTaskId: input.targetTaskId,
+      reviewMaterial: input.reviewMaterial,
+      claimKey,
+      state: "proposed",
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+    };
 
-  store.suggestions.push(suggestion);
-  store.suggestions = pruneSuggestions(store.suggestions);
-  appendEvent(store, {
-    eventType: "suggestion_create",
-    entityId: suggestion.id,
-    after: suggestion,
-    source: input.source,
+    store.suggestions.push(suggestion);
+    store.suggestions = pruneSuggestions(store.suggestions);
+    appendEvent(store, {
+      eventType: "suggestion_create",
+      entityId: suggestion.id,
+      after: suggestion,
+      source: input.source,
   });
-  writeStore(store, input.dataDir);
   return suggestion;
+  });
 }
 
 export function resolveWorkSuggestion(
@@ -399,99 +382,99 @@ export function resolveWorkSuggestion(
     source?: string;
   },
 ): WorkSuggestion {
-  const store = readStore();
-  refreshSuggestionLifecycle(store);
-  const suggestion = store.suggestions.find((item) => item.id === id);
-  if (!suggestion) throw new Error("Suggestion not found.");
-  if (suggestion.state !== "proposed" && suggestion.state !== "refined") {
-    throw new Error(`Suggestion is already ${suggestion.state}.`);
-  }
+  return withStore(undefined, (store) => {
+    refreshSuggestionLifecycle(store);
+    const suggestion = store.suggestions.find((item) => item.id === id);
+    if (!suggestion) throw new Error("Suggestion not found.");
+    if (suggestion.state !== "proposed" && suggestion.state !== "refined") {
+      throw new Error(`Suggestion is already ${suggestion.state}.`);
+    }
 
-  const before = { ...suggestion };
-  const previousState = suggestion.state;
-  if (input.title !== undefined) suggestion.title = input.title.trim();
-  if (input.description !== undefined) {
-    suggestion.description = input.description.trim();
-  }
-  if (input.dueDate !== undefined) suggestion.dueDate = input.dueDate;
-  if (input.priority !== undefined) suggestion.priority = input.priority;
-  suggestion.dismissReason = input.dismissReason;
-  suggestion.resolvedTaskId = input.resolvedTaskId;
-  suggestion.state = input.state;
-  suggestion.updatedAt = nowDate().toISOString();
-  if (input.state === "deferred") {
-    if (!suggestion.resurfacedFromDeferredAt) {
-      suggestion.deferredUntil = nextMorning(nowDate()).toISOString();
-      suggestion.deferredReturnState = previousState;
+    const before = { ...suggestion };
+    const previousState = suggestion.state;
+    if (input.title !== undefined) suggestion.title = input.title.trim();
+    if (input.description !== undefined) {
+      suggestion.description = input.description.trim();
+    }
+    if (input.dueDate !== undefined) suggestion.dueDate = input.dueDate;
+    if (input.priority !== undefined) suggestion.priority = input.priority;
+    suggestion.dismissReason = input.dismissReason;
+    suggestion.resolvedTaskId = input.resolvedTaskId;
+    suggestion.state = input.state;
+    suggestion.updatedAt = nowDate().toISOString();
+    if (input.state === "deferred") {
+      if (!suggestion.resurfacedFromDeferredAt) {
+        suggestion.deferredUntil = nextMorning(nowDate()).toISOString();
+        suggestion.deferredReturnState = previousState;
+      } else {
+        suggestion.deferredUntil = undefined;
+        suggestion.deferredReturnState = undefined;
+      }
     } else {
       suggestion.deferredUntil = undefined;
       suggestion.deferredReturnState = undefined;
     }
-  } else {
-    suggestion.deferredUntil = undefined;
-    suggestion.deferredReturnState = undefined;
-  }
 
-  appendEvent(store, {
-    eventType: {
-      refined: "suggestion_refine",
-      accepted: "suggestion_accept",
-      deferred: "suggestion_defer",
-      dismissed: "suggestion_dismiss",
-    }[input.state],
-    entityId: suggestion.id,
-    before,
-    after: suggestion,
-    reason: input.dismissReason,
-    source: input.source ?? "human",
+    appendEvent(store, {
+      eventType: {
+        refined: "suggestion_refine",
+        accepted: "suggestion_accept",
+        deferred: "suggestion_defer",
+        dismissed: "suggestion_dismiss",
+      }[input.state],
+      entityId: suggestion.id,
+      before,
+      after: suggestion,
+      reason: input.dismissReason,
+      source: input.source ?? "human",
   });
-  writeStore(store);
   return suggestion;
+  });
 }
 
 export function reopenWorkSuggestion(
   id: string,
   state: "proposed" | "refined" = "proposed",
 ): WorkSuggestion {
-  const store = readStore();
-  const suggestion = store.suggestions.find((item) => item.id === id);
-  if (!suggestion) throw new Error("Suggestion not found.");
-  if (suggestion.state === state) return suggestion;
-  if (ACTIVE_STATES.has(suggestion.state) || suggestion.state === "expired") {
-    throw new Error(`Suggestion cannot be reopened from ${suggestion.state}.`);
-  }
+  return withStore(undefined, (store) => {
+    const suggestion = store.suggestions.find((item) => item.id === id);
+    if (!suggestion) throw new Error("Suggestion not found.");
+    if (suggestion.state === state) return suggestion;
+    if (ACTIVE_STATES.has(suggestion.state) || suggestion.state === "expired") {
+      throw new Error(`Suggestion cannot be reopened from ${suggestion.state}.`);
+    }
 
-  const before = { ...suggestion };
-  const previousState = suggestion.state;
-  suggestion.state = state;
-  suggestion.dismissReason = undefined;
-  suggestion.resolvedTaskId = undefined;
-  suggestion.deferredUntil = undefined;
-  suggestion.deferredReturnState = undefined;
-  suggestion.updatedAt = nowDate().toISOString();
-  if (new Date(suggestion.expiresAt).getTime() <= nowDate().getTime()) {
-    suggestion.expiresAt = new Date(
-      nowDate().getTime() + 3 * 24 * 60 * 60 * 1000,
-    ).toISOString();
-  }
-  appendEvent(store, {
-    eventType: "suggestion_undo",
-    entityId: suggestion.id,
-    before,
-    after: suggestion,
-    reason: previousState === "deferred" ? "defer_undo" : undefined,
-    source: "human",
+    const before = { ...suggestion };
+    const previousState = suggestion.state;
+    suggestion.state = state;
+    suggestion.dismissReason = undefined;
+    suggestion.resolvedTaskId = undefined;
+    suggestion.deferredUntil = undefined;
+    suggestion.deferredReturnState = undefined;
+    suggestion.updatedAt = nowDate().toISOString();
+    if (new Date(suggestion.expiresAt).getTime() <= nowDate().getTime()) {
+      suggestion.expiresAt = new Date(
+        nowDate().getTime() + 3 * 24 * 60 * 60 * 1000,
+      ).toISOString();
+    }
+    appendEvent(store, {
+      eventType: "suggestion_undo",
+      entityId: suggestion.id,
+      before,
+      after: suggestion,
+      reason: previousState === "deferred" ? "defer_undo" : undefined,
+      source: "human",
   });
-  writeStore(store);
   return suggestion;
+  });
 }
 
 export function recordDecisionEvent(
   input: Omit<DecisionEvent, "id" | "createdAt">,
 ): DecisionEvent {
-  const store = readStore();
-  refreshSuggestionLifecycle(store);
-  const event = appendEvent(store, input);
-  writeStore(store);
-  return event;
+  return withStore(undefined, (store) => {
+    refreshSuggestionLifecycle(store);
+    const event = appendEvent(store, input);
+    return event;
+  });
 }

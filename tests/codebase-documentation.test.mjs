@@ -200,7 +200,7 @@ test("high-risk modules explain their authority and failure boundaries", () => {
     ["src/lib/local/database.ts", "Canonical SQLite connection factory"],
     ["src/lib/local/migrations.ts", "append-only schema history"],
     ["src/lib/request-security.ts", "not user authentication"],
-    ["src/lib/task-sessions/manager.ts", "user-visible Claude Code sessions"],
+    ["src/lib/task-sessions/manager.ts", "user-visible agent sessions"],
     ["src/lib/workspace/google/gateway.ts", "Fixed-capability Google Workspace gateway"],
     ["src/lib/email/automation.ts", "Gmail observations and Cove email state"],
     ["src/lib/email/state-machine.ts", "one Gmail thread"],

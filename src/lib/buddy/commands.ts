@@ -13,6 +13,7 @@ import { resolveClaudeModel } from "../claude-execution/commands";
 import { coveDataDir, workspaceRoot } from "../operator";
 import { coveEnv } from "../env";
 import { formatOperatorPolicy, readOperatorPolicy } from "../operator-policy";
+import { buildCodexBuddyCommand, buddyProviderHead, type BuddyAgentSelection } from "./codex";
 
 export const BUDDY_REPO_ROOT = process.cwd();
 export const BUDDY_DATA_SCRIPT = path.join(BUDDY_REPO_ROOT, "scripts/cove-buddy-data.ts");
@@ -115,23 +116,40 @@ export function buildBuddyTurnCommand(input: {
   userText?: string;
   pageContext?: unknown;
   now?: Date;
+  selection?: BuddyAgentSelection;
 }): ClaudeCommand {
   const executable = coveEnv("CLAUDE_BIN") ?? path.join(os.homedir(), ".local/bin/claude");
   const renderedHome = renderBuddyInstructionDoc();
+  if (input.selection?.provider === "codex") {
+    // The same owner-authored policy applies to either provider. Here examples
+    // describe arguments to the MCP tool, never commands for a general shell.
+    const instructions = readFileSync(path.join(renderedHome, "CLAUDE.md"), "utf8")
+      .replace(/Always start the single Bash command[^\n]+/, "")
+      .replace(/If Bash is denied,[^\n]+/, "If Cove's tool is denied, explain the denial. Do not try another tool or claim the change succeeded.")
+      .replaceAll(`npx tsx ${BUDDY_DATA_SCRIPT} `, "")
+      .replaceAll("New Claude Code sessions", "New agent sessions")
+      .replace("You can read and change Cove data only with this exact command shape:",
+        "Use only the cove_buddy MCP server's cove_data tool to read or change Cove. Supply an args array of separate strings. The examples below show argument syntax, not shell commands. Omit executable prefixes and shell quoting from array elements:");
+    return buildCodexBuddyCommand({
+      selection: input.selection, headSessionId: input.headSessionId, cwd: renderedHome,
+      prompt: buildBuddyPrompt(input.userText ?? "", input.pageContext, input.now), instructions,
+    });
+  }
+  const head = buddyProviderHead(input.headSessionId, "claude");
   return {
     executable,
     cwd: renderedHome,
     args: [
       "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose",
-      "--model", resolveClaudeModel(input.model), "--effort", input.effort, "--name", "Cove Buddy",
+      "--model", input.selection?.model ?? resolveClaudeModel(input.model), "--effort", input.selection?.effort ?? input.effort, "--name", "Cove Buddy",
       "--tools", "Read,Grep,Glob,Bash",
       "--allowedTools", BUDDY_DATA_ALLOWED_TOOL, BUDDY_DATA_CD_ALLOWED_TOOL,
       "--permission-mode", "dontAsk", "--strict-mcp-config",
       "--mcp-config", path.join(process.cwd(), "scripts/cove-empty-mcp.json"), "--no-chrome",
       "--disable-slash-commands",
       "--max-budget-usd", "1.50",
-      ...(input.headSessionId
-        ? ["--resume", input.headSessionId]
+      ...(head
+        ? ["--resume", head]
         : ["--session-id", input.newSessionId]),
     ],
     stdin: buildBuddyPrompt(input.userText ?? "", input.pageContext, input.now),
@@ -142,15 +160,22 @@ function buildCompactionCommand(input: {
   sessionId: string;
   mode: "resume" | "seed";
   prompt: string;
+  selection?: BuddyAgentSelection;
 }): ClaudeCommand {
-  const executable = coveEnv("CLAUDE_BIN") ?? path.join(os.homedir(), ".local/bin/claude");
   const renderedHome = renderBuddyInstructionDoc();
+  if (input.selection?.provider === "codex") {
+    if (input.mode === "resume" && !input.sessionId.startsWith("codex:")) throw new Error("Cannot compact a conversation from another provider.");
+    return buildCodexBuddyCommand({ selection: input.selection, cwd: renderedHome,
+      headSessionId: input.mode === "resume" ? input.sessionId : null, prompt: input.prompt, noTools: true });
+  }
+  if (input.mode === "resume" && input.sessionId.startsWith("codex:")) throw new Error("Cannot compact a conversation from another provider.");
+  const executable = coveEnv("CLAUDE_BIN") ?? path.join(os.homedir(), ".local/bin/claude");
   return {
     executable,
     cwd: renderedHome,
     args: [
       "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose",
-      "--model", "sonnet", "--effort", "low", "--name", "Cove Buddy compaction",
+      "--model", input.selection?.model ?? "sonnet", "--effort", input.selection?.effort ?? "low", "--name", "Cove Buddy compaction",
       "--tools", "", "--permission-mode", "dontAsk", "--strict-mcp-config",
       "--mcp-config", path.join(process.cwd(), "scripts/cove-empty-mcp.json"), "--no-chrome",
       "--disable-slash-commands", "--max-budget-usd", "0.25",
@@ -160,10 +185,11 @@ function buildCompactionCommand(input: {
   };
 }
 
-export function buildBuddyCompactionSummaryCommand(headSessionId: string): ClaudeCommand {
+export function buildBuddyCompactionSummaryCommand(headSessionId: string, selection?: BuddyAgentSelection): ClaudeCommand {
   return buildCompactionCommand({
     sessionId: headSessionId,
     mode: "resume",
+    selection,
     prompt: [
       "Create a compact handoff summary for a fresh Cove Buddy session.",
       "Preserve the user's goals, decisions, relevant Cove facts, pending work, and conversational context.",
@@ -176,10 +202,12 @@ export function buildBuddyCompactionSummaryCommand(headSessionId: string): Claud
 export function buildBuddyHandoffSeedCommand(input: {
   newSessionId: string;
   summary: string;
+  selection?: BuddyAgentSelection;
 }): ClaudeCommand {
   return buildCompactionCommand({
     sessionId: input.newSessionId,
     mode: "seed",
+    selection: input.selection,
     prompt: [
       "This is a compact handoff from the previous Cove Buddy conversation.",
       "Keep it as context for the next user turn. Do not use tools or take action.",

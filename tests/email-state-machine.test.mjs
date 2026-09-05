@@ -11,6 +11,7 @@ import {
   applyEmailClassification,
   observeInboundMessage,
   requestEmailCompletion,
+  syncRollingEmailCard,
 } from "../src/lib/email/state-machine.ts";
 import { openLocalDatabase } from "../src/lib/local/database.ts";
 import { listRecentReceipts } from "../src/lib/reliability/receipts.ts";
@@ -104,6 +105,17 @@ test("one inbound message creates one canonical thread and one classification jo
   assert.equal(
     row(dbPath, "SELECT COUNT(*) AS count FROM cove_jobs WHERE type = 'email-classify'").count,
     1,
+  );
+});
+
+test("the rolling email card carries a plain-language origin", (t) => {
+  const dbPath = fixture(t);
+  const id = syncRollingEmailCard({ dbPath, now: new Date("2026-07-29T12:00:00Z") });
+  const card = row(dbPath, "SELECT title, origin FROM tasks WHERE id = ?", id);
+  assert.equal(card.title, "Email");
+  assert.equal(
+    card.origin,
+    "Cove's standing email card. It appears whenever Gmail still has replies or actions waiting on you.",
   );
 });
 

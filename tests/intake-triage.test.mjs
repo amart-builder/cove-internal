@@ -203,6 +203,11 @@ test('Supabase intake payloads stay pre-stage even when recurrence is proposed',
   assert.equal(fallbackPosts[0].due_at, '2026-07-29T09:00:00-07:00');
   assert.deepEqual(fallbackPosts[0].tags, ['needs-triage']);
   assert.equal('proposed_recurrence_cadence' in fallbackPosts[0], false);
+  assert.equal(
+    fallbackPosts[0].origin,
+    'You told Claude in chat on Jul 28, 2026: "Post a clip every day."',
+    'every inbound task says where it came from, quoting the actual words',
+  );
 
   const capturedPosts = [];
   await createCapturedInboundTask({ ...event, id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }, {
@@ -763,4 +768,58 @@ test('meeting and email input cannot turn model-selected now into an immediate t
   assert.equal(existsSync(path.join(dir, 'reminders')), false);
   assert.match(posts[0].description, /Immediate text suppressed for meeting input/);
   assert.match(posts[1].description, /Immediate text suppressed for email input/);
+});
+
+test('a scratch database refuses to post tasks to the default live server', async (t) => {
+  const dir = fixture(t);
+  const priorBase = {
+    cove: process.env.COVE_BRIEF_WEB_BASE,
+    forge: process.env.FORGE_BRIEF_WEB_BASE,
+  };
+  delete process.env.COVE_BRIEF_WEB_BASE;
+  delete process.env.FORGE_BRIEF_WEB_BASE;
+  t.after(() => {
+    if (priorBase.cove === undefined) delete process.env.COVE_BRIEF_WEB_BASE;
+    else process.env.COVE_BRIEF_WEB_BASE = priorBase.cove;
+    if (priorBase.forge === undefined) delete process.env.FORGE_BRIEF_WEB_BASE;
+    else process.env.FORGE_BRIEF_WEB_BASE = priorBase.forge;
+  });
+  const event = {
+    id: 'dededede-dede-4ede-8ede-dededededede',
+    source: 'chat',
+    source_id: 'scratch-guard',
+    raw_text: 'Call the dentist.',
+    machine: 'test',
+    state: 'pending',
+    task_id: null,
+    error: null,
+    attempts: 0,
+    created_at: '2026-07-28T16:00:00.000Z',
+    updated_at: '2026-07-28T16:00:00.000Z',
+  };
+  const now = () => new Date('2026-07-28T16:00:00.000Z');
+
+  let fetches = 0;
+  await assert.rejects(
+    createFallbackInboundTask(event, {
+      dataDir: dir,
+      fetchImpl: async () => {
+        fetches += 1;
+        throw new Error('fetch must not run');
+      },
+      now,
+    }),
+    /inbound_web_base_required/,
+  );
+  assert.equal(fetches, 0);
+
+  const posts = [];
+  await createFallbackInboundTask(event, {
+    dataDir: dir,
+    fetchImpl: coveFetch(posts),
+    webBaseUrl: 'http://scratch-guard.test',
+    now,
+  });
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].id, event.id);
 });

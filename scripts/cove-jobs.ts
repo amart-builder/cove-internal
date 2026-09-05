@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,7 +7,7 @@ import { coveEnv } from "../src/lib/env";
 import { resolveEmailRuntimePaths } from "../src/lib/email/runtime-paths";
 import { signatureHtmlToText } from "../src/lib/email/draft-format";
 import { loadSignature } from "../src/lib/email/signature";
-import { createSqliteBackup } from "../src/lib/reliability/backup";
+import { createSqliteBackup, sqliteBackupPath, verifySqliteBackup } from "../src/lib/reliability/backup";
 import { JobScheduler } from "../src/lib/reliability/jobs";
 import {
   enqueueDailyTaskMaintenance,
@@ -51,9 +52,9 @@ function paths(): { dataDir: string; dbPath: string; backupDir: string } {
   };
 }
 
-function schedulerWithHandlers(dbPath: string, backupDir: string, dataDir: string): JobScheduler {
+function schedulerWithHandlers(dbPath: string, backupDir: string, dataDir: string, backupOnly = false): JobScheduler {
   const scheduler = new JobScheduler({ dbPath });
-  if (existsSync(workspaceConfigPath(dataDir))) {
+  if (!backupOnly && existsSync(workspaceConfigPath(dataDir))) {
     const gateway = createGoogleWorkspaceGateway({ dataDir });
     const workspace = readWorkspaceConfig(dataDir);
     const cachedSignature = loadSignature(dataDir, workspace.accountEmail);
@@ -98,6 +99,7 @@ function schedulerWithHandlers(dbPath: string, backupDir: string, dataDir: strin
       keep: 14,
       now: Number.isNaN(requestedAt.getTime()) ? new Date() : requestedAt,
       reuseExisting: true,
+      snapshotId: (job.payload as { snapshotId?: string } | null)?.snapshotId,
     });
     return {
       summary: `${result.reused ? "Verified existing" : "Created"} database backup ${path.basename(result.path)}.`,
@@ -108,6 +110,7 @@ function schedulerWithHandlers(dbPath: string, backupDir: string, dataDir: strin
       },
     };
   });
+  if (backupOnly) return scheduler;
   scheduler.register("health-collector", async (job) => {
     const requestedAt = (
       job.payload &&
@@ -148,12 +151,12 @@ async function main(): Promise<number> {
   }
   if (command !== "enqueue-backup" && command !== "run") {
     process.stderr.write(
-      "Usage: tsx scripts/cove-jobs.ts enqueue-backup [--run] | run\n",
+      "Usage: tsx scripts/cove-jobs.ts enqueue-backup [--run] [--daily] | run\n",
     );
     return 2;
   }
 
-  const scheduler = schedulerWithHandlers(dbPath, backupDir, dataDir);
+  const scheduler = schedulerWithHandlers(dbPath, backupDir, dataDir, command === "enqueue-backup");
   try {
     let incrementalEmail: Awaited<ReturnType<typeof observeIncrementalInbox>> | undefined;
     if (command === "run") {
@@ -182,15 +185,35 @@ async function main(): Promise<number> {
       const now = new Date();
       const enqueued = scheduler.enqueue({
         type: "backup",
-        payload: { requestedAt: now.toISOString() },
+        payload: { requestedAt: now.toISOString(), snapshotId: randomUUID() },
         priority: 100,
         maxAttempts: 5,
-        idempotencyKey: `backup:${localDateKey(now)}`,
+        idempotencyKey: process.argv.includes("--daily")
+          ? `backup:${localDateKey(now)}`
+          : `backup:manual:${randomUUID()}`,
       });
       process.stdout.write(
-        `${enqueued.inserted ? "Enqueued" : "Already queued"} daily backup ${enqueued.job.id}.\n`,
+        `${enqueued.inserted ? "Enqueued" : "Already queued"} backup ${enqueued.job.id}.\n`,
       );
       if (!process.argv.includes("--run")) return 0;
+      // A backup request must never drain unrelated Gmail or task jobs.
+      // Re-running a completed daily job verifies its durable snapshot as well.
+      if (enqueued.job.status === "done") {
+        const payload = enqueued.job.payload as { requestedAt: string; snapshotId?: string };
+        const file = sqliteBackupPath({
+          backupDir, now: new Date(payload.requestedAt), snapshotId: payload.snapshotId,
+        });
+        verifySqliteBackup(file);
+        process.stdout.write(`Verified daily backup ${file}.\n`);
+        return 0;
+      }
+      const status = await scheduler.runJob(enqueued.job.id);
+      if (status !== "done") {
+        process.stderr.write(`Backup did not complete (${status}). See Cove Issues and retry.\n`);
+        return 1;
+      }
+      process.stdout.write(`Backup completed ${enqueued.job.id}.\n`);
+      return 0;
     }
     const result = await scheduler.runAvailable({ concurrency: 1, maxJobs: 25 });
     reconcileDeadEmailJobs({ dbPath });

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { SessionLink } from './TaskSessionLauncher';
 import {
   TASK_SESSION_STATUS_LABELS,
   type TaskSessionRun,
@@ -8,8 +9,8 @@ import {
 
 function summary(activeCount: number, readyCount: number): string {
   const active = activeCount > 0
-    ? `Claude is working on ${activeCount}`
-    : 'Claude has no active work';
+    ? `Your agent is working on ${activeCount}`
+    : 'Your agent has no active work';
   if (readyCount === 0) return active;
   return `${active}, ${readyCount} ready to review`;
 }
@@ -29,7 +30,7 @@ export default function ClaudeDeskStrip({
   if (runs.length === 0) return null;
 
   return (
-    <section className="mt-4 rounded-2xl border border-border/60 bg-background/65 px-3 py-2.5 backdrop-blur" aria-label="Claude desk">
+    <section className="mt-4 rounded-2xl border border-border/60 bg-background/65 px-3 py-2.5 backdrop-blur" aria-label="Agent desk">
       <p className="text-xs font-medium text-foreground">
         {summary(activeRuns.length, outputReadyRuns.length)}
       </p>
@@ -41,9 +42,9 @@ export default function ClaudeDeskStrip({
             </span>
             <span className="text-muted-foreground">{TASK_SESSION_STATUS_LABELS[run.status]}</span>
             {run.status === 'output_ready' && (
-              <a className="font-medium text-foreground underline underline-offset-2" href={run.resumeUrl}>
+              <SessionLink className="font-medium text-foreground underline underline-offset-2" run={run}>
                 Review
-              </a>
+              </SessionLink>
             )}
             {(run.status === 'running' || run.status === 'awaiting_approval') && (
               confirmingRunId === run.id ? (

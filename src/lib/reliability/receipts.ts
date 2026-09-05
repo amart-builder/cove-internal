@@ -385,7 +385,7 @@ export function receiptActivity(receipt: Receipt): ReceiptActivity {
           : `${subject} was skipped.`;
     return {
       id: receipt.id,
-      title: "Claude session",
+      title: "Agent session",
       detail,
       occurredAt: receipt.finishedAt,
       needsAttention: receipt.outcome === "partial" || receipt.outcome === "failed",
@@ -426,7 +426,7 @@ export function receiptActivity(receipt: Receipt): ReceiptActivity {
       id: receipt.id,
       title: "Background cleanup",
       detail: lane
-        ? `A stalled ${lane === "session" ? "Claude session" : `${lane} process`} was cleaned up.`
+        ? `A stalled ${lane === "session" ? "Agent session" : `${lane} process`} was cleaned up.`
         : "A stalled Claude process was cleaned up.",
       occurredAt: receipt.finishedAt,
       needsAttention: receipt.outcome === "partial" || receipt.outcome === "failed",

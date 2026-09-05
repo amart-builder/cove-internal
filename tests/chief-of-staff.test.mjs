@@ -483,12 +483,13 @@ test("all allowed actions use real stores, rejected actions are fed back, and re
   const verify = openLocalDatabase(dbPath);
   try {
     const created = verify.prepare(
-      "SELECT column_id, position, due_at, due_date FROM tasks WHERE title = 'New task'",
+      "SELECT column_id, position, due_at, due_date, origin FROM tasks WHERE title = 'New task'",
     ).get();
     assert.ok(created.column_id);
     assert.ok(created.position >= 0);
     assert.equal(created.due_at, "2026-09-07");
     assert.equal(created.due_date, "2026-09-07");
+    assert.match(created.origin, /^Added by the chief of staff agent on [A-Z][a-z]{2} \d{1,2}, \d{4}\. Its reason: open task task-1$/);
     assert.equal(verify.prepare("SELECT status FROM tasks WHERE id = 'existing-task'").get().status, "done");
     assert.equal(verify.prepare("SELECT stage FROM pipeline_deals WHERE contact_id = ?").get(pipelineContact.id).stage, "interested");
     assert.deepEqual(
@@ -596,13 +597,14 @@ test("task_create accepts the live flat-schema payload with open status", () => 
   const db = openLocalDatabase(dbPath);
   try {
     assert.deepEqual(db.prepare(
-      "SELECT status, priority, due_at, due_date, remind_at FROM tasks WHERE title = ?",
+      "SELECT status, priority, due_at, due_date, remind_at, notification_policy FROM tasks WHERE title = ?",
     ).get(action.title), {
       status: "open",
       priority: "medium",
       due_at: action.due_at,
       due_date: action.due_at,
       remind_at: action.remind_at,
+      notification_policy: "both",
     });
   } finally {
     db.close();
@@ -1274,3 +1276,149 @@ test("weekly review uses tool-free Claude, writes a review, and files one sugges
   assert.equal(suggestions.length, 1);
   assert.equal(suggestions[0].title, "Weekly chief-of-staff review");
 });
+
+test("task_create rejects a title that already exists as open or recently finished work", () => {
+  const { dataDir, dbPath } = tempCove();
+  const now = new Date("2026-09-03T16:00:00Z");
+  const daysAgo = (days) => new Date(now.getTime() - days * 86_400_000).toISOString();
+  const db = openLocalDatabase(dbPath);
+  try {
+    const insert = db.prepare(
+      `INSERT INTO tasks (id, title, priority, status, project, created_at, updated_at)
+       VALUES (?, ?, 'medium', ?, 'Atlas', ?, ?)`,
+    );
+    insert.run("task-open", "Send Maya the revised scope.", "open", daysAgo(5), daysAgo(5));
+    insert.run("task-done-recent", "Book the Cabo flights", "done", daysAgo(10), daysAgo(3));
+    insert.run("task-done-old", "Renew the domain", "done", daysAgo(40), daysAgo(30));
+  } finally {
+    db.close();
+  }
+  const create = (actionId, title) => {
+    const wake = enqueue(dbPath, { reason: "manual", note: actionId, now }).job;
+    const result = applyChiefOfStaffActions({
+      dbPath,
+      dataDir,
+      wakeJobId: wake.id,
+      actions: [{ action_id: actionId, kind: "task_create", why: "test", title }],
+      now,
+    });
+    const audit = openLocalDatabase(dbPath);
+    try {
+      const row = audit.prepare(
+        "SELECT status, error FROM chief_of_staff_actions WHERE wake_job_id = ?",
+      ).get(wake.id);
+      const count = audit.prepare("SELECT COUNT(*) FROM tasks").pluck().get();
+      return { result, row, count };
+    } finally {
+      audit.close();
+    }
+  };
+
+  const openMatch = create("dupe-open", "  send   maya the revised scope ");
+  assert.deepEqual(openMatch.result, { applied: 0, rejected: 1, skipped: 0 });
+  assert.equal(openMatch.row.status, "rejected");
+  assert.equal(openMatch.row.error, "A task with this title already exists (task-open). Use task_update instead.");
+  assert.equal(openMatch.count, 3);
+
+  const recentDone = create("dupe-recent-done", "Book the Cabo flights");
+  assert.deepEqual(recentDone.result, { applied: 0, rejected: 1, skipped: 0 });
+  assert.equal(recentDone.row.error, "A task with this title already exists (task-done-recent). Use task_update instead.");
+  assert.equal(recentDone.count, 3);
+
+  const oldDone = create("dupe-old-done", "Renew the domain");
+  assert.deepEqual(oldDone.result, { applied: 1, rejected: 0, skipped: 0 });
+  assert.equal(oldDone.row.status, "applied");
+  assert.equal(oldDone.count, 4);
+});
+
+test("snapshot lists recently created tasks of any status after the open list", async () => {
+  const { dataDir, dbPath } = tempCove();
+  const now = new Date("2026-09-03T16:00:00Z");
+  const hoursAgo = (hours) => new Date(now.getTime() - hours * 3_600_000).toISOString();
+  const wake = enqueue(dbPath, { reason: "manual", note: "recent tasks", now }).job;
+  const db = openLocalDatabase(dbPath);
+  try {
+    const insert = db.prepare(
+      `INSERT INTO tasks (id, title, priority, status, project, created_at, updated_at)
+       VALUES (?, ?, 'medium', ?, 'Atlas', ?, ?)`,
+    );
+    insert.run("task-fresh-done", "Fresh finished task", "done", hoursAgo(1), hoursAgo(1));
+    insert.run("task-fresh-open", "Fresh open task", "open", hoursAgo(20), hoursAgo(20));
+    insert.run("task-stale-open", "Stale open task", "open", hoursAgo(72), hoursAgo(72));
+  } finally {
+    db.close();
+  }
+  const snapshot = await buildChiefOfStaffSnapshot({
+    jobId: wake.id,
+    wake: wake.payload,
+    session: {
+      sessionId: null,
+      createdAt: now.toISOString(),
+      mandateHash: "hash",
+      wakes: 0,
+      lastWakeAt: null,
+      lastWakeReason: null,
+    },
+    dataDir,
+    dbPath,
+    now,
+    timezone: "America/Los_Angeles",
+    calendar: null,
+  });
+  const recentIndex = snapshot.indexOf("Recently created (any status, last 48 hours):");
+  assert.ok(recentIndex > snapshot.indexOf("## Open tasks"));
+  const recentBlock = snapshot.slice(recentIndex, snapshot.indexOf("## Pipeline"));
+  assert.match(recentBlock, /task-fresh-done \| Fresh finished task .* \| done \|/);
+  assert.match(recentBlock, /task-fresh-open \| Fresh open task/);
+  assert.doesNotMatch(recentBlock, /task-stale-open/);
+});
+
+
+for (const provider of ["claude", "codex"]) {
+  test(`selected ${provider} chief uses bounded calls without a foreign session`, async () => {
+    const { dataDir, dbPath, operatorEnv } = tempCove();
+    const now = new Date("2026-09-04T16:00:00Z");
+    writeFileSync(path.join(dataDir, "agent-settings.json"), JSON.stringify({
+      version: 1, provider, model: provider === "claude" ? "claude-fable-5-1" : "gpt-6-astra", effort: "low",
+      backgroundLimits: { callsPerDay: 1 },
+    }));
+    const home = ensureChiefOfStaffHome({ repoDir: ROOT, dataDir, now });
+    writeChiefOfStaffSession(dataDir, { ...home.session, sessionId: "foreign-session" });
+    const executable = path.join(dataDir, provider);
+    if (provider === "codex") {
+      fakeCodex(executable);
+      writeFileSync(executable, readFileSync(executable, "utf8").replaceAll("../fake-", `${home.paths.agent}/fake-`));
+    }
+    else {
+      writeFileSync(executable, `#!/bin/sh
+printf '%s\\n' "$@" > ../fake-argv.txt
+cat > ../fake-stdin.txt
+printf '%s\\n' '{"structured_output":{"journal":["Reviewed the desk.","No urgent gap found."],"watching":[],"actions":[]},"usage":{"input_tokens":100,"output_tokens":30}}'
+`, { mode: 0o700 });
+    }
+    const wake = enqueue(dbPath, { reason: "manual", note: "provider test", now }).job;
+    const running = runWake(wake, {
+      repoDir: ROOT, dataDir, dbPath, env: operatorEnv, now: () => now,
+      codexPath: executable, claudePath: executable,
+    });
+    // Change settings while the snapshot awaits. This wake must keep the
+    // provider for which its isolation was prepared.
+    const settingsFile = path.join(dataDir, "agent-settings.json");
+    const originalSettings = readFileSync(settingsFile, "utf8");
+    const alternate = provider === "claude" ? "codex" : "claude";
+    writeFileSync(settingsFile, JSON.stringify({ version: 1, provider: alternate,
+      model: alternate === "claude" ? "claude-fable-5-1" : "gpt-6-astra", effort: "low" }));
+    await running;
+    writeFileSync(settingsFile, originalSettings);
+    const argv = readFileSync(path.join(home.paths.agent, "fake-argv.txt"), "utf8");
+    assert.doesNotMatch(argv, /foreign-session|resume/);
+    assert.match(argv, provider === "claude" ? /claude-fable-5-1/ : /gpt-6-astra/);
+    assert.equal(readChiefOfStaffSession(dataDir).sessionId, null);
+    if (provider === "claude") assert.equal(existsSync(home.paths.codexHome), false);
+    const second = enqueue(dbPath, { reason: "manual", note: "cap test", now }).job;
+    await assert.rejects(runWake(second, {
+      repoDir: ROOT, dataDir, dbPath, env: operatorEnv, now: () => now,
+      codexPath: executable, claudePath: executable,
+    }), /background_usage_limit/);
+  });
+}

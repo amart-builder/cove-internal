@@ -122,7 +122,7 @@ test('every recent activity source has a dedicated plain-English branch', () => 
     'email-card-to-gmail': 'Email archived',
     'email-surfaced': 'Email needs you',
     'email-archive': 'Email archived',
-    'task-session': 'Claude session',
+    'task-session': 'Agent session',
     'email-commitments': 'Promises captured from email',
     'email-correspondence': 'People history updated',
     'claude-child-reaper': 'Background cleanup',
