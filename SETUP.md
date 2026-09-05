@@ -664,6 +664,17 @@ Do not show the first test brief as the user's brief.
     instead of a generic script icon. Do not describe branded notifications as
     verified until the user sees this check.
 
+    If the person keeps Do Not Disturb or another Focus on, allow **Cove
+    Notifications** in System Settings > Focus > that Focus > Allowed Apps.
+    Terminal and terminal-notifier are different senders; allowing either does
+    not allow Cove. Keep their other exceptions and Focus settings unchanged.
+    In Notifications > Cove, confirm Allow notifications and desktop banners
+    are enabled. Test with the person's normal Focus still on. Screen sharing,
+    mirroring, a locked screen or a sleeping display can suppress presentation;
+    inspect the corresponding setting without broadly allowing other apps or
+    exposing notifications during screen sharing without the person's consent.
+    A zero exit code confirms submission, not a visible banner.
+
 Tell the user: "Cove is running on this Mac. There is no Cove account or login."
 
 ### Reminders and voice notes

@@ -57,6 +57,10 @@ export default function ResponsibilityOverview() {
   const [desk, setDesk] = useState<Desk>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<{
+    id: string;
+    state: "copying" | "copied" | "failed";
+  } | null>(null);
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
       const r = await fetch("/api/responsibilities", {
@@ -105,6 +109,15 @@ export default function ResponsibilityOverview() {
       );
     } finally {
       setBusy(null);
+    }
+  }
+  async function copyDraft(draft: Desk["preparations"][number]) {
+    setCopyStatus({ id: draft.id, state: "copying" });
+    try {
+      await navigator.clipboard.writeText(draft.content);
+      setCopyStatus({ id: draft.id, state: "copied" });
+    } catch {
+      setCopyStatus({ id: draft.id, state: "failed" });
     }
   }
   return (
@@ -261,19 +274,26 @@ export default function ResponsibilityOverview() {
                     {draft.content}
                   </p>
                   <button
-                    className="mt-3 text-xs text-accent-blue"
-                    onClick={() =>
-                      void navigator.clipboard
-                        .writeText(draft.content)
-                        .catch(() =>
-                          setError(
-                            "Could not copy. Select the draft text to copy it.",
-                          ),
-                        )
-                    }
+                    className="mt-3 text-xs text-accent-blue disabled:opacity-50"
+                    disabled={copyStatus?.state === "copying"}
+                    onClick={() => void copyDraft(draft)}
                   >
-                    Copy draft
+                    {copyStatus?.id === draft.id &&
+                    copyStatus.state === "copying"
+                      ? "Copying..."
+                      : "Copy draft"}
                   </button>
+                  {copyStatus?.id === draft.id &&
+                    copyStatus.state !== "copying" && (
+                      <p
+                        className="mt-2 text-xs text-muted-foreground"
+                        role="status"
+                      >
+                        {copyStatus.state === "copied"
+                          ? "Draft copied."
+                          : "Could not copy. Select the draft text and copy it manually."}
+                      </p>
+                    )}
                 </details>
               ))}
             </section>

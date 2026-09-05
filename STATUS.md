@@ -42,12 +42,21 @@
   paused. Automatic approval review requires specific consent to transmit that
   context to the selected provider. The question is pending; no such payload
   expansion is connected. Existing personal Codex configuration is unchanged.
-- Browser acceptance is pending because the memory monitor stopped the temporary
-  port-3320 server at over 9 GB swap. No memory protection was disabled. No live
-  DB migration, service cutover or publication of this candidate has happened.
-- Next: resolve the context decision, complete the browser/native-banner check
-  with adequate memory, then perform a backup-protected live cutover. Do not
-  describe the full vision or client unattended operation as proven yet.
+- Follow-up browser checks now pass: acknowledgement persists through reload
+  and server restart, draft expansion/copy feedback works, and Today links to
+  follow-through. A small copy-feedback fix passed independent review and the
+  full client release gate again (1,294 passed, one opt-in skip).
+- Migration rehearsal passed against a verified copy of the personal database:
+  all 57 existing tables and 247 tasks were unchanged, including after repeat
+  reconciliation; 363 responsibility records initialized, integrity checks passed.
+  No live DB migration, service cutover or publication has happened.
+- Added Cove Notifications to Alex's Do Not Disturb Allowed Apps as requested.
+  Existing exceptions, broad time-sensitive bypass and sharing privacy unchanged.
+  macOS logged the second test as displayed with no Focus suppression, but Alex
+  did not notice it. A final normal-sound test awaits his confirmation.
+- Next: resolve the specific background-context permission and confirm the
+  notification experience, then complete reviewed publication and a backed-up
+  live cutover with restart checks. Do not claim the full vision is proven yet.
 
 ## 2026-09-05 Chief-of-staff methodology reviewed (CURRENT PRODUCT ASSESSMENT)
 

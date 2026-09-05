@@ -66,6 +66,15 @@ hour. Explicit user-set task alarms retain their existing reminder policy. A
 missed or uncertain native delivery remains visible for review. Seeing the native
 banner on the person's own Mac is still part of installation acceptance.
 
+For a person who keeps Do Not Disturb on, add **Cove Notifications** to that
+Focus's Allowed Apps, then test without turning Focus off. Its app name in
+Notifications settings is **Cove**. Terminal and terminal-notifier exceptions
+do not apply to Cove's sender. If submission succeeds but no banner appears,
+check Cove's desktop notification style and whether screen sharing, mirroring,
+screen lock or display sleep is suppressing presentation. Do not broaden those
+privacy settings automatically; successful submission alone is not delivery
+acceptance.
+
 AI-capacity denial keeps a queued job until the indicated rolling window clears;
 it does not spend execution retries. Actual process failures still count. Routine
 work leaves a quarter of the same bounded allowance for chief-of-staff and brief

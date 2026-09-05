@@ -62,12 +62,14 @@ will ever be missed. Release and live-cutover evidence will be recorded below.
   to two calls. No private goals, closeout, accepted focus or live task data went
   through this rehearsal.
 - Production build passed with the supported Webpack release-gate compiler.
-- Browser acceptance remains unverified. The temporary loopback server started,
-  then the Mac's existing memory monitor killed it at over 9 GB swap. The memory
-  protection was preserved; the daily-driver checkout and services were unchanged.
-- Required before rollout: answer the pending planning-context consent; inspect
-  the actual UI and native notification on a healthy Mac; rehearse a backed-up
-  live migration; review and merge the release, then perform restart checks.
+- Initial browser acceptance was stopped by the memory monitor at over 9 GB
+  swap. A later attempt below the stop threshold loaded successfully. Verified
+  acknowledgement and its persistence across reload/restart, draft expansion,
+  honest unknown calendar status, and navigation from Today. No browser console
+  errors were reported. Memory protection and live runtime remained unchanged.
+- Required before rollout: resolve the pending planning-context consent and
+  finish user-visible notification acceptance; review and merge the release,
+  then perform the live backup/cutover and restart checks.
 - Adding private goals, closeout and accepted focus to the chief remains paused.
   The code does not yet deliver shared personal-goal context across all agent
   lanes. Its local feasible-day view is useful but is not a claim that the full
@@ -82,3 +84,29 @@ The exported client candidate independently passed `npm run verify` with the
 same 1,294 passing tests, one opt-in skip, typecheck, lint and production build.
 Verification logs and the fictional model result are retained locally under
 `data/review-artifacts/2026-09-05-responsibility/` in the candidate checkout.
+
+## Acceptance follow-up
+
+- Candidate base commit: `8bab4a5`. Browser testing found missing draft-copy
+  success feedback. The follow-up shows copying, success and manual-copy recovery
+  beside the draft. An independent fresh-context reviewer found no blockers.
+  The rebuilt client passed all release checks again (1,294 passed, one opt-in
+  model skip). The browser visibly reported "Draft copied." No clipboard contents
+  were inspected after automatic approval review rejected that diagnostic read.
+- A verified online backup of the personal database was migrated and reconciled
+  only in an ignored local copy. All 57 original application tables, including
+  247 task records, retained identical row hashes. Repeating migration and
+  reconciliation also preserved them. SQLite quick_check passed, foreign-key
+  violations were zero, and 363 responsibility records were initialized.
+  The original live database was not migrated by this test.
+- Alex keeps Do Not Disturb on and authorized Cove notifications through it.
+  Added only Cove Notifications to its Allowed Apps, preserving the existing
+  five exceptions and the disabled broad time-sensitive bypass. Notifications >
+  Cove already had Allow notifications, desktop display and temporary style on.
+- Alex did not notice the first two test banners. For the second test, macOS
+  logs explicitly reported Focus interruption suppression as none and displayed
+  the exact test identifier as a banner. A third test used normal sound. Human
+  confirmation is still pending. Screen-sharing privacy settings were unchanged.
+- SETUP.md and OPERATIONS.md now cover Focus exceptions and distinguish Cove
+  Notifications from Terminal and terminal-notifier. A successful sender exit
+  still does not by itself count as a visible-banner acceptance.
