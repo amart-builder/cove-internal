@@ -24,6 +24,38 @@
 
 ---
 
+## 2026-09-05 Responsibility and notification release (LIVE)
+
+- Alex authorized making the release live and committing everything. Private
+  PR #8 merged as `eb1ebf78b79e382b513ed9edb17eef2f38ab965a`; public PR #3
+  merged as `64cc36e0923478a51d7d9f3d43e867df1499c0dd`. The private merge
+  approval blocker is resolved. Both exact release gates passed 1,295 tests,
+  one opt-in model skip, typecheck, zero-warning lint and production build.
+  Public main matches all 541 scanned export hashes from source `f9ca726`.
+- Personal Cove now runs the merged application and notification wording with
+  build `VcUgJhZGE1xYxjTCumj9a`. GPT-6 Astra low and 6/hour, 24/day, 100/week
+  background limits are unchanged. No extra model calls were made for deployment.
+- Final snapshot, migration and isolated app restart preserved all 57 original
+  tables and 247 tasks exactly. Migration 31 initialized 363 responsibilities;
+  integrity and foreign-key checks passed. Before/after backups are verified.
+- All 14 original services resumed with unchanged configuration. App and worker
+  remained running, reminder heartbeat was healthy and calendar fresh. Today,
+  follow-through, Issues and private sales pipeline rendered without browser
+  console errors. Native banner acceptance was already confirmed by Alex.
+- Recovery: `data/deploy-backups/responsibility-20260905-162456/RECOVERY.md` and
+  `DEPLOYMENT.md`; original docs are retained in stash
+  `f1f56c8ce499b23c755986e67ea7657282c45775`. Never apply it over the release.
+- Existing Issues and three dead jobs were preserved. AI allowance is currently
+  resting; scheduled reminders continue. Some reminder notices are held or
+  unresolved, so healthy checking is not proof that every banner was delivered.
+  Intelligent attention and urgent email remain shadow. Additional goals,
+  closeout and accepted-focus model context remains absent pending its separate
+  consent. No client installation or longitudinal reliability claim is made.
+- Next: a supervised client install using SETUP.md and the chosen provider's
+  live acceptance. Earlier pending deployment/notification/merge notes below
+  are historical and superseded by this entry.
+
+
 ## 2026-09-05 Notification wording update (NOT DEPLOYED)
 
 - Alex requested short messages from Cove explaining the item and why it needs

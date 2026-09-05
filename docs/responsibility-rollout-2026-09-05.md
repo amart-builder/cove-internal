@@ -1,14 +1,14 @@
 # Chief-of-staff responsibility rollout
 
-Status: published to public Cove. Personal installation cutover is pending.
+Status: published to public Cove and deployed to Alex's personal installation.
 
-This candidate implements changes across the four requested improvements: trustworthy
+This release implements changes across the four requested improvements: trustworthy
 records, durable next checks, feasible planning, and dependable attention with
 bounded preparation. The north star is freedom to focus with confidence that
 commitments are being looked after. Every accepted commitment needs a reliable
 path to its next decision.
 
-Implemented in the candidate:
+Implemented in the release:
 
 1. First-observed deadlines are retained. Proposed work times are separate.
    Chief edits require current source fingerprints. The chief cannot complete
@@ -145,3 +145,19 @@ is open with no merge conflicts. This did not block the public release. The pers
 the existing monitor's server-stop threshold. Personal cutover needs a healthy
 Mac and the already prepared backup/restart checks. Additional personal planning
 context still requires its own permission before being added to model calls.
+
+## Final deployment, September 5
+
+Private PR #8 and public PR #3 are merged. Personal Cove runs private release
+`eb1ebf7`; public main is `64cc36e`. Both exact final release gates passed 1,295
+tests, one opt-in model skip, typecheck, zero-warning lint and production build.
+The final notification update adds concise why-now messages and sanitized agent
+reasons without extra model calls. Native banner visibility is user-confirmed.
+
+The personal cutover preserved all 57 existing tables and 247 tasks through
+migration and app restart, initialized 363 responsibility records and restored
+all 14 original services with unchanged private configuration. Before/after
+backups passed verification. Live UI, worker and reminder/calendar checks passed.
+Existing Issues, held reminders and the AI allowance pause remain visible.
+The separate context-consent and shadow-lane boundaries above remain in force.
+Earlier pending release and banner notes describe historical checkpoints.

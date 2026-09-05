@@ -2,6 +2,14 @@
 
 ## Current state
 
+Latest release: responsibility and notification updates are published through
+public PR #3 (`64cc36e`) and deployed to Alex through private PR #8 (`eb1ebf7`).
+Both exact release gates passed 1,295 tests, typecheck, lint and production build
+(one opt-in model skip). Personal data preservation, restart and native banner
+acceptance are verified. See [responsibility rollout](responsibility-rollout-2026-09-05.md)
+for current evidence and remaining client/shadow-lane boundaries. The initial
+release identifiers below are retained as history.
+
 September 5 assessment: this release supports a supervised client pilot. The
 [new chief-of-staff methodology review](chief-of-staff-methodology-review-2026-09-05.md)
 identifies additional gaps before the stronger promise of dependable end-to-end
