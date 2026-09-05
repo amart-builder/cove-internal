@@ -1,5 +1,7 @@
 "use client";
 
+import AgentUsage from "./AgentUsage";
+import FollowThrough from "./FollowThrough";
 import { useCallback, useEffect, useState } from "react";
 
 type FailureItem = {
@@ -182,7 +184,7 @@ export default function FailureInbox({ receiptsEnabled }: { receiptsEnabled: boo
           <div className="mt-7 overflow-hidden rounded-xl border border-border bg-card">
           {items.length === 0 ? (
             <div className="px-5 py-10">
-              <p className="text-sm font-medium text-foreground">Nothing needs attention.</p>
+              <p className="text-sm font-medium text-foreground">No failed jobs.</p>
               <p className="mt-1 text-sm text-muted-foreground">
                 Work Cove could not finish will appear here.
               </p>
@@ -215,6 +217,7 @@ export default function FailureInbox({ receiptsEnabled }: { receiptsEnabled: boo
           )}
           </div>
 
+          {receiptsEnabled && <><AgentUsage /><FollowThrough /></>}
           {receiptsEnabled && (
           <section className="mt-10">
             <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">

@@ -118,6 +118,7 @@ function fixture(t, options = {}) {
       COVE_NOTIFY: '1',
       COVE_NOTIFICATION_APP: new URL(import.meta.url).pathname,
     },
+    openTerminal: options.openTerminal,
     processExists: options.processExists,
     processStartedAt: options.processStartedAt,
     resolveProjectDirectory: options.resolveProjectDirectory,
@@ -388,7 +389,7 @@ test('task session pills distinguish running, finished, and stopped modes', () =
   assert.equal(running.type, 'span');
   assert.equal(
     running.props.children[0].props.title,
-    "Claude is working in the background. You'll get a notification when it's ready.",
+    "Your agent is working in the background. You'll get a notification when it's ready.",
   );
 });
 
@@ -558,8 +559,8 @@ test('task session run payload omits resumeCommand without a Claude session id',
   assert.equal('resumeCommand' in payload.runs[0], false);
 });
 
-test('log setup failure terminates and fails the registered run', (t) => {
-  const { dir, manager } = fixture(t);
+test('log setup failure remains supervised until the child closes', (t) => {
+  const { dir, manager, children } = fixture(t);
   const outputDir = path.join(
     dir,
     'outputs',
@@ -572,8 +573,10 @@ test('log setup failure terminates and fails the registered run', (t) => {
     owner: 'claude',
     promptSnapshot: SNAPSHOT,
   });
-  assert.equal(run.status, 'failed');
-  assert.match(run.errorCode, /EEXIST/);
+  assert.equal(run.status, 'running');
+  children[0].emit('close', 1);
+  assert.equal(manager.getRun(run.id).status, 'failed');
+  assert.match(manager.getRun(run.id).errorCode, /EEXIST/);
 });
 
 test('a task session has a hard wall-clock deadline and fails visibly on timeout', async (t) => {
@@ -1005,7 +1008,7 @@ test('settlement notes a live session without changing its lifecycle', (t) => {
   });
   assert.equal(
     taskSessionSettlementNote(run.status),
-    'Claude session: running. Closing the day will not stop it.',
+    'Agent session: running. Closing the day will not stop it.',
   );
   assert.equal(manager.getRun(run.id).status, 'running');
 });
@@ -1436,7 +1439,7 @@ test('task session API uses an abandon-specific fallback for unknown failures', 
     );
     assert.equal(response.status, 500);
     assert.deepEqual(await response.json(), {
-      error: 'Could not abandon the Claude session.',
+      error: 'Could not abandon the agent session.',
     });
   } finally {
     console.error = originalConsoleError;
@@ -1510,7 +1513,7 @@ test('task session API maps the active run ceiling to a typed 409 response', asy
   );
   assert.equal(response.status, 409);
   assert.deepEqual(await response.json(), {
-    error: 'Claude can work on up to 6 tasks at once. Stop one before starting another.',
+    error: 'Cove can work on up to 6 tasks at once. Stop one before starting another.',
     code: 'task_session_capacity',
     limit: 6,
   });
@@ -1705,4 +1708,46 @@ test('server generation uses a live process fingerprint, not a recycled server p
     'failed',
   );
   verified.close();
+});
+
+test('selected Claude task model bypasses the router and survives persistence', t => {
+  const f = fixture(t, { routeModel: () => { throw new Error('router must not run'); } });
+  writeFileSync(path.join(f.dir, 'agent-settings.json'), JSON.stringify({ version: 1, provider: 'claude', model: 'claude-fable-5-1', effort: 'low' }));
+  const run = f.manager.launch({ taskId: 'selected-task', owner: 'claude', promptSnapshot: SNAPSHOT });
+  assert.equal(run.model, 'claude-fable-5-1'); assert.equal(run.effort, 'low'); assert.equal(run.provider, 'claude');
+  assert.ok(f.spawnCalls[0].args.includes('claude-fable-5-1'));
+  assert.equal(f.spawnCalls[0].args[f.spawnCalls[0].args.indexOf('--effort') + 1], 'low');
+  f.children[0].emit('close', 0, null);
+});
+
+test('Codex task execution captures native session, refuses false success, and resumes with approvals', async t => {
+  const opened = [];
+  const f = fixture(t, { env: { COVE_CODEX_BIN: '/fake/codex', COVE_MODEL_ROUTER: '0' }, openTerminal: async command => opened.push(command) });
+  const auth = path.join(f.dir, 'operator-auth'); mkdirSync(auth); writeFileSync(path.join(auth, 'auth.json'), '{}');
+  const settings = { version: 1, provider: 'codex', model: 'gpt-6-astra', effort: 'low' };
+  writeFileSync(path.join(f.dir, 'agent-settings.json'), JSON.stringify(settings));
+  // The manager keeps this environment object, matching a configured daemon.
+  const env = { COVE_CODEX_BIN: '/fake/codex', COVE_MODEL_ROUTER: '0', CODEX_HOME: auth };
+  f.manager.close();
+  const commands = []; const child = fakeChild(47000);
+  const manager = createTaskSessionManager({ dbPath: f.dbPath, dataDir: f.dir, env, spawnImpl: (exe, args, options) => { commands.push({ exe, args, options }); return child; }, routeModel: () => { throw new Error('unexpected router'); }, markSession: () => { throw new Error('unexpected Claude marker'); }, resolveProjectDirectory: () => null, openTerminal: async command => opened.push(command) });
+  t.after(() => manager.close());
+  const run = manager.launch({ taskId: 'codex-task', owner: 'together', promptSnapshot: SNAPSHOT });
+  assert.equal(run.provider, 'codex'); assert.equal(run.claudeSessionId, undefined);
+  assert.equal(run.model, settings.model); assert.equal(run.effort, 'low');
+  assert.equal(commands[0].exe, '/fake/codex');
+  assert.ok(commands[0].args.includes('read-only'));
+  assert.ok(commands[0].args.includes('approval_policy="on-request"'));
+  assert.ok(commands[0].args.some(arg => arg.includes(run.id)));
+  assert.equal(commands[0].options.env.ANTHROPIC_API_KEY, undefined);
+  const event = value => child.stdout.write(JSON.stringify(value) + '\n');
+  event({ type: 'thread.started', thread_id: 'native-codex-session' });
+  event({ type: 'item.completed', item: { type: 'agent_message', id: 'a1', text: 'A verified plan.' } });
+  event({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 5 } });
+  child.emit('close', 0, null);
+  const done = manager.getRun(run.id);
+  assert.equal(done.status, 'output_ready'); assert.equal(done.providerSessionId, 'native-codex-session');
+  assert.equal(done.resultSummary, 'A verified plan.'); assert.doesNotMatch(done.hint, /Claude/);
+  await manager.resume(run.id);
+  assert.match(opened[0], /native-codex-session/); assert.match(opened[0], /on-request/); assert.doesNotMatch(opened[0], /never|bypass/);
 });

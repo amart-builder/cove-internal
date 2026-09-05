@@ -25,6 +25,8 @@ export type BuddyTurnView = {
   user_text: string;
   page_context: string;
   model: 'sonnet' | 'opus';
+  provider?: 'claude' | 'codex';
+  provider_changed?: number;
   effort: 'low' | 'medium' | 'high';
   router_reason: string;
   state: 'running' | 'succeeded' | 'failed';
@@ -272,6 +274,7 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
               ...live,
               state: 'failed',
               error_code: typeof event.errorCode === 'string' ? event.errorCode : 'interrupted',
+              ...(typeof event.resultText === 'string' && event.resultText ? { assistant_text: event.resultText } : {}),
               ...(receipts ? { receipts } : {}),
             };
             queueStreamingTurn(live);

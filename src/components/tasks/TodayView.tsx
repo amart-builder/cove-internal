@@ -1,5 +1,7 @@
 'use client';
 
+import { taskEditError, type TaskEditGuard } from '@/lib/tasks/edit-conflict';
+
 /**
  * Browser coordinator for Cove's Today surface.
  *
@@ -103,6 +105,7 @@ import {
 } from '@/lib/task-sessions/types';
 import CoveReadinessStrip from './CoveReadinessStrip';
 import ClaudeDeskStrip from './ClaudeDeskStrip';
+import FollowThrough from '../reliability/FollowThrough';
 import TodayRiverStageV2, {
   type SecondCurrentItemV2,
   type TodayRiverStageV2MotionHandle,
@@ -130,7 +133,7 @@ type CreateTaskInput = {
   origin?: string;
 };
 
-type UpdateTaskInput = {
+type UpdateTaskInput = TaskEditGuard & {
   columnId?: string | null;
   title?: string;
   description?: string;
@@ -368,8 +371,9 @@ function applyPatch(task: TaskData, patch: UpdateTaskInput): TaskData {
 // Due dates are calendar dates, so they are stored at UTC midnight (see the
 // note on toSupabaseDueAt in KanbanBoard). Local midnight would move the stored
 // day for anyone at or ahead of UTC.
-function toRestPatch(patch: UpdateTaskInput): Partial<RestTask> {
+function toRestPatch(patch: UpdateTaskInput): Partial<RestTask> & TaskEditGuard {
   return {
+    _expected: patch._expected,
     column_id: patch.columnId,
     title: patch.title,
     description: patch.description,
@@ -1834,13 +1838,14 @@ function TodayExperience({
     try {
       await updateTask(detailTask._id, nextPatch);
     } catch (error) {
-      setSurfaceError("Cove couldn't save those task details. Try again.");
+      setSurfaceError(taskEditError(error));
       throw error;
     }
   }
 
   async function saveRitualTask(taskId: string, patch: Partial<EditableTask>) {
     await updateTask(taskId, {
+      _expected: patch._expected,
       title: patch.title,
       description: patch.description,
       origin: patch.origin,
@@ -2353,6 +2358,7 @@ function TodayExperience({
       {TODAY_RIVER_STAGE_V2 ? (
         <TodayRiverStageV2
           ref={today2MotionRef}
+          headerSupplement={localMode ? <FollowThrough compact /> : undefined}
           model={{
             timeLabel,
             timeIso: now.toISOString(),
@@ -2632,7 +2638,7 @@ function TodayExperience({
               </div>
 
               {localMode && focusedBoardSession && dayRitual.plan && (
-                <div className="current-hero-execution" aria-label={`Claude session for ${focusedTask.title}`}>
+                <div className="current-hero-execution" aria-label={`Agent session for ${focusedTask.title}`}>
                   <TaskSessionLauncher
                     input={taskSessionInput(dayRitual.plan.id, focusedBoardSession.item)}
                     run={focusedBoardSession.run}

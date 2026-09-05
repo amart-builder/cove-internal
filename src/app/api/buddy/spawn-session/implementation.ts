@@ -15,6 +15,10 @@ import { hasDayPlanRouteAccess } from "@/lib/request-security";
 import { markCoveOrchestratorSession } from "@/lib/claude-execution/orchestrator-session";
 import { workspaceRoot } from "@/lib/operator";
 import { coveEnv } from "../../../../lib/env";
+import { readAgentSettings } from "@/lib/agent-settings.mjs";
+import type { BuddyAgentSelection } from "@/lib/buddy/codex";
+import { codexTaskResumeCommand } from "@/lib/task-sessions/codex";
+import { openAgentTerminal } from "@/lib/agent-terminal";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,6 +37,7 @@ type SpawnRouteDependencies = {
   listProjects?: () => string[];
   seed?: typeof seedBuddySession;
   markSession?: typeof markCoveOrchestratorSession;
+  openTerminal?: typeof openAgentTerminal;
 };
 
 class SpawnRequestError extends Error {}
@@ -72,6 +77,8 @@ function publicSession(session: NonNullable<ReturnType<BuddyStore["getSpawnedSes
     createdAt: session.created_at,
     hostname: os.hostname(),
     deepLinksEnabled: coveEnv("BUDDY_DEEPLINKS") !== "0",
+    provider: session.provider,
+    providerSessionId: session.provider_session_id,
   };
 }
 
@@ -108,6 +115,15 @@ export async function handleSpawnSessionPost(
       throw new SpawnRequestError("Spawn request is invalid.");
     }
     const body = parsed as Record<string, unknown>;
+    if (body.action === "resume") {
+      const store = dependencies.store ?? getBuddyStore();
+      const session = store.getSpawnedSession(requiredText(body.sessionId, "sessionId", 200));
+      if (!session || session.provider !== "codex" || !session.provider_session_id || !session.provider_home || !session.model_id || !session.effort) throw new SpawnRequestError("This Codex session is not ready to open.");
+      if (["seeding", "started"].includes(session.state)) throw new SpawnRequestError("Wait for the session to finish preparing.");
+      const dir = resolveBuddySpawnDirectory(session.dir, scopedDependencies);
+      await (dependencies.openTerminal ?? openAgentTerminal)(codexTaskResumeCommand({ executable: coveEnv("CODEX_BIN") ?? "codex", home: session.provider_home, cwd: dir, sessionId: session.provider_session_id, model: session.model_id, effort: session.effort, planning: true }));
+      return NextResponse.json({ ok: true });
+    }
     const rawDir = body.dir === undefined ? undefined : requiredText(body.dir, "dir", 2_000);
     const project = body.project === undefined
       ? undefined
@@ -137,10 +153,11 @@ export async function handleSpawnSessionPost(
     }
     const sessionId = (dependencies.randomId ?? randomUUID)();
     const store = dependencies.store ?? getBuddyStore();
-    store.createSpawnedSession({ sessionId, dir, title });
-    (dependencies.seed ?? seedBuddySession)({ store, sessionId, dir, prompt, title });
+    const selection = readAgentSettings() as BuddyAgentSelection | undefined;
+    store.createSpawnedSession({ sessionId, dir, title, provider: selection?.provider, model: selection?.model, effort: selection?.effort });
+    (dependencies.seed ?? seedBuddySession)({ store, sessionId, dir, prompt, title, selection });
     const seededState = store.getSpawnedSession(sessionId)?.state;
-    if (seededState && ["started", "ready", "incomplete"].includes(seededState)) {
+    if (selection?.provider !== "codex" && seededState && ["started", "ready", "incomplete"].includes(seededState)) {
       (dependencies.markSession ?? markCoveOrchestratorSession)(sessionId);
     }
     return NextResponse.json({ sessionId, state: "seeding", dir });
@@ -149,7 +166,7 @@ export async function handleSpawnSessionPost(
       console.error("Buddy session spawn failed.", error);
     }
     return NextResponse.json({
-      error: error instanceof Error ? error.message : "Could not start the Claude session.",
+      error: error instanceof Error ? error.message : "Could not start the agent session.",
     }, { status: error instanceof SpawnRequestError ? 400 : 500 });
   }
 }

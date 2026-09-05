@@ -14,7 +14,7 @@ can become a durable follow-up without you stopping the conversation to write
 it down. Cove interviews you about your goals and working style so its daily
 recommendations become specific to you rather than generic productivity advice.
 
-Cove is local-first. Your data lives in a single file on your laptop. There is no account to create and no login screen. Your board stays in that file on your laptop; only the text a model needs to write your brief or triage an email is sent to the model provider. You open it like any website, by bookmarking a page, but it runs on your own computer and is always on.
+Cove is local-first. Your tasks and durable workflow records live in a SQLite database on your laptop; settings and some supporting state live in private local files. There is no Cove account to create and no Cove login screen. Enabled AI features use your signed-in model provider and send it relevant context. You open Cove like a website, but it runs on your own Mac while that Mac is awake.
 
 ---
 
@@ -33,8 +33,8 @@ Before running commands, your assistant explains what Cove will do for you and
 what the setup will involve. It then follows [SETUP.md](SETUP.md): checks the
 Mac, verifies the checkout, interviews you one question at a time, captures
 your real open work, and offers each optional connection in terms of the
-outcome it unlocks. Email, meeting notes, reminders, and messaging stay off
-unless you choose them and remain present for a live check.
+outcome it unlocks. Email, meeting notes, calendar access, and messaging require your choice and a
+live check. Full Cove includes gentle native deadline reminders.
 
 When it is done, Cove is running at `http://localhost:3200` on your Mac.
 
@@ -44,6 +44,19 @@ backup. Full Cove adds the visual task board, People, Buddy, Morning Arrival,
 and Close My Day. Email, meeting-note ingestion, and message reminders remain
 opt-in backend connections. Skipping one does not make the core install
 incomplete.
+
+Full Cove includes a chief of staff that checks commitments between conversations.
+Setup recommends the agent you are already using: Claude Fable 5.1 at low effort
+or GPT-6 Astra at low effort, then verifies your choice. One selection carries
+through briefs, Buddy, assigned tasks and background reviews. You need only
+the selected provider. A personal mandate and verified first run are required.
+
+Deadline checks and connected-calendar meeting reminders do not call a model.
+AI reviews have visible rolling usage limits; retries count. Cove cannot read
+your subscription balance. Checks run while your Mac is awake, and Issues shows
+whether deadline and calendar coverage need attention.
+Cove currently serves one person on one Mac; shared assistant access and phone
+access to the board are not included.
 
 ### Start with Basic Mode
 
@@ -79,7 +92,7 @@ data.
 
 Open `http://localhost:3200` (bookmark it the first time). You will see two primary spaces:
 
-- **Today**: Quiet Current, the daily surface where one task is centered as Now. Accepted work is solid. Jarvis proposals are pale until you accept or begin them. `J` and `K` change focus; `Cmd+K` can focus any task without changing its state.
+- **Today**: Morning Arrival helps you choose initial priorities and other work for today. Start your day, update tasks as you go, and use Close My Day to record progress and carry work forward. Quiet Current holds suggestions until you accept them.
 - **People**: relationship records and context, set up in the CRM step.
 
 Today also contains **All Work**, the original four-column board for backlog grooming, waiting work, and history. The board remains available, but it is no longer the place you have to live all day.
@@ -112,8 +125,8 @@ Cove keeps workflow state in its durable local ledger. Gmail stays simple: Inbox
 - **One small program**, started by a macOS LaunchAgent named `com.cove.local`, serving `http://localhost:3200`, bound to localhost only (never exposed to the network).
 - **A reminder checker** (`com.cove.reminders`) wakes once a minute, looks for tasks whose time has come, and fires a Cove-branded notification (and a text, if you set one up). The installer builds a tiny local `Cove Notifications.app` so macOS shows the blue Cove icon and a real Cove sender name. Logs to `~/Library/Logs/cove-reminders.log`.
 - **An email triage job** (`com.cove.email-triage`) runs at your two chosen times and does the inbox pass described above. Logs to `~/Library/Logs/cove-email-triage.log`. It only ever creates drafts and moves labels; sending is always you.
-- **One file of data**: `data/cove.db`, backed up every day to `data/backups/` (the last 14 days are kept), so restarting or rebooting never loses anything.
-- **Your board data stays on the Mac.** Email triage is the one feature that talks to the internet: it reads your Gmail and writes drafts through your own connected account, which you can disconnect any time.
+- **One file of data**: `data/cove.db`, backed up every day to `data/backups/` (the latest 14 snapshots are kept), for recovery after data loss. A backup only includes work saved before it was taken.
+- **Local storage, connected processing.** The board is stored on your Mac. Enabled model features send relevant task, email, meeting, and other context to Anthropic or OpenAI. Optional Google and Granola connections contact those services. See [SECURITY_AND_INTEGRATIONS.md](SECURITY_AND_INTEGRATIONS.md) for the boundaries.
 
 Everything runs only while the Mac is awake. On an always-on Mac (a desktop or a Mac mini), reminders and triage fire like clockwork. On a laptop, they catch up when you open the lid.
 
@@ -126,7 +139,7 @@ launchctl bootout gui/$(id -u)/com.cove.reminders      # stop reminder notificat
 launchctl bootout gui/$(id -u)/com.cove.email-triage   # stop scheduled email triage
 ```
 
-To start fresh: stop Cove, **move** `data/cove.db` aside (rename it, don't delete it), and start it again. It recreates the default board, and your old board is still sitting there if you want it back. To restore, stop Cove and run `bash scripts/cove-restore-backup.sh --yes <backup-file>`. The guarded script validates the backup and preserves the database it replaces.
+To restore, stop Cove and its database-using workers, then run `bash scripts/cove-restore-backup.sh --yes <backup-file>`. The guarded script validates the backup and preserves the database it replaces.
 
 ## Tech stack
 

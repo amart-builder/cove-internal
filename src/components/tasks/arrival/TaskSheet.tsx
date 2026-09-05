@@ -1,5 +1,7 @@
 'use client';
 
+import { taskEditError } from '@/lib/tasks/edit-conflict';
+
 import {
   useId,
   useRef,
@@ -96,8 +98,8 @@ export default function TaskSheet({
     try {
       await onSaveTask(taskRecord._id, patch);
       onClose();
-    } catch {
-      setTaskError("Cove couldn't save those task details. Try again.");
+    } catch (error) {
+      setTaskError(taskEditError(error));
     } finally {
       setSavingTask(false);
     }

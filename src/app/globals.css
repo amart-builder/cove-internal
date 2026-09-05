@@ -1993,6 +1993,8 @@ input, textarea, select {
 
 .today2-clear-state { position: absolute; z-index: 10; top: 43.5%; left: 50%; width: 300px; text-align: center; transform: translate(-50%, -50%); }
 .today2-clear-state h2 { margin: 0 0 12px; font-size: 21px; font-weight: 650; letter-spacing: -.018em; }
+.today2-clear-state p { margin: 0 0 16px; color: var(--today2-muted); font-size: 13px; line-height: 1.6; }
+.today2-clear-state button + button { margin-top: 8px; }
 .today2-clear-state button { border: 1px solid rgba(255,255,255,.66); border-radius: 999px; padding: 8px 12px; color: var(--today2-muted); background: rgba(255,255,255,.65); box-shadow: 0 9px 24px rgba(44,59,55,.08); font-size: 12px; font-weight: 500; }
 
 .today2-grid-button {

@@ -24,6 +24,8 @@ import { LocalPipelineStore } from "../crm/pipeline-store";
 import { salesPipelineEnabled } from "../crm/sales-pipeline";
 import { coveConfigPath, coveEnvTrimmed } from "../env";
 import { openLocalDatabase } from "../local/database";
+import { readAgentSettings } from "../agent-settings.mjs";
+import { runJob } from "../model-runner";
 import { validateTaskTiming } from "../local/db";
 import { operatorTimezone } from "../operator";
 import { createWorkSuggestion } from "../quiet-current/store";
@@ -483,11 +485,11 @@ function applyDatabaseAction(input: {
     input.db.prepare(
       `INSERT INTO tasks
          (id, column_id, title, description, priority, due_at, due_date, tags, project,
-          position, status, source_type, remind_at, origin, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, 'open', 'chief-of-staff', ?, ?, ?, ?)`,
+          position, status, source_type, remind_at, notification_policy, origin, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, 'open', 'chief-of-staff', ?, ?, ?, ?, ?)`,
     ).run(
       randomUUID(), todayColumn.id, title, details, taskPriority, dueAt ?? null,
-      dueAt ?? null, project, position, remindAt ?? null, origin, now, now,
+      dueAt ?? null, project, position, remindAt ?? null, remindAt ? "both" : null, origin, now, now,
     );
     return;
   }
@@ -863,6 +865,7 @@ export async function runWake(
     now?: () => Date;
     env?: NodeJS.ProcessEnv;
     codexPath?: string;
+    claudePath?: string;
     timeoutMs?: number;
     spawnImpl?: typeof spawn;
     afterActionsApplied?: () => void;
@@ -871,7 +874,8 @@ export async function runWake(
 ): Promise<JobHandlerResult> {
   const now = options.now?.() ?? new Date();
   const wake = parseWake(job.payload);
-  const parentEnv = options.env ?? process.env;
+  const parentEnv = { ...(options.env ?? process.env), COVE_DATA_DIR: options.dataDir, COVE_DB_PATH: options.dbPath };
+  const selection = readAgentSettings(parentEnv);
   let home = ensureChiefOfStaffHome({
     repoDir: options.repoDir,
     dataDir: options.dataDir,
@@ -883,7 +887,7 @@ export async function runWake(
     dataDir: options.dataDir,
     env: parentEnv,
   });
-  ensureChiefOfStaffCodexHome({ dataDir: options.dataDir, env: parentEnv });
+  if (!selection || selection.provider === "codex") ensureChiefOfStaffCodexHome({ dataDir: options.dataDir, env: parentEnv });
   const snapshot = await buildChiefOfStaffSnapshot({
     jobId: job.id,
     wake,
@@ -896,6 +900,30 @@ export async function runWake(
   writeChiefOfStaffSnapshot({ dataDir: options.dataDir, jobId: job.id, snapshot });
   const temporary = mkdtempSync(path.join(os.tmpdir(), "cove-chief-of-staff-"));
   const invoke = async (sessionId: string | null): Promise<CodexAttempt> => {
+    if (selection) {
+      // Durable desk/journal state supplies continuity without an ever-growing
+      // provider transcript. Never pass a previous provider's session ID.
+      const result = await runJob<ChiefOfStaffOutput>({
+        lane: "chief-of-staff",
+        agentSettings: selection,
+        kind: "structured",
+        prompt: `${readFileSync(home.paths.mandate, "utf8")}\n\nCURRENT_DESK\n${snapshot}`,
+        schema: JSON.parse(readFileSync(path.join(options.repoDir, "prompts", "chief-of-staff-output.schema.json"), "utf8")),
+        env: selection.provider === "codex" ? { ...parentEnv, CODEX_HOME: home.paths.codexHome } : parentEnv,
+        cwd: home.paths.workspace,
+        codexPath: options.codexPath,
+        claudePath: options.claudePath,
+        claudeMcpConfigPath: path.join(options.repoDir, "scripts", "cove-empty-mcp.json"),
+        claudeNoChrome: true,
+        claudeDisableSlashCommands: true,
+        timeoutMs: options.timeoutMs,
+        spawnImpl: options.spawnImpl,
+        validate: (_text, value) => validateChiefOfStaffOutput(value),
+      });
+      return result.ok
+        ? { ok: true, exitCode: 0, stdout: "", stderr: "", timedOut: false, output: result.value }
+        : { ok: false, exitCode: null, stdout: "", stderr: result.error.message, timedOut: result.error.code.endsWith("timeout") };
+    }
     const outputPath = path.join(temporary, sessionId ? "resumed-output.json" : "fresh-output.json");
     const argv = buildChiefOfStaffCodexArgv({
       workspace: home.paths.workspace,
@@ -916,7 +944,7 @@ export async function runWake(
   };
   try {
     let attempt = await invoke(home.session.sessionId);
-    if (!attempt.ok && home.session.sessionId && resumeUnavailable(attempt)) {
+    if (!selection && !attempt.ok && home.session.sessionId && resumeUnavailable(attempt)) {
       resetChiefOfStaffSession({
         dataDir: options.dataDir,
         why: "Codex could not resume the stored session, so Cove started a fresh one.",
@@ -971,8 +999,8 @@ export async function runWake(
       maxCharsPerLine: 400,
       maxTotalCharsPerLine: 400,
     });
-    const sessionId = home.session.sessionId ?? attempt.sessionId ?? null;
-    if (!sessionId) {
+    const sessionId = selection ? null : home.session.sessionId ?? attempt.sessionId ?? null;
+    if (!sessionId && !selection) {
       appendChiefOfStaffJournal({
         dataDir: options.dataDir,
         reason: wake.reason,

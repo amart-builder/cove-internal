@@ -19,8 +19,7 @@ export function surfaceAttentionSuggestion(input: {
   dataDir?: string;
 }): void {
   const now = input.now ?? new Date();
-  // Quiet Current uses atomic rename but has no inter-process compare-and-swap.
-  // The narrow race between background writers is accepted by design.
+  // Claim deduplication and insertion share a SQLite write transaction.
   createWorkSuggestion({
     id: `attention-${input.row.id}`,
     kind: "attention_nudge",

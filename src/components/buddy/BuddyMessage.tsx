@@ -21,12 +21,15 @@ type SignInPhase = 'idle' | 'opening' | 'waiting' | 'fallback';
  * Retry alone cannot fix that, so this card opens the login in Terminal, then
  * watches the auth status and retries the turn once the login is back.
  */
-export function ClaudeSignInCard({ hostname, deepLinksEnabled, onRetry, getCsrfToken }: {
+export function ClaudeSignInCard({ hostname, deepLinksEnabled, onRetry, getCsrfToken, provider = 'claude' }: {
+  provider?: 'claude' | 'codex';
   hostname?: string;
   deepLinksEnabled?: boolean;
   onRetry: () => void;
   getCsrfToken?: () => Promise<string>;
 }) {
+  const providerName = provider === 'codex' ? 'Codex' : 'Claude';
+  const loginCommand = provider === 'codex' ? 'codex login' : 'claude auth login';
   const [phase, setPhase] = useState<SignInPhase>('idle');
   const hostLabel = hostname ?? 'this computer';
   const retriedRef = useRef(false);
@@ -46,7 +49,7 @@ export function ClaudeSignInCard({ hostname, deepLinksEnabled, onRetry, getCsrfT
       }
       let signedIn = false;
       try {
-        const response = await fetch('/api/buddy/claude-auth-status', { cache: 'no-store' });
+        const response = await fetch(provider === 'codex' ? '/api/buddy/codex-auth' : '/api/buddy/claude-auth-status', { cache: 'no-store' });
         const payload = await response.json().catch(() => ({}));
         signedIn = response.ok && payload?.signedIn === true;
       } catch {
@@ -65,14 +68,14 @@ export function ClaudeSignInCard({ hostname, deepLinksEnabled, onRetry, getCsrfT
       stopped = true;
       window.clearTimeout(timer);
     };
-  }, [phase]);
+  }, [phase, provider]);
 
   const startSignIn = async () => {
     setPhase('opening');
     try {
       if (!getCsrfToken) throw new Error('Cove request token is unavailable.');
       const token = await getCsrfToken();
-      const response = await fetch('/api/buddy/claude-login', {
+      const response = await fetch(provider === 'codex' ? '/api/buddy/codex-auth' : '/api/buddy/claude-login', {
         method: 'POST',
         headers: { 'X-Cove-CSRF': token },
         cache: 'no-store',
@@ -87,13 +90,13 @@ export function ClaudeSignInCard({ hostname, deepLinksEnabled, onRetry, getCsrfT
 
   return (
     <div className="space-y-2 rounded-lg border border-border/60 bg-background/60 p-3">
-      <p className="font-medium">Claude needs you to sign in again</p>
+      <p className="font-medium">{providerName} needs you to sign in again</p>
       <p className="text-muted-foreground">
-        Your Claude login expired and could not be refreshed. This is not something Retry can fix.
+        Your {providerName} login is unavailable. Sign in to continue this conversation.
       </p>
       {deepLinksEnabled === false && (
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Heads up: Cove here runs on {hostLabel}, so the sign-in has to happen on that machine (Screen Sharing into it, or ssh, then run <code className="font-mono">claude auth login</code> there).
+          Cove runs on {hostLabel}, so sign in on that machine with <code className="font-mono">{loginCommand}</code>.
         </p>
       )}
       {phase === 'waiting' ? (
@@ -102,7 +105,7 @@ export function ClaudeSignInCard({ hostname, deepLinksEnabled, onRetry, getCsrfT
         </p>
       ) : phase === 'fallback' ? (
         <p className="text-sm leading-relaxed text-muted-foreground" role="status">
-          {SIGN_IN_FALLBACK}
+          {provider === 'codex' ? 'Open Terminal and run: codex login, then tap Retry.' : SIGN_IN_FALLBACK}
         </p>
       ) : (
         <button
@@ -127,15 +130,22 @@ export default function BuddyMessage({ turn, thinking, hostname, deepLinksEnable
   getCsrfToken?: () => Promise<string>;
 }) {
   const isConfirmedDelete = /^CONFIRM_DELETE\b/.test(turn.user_text);
-  const needsClaudeSignIn = turn.state === 'failed' && isClaudeNotSignedIn(turn.assistant_text);
+  const needsClaudeSignIn = turn.provider !== 'codex' && turn.state === 'failed' && isClaudeNotSignedIn(turn.assistant_text);
+  const needsCodexSignIn = turn.provider === 'codex' && turn.state === 'failed' && /sign in|login|authentication|unauthorized/i.test(turn.assistant_text);
   return (
     <article className="space-y-2">
+      {turn.provider_changed === 1 && (
+        <p className="text-xs text-muted-foreground">
+          Now using {turn.provider === 'codex' ? 'Codex' : 'Claude'} in a new conversation. Earlier chat has not been shared with this provider. Your saved Cove tasks are still available.
+        </p>
+      )}
       <div className="ml-auto w-fit max-w-[86%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-accent-blue px-3.5 py-2.5 text-sm leading-relaxed text-white">
         {isConfirmedDelete ? 'Confirmed delete' : turn.user_text}
       </div>
       <div className="mr-auto max-w-[92%] rounded-2xl rounded-bl-md bg-muted px-3.5 py-2.5 text-sm leading-relaxed text-foreground">
-        {needsClaudeSignIn ? (
+        {needsClaudeSignIn || needsCodexSignIn ? (
           <ClaudeSignInCard
+            provider={turn.provider ?? 'claude'}
             hostname={hostname}
             deepLinksEnabled={deepLinksEnabled}
             onRetry={() => onRetry(turn.user_text)}

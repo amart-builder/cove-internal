@@ -67,7 +67,7 @@ type TemplateRow = {
   updated_at: string;
 };
 
-type OccurrenceState = "open" | "completed" | "missed";
+type OccurrenceState = "open" | "completed" | "missed" | "paused";
 type OccurrenceRow = {
   occurrence_local_date: string;
   state: OccurrenceState;
@@ -268,6 +268,7 @@ function recomputeTemplateStreak(
   ).all(template.id, throughLocalDate) as OccurrenceRow[];
   let currentStreak = 0;
   for (const occurrence of occurrences) {
+    if (occurrence.state === "paused") continue;
     if (
       occurrence.occurrence_local_date === throughLocalDate &&
       occurrence.state === "open"
@@ -640,7 +641,17 @@ export function updateRecurringTemplate(input: {
           input.pausedUntil !== null &&
           input.pausedUntil >= localDate
         );
-      if (!pausesToday) return;
+      if (!pausesToday) {
+        const current = db.prepare("SELECT * FROM recurring_templates WHERE id=?").get(input.id) as TemplateRow;
+        if (!current.active || (current.paused_until && current.paused_until >= localDate) || !cadenceOccursOn(current.cadence, localDate)) return;
+        const paused = db.prepare("SELECT task_id, updated_at FROM recurring_occurrences WHERE template_id=? AND occurrence_local_date=? AND state='paused'").get(input.id, localDate) as { task_id: string | null; updated_at: string } | undefined;
+        if (!paused?.task_id) return;
+        // Restore only the task archived by this pause, with the same identity.
+        // Manual archive/delete/completion must never be undone by Resume.
+        const restored = db.prepare("UPDATE tasks SET status='open', archived_at=NULL, archived_from_status=NULL, updated_at=? WHERE id=? AND status='archived' AND archived_at=?").run(nowIso, paused.task_id, paused.updated_at);
+        if (restored.changes === 1) db.prepare("UPDATE recurring_occurrences SET state='open', updated_at=? WHERE template_id=? AND occurrence_local_date=? AND state='paused'").run(nowIso,input.id,localDate);
+        return;
+      }
       const occurrence = db.prepare(
         `SELECT task_id FROM recurring_occurrences
          WHERE template_id = ? AND occurrence_local_date = ? AND state = 'open'`,
@@ -649,15 +660,16 @@ export function updateRecurringTemplate(input: {
         db.prepare(
           `UPDATE tasks
            SET archived_from_status = COALESCE(archived_from_status, status),
-               status = 'archived', archived_at = COALESCE(archived_at, ?),
+               status = 'archived', archived_at = ?,
                updated_at = ?
-           WHERE id = ? AND status != 'done'`,
+           WHERE id = ? AND status = 'open'`,
         ).run(nowIso, nowIso, occurrence.task_id);
       }
       db.prepare(
-        `DELETE FROM recurring_occurrences
-         WHERE template_id = ? AND occurrence_local_date = ? AND state = 'open'`,
-      ).run(input.id, localDate);
+        `UPDATE recurring_occurrences SET state='paused', updated_at=?
+         WHERE template_id = ? AND occurrence_local_date = ? AND state = 'open'
+           AND task_id IN (SELECT id FROM tasks WHERE status='archived' AND archived_at=?)`,
+      ).run(nowIso, input.id, localDate, nowIso);
     }).immediate();
     return decodeTemplate(
       db.prepare("SELECT * FROM recurring_templates WHERE id = ?")

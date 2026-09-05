@@ -19,43 +19,36 @@ function backupStamp(date: Date): string {
   return date.toISOString().replace(/\D/g, "").slice(0, 14);
 }
 
+export function sqliteBackupPath(input: { backupDir: string; now: Date; snapshotId?: string }): string {
+  if (input.snapshotId !== undefined && !/^[a-zA-Z0-9-]{1,80}$/.test(input.snapshotId)) {
+    throw new Error("Invalid backup snapshot ID.");
+  }
+  return path.join(input.backupDir,
+    `cove-${backupStamp(input.now)}${input.snapshotId ? `-${input.snapshotId}` : ""}.db`);
+}
+
 export async function createSqliteBackup(input: {
   dbPath: string;
   backupDir: string;
   keep?: number;
   now?: Date;
   reuseExisting?: boolean;
+  snapshotId?: string;
 }): Promise<BackupResult> {
   if (!existsSync(input.dbPath)) {
     throw new Error(`No database exists at ${input.dbPath}.`);
   }
   const keep = Math.max(1, Math.trunc(input.keep ?? 14));
   const now = input.now ?? new Date();
+  const destination = sqliteBackupPath({ ...input, now });
   mkdirSync(input.backupDir, { recursive: true, mode: 0o700 });
-  const destination = path.join(
-    input.backupDir,
-    `cove-${backupStamp(now)}.db`,
-  );
   let reused = false;
   if (existsSync(destination)) {
     if (!input.reuseExisting) {
       throw new Error(`A backup already exists at ${destination}.`);
     }
-    const existing = new Database(destination, {
-      readonly: true,
-      fileMustExist: true,
-    });
-    try {
-      const check = existing.pragma("quick_check") as {
-        quick_check: string;
-      }[];
-      if (check.length !== 1 || check[0]?.quick_check !== "ok") {
-        throw new Error(`Existing backup failed quick_check: ${destination}.`);
-      }
-      reused = true;
-    } finally {
-      existing.close();
-    }
+    verifySqliteBackup(destination);
+    reused = true;
   } else {
     const source = new Database(input.dbPath, {
       readonly: true,
@@ -65,6 +58,8 @@ export async function createSqliteBackup(input: {
       source.pragma("busy_timeout = 5000");
       await source.backup(destination);
       chmodSync(destination, 0o600);
+      // Validate before rotating older snapshots or recording success.
+      verifySqliteBackup(destination);
     } catch (error) {
       rmSync(destination, { force: true });
       throw error;
@@ -74,13 +69,29 @@ export async function createSqliteBackup(input: {
   }
 
   const backups = readdirSync(input.backupDir)
-    .filter((name) => /^(?:cove|forge)-(?:\d{14}|\d{8}-\d{6})\.db$/.test(name))
+    .filter((name) => /^(?:cove|forge)-(?:\d{14}(?:-[a-zA-Z0-9-]{1,80})?|\d{8}-\d{6})\.db$/.test(name))
     .map((name) => path.join(input.backupDir, name))
     .sort((left, right) => {
+      // Keep the snapshot just verified even when filesystem timestamps tie.
+      if (left === destination) return -1;
+      if (right === destination) return 1;
       const modified = statSync(right).mtimeMs - statSync(left).mtimeMs;
       return modified || right.localeCompare(left);
     });
   const removed = backups.slice(keep);
   for (const file of removed) rmSync(file, { force: true });
   return { path: destination, removed, reused };
+}
+
+/** Read-only verification for both newly created and previously completed jobs. */
+export function verifySqliteBackup(file: string): void {
+  const db = new Database(file, { readonly: true, fileMustExist: true });
+  try {
+    const check = db.pragma("quick_check") as { quick_check: string }[];
+    if (check.length !== 1 || check[0]?.quick_check !== "ok") {
+      throw new Error(`Backup failed quick_check: ${file}.`);
+    }
+  } finally {
+    db.close();
+  }
 }

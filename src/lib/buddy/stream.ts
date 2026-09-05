@@ -98,6 +98,7 @@ export type BuddyStreamEvent =
       resultText: string;
       sessionId: string;
       costUsd: number;
+      costKnown?: boolean;
       isError: boolean;
       errorSubtype?: string;
     };
@@ -149,6 +150,48 @@ function resultText(value: unknown): string {
     const block = record(item);
     return block?.type === "text" && typeof block.text === "string" ? block.text : "";
   }).filter(Boolean).join("\n");
+}
+
+// Codex exec's native JSON events. Only the named local MCP tool can provide
+// authoritative Cove receipts; agent prose and unrelated tool output cannot.
+export function createCodexBuddyEventParser() {
+  let sessionId = "";
+  let text = "";
+  const completed = new Set<string>();
+  return (line: string): BuddyStreamEvent[] => {
+    let event: Record<string, unknown> | undefined;
+    try { event = record(JSON.parse(line)); } catch { return []; }
+    if (!event) return [];
+    if (event.type === "thread.started" && typeof event.thread_id === "string") {
+      sessionId = `codex:${event.thread_id}`;
+      return [{ kind: "started", sessionId }];
+    }
+    const item = record(event.item);
+    if (event.type === "item.started" && item?.type === "mcp_tool_call") {
+      return [{ kind: "tool", name: String(item.tool ?? "Cove tool"), inputSummary: summarizeInput(item.arguments) }];
+    }
+    if (event.type === "item.completed" && item && typeof item.id === "string" && !completed.has(item.id)) {
+      completed.add(item.id);
+      if (item.type === "reasoning") return [{ kind: "thinking" }];
+      if (item.type === "agent_message" && typeof item.text === "string") {
+        // A turn can have intermediate agent messages. The last is its answer.
+        text = item.text;
+        return [{ kind: "delta", text: item.text }];
+      }
+      if (item.type === "mcp_tool_call" && item.server === "cove_buddy" && item.tool === "cove_data") {
+        const parsed = parseBuddyDataToolOutput(resultText(record(item.result)?.content));
+        return parsed.changes.length || parsed.sessions.length || parsed.errors.length
+          ? [{ kind: "data-result", ...parsed }] : [];
+      }
+    }
+    if (event.type === "turn.completed" && sessionId) {
+      return [{ kind: "done", sessionId, resultText: text, costUsd: 0, costKnown: false, isError: false }];
+    }
+    if (event.type === "turn.failed") {
+      return [{ kind: "done", sessionId, resultText: String(record(event.error)?.message ?? "Codex could not complete this turn."), costUsd: 0, costKnown: false, isError: true, errorSubtype: "codex_error" }];
+    }
+    return [];
+  };
 }
 
 export function createBuddyEventParser(
@@ -240,9 +283,13 @@ export async function runBuddyCommand(
 ): Promise<BuddyStreamEvent & { kind: "done" }> {
   const timeoutMs = options.timeoutMs ?? BUDDY_COMMAND_TIMEOUT_MS;
   const graceMs = options.terminationGraceMs ?? BUDDY_COMMAND_TERMINATION_GRACE_MS;
-  const parse = createBuddyEventParser({
+  const parse = command.provider === "codex" ? createCodexBuddyEventParser() : createBuddyEventParser({
     expectsStructuredOutput: command.expectsStructuredOutput === true,
   });
+  const childEnv = minimalChildEnvironment();
+  if (command.provider === "codex") {
+    for (const key of ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME"]) delete childEnv[key];
+  }
 
   return new Promise((resolve, reject) => {
     let child: ChildProcessWithoutNullStreams;
@@ -252,7 +299,7 @@ export async function runBuddyCommand(
         shell: false,
         detached: true,
         stdio: ["pipe", "pipe", "pipe"],
-        env: { ...minimalChildEnvironment(), ...options.env },
+        env: { ...childEnv, ...options.env, ...command.env },
       }) as ChildProcessWithoutNullStreams;
     } catch (error) {
       reject(error);
@@ -264,12 +311,19 @@ export async function runBuddyCommand(
     let stderr = "";
     let done: BuddyStreamEvent & { kind: "done" } | undefined;
     let timedOut = false;
+    let outputTooLarge = false;
+    let outputBytes = 0;
     let killTimer: NodeJS.Timeout | undefined;
+    const terminate = () => {
+      signalProcessGroup(child, "SIGTERM");
+      if (!killTimer) {
+        killTimer = setTimeout(() => signalProcessGroup(child, "SIGKILL"), graceMs);
+        killTimer.unref();
+      }
+    };
     const timeout = setTimeout(() => {
       timedOut = true;
-      signalProcessGroup(child, "SIGTERM");
-      killTimer = setTimeout(() => signalProcessGroup(child, "SIGKILL"), graceMs);
-      killTimer.unref();
+      terminate();
     }, timeoutMs);
     timeout.unref();
 
@@ -281,6 +335,14 @@ export async function runBuddyCommand(
       }
     };
     child.stdout.on("data", (chunk: Buffer | string) => {
+      outputBytes += Buffer.byteLength(chunk);
+      if (outputBytes > 4 * 1024 * 1024) {
+        if (!outputTooLarge) {
+          outputTooLarge = true;
+          terminate();
+        }
+        return;
+      }
       buffer += typeof chunk === "string" ? chunk : stdoutDecoder.write(chunk);
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() ?? "";
@@ -301,16 +363,16 @@ export async function runBuddyCommand(
       clearActiveChild();
       buffer += stdoutDecoder.end();
       consume(buffer);
-      if (done) resolve(done);
-      else reject(new Error(timedOut ? "timeout" : `missing_result:${code ?? "unknown"}:${stderr.trim()}`));
+      if (timedOut || outputTooLarge) reject(new Error(timedOut ? "timeout" : "output_too_large"));
+      else if (done && (code === 0 || done.isError)) resolve(done);
+      else reject(new Error(`missing_result:${code ?? "unknown"}:${stderr.trim()}`));
     });
     // This one runs inside the Next server, so an unhandled stdin 'error' does
     // not just fail the turn, it kills Cove for everyone. EPIPE here is a
     // normal outcome when `claude` exits before the prompt lands.
     child.stdin.once("error", (error) => {
       clearTimeout(timeout);
-      if (killTimer) clearTimeout(killTimer);
-      signalProcessGroup(child, "SIGTERM");
+      terminate();
       clearActiveChild();
       reject(error);
     });

@@ -1,4 +1,6 @@
 'use client';
+import { useState } from 'react';
+import { resumeTaskSessionRun } from '@/lib/data/task-sessions';
 
 import type {
   LaunchTaskSessionInput,
@@ -44,6 +46,20 @@ function ownerForMode(mode: TaskSessionLaunchMode): TaskSessionOwner {
 
 function stopPointer(event: React.SyntheticEvent) {
   event.stopPropagation();
+}
+
+export function SessionLink({ run, className, children }: { run: TaskSessionRun; className: string; children: React.ReactNode }) {
+  const [error, setError] = useState<string>();
+  const [opening, setOpening] = useState(false);
+  if (run.provider !== 'codex') return <a href={run.resumeUrl} className={className} title={run.hint} onClick={event => event.stopPropagation()}>{children}</a>;
+  return <span className="inline-flex flex-col gap-1">
+    <button type="button" className={className} title={run.hint}
+      disabled={opening || !run.providerSessionId || run.status === 'running'}
+      onClick={event => { event.stopPropagation(); setOpening(true); setError(undefined); void resumeTaskSessionRun(run.id).catch(e => setError(e instanceof Error ? e.message : 'Could not open Codex.')).finally(() => setOpening(false)); }}>
+      {opening ? 'Opening Codex…' : children}
+    </button>
+    {error && <span role="alert" className="text-xs text-accent-red">{error}</span>}
+  </span>;
 }
 
 export function taskSessionOwnerButtons(
@@ -95,17 +111,16 @@ export function TaskSessionLauncher({
       >
         <span
           className={`${baseClass} press-scale inline-flex items-center whitespace-nowrap border-accent-blue/35 bg-accent-blue/10 text-foreground`}
-          title="Claude is working in the background. You'll get a notification when it's ready."
+          title="Your agent is working in the background. You'll get a notification when it's ready."
         >
           {taskSessionPillLabel(run)}
         </span>
         {showEscape && (
-          <a
-            href={run.resumeUrl}
+          <SessionLink run={run}
             className="press-scale text-[11px] font-medium text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
           >
-            Open in Claude
-          </a>
+            Open in {run.provider === 'codex' ? 'Codex' : 'Claude'}
+          </SessionLink>
         )}
       </span>
     );
@@ -120,21 +135,16 @@ export function TaskSessionLauncher({
     >
       {activeRunCount >= 3 && modes.length > 0 && (
         <span className="text-[12px] leading-snug text-muted-foreground">
-          More parallel sessions can increase Claude usage.
+          More parallel sessions can increase model usage.
         </span>
       )}
       <span className="inline-flex flex-wrap items-center gap-1">
         {run && (
-          <a
-            href={run.resumeUrl}
+          <SessionLink run={run}
             className={`${baseClass} press-scale inline-flex items-center whitespace-nowrap border-accent-blue/35 bg-accent-blue/10 text-foreground`}
-            title={run.hint}
-            onPointerDown={stopPointer}
-            onMouseDown={stopPointer}
-            onClick={stopPointer}
           >
             {taskSessionPillLabel(run)}
-          </a>
+          </SessionLink>
         )}
         {modes.map((mode) => (
           <button
@@ -177,10 +187,10 @@ export function TaskSessionPanel({
   onLaunch: (input: LaunchTaskSessionInput) => void | Promise<unknown>;
 }) {
   return (
-    <section className="mt-3 rounded-xl border bg-muted/40 p-3" aria-label="Claude session">
+    <section className="mt-3 rounded-xl border bg-muted/40 p-3" aria-label="Agent session">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-xs font-semibold text-foreground">Claude session</p>
+          <p className="text-xs font-semibold text-foreground">{run?.provider === 'codex' ? 'Codex' : 'Agent'} session</p>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {run?.hint ?? (
               preferredOwner === 'together'

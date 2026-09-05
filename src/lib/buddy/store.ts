@@ -26,6 +26,10 @@ export type BuddyTurn = {
   user_text: string;
   page_context: string;
   model: "sonnet" | "opus";
+  provider?: "claude" | "codex";
+  model_id?: string | null;
+  cost_known?: number;
+  provider_changed?: number;
   effort: "low" | "medium" | "high";
   router_reason: string;
   state: BuddyTurnState;
@@ -53,6 +57,11 @@ export type BuddySpawnedSession = {
   state: BuddySpawnedSessionState;
   error: string | null;
   created_at: string;
+  provider?: "claude" | "codex";
+  model_id?: string | null;
+  effort?: "low" | "medium" | "high" | null;
+  provider_session_id?: string | null;
+  provider_home?: string | null;
 };
 
 // Frozen by the migration ledger: edits affect fresh installs only; changes require a new migration.
@@ -165,6 +174,27 @@ const BUDDY_MIGRATIONS: readonly LocalMigration[] = [
     name: "buddy-indexes",
     up: (db) => db.exec(INDEX_SCHEMA),
   },
+  {
+    version: 203,
+    name: "buddy-provider-metadata",
+    up: (db) => db.exec(`
+      ALTER TABLE buddy_turns ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude' CHECK(provider IN ('claude','codex'));
+      ALTER TABLE buddy_turns ADD COLUMN model_id TEXT;
+      ALTER TABLE buddy_turns ADD COLUMN cost_known INTEGER NOT NULL DEFAULT 1 CHECK(cost_known IN (0,1));
+      ALTER TABLE buddy_turns ADD COLUMN provider_changed INTEGER NOT NULL DEFAULT 0 CHECK(provider_changed IN (0,1));
+    `),
+  },
+  {
+    version: 204,
+    name: "buddy-spawned-session-providers",
+    up: (db) => db.exec(`
+      ALTER TABLE buddy_spawned_sessions ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude';
+      ALTER TABLE buddy_spawned_sessions ADD COLUMN model_id TEXT;
+      ALTER TABLE buddy_spawned_sessions ADD COLUMN effort TEXT;
+      ALTER TABLE buddy_spawned_sessions ADD COLUMN provider_session_id TEXT;
+      ALTER TABLE buddy_spawned_sessions ADD COLUMN provider_home TEXT;
+    `),
+  },
 ];
 
 type Clock = () => Date;
@@ -223,16 +253,19 @@ export function createBuddyStore(options: { dbPath: string; now?: Clock; process
     model: BuddyTurn["model"];
     effort: BuddyTurn["effort"];
     routerReason: string;
+    provider?: "claude" | "codex";
+    modelId?: string;
+    providerChanged?: boolean;
   }): BuddyTurn | null => {
     const running = db.prepare("SELECT 1 FROM buddy_turns WHERE state = 'running' LIMIT 1").get();
     if (running) return null;
     const id = randomUUID();
     const startedAt = now().toISOString();
     db.prepare(`INSERT INTO buddy_turns
-      (id, user_text, page_context, model, effort, router_reason, state, started_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'running', ?)`)
+      (id, user_text, page_context, model, effort, router_reason, state, started_at, provider, model_id, cost_known, provider_changed)
+      VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?)`)
       .run(id, input.userText, JSON.stringify(input.pageContext ?? null), input.model,
-        input.effort, input.routerReason, startedAt);
+        input.effort, input.routerReason, startedAt, input.provider ?? "claude", input.modelId ?? null, input.provider === "codex" ? 0 : 1, input.providerChanged ? 1 : 0);
     return db.prepare("SELECT * FROM buddy_turns WHERE id = ?").get(id) as BuddyTurn;
   });
 
@@ -242,6 +275,9 @@ export function createBuddyStore(options: { dbPath: string; now?: Clock; process
     model: BuddyTurn["model"];
     effort: BuddyTurn["effort"];
     routerReason: string;
+    provider?: "claude" | "codex";
+    modelId?: string;
+    providerChanged?: boolean;
   }): BuddyTurn | null {
     try {
       return claimTransaction(input);
@@ -361,16 +397,20 @@ export function createBuddyStore(options: { dbPath: string; now?: Clock; process
     sessionId: string;
     dir: string;
     title: string;
+    provider?: "claude" | "codex";
+    model?: string;
+    effort?: string;
   }): BuddySpawnedSession {
     const id = randomUUID();
     db.prepare(`INSERT INTO buddy_spawned_sessions
-      (id, session_id, dir, title, state, error, created_at)
-      VALUES (?, ?, ?, ?, 'seeding', NULL, ?)`).run(
+      (id, session_id, dir, title, state, error, created_at, provider, model_id, effort)
+      VALUES (?, ?, ?, ?, 'seeding', NULL, ?, ?, ?, ?)`).run(
       id,
       input.sessionId,
       input.dir,
       input.title,
       now().toISOString(),
+      input.provider ?? "claude", input.model ?? null, input.effort ?? null,
     );
     return db.prepare("SELECT * FROM buddy_spawned_sessions WHERE id = ?")
       .get(id) as BuddySpawnedSession;
@@ -413,6 +453,9 @@ export function createBuddyStore(options: { dbPath: string; now?: Clock; process
     consumePendingDelete,
     setTurnReceipts,
     createSpawnedSession,
+    setSpawnedSessionProviderHead(sessionId: string, head: string, home: string) {
+      db.prepare("UPDATE buddy_spawned_sessions SET provider_session_id = ?, provider_home = ? WHERE session_id = ? AND provider = 'codex' AND state IN ('seeding','started')").run(head, home, sessionId);
+    },
     finishSpawnedSession,
     getSpawnedSession: (sessionId: string) => db.prepare(
       "SELECT * FROM buddy_spawned_sessions WHERE session_id = ?",
@@ -434,7 +477,8 @@ export function getBuddyStore(): BuddyStore {
   const stale = current && (
     global.__coveBuddyStoreVersion !== BUDDY_STORE_API_VERSION ||
     typeof current.completeTurn !== "function" || typeof current.consumePendingDelete !== "function" ||
-    typeof current.createSpawnedSession !== "function"
+    typeof current.createSpawnedSession !== "function" ||
+    typeof current.setSpawnedSessionProviderHead !== "function"
   );
   if (stale) {
     if (!current.getRunningTurn?.()) current.close?.();

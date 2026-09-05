@@ -17,6 +17,7 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { openLocalDatabase } from '../src/lib/local/database.ts';
 import { localSchemaFingerprint } from '../src/lib/local/migrations.ts';
+import { JobScheduler } from '../src/lib/reliability/jobs.ts';
 import { createSqliteBackup } from '../src/lib/reliability/backup.ts';
 import { listRecentReceipts } from '../src/lib/reliability/receipts.ts';
 
@@ -106,7 +107,7 @@ test('backup rotation keeps the newest fourteen snapshots', async (t) => {
       now: new Date(Date.UTC(2026, 6, 28, 12, 0, index)),
     });
   }
-  const backups = readdirSync(backupDir).filter((name) => /^cove-\d{14}\.db$/.test(name));
+  const backups = readdirSync(backupDir).filter((name) => /^cove-\d{14}(?:-[a-zA-Z0-9-]{1,80})?\.db$/.test(name));
   assert.equal(backups.length, 14);
   assert.equal(backups.includes('cove-20260728120000.db'), false);
   assert.equal(existsSync(legacyBackup), false);
@@ -316,7 +317,7 @@ test('backup entry point works from a foreign cwd with launchd PATH', (t) => {
     `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
   );
   assert.equal(
-    readdirSync(backupDir).filter((name) => /^cove-\d{14}\.db$/.test(name)).length,
+    readdirSync(backupDir).filter((name) => /^cove-\d{14}(?:-[a-zA-Z0-9-]{1,80})?\.db$/.test(name)).length,
     1,
   );
   assert.equal(listRecentReceipts({ dbPath, source: 'backup' }).length, 1);
@@ -355,4 +356,127 @@ test('restore rejects a non-SQLite input before replacing the database', (t) => 
   } finally {
     unchanged.close();
   }
+});
+
+function backupCommandFixture(t) {
+  const root = path.join(os.tmpdir(), `cove-backup-command-${process.pid}-${Date.now()}-${Math.random()}`);
+  const dbPath = path.join(root, 'cove.db');
+  const backupDir = path.join(root, 'backups');
+  mkdirSync(root, { recursive: true });
+  openLocalDatabase(dbPath).close();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const env = {
+    PATH: process.env.PATH,
+    COVE_NODE_PATH: process.execPath,
+    COVE_DB_PATH: dbPath,
+    COVE_DATA_DIR: root,
+    COVE_BACKUP_DIR: backupDir,
+    NEXT_PUBLIC_COVE_RUNTIME: 'local',
+  };
+  return {
+    root, dbPath, backupDir,
+    run: (...args) => spawnSync('/bin/bash', ['scripts/cove-backup.sh', ...args], {
+      cwd: path.resolve('.'), env, encoding: 'utf8',
+    }),
+  };
+}
+
+test('backup command reports snapshot failure with a failing exit code', (t) => {
+  const fixture = backupCommandFixture(t);
+  writeFileSync(fixture.backupDir, 'not a directory');
+  const result = fixture.run();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Backup did not complete/);
+});
+
+test('backup command leaves unrelated queued jobs untouched and ignores email configuration', (t) => {
+  const fixture = backupCommandFixture(t);
+  // Invalid optional configuration must not prevent a local backup.
+  writeFileSync(path.join(fixture.root, 'cove-workspace.json'), '{invalid');
+  const scheduler = new JobScheduler({ dbPath: fixture.dbPath });
+  const unrelated = scheduler.enqueue({ type: 'gmail-operation', payload: {}, priority: 1000,
+    idempotencyKey: 'unrelated-operation' });
+  scheduler.close();
+  const result = fixture.run();
+  assert.equal(result.status, 0, result.stderr);
+  const reader = new JobScheduler({ dbPath: fixture.dbPath });
+  try {
+    assert.equal(reader.getJob(unrelated.job.id).status, 'queued');
+    assert.equal(reader.getJob(unrelated.job.id).attempts, 0);
+  } finally { reader.close(); }
+});
+
+test('manual backup creates fresh snapshots containing intervening task changes', (t) => {
+  const fixture = backupCommandFixture(t);
+  assert.equal(fixture.run().status, 0);
+  const first = readdirSync(fixture.backupDir);
+  const db = openLocalDatabase(fixture.dbPath);
+  db.prepare("INSERT INTO tasks (id,title,status,tags,project,position,source_type) VALUES ('new','New','open','[]','Test',0,'manual')").run();
+  db.close();
+  const result = fixture.run();
+  assert.equal(result.status, 0, result.stderr);
+  const added = readdirSync(fixture.backupDir).filter((name) => name.endsWith('.db') && !first.includes(name));
+  assert.equal(added.length, 1);
+  const snapshot = openLocalDatabase(path.join(fixture.backupDir, added[0]));
+  try { assert.equal(snapshot.prepare("SELECT count(*) FROM tasks WHERE id='new'").pluck().get(), 1); }
+  finally { snapshot.close(); }
+});
+
+test('daily backup deduplicates and verifies the completed snapshot on repeat', (t) => {
+  const fixture = backupCommandFixture(t);
+  assert.equal(fixture.run('--daily').status, 0);
+  const files = readdirSync(fixture.backupDir);
+  const repeated = fixture.run('--daily');
+  assert.equal(repeated.status, 0, repeated.stderr);
+  assert.deepEqual(readdirSync(fixture.backupDir), files);
+  writeFileSync(path.join(fixture.backupDir, files[0]), 'corrupt snapshot');
+  assert.notEqual(fixture.run('--daily').status, 0);
+});
+
+test('unique snapshot IDs avoid same-second collisions and participate in retention', async (t) => {
+  const fixture = backupCommandFixture(t);
+  const now = new Date('2026-09-04T12:00:00Z');
+  const first = await createSqliteBackup({ ...fixture, now, snapshotId: 'first' });
+  const second = await createSqliteBackup({ ...fixture, now, snapshotId: 'second', keep: 1 });
+  assert.notEqual(first.path, second.path);
+  assert.equal(existsSync(first.path), false);
+  assert.equal(existsSync(second.path), true);
+  assert.deepEqual(second.removed, [first.path]);
+});
+
+test('daily backup verifies legacy completed jobs without inventing a new filename', async (t) => {
+  const fixture = backupCommandFixture(t);
+  const now = new Date();
+  const backup = await createSqliteBackup({ ...fixture, now });
+  const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const scheduler = new JobScheduler({ dbPath: fixture.dbPath });
+  scheduler.register('backup', () => {});
+  const queued = scheduler.enqueue({ type: 'backup', payload: { requestedAt: now.toISOString() },
+    idempotencyKey: `backup:${date}` });
+  assert.equal(await scheduler.runJob(queued.job.id), 'done');
+  scheduler.close();
+  const result = fixture.run('--daily');
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(result.stdout.includes(backup.path));
+  rmSync(backup.path);
+  assert.notEqual(fixture.run('--daily').status, 0);
+});
+
+
+test('backup command does not recover or notify about unrelated expired leases', (t) => {
+  const fixture = backupCommandFixture(t);
+  const scheduler = new JobScheduler({ dbPath: fixture.dbPath });
+  const unrelated = scheduler.enqueue({ type: 'gmail-operation', payload: {},
+    maxAttempts: 1, idempotencyKey: 'expired-unrelated' });
+  scheduler.close();
+  const db = openLocalDatabase(fixture.dbPath);
+  db.prepare("UPDATE cove_jobs SET status='leased', attempts=1, lease_token='fixture', lease_until='2000-01-01T00:00:00Z' WHERE id=?")
+    .run(unrelated.job.id);
+  db.close();
+  const result = fixture.run();
+  assert.equal(result.status, 0, result.stderr);
+  const reader = new JobScheduler({ dbPath: fixture.dbPath });
+  try { assert.equal(reader.getJob(unrelated.job.id).status, 'leased'); }
+  finally { reader.close(); }
+  assert.equal(listRecentReceipts({ dbPath: fixture.dbPath, source: 'gmail-operation' }).length, 0);
 });

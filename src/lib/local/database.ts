@@ -29,17 +29,39 @@ export function openSqliteDatabase(
   file: string = localDatabasePath(),
 ): Database.Database {
   if (file !== ":memory:") mkdirSync(path.dirname(file), { recursive: true });
-  const db = new Database(file);
-  db.pragma("foreign_keys = ON");
-  db.pragma("journal_mode = WAL");
-  db.pragma("busy_timeout = 5000");
-  return db;
+  const db = new Database(file, { timeout: 250 });
+  try {
+    db.pragma("foreign_keys = ON");
+    // Two first-openers can collide on the journal-mode lock upgrade even
+    // with SQLite's busy handler. Retry only this idempotent setup operation.
+    const deadline = Date.now() + 5000;
+    const pause = new Int32Array(new SharedArrayBuffer(4));
+    for (;;) {
+      try {
+        db.pragma("journal_mode = WAL");
+        break;
+      } catch (error) {
+        if ((error as { code?: string }).code !== "SQLITE_BUSY" || Date.now() >= deadline) throw error;
+        Atomics.wait(pause, 0, 0, 20);
+      }
+    }
+    db.pragma("busy_timeout = 5000");
+    return db;
+  } catch (error) {
+    db.close();
+    throw error;
+  }
 }
 
 export function openLocalDatabase(
   file: string = localDatabasePath(),
 ): Database.Database {
   const db = openSqliteDatabase(file);
-  runLocalMigrations(db);
-  return db;
+  try {
+    runLocalMigrations(db);
+    return db;
+  } catch (error) {
+    db.close();
+    throw error;
+  }
 }

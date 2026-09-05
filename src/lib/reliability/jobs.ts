@@ -256,13 +256,14 @@ export class JobScheduler {
     })();
   }
 
-  private recoverExpiredLeases(): { recovered: number; dead: number } {
+  private recoverExpiredLeases(jobId?: string): { recovered: number; dead: number } {
     const now = this.now();
     const expired = this.db.prepare(
       `SELECT * FROM cove_jobs
        WHERE status = 'leased' AND lease_until <= ?
+         AND (? IS NULL OR id = ?)
        ORDER BY lease_until ASC`,
-    ).all(now.toISOString()) as JobRow[];
+    ).all(now.toISOString(), jobId ?? null, jobId ?? null) as JobRow[];
     if (expired.length === 0) return { recovered: 0, dead: 0 };
 
     let recovered = 0;
@@ -624,7 +625,9 @@ export class JobScheduler {
   }
 
   async runJob(id: string): Promise<"done" | "failed" | "dead" | "lost" | "unavailable"> {
-    this.recoverExpiredLeases();
+    // Explicit actions recover only their own lease. Other queue housekeeping
+    // belongs to runAvailable, not a manual backup or an email-card action.
+    this.recoverExpiredLeases(id);
     const job = this.claimById(id);
     if (!job) return "unavailable";
     try {

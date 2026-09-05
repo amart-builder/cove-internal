@@ -102,11 +102,11 @@ Treat request bodies, query strings, headers, and stored model text as untrusted
 | `/api/day-plan` | Ensure, read, mutate, start, settle, and repair the daily ritual | `src/lib/day-plan/store.ts` |
 | `/api/day-plan/assistant-apply` | Validate and apply a Buddy replan preview | `src/lib/day-plan/assistant-patch.ts` |
 | `/api/day-plan/execution` | Older bounded day-plan execution lane | `src/lib/claude-execution/` |
-| `/api/task-session-runs` | Interactive Claude task sessions opened by owner chips | `src/lib/task-sessions/manager.ts` |
+| `/api/task-session-runs` | Selected Claude/Codex task sessions opened by owner chips | `src/lib/task-sessions/manager.ts` |
 | `/api/quiet-current` | Pencil suggestions, decisions, and returns | `src/lib/quiet-current/` |
 | `/api/buddy/turn` | Stream a Buddy turn and reconcile receipts | `src/lib/buddy/stream.ts`, `src/lib/buddy/store.ts` |
 | `/api/buddy/session` | Read or reset the continuous Buddy session | `src/lib/buddy/store.ts` |
-| `/api/buddy/spawn-session` | Open a new user-visible Claude session in an allowed directory | `src/lib/buddy/spawn-session.ts` |
+| `/api/buddy/spawn-session` | Prepare or resume a session with the selected agent in an allowed directory | `src/lib/buddy/spawn-session.ts` |
 | `/api/buddy/confirm-delete` | Mint a confirmation token against a visible pending delete | `src/lib/buddy/store.ts` |
 | `/api/buddy/confirm-delete/consume` | Consume the exact single-use delete token | `src/lib/buddy/store.ts` |
 | `/api/buddy/claude-login` | Open Terminal running `claude auth login` when Claude's sign-in has expired | `src/lib/buddy/claude-login.ts` |
@@ -116,6 +116,9 @@ Treat request bodies, query strings, headers, and stored model text as untrusted
 | `/api/email/automation` | User-confirmed email card actions | `src/lib/email/automation.ts` |
 | `/api/recurrence` | Recurring template confirmation and lifecycle | `src/lib/tasks/recurrence.ts` |
 | `/api/failures` | Visible failure inbox | `src/lib/reliability/failures.ts` |
+| `/api/follow-through` | Native reminder coverage, source freshness and one-hour snooze | `src/lib/attention/follow-through.mjs` |
+| `/api/buddy/codex-auth` | Local Codex sign-in status and explicit Terminal login | `src/lib/buddy/codex-auth.ts` |
+| `/api/agent-usage` | Selected model and rolling bounded-job usage, local read-only | `src/lib/agent-settings.mjs`, `src/lib/background-usage.mjs` |
 | `/api/health` | Read-only readiness and latest health snapshot | `src/lib/health/` |
 | `/api/task-settings` | Local focus-seat and stale-task settings | `src/lib/tasks/settings.ts` |
 
@@ -159,7 +162,8 @@ Morning Brief flow:
 2. `brief.ts` builds a canonical input envelope and hash.
 3. `src/lib/claude-execution/brief-commands.ts` and
    `prompts/chief-of-staff.md` build the model request.
-4. `worker.ts` runs a bounded, tool-free model subprocess.
+4. `worker.ts` runs a bounded model subprocess. Provider-specific tool and
+   configuration limits are documented in `SECURITY_AND_INTEGRATIONS.md`.
 5. Deterministic validators check the entire nested response and evidence refs.
 6. An immutable artifact is stored.
 7. `brief-view.ts` rehydrates selected task IDs against the live board before
@@ -255,7 +259,8 @@ The weekly review deliberately uses a fresh, tool-free Claude run. It proposes
 mandate lines in a review file and Quiet Current suggestion. It never edits the
 mandate itself.
 
-Buddy remains its own user-visible Claude session in this phase. The persistent
+Buddy remains its own user-visible conversation, using Claude by default or the
+explicit selected provider. The persistent
 chief of staff does not replace Buddy, share Buddy's transcript, or answer in
 Buddy's interface.
 
@@ -266,7 +271,7 @@ the process exits successfully.
 ### Interactive task sessions
 
 `src/lib/task-sessions/manager.ts` is distinct from the background worker. It
-opens user-visible Claude Code sessions from task owner chips, records the run,
+opens user-visible sessions with the selected Claude or Codex provider from task owner chips, records the run,
 and exposes a safe status projection. Planning and automatic-edit modes are
 derived from the chosen owner behavior, not arbitrary client flags.
 
@@ -331,6 +336,18 @@ Buddy's server behavior lives in `src/lib/buddy/`. Its data CLI is
 `scripts/cove-buddy-data.ts`. Buddy uses receipts to distinguish a model's words
 from confirmed writes. Delete confirmation, replan proof, session creation, and
 stream parsing are separate modules so each boundary can be tested.
+
+Explicit agent settings also govern Buddy conversation and replan calls.
+`codex.ts` builds the isolated Codex command, `mcp.ts` wraps the existing data
+CLI, and `scripts/cove-buddy-mcp.ts` owns bounded stdio framing. `stream.ts`
+maps each provider's native events and trusts only Cove tool results for
+confirmed changes. Codex session heads use a `codex:` namespace; provider
+switches start a new conversation without transferring prior chat. Task sessions and Buddy-spawned sessions store their exact provider, model,
+effort and native session head. Codex task work uses a separate configuration
+home with on-request approvals and provider-aware interactive resume.
+`attention/follow-through.mjs` owns deterministic meeting/deadline checks,
+source freshness, durable delivery claims and snooze. The existing minute
+reminder worker invokes it for saved-agent installs.
 
 ### Tasks and recurrence
 
@@ -450,7 +467,7 @@ matching LaunchAgent before live behavior can prove the change.
 | Non-secret integration settings | Ignored files under `data/` | Examples are allowlisted separately. |
 | Model inputs and outputs | Bounded local artifacts plus validated DB rows | Sensitive and loopback-private. |
 | Browser optimistic state | React state | Temporary. Must reconcile or roll back against server truth. |
-| Quiet Current proposals | Local JSON or database-backed store | Pencil until human action. |
+| Quiet Current proposals | `cove_quiet_current` in the local database | Pencil until human action; complete updates serialized in SQLite. Legacy JSON imported once. |
 
 ## Cross-cutting invariants
 

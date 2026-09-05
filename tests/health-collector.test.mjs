@@ -225,3 +225,13 @@ test("the scheduler enqueues health collection only when two days have elapsed",
   });
   assert.deepEqual(recent, { enqueued: false, reason: "recent" });
 });
+
+test('health recognizes unique backup filenames when no receipt is available', (t) => {
+  const files = fixture(t);
+  openLocalDatabase(files.dbPath).close();
+  const backupDir = path.join(files.dir, 'backups');
+  mkdirSync(backupDir);
+  writeFileSync(path.join(backupDir, 'cove-20260904120000-unique-snapshot.db'), 'fixture');
+  const snapshot = collectCoveHealth({ dbPath: files.dbPath, dataDir: files.dir, backupDir, now: NOW });
+  assert.ok(snapshot.system.backup.lastSuccessAt);
+});

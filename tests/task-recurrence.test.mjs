@@ -497,8 +497,8 @@ test('pausing archives today open instance and prevents it becoming a miss', (t)
       'archived',
     );
     assert.equal(
-      db.prepare('SELECT count(*) AS n FROM recurring_occurrences').get().n,
-      0,
+      db.prepare('SELECT state FROM recurring_occurrences').get().state,
+      'paused',
     );
   } finally {
     db.close();
@@ -574,4 +574,15 @@ test('bulk position-only task patches skip recurrence synchronization', (t) => {
   } finally {
     verified.close();
   }
+});
+
+test('same-day resume restores the paused occurrence identity and never restores a manual archive',t=>{
+ const {dbPath}=fixture(t);const now=new Date('2026-09-04T16:00:00Z');const input={dbPath,now,timezone:'America/Los_Angeles'};
+ const template=createRecurringTemplate({...input,title:'Pause and resume',cadence:'daily'});spawnRecurringTasks({...input,localDate:'2026-09-04'});
+ const db=openLocalDatabase(dbPath);t.after(()=>db.close());const original=db.prepare('SELECT * FROM recurring_occurrences WHERE template_id=?').get(template.id);
+ updateRecurringTemplate({...input,id:template.id,active:false});assert.equal(db.prepare('SELECT state FROM recurring_occurrences WHERE id=?').get(original.id).state,'paused');
+ handleLocalRest('tasks','PATCH',new URLSearchParams({id:`eq.${original.task_id}`}),{title:'Edited while paused'});
+ updateRecurringTemplate({...input,id:template.id,active:true});const restored=db.prepare('SELECT * FROM recurring_occurrences WHERE id=?').get(original.id);assert.equal(restored.state,'open');assert.equal(restored.task_id,original.task_id);assert.equal(db.prepare('SELECT status FROM tasks WHERE id=?').get(original.task_id).status,'open');
+ updateRecurringTemplate({...input,id:template.id,active:false});db.prepare("UPDATE tasks SET archived_at='2026-09-04T17:00:00Z' WHERE id=?").run(original.task_id);
+ updateRecurringTemplate({...input,id:template.id,active:true});assert.equal(db.prepare('SELECT status FROM tasks WHERE id=?').get(original.task_id).status,'archived');
 });

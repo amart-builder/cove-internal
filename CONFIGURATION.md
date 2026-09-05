@@ -2,7 +2,7 @@
 
 The default is local SQLite with no account or cloud database. Configuration is read from `.env.local`, `COVE_*` environment variables rendered into LaunchAgents, ignored files under `data/`, and macOS Keychain.
 
-The sales pipeline is owner-only and stays off unless both `COVE_SALES_PIPELINE=1` and `NEXT_PUBLIC_COVE_SALES_PIPELINE=1` are set in `.env.local`, followed by a rebuild. The chief-of-staff launchd lanes install only when `COVE_CHIEF_OF_STAFF=1` is set, Codex is installed, and private `data/cove-mandate.md` exists.
+The sales pipeline is owner-only and stays off unless both `COVE_SALES_PIPELINE=1` and `NEXT_PUBLIC_COVE_SALES_PIPELINE=1` are set in `.env.local`, followed by a rebuild. Full installs with saved agent settings default the chief-of-staff lanes on. They require the selected CLI and a nonempty private `data/cove-mandate.md`. `COVE_CHIEF_OF_STAFF=0` disables them; installs without saved settings retain the older explicit opt-in.
 
 ## Core paths and runtime
 
@@ -68,3 +68,80 @@ Set `shadow` to `false` only after the 11:30 and 16:00 attention sweep has shown
 ## Compatibility
 
 `FORGE_*` names are accepted only for migration from older installations. New documentation, scripts, and configuration must use `COVE_*`. Supabase, Convex, and multi-machine relay settings are not part of the supported single-Mac product.
+
+
+## Selected agent and background usage (client-readiness development)
+
+`data/agent-settings.json` is an explicit selection for shared bounded model jobs
+and the chief of staff, Buddy conversation/replan, and task sessions. Without this
+file, existing lane settings remain active.
+Current supported selection fields are `version: 1`, `provider: "claude"` or
+`"codex"`, the exact `model` ID, and `effort: "low"`, `"medium"` or `"high"`.
+`backgroundLimits` can override the provisional limits: `callsPerHour: 6`,
+`callsPerDay: 24`, `callsPerWeek: 100`, `inputBytesPerCall: 96000`,
+`outputBytesPerCall: 64000`, `timeoutMs: 120000`. A provider/model mismatch or invalid limit
+stops jobs instead of silently choosing another model.
+
+For development acceptance, `node scripts/cove-agent-settings.mjs configure
+--provider claude` verifies Fable 5.1/low; `--provider codex` verifies Astra/low.
+Use `--model` and `--effort` for an explicitly chosen supported alternative.
+Verification makes a real CLI model call. Sign into the intended subscription
+first and verify the CLI's billing mode. No service is installed or restarted.
+`node scripts/cove-agent-settings.mjs status` prints the saved selection and local
+usage. The Issues page shows rolling call usage. Model availability is verified
+only at configuration time; revoked access becomes a visible job failure.
+
+These limits cover the shared runner and selected-provider chief, including
+manually requested jobs through those paths. They do not yet cover interactive
+Buddy/task sessions or every legacy subprocess. Client acceptance still requires
+real selected-model outputs and supervised installation checks. Output
+byte limits constrain received data; they are not a hard cap on hidden reasoning
+tokens. Cove does not know the remaining provider subscription allowance.
+
+Buddy uses the exact selected model and effort, including Claude recovery
+calls. Codex Buddy uses a separate `data/buddy-codex-home`, the operator's auth
+file through a symlink, and only Cove's validated MCP data tool. It has no
+general shell, web search, or app tools. Permanent deletion keeps the existing
+confirmation-token requirement. Changing providers starts a new model
+conversation; earlier chat is not transferred. Saved Cove tasks remain available
+through the data tool. Both providers have same-provider context compaction.
+Codex sign-in recovery opens the local CLI login and checks its status.
+
+Interactive Buddy runs retain the five-minute execution timeout and have a
+4 MiB received-output ceiling. They are not charged to the background call caps.
+The turn audit stores `provider`, exact `model_id`, and `cost_known`; Codex dollar
+cost is unknown, not zero. Existing aggregate cost fields sum reported costs
+only. Task sessions and Buddy-spawned sessions keep provider-specific native
+heads. Codex uses `data/task-codex-home`, on-request approvals, and interactive
+Terminal resume. A stopping task must exit before it can be resumed.
+
+
+### Native follow-through
+
+Saved-agent Full installs enable lightweight minute checks without model calls.
+`COVE_FOLLOW_THROUGH=0` disables them (set it for Basic Mode). The reminder worker
+loads `.env.local`, including custom data/database paths. It checks connected
+Calendar at most once every five minutes; failed or older-than-ten-minute
+observations never authorize meeting banners. Cancelled, declined, all-day and
+already-started events do not produce prep banners.
+
+Advance warnings run at 3pm the day before a date-only deadline, or within one
+hour of a timed deadline. Explicit `remind_at` retains the existing nudge lane.
+Task notification preferences and recent engagement are respected. Overdue
+follow-through uses shared cooldowns and notification caps. New native checks
+respect 8am to 6pm in the profile timezone. Explicit due reminders retain their
+existing timing contract. Calendar access remains a separately authorized
+connection.
+
+Issues > On your radar shows freshness, pending notices, uncertain delivery and
+one-hour snooze. Snooze can repeat a notice only while it is still relevant;
+it cannot replay a meeting after its start. An interrupted or timed-out handoff
+stays uncertain instead of being silently retried. Ordinary explicit reminders
+continue if this additional checker fails. No service can notify while the Mac
+is asleep or powered off.
+
+
+The retired day-plan execution queue remains a Claude compatibility path.
+Saved Codex configurations reject queued legacy execution instead of invoking
+Claude. Use the current task Planning/Auto controls for either provider. Briefs,
+dumps, enabled groundwork, email and meeting jobs use the shared selected runner.

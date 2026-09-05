@@ -705,7 +705,7 @@ test('installer provisions a supervised watch worker without enabling autonomy',
     installer.indexOf('# (Re)load all agents'),
   );
   assert.doesNotMatch(miniProfile, /COVE_NOTIFY/);
-  assert.match(installer, /JOB_RUNNER="\$\{COVE_JOB_RUNNER:-codex-sol-high\}"/);
+  assert.match(installer, /JOB_RUNNER="\$\{JOB_RUNNER:-codex-sol-high\}"/);
   assert.match(miniProfile, /<key>COVE_JOB_RUNNER<\/key>\s*<string>\$JOB_RUNNER<\/string>/);
   assert.match(miniProfile, /\$CODEX_PLIST_ENTRY/);
   assert.match(miniProfile, /COVE_BRIEF_OPERATOR_PROFILE_PATH/);

@@ -21,6 +21,9 @@ import {
 } from "../src/lib/autonomy/groundwork";
 import { triageRecordedEvent } from "../src/lib/intake/run";
 import { coveEnv } from "../src/lib/env";
+import { readAgentSettings } from "../src/lib/agent-settings.mjs";
+import { coveDataDir } from "../src/lib/operator";
+import { loadLocalEnv } from "./lib/load-local-env.mjs";
 import {
   currentBootId,
   pruneSpawnedChildren,
@@ -28,6 +31,7 @@ import {
 } from "../src/lib/claude-execution/child-process-registry";
 
 async function main(): Promise<number> {
+  loadLocalEnv(process.cwd());
   const laneIndex = process.argv.indexOf("--lane");
   const lane = laneIndex >= 0 ? process.argv[laneIndex + 1] : undefined;
   const dryRun = process.argv.includes("--dry-run");
@@ -35,10 +39,10 @@ async function main(): Promise<number> {
   if (coveEnv("CLAUDE_WORKER_ENABLED") !== "1") return 3;
   const repoDir = process.cwd();
   const claudePath = coveEnv("CLAUDE_BIN") ?? path.join(homedir(), ".local", "bin", "claude");
-  if (!existsSync(claudePath)) {
+  if (readAgentSettings()?.provider !== "codex" && !existsSync(claudePath)) {
     return 4;
   }
-  const dbPath = coveEnv("DB_PATH") ?? path.join(repoDir, "data", "cove.db");
+  const dbPath = coveEnv("DB_PATH") ?? path.join(coveDataDir(), "cove.db");
   if (lane === "groundwork") {
     const shutdown = new AbortController();
     const stop = () => shutdown.abort();
@@ -69,7 +73,7 @@ async function main(): Promise<number> {
     dataDir: path.dirname(dbPath),
     requireSourceCheckpoint: coveEnv("BRIEF_REQUIRE_SOURCE_CHECKPOINT") === "1",
   };
-  const heartbeatPath = path.join(repoDir, "data", "claude-worker.heartbeat");
+  const heartbeatPath = path.join(path.dirname(dbPath), "claude-worker.heartbeat");
   const childServerGeneration = randomUUID();
   const childBootId = currentBootId();
   let heartbeat: NodeJS.Timeout | undefined;
@@ -83,7 +87,7 @@ async function main(): Promise<number> {
       store,
       claudePath,
       emptyMcpConfigPath: path.join(repoDir, "scripts", "cove-empty-mcp.json"),
-      logDir: path.join(repoDir, "data", "claude-runs"),
+      logDir: path.join(path.dirname(dbPath), "claude-runs"),
       fallbackCwd: repoDir,
       abortSignal: shutdown.signal,
       relay,

@@ -137,6 +137,10 @@ export async function handleTaskSessionRunsPost(
     const object = body as Record<string, unknown>;
     requestedAction = object.action;
     const manager = dependencies.manager ?? getTaskSessionManager();
+    if (object.action === "resume") {
+      await manager.resume(requiredText(object.runId, "runId", 240));
+      return NextResponse.json({ ok: true });
+    }
     if (object.action === "abandon") {
       const runId = requiredText(object.runId, "runId", 240);
       return NextResponse.json({ run: manager.abandonRun(runId, "user_closed") });
@@ -183,8 +187,8 @@ export async function handleTaskSessionRunsPost(
         error: error instanceof Error
           ? error.message
           : requestedAction === "abandon"
-            ? "Could not abandon the Claude session."
-            : "Could not start the Claude session.",
+            ? "Could not abandon the agent session."
+            : "Could not start the agent session.",
       },
       {
         status: error instanceof TaskSessionRequestError || error instanceof SyntaxError

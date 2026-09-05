@@ -1,5 +1,7 @@
 'use client';
 
+import type { TaskEditGuard } from '@/lib/tasks/edit-conflict';
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   DndContext,
@@ -86,7 +88,7 @@ type CreateTaskInput = {
   origin?: string;
 };
 
-type UpdateTaskInput = {
+type UpdateTaskInput = TaskEditGuard & {
   columnId?: string | null;
   title?: string;
   description?: string;
@@ -215,8 +217,9 @@ function applyTaskPatch(task: TaskData, patch: UpdateTaskInput): TaskData {
   };
 }
 
-function toSupabaseTaskPatch(patch: UpdateTaskInput): Partial<SupabaseTask> {
+function toSupabaseTaskPatch(patch: UpdateTaskInput): Partial<SupabaseTask> & TaskEditGuard {
   return {
+    _expected: patch._expected,
     column_id: patch.columnId,
     title: patch.title,
     description: patch.description,

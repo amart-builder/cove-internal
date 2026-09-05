@@ -57,9 +57,9 @@ test('every task editor shows and edits the reason the task was added', () => {
   const board = readFileSync(componentPath('KanbanBoard.tsx'), 'utf8');
 
   assert.match(fields, /Reason this task was added/);
-  assert.match(fields, /origin: origin\.trim\(\) \|\| undefined/);
+  assert.match(fields, /taskEditorPatch\(/);
   assert.match(detail, /Reason this task was added/);
-  assert.match(detail, /origin: origin\.trim\(\) \|\| undefined/);
+  assert.match(detail, /taskEditorPatch\(/);
   assert.match(sheet, /aria-label="Reason this task was added"/);
   assert.match(sheet, /const origin = taskRecord\?\.origin\?\.trim\(\);/);
   assert.match(today, /origin: task\.origin \?\? undefined/);
@@ -82,8 +82,8 @@ test('both task editors share the blocked tag helpers', () => {
     'utf8',
   );
 
-  assert.match(fields, /tagsWithBlockedFlag\(/);
-  assert.match(detail, /tagsWithBlockedFlag\(/);
+  assert.match(fields, /taskEditorPatch\(/);
+  assert.match(detail, /taskEditorPatch\(/);
   assert.doesNotMatch(fields, /function visibleTags/);
   assert.doesNotMatch(detail, /function visibleTags/);
   assert.match(helpers, /const visible = visibleTags\(tags\)/);

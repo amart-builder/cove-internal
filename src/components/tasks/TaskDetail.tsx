@@ -8,7 +8,9 @@ import type {
 } from '@/lib/task-sessions/types';
 import EmailCardDetail from './EmailCardDetail';
 import { TaskSessionLauncher } from './TaskSessionLauncher';
-import { tagsWithBlockedFlag, visibleTags } from '@/lib/tasks/tags';
+import { visibleTags } from '@/lib/tasks/tags';
+import { taskEditError, type TaskEditGuard } from '@/lib/tasks/edit-conflict';
+import { taskEditorDraft, taskEditorPatch, taskEditorExpected } from '@/lib/tasks/editor-patch';
 
 interface ColumnData {
   _id: string;
@@ -35,7 +37,7 @@ interface TaskData {
   updatedAt: number;
 }
 
-type UpdateTaskInput = {
+type UpdateTaskInput = TaskEditGuard & {
   columnId?: string | null;
   title?: string;
   description?: string;
@@ -86,6 +88,7 @@ export default function TaskDetail({
   sessionError,
   onLaunchSession,
 }: TaskDetailProps) {
+  const baselineRef = useRef(taskEditorDraft(task));
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? '');
   const [origin, setOrigin] = useState(task.origin ?? '');
@@ -93,7 +96,7 @@ export default function TaskDetail({
   const [dueDate, setDueDate] = useState(task.dueDate ?? '');
   const [tagsStr, setTagsStr] = useState(visibleTags(task.tags).join(', '));
   const [columnId, setColumnId] = useState(task.columnId);
-  const [blocked, setBlocked] = useState(task.blocked);
+  const [blocked, setBlocked] = useState(() => taskEditorDraft(task).blocked);
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const [confirmingRecurrence, setConfirmingRecurrence] = useState(false);
@@ -110,6 +113,7 @@ export default function TaskDetail({
   // reload through the refresh bus. Someone mid-sentence in the description
   // would watch it revert.
   useEffect(() => {
+    baselineRef.current = taskEditorDraft(task);
     setTitle(task.title);
     setDescription(task.description ?? '');
     setOrigin(task.origin ?? '');
@@ -117,7 +121,7 @@ export default function TaskDetail({
     setDueDate(task.dueDate ?? '');
     setTagsStr(visibleTags(task.tags).join(', '));
     setColumnId(task.columnId);
-    setBlocked(task.blocked);
+    setBlocked(taskEditorDraft(task).blocked);
   }, [taskId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Only close if BOTH mousedown and mouseup (click) happened on the backdrop.
@@ -140,24 +144,21 @@ export default function TaskDetail({
     setSaving(true);
     setActionError(undefined);
     try {
-      const tags = tagsStr
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      await onSaveTask({
+      const patch = taskEditorPatch(baselineRef.current, {
         title,
         description,
         priority,
-        dueDate: dueDate || null,
-        origin: origin.trim() || undefined,
-        tags: tagsWithBlockedFlag(tags, blocked),
+        dueDate,
+        origin,
+        tagsText: tagsStr,
         columnId,
-      });
+        blocked,
+      }, task.tags);
+      if (Object.keys(patch).length > 0) await onSaveTask({ ...patch, _expected: taskEditorExpected(baselineRef.current, patch, task.tags) });
 
       onClose();
-    } catch {
-      setActionError("Cove couldn't save those task details. Try again.");
+    } catch (error) {
+      setActionError(taskEditError(error));
     } finally {
       setSaving(false);
     }
@@ -366,12 +367,12 @@ export default function TaskDetail({
         </div>
 
         {localMode && onLaunchSession && (
-          <section className="mt-3 rounded-xl border bg-muted/40 p-3" aria-label="Claude session">
+          <section className="mt-3 rounded-xl border bg-muted/40 p-3" aria-label="Agent session">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <p className="text-xs font-medium text-foreground">Claude session</p>
+                <p className="text-xs font-medium text-foreground">Agent session</p>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  Start this task with Claude, or open its latest session.
+                  Start this task with your agent, or open its latest session.
                 </p>
               </div>
               <TaskSessionLauncher

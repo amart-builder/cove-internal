@@ -8,6 +8,8 @@ import {
   buildBuddyTurnCommand,
 } from "@/lib/buddy/commands";
 import { routeBuddyTurn } from "@/lib/buddy/router";
+import { readAgentSettings } from "@/lib/agent-settings.mjs";
+import { BuddyCodexSetupError, buddyProviderHead, type BuddyAgentSelection } from "@/lib/buddy/codex";
 import {
   BUDDY_STALE_TURN_MS,
   getBuddyStore,
@@ -219,13 +221,14 @@ export function attachBuddyRun(input: {
       clearActiveTurn();
       input.close();
     });
-  } catch {
+  } catch (error) {
+    const setupError = error instanceof BuddyCodexSetupError ? error : undefined;
     input.store.finishTurn(input.turn.id, {
       state: "failed",
-      assistant_text: "",
-      error_code: "spawn_failed",
+      assistant_text: setupError?.message ?? "",
+      error_code: setupError?.code ?? "spawn_failed",
     });
-    input.send({ kind: "failed", errorCode: "spawn_failed" });
+    input.send({ kind: "failed", errorCode: setupError?.code ?? "spawn_failed", ...(setupError ? { resultText: setupError.message } : {}) });
     clearActiveTurn();
     input.close();
     return Promise.resolve();
@@ -355,6 +358,11 @@ export async function POST(request: NextRequest) {
 
     const store = getBuddyStore();
     store.sweepStaleTurns(BUDDY_STALE_TURN_MS);
+    // Freeze the user's selection for this turn, including any recovery calls.
+    const selection = readAgentSettings() as BuddyAgentSelection | undefined;
+    const provider = selection?.provider ?? "claude";
+    const storedHead = store.getBuddyState().headSessionId;
+    const headSessionId = buddyProviderHead(storedHead, provider) ? storedHead : null;
     const commandIntent = getRuntimeMode() === "local"
       ? detectBuddyCommandIntent(text)
       : undefined;
@@ -367,8 +375,11 @@ export async function POST(request: NextRequest) {
       userText: text,
       pageContext: body.pageContext,
       model: route.model,
-      effort: route.effort,
-      routerReason: route.reason,
+      effort: selection?.effort ?? route.effort,
+      routerReason: selection ? `Selected ${selection.model} (${selection.effort})` : route.reason,
+      provider,
+      modelId: selection?.model,
+      providerChanged: Boolean(storedHead && !headSessionId),
     });
     if (!turn) {
       return NextResponse.json({ error: "Buddy is already working on a turn." }, { status: 409 });
@@ -417,7 +428,7 @@ export async function POST(request: NextRequest) {
             throw new Error("Today's plan cannot change while you are closing the day.");
           }
           const done = await runBuddyCommand(
-            buildReplanCommand(plan, text),
+            buildReplanCommand(plan, text, selection),
             (event) => {
               if (event.kind === "thinking") send(event);
             },
@@ -494,7 +505,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const headSessionId = store.getBuddyState().headSessionId;
     void attachBuddyRun({
       store,
       turn,
@@ -505,8 +515,9 @@ export async function POST(request: NextRequest) {
         effort: route.effort,
         userText: text,
         pageContext: body.pageContext,
+        selection,
       }),
-      ...(headSessionId ? {
+      ...(headSessionId && provider === "claude" ? {
         resumeRecovery: {
           buildFreshCommand: () => buildBuddyTurnCommand({
             headSessionId: null,
@@ -515,13 +526,17 @@ export async function POST(request: NextRequest) {
             effort: route.effort,
             userText: text,
             pageContext: body.pageContext,
+            selection,
           }),
         },
+      } : {}),
+      ...(headSessionId ? {
         compaction: {
-          buildSummaryCommand: () => buildBuddyCompactionSummaryCommand(headSessionId),
+          buildSummaryCommand: () => buildBuddyCompactionSummaryCommand(headSessionId, selection),
           buildSeedCommand: (summary: string) => buildBuddyHandoffSeedCommand({
             newSessionId: randomUUID(),
             summary,
+            selection,
           }),
           buildRetryCommand: (freshHeadSessionId: string) => buildBuddyTurnCommand({
             headSessionId: freshHeadSessionId,
@@ -530,6 +545,7 @@ export async function POST(request: NextRequest) {
             effort: route.effort,
             userText: text,
             pageContext: body.pageContext,
+            selection,
           }),
         },
       } : {}),

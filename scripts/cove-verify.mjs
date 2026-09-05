@@ -22,7 +22,9 @@ const childPath = [path.dirname(process.execPath), process.env.PATH]
 const steps = [
   [process.execPath, [packageBin("typescript/bin/tsc"), "--noEmit"]],
   [process.execPath, [packageBin("eslint/bin/eslint.js"), "--max-warnings=0"]],
-  [process.execPath, ["--import", "tsx", "--test", ...tests]],
+  // Bound concurrent test processes for client laptops. Each test file can
+  // load TypeScript and SQLite; CPU-count concurrency can exhaust memory.
+  [process.execPath, ["--import", "tsx", "--test", "--test-concurrency=2", ...tests]],
   // Turbopack's CSS worker binds an internal port, which managed coding-agent
   // sandboxes can reject. Webpack is a supported Next build path and keeps the
   // public release gate deterministic in the exact Claude/Codex setup flow.

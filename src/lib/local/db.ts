@@ -10,6 +10,7 @@
  * Only runs on the server (Node runtime). Never imported into client code.
  */
 import type Database from "better-sqlite3";
+import { taskEditMatches, TASK_EDIT_CONFLICT } from "../tasks/edit-conflict";
 import { randomUUID } from "node:crypto";
 import { COVE_REST_TABLES } from "../data/cove-tables";
 import { operatorTimezone } from "../operator";
@@ -395,6 +396,10 @@ function updateRows(
     // column changes.
     const matchedRows = db.prepare(`SELECT * FROM "${table}"${clause}`).all(...args) as
       Record<string, unknown>[];
+    const expected = (payload as Record<string, unknown>)._expected;
+    if (table === "tasks" && expected !== undefined && (matchedRows.length === 0 || matchedRows.some(matched => !taskEditMatches(matched, expected)))) {
+      return { status: 409, body: TASK_EDIT_CONFLICT };
+    }
     const matchedIds = matchedRows.map((matched) => matched.id);
     const known = tableColumns(table);
     let engagedIds: unknown[] = [];
@@ -449,9 +454,9 @@ function updateRows(
         })`,
       ).run(row.updated_at, ...engagedIds);
     }
-    const positionOnly = requestedKeys.length === 1 &&
-      requestedKeys[0] === "position";
-    if (table === "tasks" && matchedIds.length > 0 && !positionOnly) {
+    // Metadata edits must not turn a deliberately paused occurrence into a miss.
+    // Only an explicit lifecycle change reconciles recurrence status.
+    if (table === "tasks" && matchedIds.length > 0 && requestedKeys.includes("status")) {
       const updatedAt = typeof row.updated_at === "string"
         ? row.updated_at
         : nowIso();

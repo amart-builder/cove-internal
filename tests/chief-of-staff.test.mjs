@@ -597,13 +597,14 @@ test("task_create accepts the live flat-schema payload with open status", () => 
   const db = openLocalDatabase(dbPath);
   try {
     assert.deepEqual(db.prepare(
-      "SELECT status, priority, due_at, due_date, remind_at FROM tasks WHERE title = ?",
+      "SELECT status, priority, due_at, due_date, remind_at, notification_policy FROM tasks WHERE title = ?",
     ).get(action.title), {
       status: "open",
       priority: "medium",
       due_at: action.due_at,
       due_date: action.due_at,
       remind_at: action.remind_at,
+      notification_policy: "both",
     });
   } finally {
     db.close();
@@ -1371,3 +1372,53 @@ test("snapshot lists recently created tasks of any status after the open list", 
   assert.match(recentBlock, /task-fresh-open \| Fresh open task/);
   assert.doesNotMatch(recentBlock, /task-stale-open/);
 });
+
+
+for (const provider of ["claude", "codex"]) {
+  test(`selected ${provider} chief uses bounded calls without a foreign session`, async () => {
+    const { dataDir, dbPath, operatorEnv } = tempCove();
+    const now = new Date("2026-09-04T16:00:00Z");
+    writeFileSync(path.join(dataDir, "agent-settings.json"), JSON.stringify({
+      version: 1, provider, model: provider === "claude" ? "claude-fable-5-1" : "gpt-6-astra", effort: "low",
+      backgroundLimits: { callsPerDay: 1 },
+    }));
+    const home = ensureChiefOfStaffHome({ repoDir: ROOT, dataDir, now });
+    writeChiefOfStaffSession(dataDir, { ...home.session, sessionId: "foreign-session" });
+    const executable = path.join(dataDir, provider);
+    if (provider === "codex") {
+      fakeCodex(executable);
+      writeFileSync(executable, readFileSync(executable, "utf8").replaceAll("../fake-", `${home.paths.agent}/fake-`));
+    }
+    else {
+      writeFileSync(executable, `#!/bin/sh
+printf '%s\\n' "$@" > ../fake-argv.txt
+cat > ../fake-stdin.txt
+printf '%s\\n' '{"structured_output":{"journal":["Reviewed the desk.","No urgent gap found."],"watching":[],"actions":[]},"usage":{"input_tokens":100,"output_tokens":30}}'
+`, { mode: 0o700 });
+    }
+    const wake = enqueue(dbPath, { reason: "manual", note: "provider test", now }).job;
+    const running = runWake(wake, {
+      repoDir: ROOT, dataDir, dbPath, env: operatorEnv, now: () => now,
+      codexPath: executable, claudePath: executable,
+    });
+    // Change settings while the snapshot awaits. This wake must keep the
+    // provider for which its isolation was prepared.
+    const settingsFile = path.join(dataDir, "agent-settings.json");
+    const originalSettings = readFileSync(settingsFile, "utf8");
+    const alternate = provider === "claude" ? "codex" : "claude";
+    writeFileSync(settingsFile, JSON.stringify({ version: 1, provider: alternate,
+      model: alternate === "claude" ? "claude-fable-5-1" : "gpt-6-astra", effort: "low" }));
+    await running;
+    writeFileSync(settingsFile, originalSettings);
+    const argv = readFileSync(path.join(home.paths.agent, "fake-argv.txt"), "utf8");
+    assert.doesNotMatch(argv, /foreign-session|resume/);
+    assert.match(argv, provider === "claude" ? /claude-fable-5-1/ : /gpt-6-astra/);
+    assert.equal(readChiefOfStaffSession(dataDir).sessionId, null);
+    if (provider === "claude") assert.equal(existsSync(home.paths.codexHome), false);
+    const second = enqueue(dbPath, { reason: "manual", note: "cap test", now }).job;
+    await assert.rejects(runWake(second, {
+      repoDir: ROOT, dataDir, dbPath, env: operatorEnv, now: () => now,
+      codexPath: executable, claudePath: executable,
+    }), /background_usage_limit/);
+  });
+}

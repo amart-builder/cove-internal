@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 
 export type AttentionKind = "sweep_nudge" | "floor_nudge" | "urgent_email" | "chief_of_staff";
-export type AttentionRefKind = "task" | "commitment" | "email" | "deal";
+export type AttentionRefKind = "task" | "commitment" | "email" | "deal" | "meeting";
 export type AttentionLevel = "text" | "banner" | "board" | "suppressed" | "shadow";
 
 export type AttentionLedgerRow = {

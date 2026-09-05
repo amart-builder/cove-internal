@@ -3,8 +3,11 @@ import type {
   DayPlanExecutionResultSummary,
 } from "../day-plan/types";
 import { operatorName } from "../operator";
+import { readAgentSettings } from "../agent-settings.mjs";
 
 export type ClaudeCommand = {
+  provider?: "claude" | "codex";
+  env?: Record<string, string | undefined>;
   executable: string;
   args: string[];
   cwd?: string;
@@ -100,6 +103,8 @@ export function buildExecutionCommand(input: {
   fallbackCwd: string;
 }): ClaudeCommand {
   const { run } = input;
+  const selection = readAgentSettings();
+  if (selection?.provider === "codex") throw new Error("This legacy Claude queue cannot use the selected Codex agent. Start the task from its Planning or Auto button in Cove.");
   if (run.mode === "autonomous" && !run.workspacePath) {
     throw new Error("Autonomous execution requires a resolved workspace.");
   }
@@ -122,9 +127,9 @@ export function buildExecutionCommand(input: {
       "--tools",
       tools,
       "--model",
-      CLAUDE_MODELS[run.modelAlias],
+      selection?.model ?? CLAUDE_MODELS[run.modelAlias],
       "--effort",
-      "high",
+      selection?.effort ?? "high",
       "--output-format",
       "stream-json",
       "--verbose",

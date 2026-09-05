@@ -11,6 +11,14 @@ type TaskSessionSnapshot = {
 };
 
 type Listener = () => void;
+export async function resumeTaskSessionRun(runId: string): Promise<void> {
+  const response = await fetch("/api/task-session-runs", {
+    method: "POST", headers: { "Content-Type": "application/json", "X-Cove-CSRF": await getDayPlanCsrfToken() },
+    body: JSON.stringify({ action: "resume", runId }),
+  });
+  const body = await payload(response);
+  if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : "Cove could not open the session.");
+}
 const listeners = new Set<Listener>();
 
 export const TASK_SESSION_POLL_INTERVAL_MS = 30_000;
@@ -43,7 +51,7 @@ export async function listTaskSessionRuns(
     throw new Error(
       typeof body.error === "string"
         ? body.error
-        : "Cove couldn't load Claude session runs.",
+        : "Cove couldn't load agent session runs.",
     );
   }
   return body as TaskSessionSnapshot;
@@ -69,7 +77,7 @@ export async function launchTaskSessionRun(
     throw new Error(
       typeof body.error === "string"
         ? body.error
-        : "Cove couldn't start the Claude session.",
+        : "Cove couldn't start the agent session.",
     );
   }
   announceTaskSessionChange();
@@ -94,7 +102,7 @@ export async function abandonTaskSessionRun(runId: string): Promise<TaskSessionR
     throw new Error(
       typeof body.error === "string"
         ? body.error
-        : "Cove couldn't stop the Claude session.",
+        : "Cove couldn't stop the agent session.",
     );
   }
   announceTaskSessionChange();

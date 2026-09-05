@@ -105,7 +105,23 @@ local_env_value() {
     process.stdout.write(loaded[process.argv[3]] ?? "");
   ' "$REPO_DIR/scripts/lib/load-local-env.mjs" "$REPO_DIR" "$1"
 }
+# A saved provider identifies the assisted full setup. Existing installs without
+# settings retain their explicit service choices.
+COVE_DATA_DIR="$("$NODE_REAL" --input-type=module -e '
+  import { pathToFileURL } from "node:url";
+  const { loadLocalEnv } = await import(pathToFileURL(process.argv[1]).href);
+  const { coveDataDir } = await import(pathToFileURL(process.argv[2]).href);
+  process.chdir(process.argv[3]);
+  process.stdout.write(coveDataDir(undefined, loadLocalEnv(process.argv[3], { ...process.env })));
+' "$REPO_DIR/scripts/lib/load-local-env.mjs" "$REPO_DIR/src/lib/operator-runtime.mjs" "$REPO_DIR")"
+export COVE_DATA_DIR
+AGENT_PROVIDER="$("$NODE_REAL" --input-type=module -e '
+  import { pathToFileURL } from "node:url";
+  const { readAgentSettings } = await import(pathToFileURL(process.argv[1]).href);
+  process.stdout.write(readAgentSettings()?.provider ?? "");
+' "$REPO_DIR/src/lib/agent-settings.mjs")"
 CHIEF_OF_STAFF_OPT_IN="$(local_env_value COVE_CHIEF_OF_STAFF)"
+if [ -z "$CHIEF_OF_STAFF_OPT_IN" ] && [ -n "$AGENT_PROVIDER" ]; then CHIEF_OF_STAFF_OPT_IN=1; fi
 
 NEXT_BIN="$REPO_DIR/node_modules/.bin/next"
 if [ ! -x "$NEXT_BIN" ]; then
@@ -117,15 +133,19 @@ if [ ! -x "$TSX_BIN" ]; then
   echo "Could not find tsx at $TSX_BIN. Run 'npm install' first." >&2
   exit 1
 fi
-CLAUDE_BIN="${COVE_CLAUDE_BIN:-$(command -v claude 2>/dev/null || true)}"
+CLAUDE_BIN="$(local_env_value COVE_CLAUDE_BIN)"
+CLAUDE_BIN="${CLAUDE_BIN:-$(command -v claude 2>/dev/null || true)}"
 if [ -z "$CLAUDE_BIN" ] && [ -x "$HOME/.local/bin/claude" ]; then
   CLAUDE_BIN="$HOME/.local/bin/claude"
 fi
-if [ -z "$CLAUDE_BIN" ] || [ ! -x "$CLAUDE_BIN" ]; then
+if [ "$AGENT_PROVIDER" != "codex" ] && { [ -z "$CLAUDE_BIN" ] || [ ! -x "$CLAUDE_BIN" ]; }; then
   echo "Claude Code is required for Cove execution. Install it or set COVE_CLAUDE_BIN." >&2
   exit 1
 fi
-JOB_RUNNER="${COVE_JOB_RUNNER:-codex-sol-high}"
+JOB_RUNNER="$(local_env_value COVE_JOB_RUNNER)"
+JOB_RUNNER="${JOB_RUNNER:-codex-sol-high}"
+if [ "$AGENT_PROVIDER" = "claude" ]; then JOB_RUNNER=claude; fi
+if [ "$AGENT_PROVIDER" = "codex" ]; then JOB_RUNNER=codex-sol-high; fi
 case "$JOB_RUNNER" in
   codex-sol-high|claude) ;;
   *)
@@ -133,7 +153,8 @@ case "$JOB_RUNNER" in
     exit 1
     ;;
 esac
-CODEX_BIN="${COVE_CODEX_BIN:-$(command -v codex 2>/dev/null || true)}"
+CODEX_BIN="$(local_env_value COVE_CODEX_BIN)"
+CODEX_BIN="${CODEX_BIN:-$(command -v codex 2>/dev/null || true)}"
 if [ -z "$CODEX_BIN" ] && [ -x "$HOME/.local/bin/codex" ]; then
   CODEX_BIN="$HOME/.local/bin/codex"
 fi
@@ -146,6 +167,18 @@ fi
 if [ "$JOB_RUNNER" = "codex-sol-high" ] && { [ -z "$CODEX_BIN" ] || [ ! -x "$CODEX_BIN" ]; }; then
   echo "COVE_JOB_RUNNER=codex-sol-high requires an executable Codex CLI. Install it or set COVE_CODEX_BIN." >&2
   exit 1
+fi
+# An explicit opt-in must not silently become a successful install with the
+# requested service off. Check before building helpers or replacing any agents.
+if [ "$CHIEF_OF_STAFF_OPT_IN" = "1" ]; then
+  if [ "$AGENT_PROVIDER" != "claude" ] && { [ -z "$CODEX_BIN" ] || [ ! -x "$CODEX_BIN" ]; }; then
+    echo "Chief of staff was requested but Codex CLI is missing. Install it or set COVE_CODEX_BIN, then re-run." >&2
+    exit 1
+  fi
+  if [ ! -s "${COVE_DATA_DIR:-$REPO_DIR/data}/cove-mandate.md" ]; then
+    echo "Chief of staff was requested but data/cove-mandate.md is missing or empty. Complete the setup mandate, then re-run." >&2
+    exit 1
+  fi
 fi
 CODEX_PLIST_ENTRY=""
 if [ -n "$CODEX_BIN" ]; then
@@ -526,8 +559,7 @@ case "$VOICE_REVIEW_CLAIM" in
     ;;
 esac
 if [ "$CHIEF_OF_STAFF_OPT_IN" = "1" ] &&
-   [ -n "$CODEX_BIN" ] && [ -x "$CODEX_BIN" ] &&
-   [ -f "$LANE_DATA_DIR/cove-mandate.md" ]; then
+   [ -s "$LANE_DATA_DIR/cove-mandate.md" ]; then
   CHIEF_OF_STAFF_CLAIM="$(claim_lane chief_of_staff plain)"
   case "$CHIEF_OF_STAFF_CLAIM" in
     claimed:*) INSTALL_CHIEF_OF_STAFF_LANE=1 ;;
@@ -537,7 +569,7 @@ if [ "$CHIEF_OF_STAFF_OPT_IN" = "1" ] &&
       ;;
   esac
 else
-  echo "Chief of staff: off (set COVE_CHIEF_OF_STAFF=1 in .env.local, install codex, and add data/cove-mandate.md to enable)"
+  echo "Chief of staff: off (set COVE_CHIEF_OF_STAFF=1, verify the selected agent, and add data/cove-mandate.md to enable)"
 fi
 if [ "$INSTALL_CHIEF_OF_STAFF_LANE" != "1" ]; then
   launchctl bootout "gui/$UID_NUM/com.cove.chief-of-staff-drain" 2>/dev/null || true
@@ -747,6 +779,7 @@ cat > "$BACKUP_PLIST" <<EOF
   <array>
     <string>/bin/bash</string>
     <string>$REPO_DIR/scripts/cove-backup.sh</string>
+    <string>--daily</string>
   </array>
   <key>StartCalendarInterval</key>
   <dict>
@@ -1050,7 +1083,7 @@ done
 if [ -n "$UP" ]; then
   WORKER_UP=""
   for _ in $(seq 1 30); do
-    WORKER_HEARTBEAT="$REPO_DIR/data/claude-worker.heartbeat"
+    WORKER_HEARTBEAT="$LANE_DATA_DIR/claude-worker.heartbeat"
     WORKER_HEARTBEAT_EPOCH="$(stat -f '%m' "$WORKER_HEARTBEAT" 2>/dev/null || printf '0')"
     if [ "$WORKER_HEARTBEAT_EPOCH" -ge "$WORKER_START_EPOCH" ]; then
       WORKER_UP="yes"
