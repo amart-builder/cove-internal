@@ -2,10 +2,12 @@
 
 ## Current state
 
-The requested implementation is in `/private/tmp/cove-chief-client-work`, branch
-`codex/chief-of-staff-client-ready`. It is committed locally on that branch and remains unpublished.
-Alex's running app, database, model settings and services have not been replaced.
-His Codex CLI was updated to 0.153.4 with explicit permission.
+The implementation is published in the public Cove repository and deployed to
+Alex's personal running Cove. Public PR 1 merged as `badb7af`; the sanitized
+manifest records clean source `9451a59`. Private PRs 6 and 7 merged the matching
+implementation. Alex's Codex CLI is 0.153.4, and his app now uses GPT-6 Astra on
+low with bounded background work. All 14 existing services resumed on pinned
+Node 24.19.0. No client installation has been performed yet.
 
 The previous document mixed an old proposal with unfinished engineering work.
 This document supersedes that proposal: Full Cove includes the chief of staff
@@ -88,9 +90,14 @@ which services are active and verify each chosen external integration with the
 client. Phone/shared access and work while a Mac sleeps are not part of the
 single-Mac product. Cove cannot promise that nothing will ever be missed.
 
-The reviewed engineering changes are committed locally. No client has been installed during this review. No email or message was sent,
-no live service was enabled, and no repository was published. A sanitized export
-must be verified before the separate release/publication action.
+Publication and personal deployment are complete. The private environment file
+was unchanged, and all 246 task records matched exactly before workers resumed.
+Consistent pre-cutover backups, previous build/dependencies and original service
+files are retained in private ignored deployment storage. Today and Issues
+rendered successfully without browser console errors. Worker readiness and fresh
+calendar/deadline coverage passed after restart; real Astra background calls
+succeeded. Native banner visibility still needs manual acceptance. Existing
+historical contact-resolution and remote text-reminder issues were preserved.
 
 The shared Codex background runner's inherited personal configuration and the
 Claude session-seed hook boundary remain documented in
@@ -109,7 +116,9 @@ against base `bf15ba04bd86bbe14d73ba89a2f117879f78bf86`. The artifact README
 explains recovery into a clean isolated checkout. No live data or credentials
 are in the client archive.
 
-The next release action is to publish the committed candidate and its sanitized
-mirror through the approved release flow. Live deployment must
-use the intended installation's own settings, backup and supervised acceptance.
-Do not replace the daily driver's source with a synthetic test build.
+The public release checkout is `/private/tmp/cove-public-release-20260904`.
+Its exact contents passed the full verification gate before publication. Personal
+deployment used a separate production build with this installation's own private
+configuration. Recovery details are in
+`data/deploy-backups/2026-09-04-ec4650e/README.md`.
+The next acceptance step is the client's own signed-in setup using SETUP.md.

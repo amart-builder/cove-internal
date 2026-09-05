@@ -24,6 +24,36 @@
 
 ---
 
+## 2026-09-04 Published and deployed (CURRENT)
+
+- Public release is merged: https://github.com/amart-builder/cove/pull/1,
+  public main `badb7af61245d887a086f4ef42cd4271c9ce8ddb`. Its 533-file
+  manifest comes from clean private commit `9451a59`; the exact public checkout
+  passed 1,278 tests, typecheck, lint and production build (one live-model skip).
+- Private implementation is merged through PRs 6 and 7. Personal runtime source
+  is `b3a5ce3d34b6141ed85b94568d7c575df6fb865d`; subsequent handoff-only
+  documentation does not change that tested implementation.
+- Alex's app now runs the reviewed code with verified GPT-6 Astra, low effort.
+  Background limits are 6/hour, 24/day and 100/week. Real post-deploy background
+  calls succeeded and usage appears in Issues. These caps are not subscription
+  balance guarantees and do not cover interactive sessions.
+- All 14 previously loaded Cove services resumed using pinned Node 24.19.0 in
+  `data/runtime/`. No new integration was connected. The private environment
+  file was preserved byte-for-byte. Both workers and fresh calendar/deadline
+  checks are healthy; Today and Issues rendered without browser console errors.
+- All 246 task records matched exactly across migration and restart before
+  workers resumed. Quiet Current migrated successfully. Backups passed SQLite
+  quick_check. Recovery assets, original plists, old dependencies/build and final
+  pre-cutover DB are in `data/deploy-backups/2026-09-04-ec4650e/` (private/ignored).
+  Original 32 reviewed working files are recoverable from named stash
+  `aecbe532fc6fa104aaacf95ec0f7afcd309ea423`; do not apply it over the new live code.
+- Client-specific first-install acceptance remains required, especially live
+  Claude sign-in/model/tools. Native banner visibility was not manually proven.
+  Existing historical Issues, including retired remote text-reminder failures,
+  were preserved. No test tasks were created in the personal database.
+- Next: use SETUP.md for the client's real installation and chosen integrations.
+  Earlier sections below are historical checkpoints, superseded by this entry.
+
 ## 2026-09-04 Reviewed candidate committed locally
 
 - Full reviewed implementation is committed on `codex/chief-of-staff-client-ready`.
