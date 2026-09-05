@@ -1,6 +1,6 @@
 # Chief-of-staff responsibility rollout
 
-Status: implemented and independently reviewed in an isolated checkout. Not deployed.
+Status: published to public Cove. Personal installation cutover is pending.
 
 This candidate implements changes across the four requested improvements: trustworthy
 records, durable next checks, feasible planning, and dependable attention with
@@ -129,3 +129,19 @@ verified client tree are the tested setup/operations Focus documentation.
 At release preparation, the Mac again had more than 8 GB swap in use, above the
 existing monitor's server-stop threshold. Public/private review preparation can
 proceed independently. Do not bypass the memory monitor for a personal cutover.
+
+## Public release outcome
+
+Public PR [#2](https://github.com/amart-builder/cove/pull/2) merged to public main
+`3cb57435c3933e122c6c88ba511b5db0836658cd`. Every one of the 541 allowlisted file
+hashes matches the committed export manifest. Final independent code and docs
+reviews found no unresolved blockers. No new source changes followed the passing
+1,294-test client gate; Focus guidance passed its separate docs/export checks.
+
+The private development push was rejected by automatic approval review because
+its destination was not covered by the prior public-publication authorization.
+That specific permission is pending. This did not block the authorized public
+release. The personal installation is unchanged: memory pressure again exceeded
+the existing monitor's server-stop threshold. Personal cutover needs a healthy
+Mac and the already prepared backup/restart checks. Additional personal planning
+context still requires its own permission before being added to model calls.

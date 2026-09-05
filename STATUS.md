@@ -24,6 +24,36 @@
 
 ---
 
+## 2026-09-05 Responsibility release published (PERSONAL CUTOVER PENDING)
+
+- Public PR https://github.com/amart-builder/cove/pull/2 is merged. Public main
+  is `3cb57435c3933e122c6c88ba511b5db0836658cd`; release head was `9e755f5`.
+  All 541 exported file hashes were verified against the manifest on public main.
+  The manifest identifies clean private source `617b2ec`; later private changes
+  are handoff documentation only. No private history or live data was published.
+- Final code and documentation reviews found no unresolved landing blockers.
+  Runtime code is identical to the client build that passed 1,294 tests,
+  typecheck, lint, production build, UI checks and copied-database migration.
+  Public GitHub has no CI status checks; validation evidence is local.
+- Private release branch remains local in `/private/tmp/cove-responsibility-work`
+  (`codex/chief-of-staff-responsibility`). Automatic approval review rejected
+  pushing to `amart-builder/cove-internal`, stating the prior authorization
+  covered public Cove but not this separate private destination. A specific
+  permission question is pending. Do not retry without that permission.
+- Additional goals/closeout/accepted-focus context remains absent from background
+  model calls pending its separate permission. This is not a reason to withhold
+  the already approved public implementation. Intelligent attention and urgent
+  email still remain shadow. Full unattended chief-of-staff reliability is not
+  claimed by this release.
+- Personal source, build, database and services were not replaced. All 14 known
+  Cove services are loaded; a point-in-time app/worker running status is not
+  proof of sustained health. Swap rose to 8.35 GB, above memwatch's stop threshold.
+  Do not disable the monitor or force a cutover under that condition.
+- Next: obtain private-push permission and resolve memory pressure, then perform
+  the prepared, backup-protected personal update with restart/UI checks. Human
+  confirmation of the final native banner is also still outstanding; macOS logged
+  the prior test as displayed after Cove's Do Not Disturb exception was added.
+
 ## 2026-09-05 Responsibility implementation candidate (NOT DEPLOYED)
 
 - Alex authorized all four proposed improvements. Candidate branch:
