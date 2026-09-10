@@ -24,7 +24,7 @@
 
 ---
 
-## 2026-09-10 Notification click-through and release freeze
+## 2026-09-10 Notification click-through and release freeze (PUSHED)
 
 - Native task notifications now link to Plan Your Day with the exact task
   expanded. The sheet includes the full stored explanation, task details,
@@ -51,8 +51,10 @@
 - Evidence: data/review-artifacts/notifications-20260910/. Release source is
   frozen for the existing task "Review Cove readiness for Gary". Live task
   routing, Plan Your Day after close and email review passed without task or
-  email mutations. Physical macOS banner clicks were not exercised. Private
-  branch push receipts follow below. Main is unchanged;
+  email mutations. Physical macOS banner clicks were not exercised. Both
+  private release branches are pushed: internal source `dfcb2e7`, sanitized
+  client `6506798`. All 572 exported files match the verified candidate; the
+  manifest records clean source `dfcb2e7`. Main is unchanged;
   Gary's installation and native notification acceptance remain unproved.
 
 ## 2026-09-10 Final email polish and review freeze (PUSHED)
