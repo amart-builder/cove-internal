@@ -16,19 +16,23 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** cowork
-- **device:** Alexanders-MacBook-Pro-2
-- **since:** 2026-09-10T12:33:43-0700
-- **task:** Review, verify sanitized distribution, commit and push combined release
+- **system:** none
+- **device:** —
+- **since:** —
+- **task:** —
 <!-- END active-session -->
 
 ---
 
-## 2026-09-10 Combined release verification
+## 2026-09-10 Combined release (COMMITTED AND PUSHED)
 
 - Both GitHub repositories are private, verified through GitHub. Alex authorized
   combined review, sanitized-distribution build and verification, commit and
-  push. Release branch: `codex/cove-provider-reminder-release-20260910`.
+  push. Both pushes were verified by reading their remote commit hashes.
+  Release branch: `codex/cove-provider-reminder-release-20260910`.
+  Internal source commit: `7103307`. Sanitized distribution commit: `baa1413`.
+  Pull requests are not open and main branches are unchanged. Automatic approval
+  review requires explicit permission for PR creation beyond commit and push.
 - Exact sanitized package verification passed under Node 24.19.0: 1,394 tests,
   one intentional live-model skip, TypeScript, zero-warning lint and a Next.js
   16.3.4 production build. The complete dependency audit found zero advisories.
@@ -39,15 +43,20 @@
   edits, rejected chief actions cannot clear older warnings, and timezone
   changes cannot erase genuine historical missed reminders.
 - The client export uses the existing 560-file allowlist and excludes private
-  runtime data and internal records. Final export content must match the tested
-  package hashes, with a clean source commit recorded in its manifest.
+  runtime data and internal records. Every final export hash matches the tested
+  package. Its manifest records clean source commit `7103307`; all allowlist,
+  secret-pattern, setup-text and data-exclusion checks passed.
 - Release evidence: `data/review-artifacts/release-20260910/`. The live web app
   still uses the combined build recorded below; this release does not restart
   it. Existing phone chat and Apple Reminders services remain running.
 - Historical meeting recovery: three of the four requeued analyses succeeded.
-  The remaining job is pending with zero attempts until 12:43pm PDT. This task
-  owns the final drain and ingestion receipt check. Alex confirmed the Mini
-  iMessage route works after signing back into Claude; no test text was sent.
+  The remaining job (`e401f8f0-2adf-45e8-82c6-8de2628b2240`) was pending with
+  zero attempts, eligible at 12:43pm PDT. Automatic approval review blocked the
+  manual drain because it would send private meeting data to a model and mutate
+  stored results beyond release authorization. The command did not run. Existing
+  worker configuration is unchanged; confirm later completion or obtain explicit
+  approval for manual recovery, then verify the ingestion receipt. Alex confirmed
+  iMessage works after signing back into Claude on the Mini; no test text was sent.
 - Earlier entries below are point-in-time implementation and acceptance records.
   Their statements about uncommitted work predate this combined release.
 
