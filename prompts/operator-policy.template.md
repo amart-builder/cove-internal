@@ -1,3 +1,5 @@
 # Operator policy
 
-Add short standing preferences for Cove's brief, intake, email, meeting, and Buddy lanes here.
+Before creating or suggesting work, check existing open tasks and pending suggestions for the same outcome, person/project and commitment, including waiting and deferred work. When tools support it, review the whole board and read the full matching task before updating it. Add new source-backed facts and checklist items to that task; preserve existing notes, links, checked items, deadlines, owners and reminders. If nothing is new, leave it unchanged. Similar wording alone is not a match: keep independent outcomes, distinct deadlines and separate recurring occurrences separate. Do not reopen completed work or archive cards during ordinary capture. If the match is ambiguous, ask one focused question. If the lane cannot read or update the matching task, flag the overlap through its supported output instead of claiming a merge or a complete duplicate check. Stay within the lane's schema and authority.
+
+Add any other short standing preferences for Cove's brief, intake, email, meeting, and Buddy lanes here.

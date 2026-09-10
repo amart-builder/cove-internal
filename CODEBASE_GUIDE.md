@@ -447,6 +447,17 @@ progress collection still produces suggestions rather than completing tasks.
 
 ### Data adapters
 
+Buddy's data CLI delegates non-table reads to `src/lib/buddy/knowledge.ts`.
+Calendar, mailbox and documents use the same typed Workspace gateway as other
+Cove agents. Contacts use the existing CRM context projection. Named Cove views,
+configured Brief file sources, saved closeouts, reminder state and the chief's
+bounded desk snapshot are available through documented read commands. Arbitrary
+paths, SQL and provider requests are not accepted. Results carry explicit text
+paging and source timestamps; connector failures retain safe typed reasons.
+The MCP wrapper distinguishes output overflow from unexpected execution failure
+and preserves already-confirmed mutation receipts. Both providers use the same
+CLI and command reference in `buddy/CLAUDE.md.template`.
+
 `src/lib/data/` is the browser-facing API client layer. It translates HTTP
 responses into typed UI data and broadcasts refresh events. It must not contain
 server-only filesystem or SQLite imports.

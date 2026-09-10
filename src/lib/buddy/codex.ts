@@ -5,6 +5,7 @@ import path from "node:path";
 import type { ClaudeCommand } from "../claude-execution/commands";
 import { coveDataDir } from "../operator";
 import { coveEnv } from "../env";
+import { BUDDY_DATA_ENV_KEYS, buddyDataEnvironment } from "./environment";
 
 export type BuddyAgentSelection = {
   provider: "claude" | "codex";
@@ -47,7 +48,7 @@ export function ensureBuddyCodexHome(env: NodeJS.ProcessEnv = process.env): stri
     `command = ${JSON.stringify(process.execPath)}`,
     `args = ${JSON.stringify(["--import", path.join(process.cwd(), "node_modules/tsx/dist/loader.mjs"), path.join(process.cwd(), "scripts/cove-buddy-mcp.ts")])}`,
     `cwd = ${JSON.stringify(process.cwd())}`,
-    'env_vars = ["COVE_BUDDY_APP_URL", "COVE_DATA_DIR", "COVE_DB_PATH", "COVE_PROFILE_PATH"]',
+    `env_vars = ${JSON.stringify(BUDDY_DATA_ENV_KEYS)}`,
     'enabled_tools = ["cove_data"]', 'required = true', 'tool_timeout_sec = 60',
     'default_tools_approval_mode = "auto"', '',
   ].join("\n");
@@ -87,10 +88,8 @@ export function buildCodexBuddyCommand(input: {
     executable: coveEnv("CODEX_BIN", env) ?? "codex",
     cwd: input.cwd,
     env: {
+      ...buddyDataEnvironment(process.cwd(), env),
       CODEX_HOME: home,
-      COVE_DATA_DIR: coveDataDir(undefined, env),
-      ...(env.COVE_DB_PATH ? { COVE_DB_PATH: env.COVE_DB_PATH } : {}),
-      ...(env.COVE_PROFILE_PATH ? { COVE_PROFILE_PATH: env.COVE_PROFILE_PATH } : {}),
     },
     args: [
       "exec", "-C", input.cwd, "--skip-git-repo-check", "--ignore-rules", "--json",

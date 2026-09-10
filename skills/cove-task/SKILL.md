@@ -37,6 +37,34 @@ curl -s 'http://localhost:3200/api/cove-rest/task_columns?select=*&order=positio
 Columns are: **Not Started**, **Must happen today**, **In Flight / Waiting**,
 **Done**. Keep the `id` for the column you choose.
 
+## Check for existing work before creating
+
+Read all open tasks, including waiting and deferred work. A title search alone
+can miss a differently worded duplicate:
+
+```bash
+curl -s 'http://localhost:3200/api/cove-rest/tasks?select=id,title,description,project,due_at&status=eq.open&order=id.asc&limit=50&offset=0'
+```
+
+Continue at offsets 50, 100, and so on until a page has fewer than 50 rows. If a
+read fails or is truncated, finish reading before claiming the board was checked.
+Match the intended outcome, person/project and commitment. New questions for an
+already-planned call belong in that call's task. Independently completable work,
+distinct deadlines and different recurring occurrences belong in separate tasks.
+Do not reopen completed work because its title matches.
+
+For a clear match, GET the full row at `/api/cove-rest/tasks?id=eq.<id>`, then
+PATCH that same URL with `X-Cove-CSRF` and only the fields that need changing.
+Append new source-backed facts, source links and unchecked checklist items to the
+existing description. Preserve existing notes, links, checked items, origin,
+deadline, owner and reminders unless the user changes them. Never replace the
+description with only the new material. If everything is already recorded, do
+nothing. Re-read the row and confirm which existing task was updated, then stop
+before the create steps below. If two matches are equally plausible, ask one
+focused question. Do not archive existing cards as part of ordinary capture.
+
+Only continue to create when the work is distinct from existing tasks.
+
 ## 2. Pull out the task
 
 From what the user said, determine:

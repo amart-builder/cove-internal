@@ -11,6 +11,9 @@ import {
 } from "../src/lib/intake/run";
 import { coveEnv } from "../src/lib/env";
 import { getRuntimeMode } from "../src/lib/runtime/mode";
+import { parseBuddyKnowledgeArgs, runBuddyKnowledge, type BuddyKnowledgeCommand } from "../src/lib/buddy/knowledge";
+import type { WorkspaceGateway } from "../src/lib/workspace";
+import { buddyDataPaths } from "../src/lib/buddy/environment";
 
 export const COVE_BUDDY_REPO_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -32,6 +35,8 @@ type TableCommand = {
   id?: string;
   json?: Record<string, unknown>;
   confirmToken?: string;
+  select?: string;
+  offset?: number;
 };
 type DayPlanCommand = {
   action: "day-plan-get" | "day-plan-apply";
@@ -56,6 +61,7 @@ type RecurrenceCommand = {
   operation: "pause" | "resume" | "stop";
 };
 export type BuddyDataCommand =
+  | BuddyKnowledgeCommand
   | { action: "agent-status" }
   | { action: "agent-primary"; provider: "claude" | "codex" }
   | TableCommand
@@ -83,6 +89,8 @@ function option(
 }
 
 export function parseBuddyDataArgs(args: string[]): BuddyDataCommand {
+  const knowledge = parseBuddyKnowledgeArgs(args);
+  if (knowledge) return knowledge;
   if (args[0] === "agent") {
     if (args.length === 2 && args[1] === "status") return { action: "agent-status" };
     if (args.length === 4 && args[1] === "primary" && args[2] === "--provider" &&
@@ -156,7 +164,7 @@ export function parseBuddyDataArgs(args: string[]): BuddyDataCommand {
   const action = args[0] as Action;
   const table = args[1] as Table;
   if (!["query", "insert", "update", "delete"].includes(action)) fail("unknown subcommand");
-  if (!(COVE_BUDDY_TABLES as readonly string[]).includes(table)) fail("table is not allowed");
+  if (!(COVE_BUDDY_TABLES as readonly string[]).includes(table)) fail("table is not allowed. Calendar is a connector, not a table: use calendar list --from <timestamp> --to <timestamp>. Run help for all Cove sources.");
   if (action === "insert" && table === "tasks") {
     fail("New tasks must use the intake subcommand.");
   }
@@ -168,6 +176,10 @@ export function parseBuddyDataArgs(args: string[]): BuddyDataCommand {
   const limit = rawLimit === undefined ? undefined : Number.parseInt(rawLimit, 10);
   if (limit !== undefined && (!Number.isFinite(limit) || limit < 1 || limit > 1000)) fail("--limit is invalid");
   const rawJson = option(args, "--json");
+  const select = option(args, "--select");
+  if (select && select !== "*" && !/^[a-z_][a-z0-9_]*(?:,[a-z_][a-z0-9_]*)*$/.test(select)) fail("--select requires comma-separated column names.");
+  const rawOffset = option(args, "--offset");
+  if (rawOffset !== undefined && (!/^\d+$/.test(rawOffset) || Number(rawOffset) > 1_000_000)) fail("--offset is invalid");
   let json: Record<string, unknown> | undefined;
   if (rawJson) {
     const parsed = JSON.parse(rawJson) as unknown;
@@ -177,6 +189,8 @@ export function parseBuddyDataArgs(args: string[]): BuddyDataCommand {
   const command: BuddyDataCommand = {
     action, table, filters,
     ...(limit ? { limit } : {}),
+    ...(select ? { select } : {}),
+    ...(rawOffset !== undefined ? { offset: Number(rawOffset) } : {}),
     ...(option(args, "--order") ? { order: option(args, "--order") } : {}),
     ...(option(args, "--id") ? { id: option(args, "--id") } : {}),
     ...(json ? { json } : {}),
@@ -193,7 +207,7 @@ function filterParams(filters: string[]): URLSearchParams {
   for (const filter of filters) {
     const first = filter.indexOf(".");
     const second = filter.indexOf(".", first + 1);
-    if (first <= 0 || second <= first + 1 || second === filter.length - 1) fail(`invalid filter: ${filter}`);
+    if (first <= 0 || second <= first + 1 || second === filter.length - 1) fail(`invalid filter: ${filter}. Use field.operator.value, for example status.eq.open or contact_id.eq.<id>. Repeat --filter for AND.`);
     params.append(filter.slice(0, first), `${filter.slice(first + 1, second)}.${filter.slice(second + 1)}`);
   }
   return params;
@@ -264,11 +278,20 @@ export async function runBuddyDataCommand(
     appUrl?: string;
     write?: (line: string) => void;
     runIntake?: typeof runCoveIntake;
+    workspaceGateway?: WorkspaceGateway;
+    dataDir?: string;
+    dbPath?: string;
   } = {},
 ): Promise<number> {
   const request = options.fetch ?? fetch;
   const write = options.write ?? ((line) => process.stdout.write(`${line}\n`));
   const appUrl = (options.appUrl ?? coveEnv("BUDDY_APP_URL") ?? "http://127.0.0.1:3200").replace(/\/$/, "");
+  if (command.action === "knowledge") {
+    const { dataDir, dbPath } = buddyDataPaths(COVE_BUDDY_REPO_DIR, options);
+    write(JSON.stringify(await runBuddyKnowledge(command, { appUrl, dataDir, dbPath, workspaceGateway: options.workspaceGateway,
+      requestJson: async url => responseJson(await request(url, { cache: "no-store" })) })));
+    return 0;
+  }
   if (command.action === "agent-status" || command.action === "agent-primary") {
     let init: RequestInit = { cache: "no-store" };
     if (command.action === "agent-primary") {
@@ -460,7 +483,10 @@ export async function runBuddyDataCommand(
   const base = `${appUrl}/api/cove-rest/${tableCommand.table}`;
   if (tableCommand.action === "query") {
     const params = filterParams(tableCommand.filters);
-    if (tableCommand.limit) params.set("limit", String(tableCommand.limit));
+    params.set("limit", String(tableCommand.limit ?? 20));
+    if (tableCommand.select) params.set("select", tableCommand.select);
+    if (tableCommand.offset !== undefined) params.set("offset", String(tableCommand.offset));
+    if (tableCommand.table === "contact_activities" && !params.get("contact_id")?.startsWith("eq.")) fail("Activity history requires --filter contact_id.eq.<id>. Use contacts search --search <name>, then contacts context --id <id> or contacts history --id <id>.");
     if (tableCommand.order) params.set("order", tableCommand.order);
     const data = await responseJson(await request(`${base}?${params}`));
     write(JSON.stringify(data));

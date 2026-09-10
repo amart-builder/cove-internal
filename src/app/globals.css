@@ -3056,59 +3056,75 @@ input, textarea, select {
 }
 
 /* Email is a comfortable review surface, with Gmail retaining the conversation. */
-.email-review-panel { display: flex; flex-direction: column; width: min(860px, 100%); max-height: 90dvh; overflow: hidden; border: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent); border-radius: 24px; background: var(--card); color: var(--foreground); box-shadow: 0 32px 100px rgba(23,33,38,.2); }
-.email-review-header { display: flex; flex: 0 0 auto; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 28px 32px 22px; }
-.email-review-header h2 { margin: 0; font-size: 24px; font-weight: 550; letter-spacing: -.035em; line-height: 1.2; }
-.email-review-header p { margin: 7px 0 0; color: var(--muted-foreground); font-size: 13px; }
-.email-review-header > button { display: grid; flex: 0 0 auto; width: 32px; height: 32px; place-items: center; border: 1px solid var(--border); border-radius: 50%; color: var(--muted-foreground); font-size: 22px; line-height: 1; }
+.email-review-panel { display: flex; flex-direction: column; width: min(1040px, 100%); max-height: 90dvh; overflow: hidden; border: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent); border-radius: 24px; background: var(--card); color: var(--foreground); box-shadow: 0 32px 100px rgba(23,33,38,.2); }
+.email-review-header { display: flex; flex: 0 0 auto; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 30px 36px 24px; }
+.email-review-header h2 { margin: 0; font-size: 26px; font-weight: 550; letter-spacing: -.035em; line-height: 1.2; }
+.email-review-header p { margin: 7px 0 0; color: var(--muted-foreground); font-size: 14px; line-height: 1.5; }
+.email-review-header > button { display: grid; flex: 0 0 auto; width: 44px; height: 44px; place-items: center; border: 1px solid var(--border); border-radius: 50%; color: var(--muted-foreground); font-size: 22px; line-height: 1; }
 .email-review-body { display: flex; flex-direction: column; min-height: 0; }
-.email-review-toolbar { flex: 0 0 auto; border-block: 1px solid var(--border); padding: 13px 32px; background: color-mix(in srgb, var(--muted) 35%, transparent); }
-.email-review-sections { display: flex; flex-wrap: wrap; gap: 8px 24px; }
-.email-review-sections button { display: inline-flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; font-weight: 550; }
+.email-review-toolbar { flex: 0 0 auto; border-block: 1px solid var(--border); padding: 14px 36px; background: color-mix(in srgb, var(--muted) 35%, transparent); }
+.email-review-sections { display: flex; flex-wrap: wrap; gap: 8px; }
+.email-review-sections button { display: inline-flex; align-items: center; gap: 9px; min-height: 44px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); font-size: 14px; font-weight: 550; }
 .email-review-sections span, .email-review-section h3 span, .email-review-filed summary > span { color: var(--muted-foreground); font-size: 12px; font-weight: 450; font-variant-numeric: tabular-nums; }
-.email-review-freshness { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 0; color: var(--muted-foreground); font-size: 11.5px; line-height: 1.5; }
+.email-review-freshness { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.5; }
 .email-review-freshness.needs-attention { color: var(--accent-orange); }
 .email-review-freshness button { text-decoration: underline; text-underline-offset: 3px; }
-.email-review-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 26px 32px 30px; scrollbar-gutter: stable; }
+.email-review-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 28px 36px 32px; scrollbar-gutter: stable; }
 .email-review-section { scroll-margin-top: 24px; }
 .email-review-section + .email-review-section { margin-top: 34px; }
-.email-review-section > header { padding-bottom: 8px; }
-.email-review-section h3 { display: flex; align-items: baseline; gap: 9px; margin: 0; font-size: 17px; font-weight: 550; letter-spacing: -.02em; }
-.email-review-section > header > p { margin: 4px 0 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.5; }
-.email-review-row { padding: 20px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.email-review-section > header { padding-bottom: 14px; }
+.email-review-section > ul { padding: 0 22px; border: 1px solid var(--border); border-radius: 16px; }
+.email-review-section > ul > .email-review-row:last-child { border-bottom: 0; }
+.email-review-section h3 { display: flex; align-items: baseline; gap: 9px; margin: 0; font-size: 18px; font-weight: 550; letter-spacing: -.02em; }
+.email-review-section > header > p { margin: 4px 0 0; color: var(--muted-foreground); font-size: 14px; line-height: 1.5; }
+.email-review-row { padding: 24px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
 .email-review-row-meta { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; }
-.email-review-sender { font-size: 13px; font-weight: 600; }
-.email-review-row time { flex: 0 0 auto; color: var(--muted-foreground); font-size: 11px; white-space: nowrap; }
-.email-review-subject { margin: 5px 0 0; font-size: 16px; font-weight: 500; line-height: 1.4; letter-spacing: -.012em; }
-.email-review-summary { max-width: 70ch; margin: 8px 0 0; color: var(--muted-foreground); font-size: 14px; line-height: 1.65; }
+.email-review-sender { font-size: 14px; font-weight: 600; }
+.email-review-row time { flex: 0 0 auto; color: var(--muted-foreground); font-size: 12px; white-space: nowrap; }
+.email-review-subject { margin: 5px 0 0; font-size: 17px; font-weight: 550; line-height: 1.4; letter-spacing: -.012em; }
+.email-review-summary { max-width: 82ch; margin: 10px 0 0; color: color-mix(in srgb, var(--foreground) 78%, var(--card)); font-size: 15px; line-height: 1.7; }
 .email-review-row-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 13px; }
-.email-review-row-actions a { color: var(--accent-blue); font-size: 12px; font-weight: 550; }
+.email-review-row-actions a { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent-blue); font-size: 14px; font-weight: 550; }
 .email-review-row-actions a span { margin-left: 3px; }
-.email-review-row-actions button { display: inline-flex; align-items: center; gap: 6px; padding: 4px 0 4px 8px; color: var(--muted-foreground); font-size: 12px; }
+.email-review-row-actions button { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; padding: 8px 13px; border: 1px solid var(--border); border-radius: 10px; background: color-mix(in srgb, var(--muted) 40%, transparent); color: var(--foreground); font-size: 13px; }
 .email-review-row-actions button:hover:not(:disabled), .email-review-sections button:hover, .email-review-header > button:hover { color: var(--accent-blue); }
 .email-review-row-actions button:disabled { opacity: .5; cursor: wait; }
-.email-review-warning { margin-top: 10px; padding-left: 10px; border-left: 2px solid var(--accent-orange); color: var(--muted-foreground); font-size: 12px; line-height: 1.6; }
+.email-review-warning { margin-top: 10px; padding-left: 10px; border-left: 2px solid var(--accent-orange); color: var(--muted-foreground); font-size: 14px; line-height: 1.6; }
 .email-review-notice { margin-bottom: 20px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--accent-orange) 30%, transparent); border-radius: 12px; font-size: 13px; line-height: 1.5; }
 .email-review-notice button { margin-top: 8px; text-decoration: underline; text-underline-offset: 3px; }
 .email-review-empty { margin-bottom: 24px; color: var(--muted-foreground); font-size: 14px; line-height: 1.6; }
 .email-review-section-empty { padding: 15px 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.6; }
-.email-review-more { margin-top: 13px; color: var(--accent-blue); font-size: 12px; }
+.email-review-more { min-height: 44px; margin-top: 10px; color: var(--accent-blue); font-size: 14px; }
 .email-review-filed { margin-top: 32px; border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; color: var(--muted-foreground); }
 .email-review-filed summary { cursor: pointer; font-size: 13px; font-weight: 550; }
 .email-review-filed summary > span { margin-left: 8px; }
 .email-review-filed summary small { display: block; margin: 5px 0 0 16px; font-size: 11.5px; font-weight: 400; }
 .email-review-filed .email-review-row:last-child { border-bottom: 0; }
-.email-review-footer { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid var(--border); padding: 15px 32px; }
-.email-review-footer p { color: var(--muted-foreground); font-size: 11.5px; line-height: 1.5; }
-.email-review-footer button { border: 1px solid var(--border); border-radius: 999px; padding: 7px 17px; font-size: 12px; }
+.email-review-footer { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid var(--border); padding: 16px 36px; }
+.email-review-footer p { color: var(--muted-foreground); font-size: 13px; line-height: 1.5; }
+.email-review-footer button { flex: 0 0 auto; min-height: 44px; border: 1px solid var(--border); border-radius: 12px; background: var(--foreground); color: var(--card); padding: 9px 23px; font-size: 14px; font-weight: 550; }
 .email-review-panel :focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 4px; }
+/* In short windows, scroll the whole sheet so its chrome cannot crowd out mail. */
+@media (max-height: 560px) {
+  .email-review-panel { max-height: calc(100dvh - 32px); overflow-y: auto; }
+  .email-review-body { display: contents; }
+  .email-review-scroll { flex: 0 0 auto; overflow-y: visible; }
+}
 @media (max-width: 600px) {
   .email-review-panel { max-height: 94dvh; border-radius: 18px; }
   .email-review-header { padding: 21px 20px 18px; }
   .email-review-header h2 { font-size: 22px; }
   .email-review-toolbar, .email-review-footer { padding-inline: 20px; }
   .email-review-scroll { padding: 22px 20px; }
-  .email-review-sections { gap: 8px 18px; }
-  .email-review-subject { font-size: 15px; }
-  .email-review-summary { font-size: 13.5px; }
+  .email-review-sections { gap: 6px; }
+  .email-review-sections button { padding-inline: 10px; }
+  .email-review-section > ul { padding-inline: 16px; }
+  .email-review-row-meta { flex-wrap: wrap; gap: 4px 12px; }
+  .email-review-subject { font-size: 16px; }
+  .email-review-summary { font-size: 15px; }
+}
+
+@media (min-width: 900px) {
+  .today2-second-current { width: 216px; }
+  .today2-second-current-item { padding-block: 12px; }
 }

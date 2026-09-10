@@ -24,6 +24,94 @@
 
 ---
 
+## 2026-09-10 Final email polish and review freeze
+
+- Final requested UI pass: review sheet widened from 860 to 1040 pixels,
+  desktop email launcher from 182 to 216 pixels. Larger text, clearer contrast,
+  quiet grouped lists, larger controls and simpler spacing. Short windows scroll
+  the whole sheet so the header and footer cannot crowd out the reading area.
+- This pass changes CSS only. Existing Gmail actions, readiness reporting and
+  error handling are unchanged. Independent fresh-context review found no
+  remaining actionable defects after the short-height correction.
+- Visual checks passed at 1440x900, 1024x768, 390x844 and 812x375, including
+  dark mode, horizontal fit and reaching the landscape footer. No email was
+  handled, archived or sent. The automatic approval reviewer rejected a Done
+  test click; the safer read-only check passed without clicking email actions.
+- Sanitized candidate contains 563 allowlisted files. Release verification:
+  1406 tests passed, one intentional skip, TypeScript, zero-warning lint and
+  production build with the patched distribution dependencies. A final build
+  passed after the CSS-only landscape correction. Source freeze also includes
+  the independently reviewed Buddy access fix and task-duplicate instructions.
+- Live build `kmoTju_tYqTyWmvAkMvzN` activated with installed app dependencies;
+  only com.cove.local restarted after the idle check. Database backup quick_check
+  and HTTP health checks passed. Existing phone runtime, environment and Apple
+  Reminders service preserved. Recovery: data/build-backups/20260910-email-polish/.
+- Evidence: data/review-artifacts/email-polish-20260910/. Final release-branch
+  commits and sanitized export are being recorded below. Next owner is the
+  existing task "Review Cove readiness for Gary", for the final setup assessment.
+  No more feature work is planned for this candidate. Main is unchanged.
+
+## 2026-09-10 Task duplicate prevention instructions (LOCAL)
+
+- Alex requested a check for existing work before Cove adds similar tasks.
+  Buddy and the task-capture skill now page through all open work, compare the
+  outcome/person/project/commitment, and append new facts/checklist items to a
+  clear match. They preserve existing content, deadlines and reminders; no new
+  information means no write. Distinct outcomes and recurring occurrences stay
+  separate. Ambiguous matches get one question. Ordinary capture does not archive.
+- Updated the shared operator-policy template, Alex's runtime policy, Buddy
+  template, chief responsibility contract and repository task-capture skill.
+  Installed the new capture section in both existing Claude and Codex skills,
+  preserving their other instructions. Prompts load on subsequent agent turns;
+  no app rebuild or restart is needed.
+- Scope: instruction improvement, not a deterministic semantic deduplication
+  service. Chief snapshots remain bounded; the contract requires flagging
+  incomplete coverage and preserving descriptions/version guards. Intake's
+  new-task-only output schema is unchanged; lanes without an update action must
+  flag a possible overlap through their supported output, not claim a merge.
+- Validation: 11 existing Buddy/operator-policy checks passed; source and both
+  installed skills passed validation. The actual Buddy renderer includes the
+  rule. Documented live query read 59 open tasks across two pages with unique
+  IDs. No tasks were changed or model calls made during verification.
+- Changes remain local and uncommitted alongside the prior Buddy access fix.
+  Next: observe ordinary capture for fewer duplicates; a guaranteed check across
+  automated ingestion paths would require a separate intake implementation.
+
+## 2026-09-10 Buddy access parity (LIVE, LOCAL)
+
+- Alex reported calendar table denial, incorrect contact-history filters and an
+  uninformative email lookup failure. He requested the same access as the regular
+  Cove agent. Buddy now has first-class reads for connected calendar, live mailbox
+  search/message/thread, documents, CRM context/history, goals/profile/sprint/leadup,
+  full brief/day-plan state, closeouts, chief desk, reminders and operational views.
+- Reads reuse existing domain gateways, source policy and API projections. They
+  return explicit paging and source timestamps, distinguish typed connector errors,
+  and keep credentials out of context. Calendar/documents remain read-only like
+  the existing shared connectors. No generic paths, SQL or provider API was added.
+- Table queries default to 20 rows and support selected columns and local offset
+  pagination. Help and both provider instructions explain exact filter syntax and
+  the contact-history prerequisite. MCP errors distinguish output limit from an
+  unexpected tool failure and preserve earlier confirmed mutation receipts.
+- Fresh independent review found and rechecked two fixes: both provider execution
+  paths now forward only explicit non-secret source configuration; direct reads
+  use the app's canonical database selection, including the legacy filename.
+- Final isolated verification passed 1,406 tests, one intentional skip, TypeScript,
+  zero-warning lint and production build using the installed app dependencies.
+  Real MCP-handler reads passed for calendar, mailbox search/detail, contact context,
+  goals, brief, closeouts, chief and reminder state. No test text or email was sent,
+  no calendar dates were changed, and no model was invoked by these probes.
+- Activated build `VO_Dt2BPow3y3d_ELHprV`; only com.cove.local restarted after Buddy
+  was confirmed idle. Database backup passed quick_check. HTTP health/tasks/day-plan/
+  Buddy session/provider checks passed. Existing Buddy conversation, phone runtime
+  and .env.local were preserved; Apple Reminders remained loaded.
+- Evidence: data/review-artifacts/buddy-access-20260910/. Recovery build/database:
+  data/build-backups/20260910-buddy-access/. Next Buddy turn gets the updated
+  instructions and tool configuration. These new changes are local/uncommitted;
+  the earlier pushed release branches do not yet contain this follow-up fix.
+- Next: Alex can repeat the original Buddy request. If publishing this follow-up,
+  repeat sanitized-export verification and obtain any missing external-write
+  approval; prior PR creation approval remains pending.
+
 ## 2026-09-10 Combined release (COMMITTED AND PUSHED)
 
 - Both GitHub repositories are private, verified through GitHub. Alex authorized

@@ -14,6 +14,7 @@ import { coveDataDir, workspaceRoot } from "../operator";
 import { coveEnv } from "../env";
 import { formatOperatorPolicy, readOperatorPolicy } from "../operator-policy";
 import { buildCodexBuddyCommand, buddyProviderHead, type BuddyAgentSelection } from "./codex";
+import { buddyDataEnvironment } from "./environment";
 
 export const BUDDY_REPO_ROOT = process.cwd();
 export const BUDDY_DATA_SCRIPT = path.join(BUDDY_REPO_ROOT, "scripts/cove-buddy-data.ts");
@@ -139,6 +140,7 @@ export function buildBuddyTurnCommand(input: {
   return {
     executable,
     cwd: renderedHome,
+    env: buddyDataEnvironment(BUDDY_REPO_ROOT),
     args: [
       "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose",
       "--model", input.selection?.model ?? resolveClaudeModel(input.model), "--effort", input.selection?.effort ?? input.effort, "--name", "Cove Buddy",

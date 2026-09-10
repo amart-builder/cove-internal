@@ -7,7 +7,7 @@ export const MCP_MAX_LINE_BYTES = 64 * 1024;
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 const TOOL = {
   name: BUDDY_MCP_TOOL,
-  description: "Read or change Cove using its validated data commands. Supply CLI arguments as separate strings, without a shell or executable prefix. Permanent deletion requires the existing user confirmation token. Start a new task session only when the user explicitly requests one.",
+  description: "Access Cove tasks, calendar, live email, documents, contacts and history, goals, brief, closeouts, chief context, reminders, and follow-through using validated commands. Run args:[\"help\"] for syntax. Supply CLI arguments as separate strings without a shell prefix. Permanent deletion requires the existing user confirmation token. Start a new task session only when explicitly requested.",
   inputSchema: {
     type: "object", additionalProperties: false, required: ["args"],
     properties: { args: { type: "array", minItems: 1, maxItems: 64, items: { type: "string", maxLength: 16000 } } },
@@ -50,16 +50,23 @@ export function createBuddyMcpHandler(run = runDataCommand) {
     const output: string[] = [];
     let bytes = 0;
     const write = (line: string) => {
-      bytes += Buffer.byteLength(line) + 1;
-      if (bytes > MAX_OUTPUT_BYTES) throw new Error("Cove tool output exceeded its limit. Narrow the query.");
+      const nextBytes = bytes + Buffer.byteLength(line) + 1;
+      if (nextBytes > MAX_OUTPUT_BYTES) {
+        const error = new Error("output_limit: Cove's result exceeded 1 MB. Narrow --limit, select columns with --select, or use email/contacts/read commands with --offset and --max-chars. Earlier mutation receipts remain valid; check current state before retrying a write.");
+        error.name = "CoveOutputLimitError";
+        throw error;
+      }
+      bytes = nextBytes;
       output.push(line);
     };
     try {
       const code = await run(args, { write, writeError: write });
       return result({ isError: code !== 0, content: [{ type: "text", text: output.join("\n") }] });
-    } catch {
+    } catch (error) {
       // Preserve any already-confirmed receipts if a later operation fails.
-      return result({ isError: true, content: [{ type: "text", text: [...output, "ERROR Cove tool failed or exceeded its output limit. Check current state before retrying."].join("\n") }] });
+      const message = error instanceof Error && error.name === "CoveOutputLimitError" ? error.message
+        : "tool_execution_failed: Cove's tool stopped unexpectedly. This is not an output-limit diagnosis. Earlier receipts remain valid; check current state before retrying a write.";
+      return result({ isError: true, content: [{ type: "text", text: [...output, `ERROR ${message}`].join("\n") }] });
     }
   };
 }
