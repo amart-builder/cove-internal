@@ -24,31 +24,33 @@
 
 ---
 
-## 2026-09-10 Charge emails require review
+## 2026-09-10 Charge emails stay in review, without extra alerts
 
-- Alex reported a $500 ACH notice hidden as automatically handled noise.
-  The classifier allowed automated financial notices to become noise and queue
-  archive. Added a prompt rule and deterministic outgoing-charge review floor.
+- Alex reported a $500 ACH email hidden in Automatically filed. The classifier
+  allowed automated financial mail to become noise and queue archive. Added a
+  financial-mail prompt rule and deterministic outgoing-charge review floor.
+- Alex clarified that "notified" meant review-list visibility, not an immediate
+  native notification. Removed the initially added charge-alert path entirely.
+  No charge-specific notification, urgency escalation or new service remains;
+  older queued financial-notice flags are ignored. General urgency is unchanged.
 - Recognized charges, card spending, ACH debits, payment confirmations and
-  subscription renewals remain open action/reply items, regardless of amount.
-  The existing durable email-artifacts job requests a native charge notification.
-  Attempt state prevents duplicate sends after failures or interruption.
-  Notification and contact/commitment failures do not block each other.
+  subscription renewals remain pending action/reply items until reviewed,
+  regardless of amount. Refunds, negated charges and customer charges are
+  excluded from this floor.
 - Restored the exact reported notice locally to pending action review after a
   checked database backup. Pending-email API confirms it appears in Email needs
-  you. Its native notification was accepted. Gmail and the bank account were
-  not changed. Physical banner visibility remains unverified.
-- Regression first reproduced the noise/FYI mistake, then passed. Independent
-  review cleared 21 focused cases, including outgoing formats, negated charges,
-  customer charges, refunds, stale items, replay and both failure directions.
-- Full verification: 1,440 tests passed, zero failed, one opt-in live test skipped;
-  TypeScript, zero-warning lint, production build, 574-file sanitized export and
-  exact tested-source parity passed. No dependencies changed.
-- Live build `jn1BN--PoXV4O592EwubW` activated with health checks,
-  verified backup and rollback. Phone runtime, environment and Apple Reminders
-  service preserved. Recovery: data/build-backups/20260910-charge-notice/.
-  Evidence: data/review-artifacts/charge-notice-20260910/.
-- Main remains unchanged. This correction is part of the prepared release.
+  you. One native notification was sent before the clarification and Alex
+  confirmed seeing it. No additional charge notification was sent. Gmail and
+  the bank account were not changed.
+- Independent review cleared 17 focused tests and found no remaining native
+  charge-alert path. Full final verification: 1,436 tests passed, zero failed,
+  one opt-in live Codex test skipped; TypeScript, zero-warning lint, production
+  build and 574-file sanitized export/source parity passed. Dependencies unchanged.
+- Final live build `14tGGK_hYHqFUZ1Ux54EM` activated with checked
+  backup, rollback and HTTP health. Phone runtime, environment and Apple
+  Reminders service preserved. Recovery: data/build-backups/20260910-charge-review-only/.
+  Evidence: data/review-artifacts/charge-review-only-20260910/.
+- Main remains unchanged. This is the corrected release behavior.
 
 ## 2026-09-10 Final merge-readiness review
 

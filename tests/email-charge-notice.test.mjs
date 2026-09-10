@@ -35,50 +35,20 @@ test('a bank charge cannot be noise or archived even when the model calls it rou
  assert.equal(item.bucket,'action');assert.equal(item.workflow_state,'open');assert.equal(item.status,'pending');
  assert.match(item.recommended_action,/charge/i);assert.doesNotMatch(item.summary,/Routine/);
  assert.equal(query(dbPath,"SELECT count(*) AS n FROM cove_gmail_operations WHERE kind='archive_messages'").n,0);
- assert.equal(job.payload.financialChargeNotice,true);
+ assert.equal(job.payload.financialChargeNotice,undefined);
 });
 
 test('a small recurring card payment cannot be quietly recorded as FYI',async t=>{
  const {item,job}=await classify(t,'Your subscription renewed','Your card was charged $0.99 for your subscription.','fyi');
- assert.equal(item.bucket,'action');assert.equal(item.status,'pending');assert.equal(job.payload.financialChargeNotice,true);
+ assert.equal(item.bucket,'action');assert.equal(item.status,'pending');assert.equal(job.payload.financialChargeNotice,undefined);
 });
 
 for(const subject of ['Your account statement is ready','Your incoming ACH transfer of $500 is complete','Payment received from a customer: $500','Your $500 refund is complete','Charge your phone faster, now $20','Free membership with no charge']) {
  test(`ordinary information is not promoted: ${subject}`,async t=>{
   const {item,job}=await classify(t,subject);
-  assert.equal(item.bucket,'noise');assert.equal(job.payload.financialChargeNotice,false);
+  assert.equal(item.bucket,'noise');assert.equal(job.payload.financialChargeNotice,undefined);
  });
 }
-
-test('charge delivery is durable, native-only, and deduplicates a job replay',async t=>{
- const {dbPath,job}=await classify(t,'Your card was charged $12.00');
- const calls=[];const handler=createEmailArtifactHandler({dbPath,chargeNotifier:(...args)=>calls.push(args)});
- const first=await handler(job);assert.equal(first.actions.chargeNotice,'accepted');
- assert.equal((await handler(job)).actions.chargeNotice,'deduped');
- assert.equal(calls.length,1);assert.match(calls[0][1],/email=1/);
- assert.equal(query(dbPath,'SELECT workflow_state FROM email_items').workflow_state,'open');
- assert.equal(query(dbPath,"SELECT outcome FROM cove_receipts WHERE source='email-charge-notification'").outcome,'success');
-});
-
-test('a failed native notification keeps the charge visible, surfaces failure and never blindly resends',async t=>{
- const {dbPath,job}=await classify(t,'Your card was charged $12.00');
- let calls=0;const handler=createEmailArtifactHandler({dbPath,chargeNotifier:()=>{calls++;throw new Error('Native delivery failed');}});
- await assert.rejects(handler(job),/Native delivery failed/);
- await assert.rejects(handler(job),/could not confirm/);
- assert.equal(calls,1);
- assert.equal(query(dbPath,'SELECT workflow_state FROM email_items').workflow_state,'open');
- assert.equal(query(dbPath,"SELECT count(*) AS n FROM cove_failure_inbox WHERE source='receipt'").n,1);
-});
-
-test('an interrupted attempt is not resent and a reviewed charge is not notified',async t=>{
- const {dbPath,job}=await classify(t,'Your card was charged $12.00');
- const db=openLocalDatabase(dbPath);
- db.prepare("UPDATE cove_jobs SET payload=json_set(payload,'$.financialNoticeDelivery','attempting') WHERE id=?").run(job.id);db.close();
- let calls=0;const handler=createEmailArtifactHandler({dbPath,chargeNotifier:()=>calls++});
- await assert.rejects(handler(job),/could not confirm/);
- const update=openLocalDatabase(dbPath);update.prepare("UPDATE email_items SET workflow_state='terminal',status='actioned'").run();update.close();
- assert.equal((await handler(job)).actions.chargeNotice,'stale');assert.equal(calls,0);
-});
 
 for(const [subject,text] of [
  ['Card payment','You spent $42.00 at a coffee shop using your card.'],
@@ -89,7 +59,7 @@ for(const [subject,text] of [
 ]) {
  test(`outgoing payment language is protected: ${subject}`,async t=>{
   const {item,job}=await classify(t,subject,text);
-  assert.equal(item.bucket,'action');assert.equal(job.payload.financialChargeNotice,true);
+  assert.equal(item.bucket,'action');assert.equal(job.payload.financialChargeNotice,undefined);
  });
 }
 for(const text of ['You have not been charged $50.00.','Your customer was charged $500.00.','Your card will not be charged $5.00.']) {
@@ -98,21 +68,13 @@ for(const text of ['You have not been charged $50.00.','Your customer was charge
  });
 }
 
-test('notification failure does not discard grounded commitments',async t=>{
- const {dbPath,job}=await classify(t,'Your card was charged $12.00');
- const commitment={kind:'follow_up',title:'Check the statement',sourceQuote:'Check the statement',dueAt:null};
- job.payload.commitments=[commitment];
- const db=openLocalDatabase(dbPath);db.prepare('UPDATE cove_jobs SET payload=? WHERE id=?').run(JSON.stringify(job.payload),job.id);db.close();
- const handler=createEmailArtifactHandler({dbPath,chargeNotifier:()=>{throw new Error('Native delivery failed');}});
- await assert.rejects(handler(job),/Native delivery failed/);
- assert.equal(query(dbPath,"SELECT count(*) AS n FROM commitments WHERE title='Check the statement'").n,1);
-});
-
-
-test('contact artifact errors do not prevent the charge notification',async t=>{
- const {dbPath,job}=await classify(t,'Your card was charged $12.00');
- job.payload.recordCorrespondence=true;delete job.payload.senderEmail;
- let calls=0;const handler=createEmailArtifactHandler({dbPath,chargeNotifier:()=>calls++});
- await assert.rejects(handler(job),/senderEmail/);assert.equal(calls,1);
- assert.equal(query(dbPath,"SELECT json_extract(payload,'$.financialNoticeDelivery') AS delivery FROM cove_jobs WHERE id=?",job.id).delivery,'accepted');
+test('charge review does not request an urgent or financial alert, including replayed old artifact jobs',async t=>{
+ const {dbPath,job,item}=await classify(t,'Your card was charged $12.00');
+ assert.equal(item.status,'pending');assert.equal(job.payload.financialChargeNotice,undefined);
+ // A queued artifact from the superseded implementation must also stay quiet.
+ job.payload.financialChargeNotice=true;
+ const handler=createEmailArtifactHandler({dbPath});
+ await handler(job);await handler(job);
+ assert.equal(query(dbPath,"SELECT count(*) AS n FROM cove_receipts WHERE source='email-charge-notification'").n,0);
+ assert.equal(query(dbPath,"SELECT json_extract(payload,'$.financialNoticeDelivery') AS delivery FROM cove_jobs WHERE id=?",job.id).delivery,null);
 });

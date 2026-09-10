@@ -141,11 +141,8 @@ Other calendar notices keep the model context after a deterministic event line.
 Outgoing charge notices have a review floor in `email/charge-notice.ts`.
 Recognized charges, card spending, ACH debits, payment confirmations and
 subscription renewals cannot become passive FYI or noise. They remain open
-reply/action items until reviewed. The existing durable `email-artifacts` job
-also requests one native notification, independently of model urgency. Its
-payload records the delivery attempt before transport. Failed or interrupted
-attempts remain visible for investigation and are never blindly resent.
-Notification failure does not discard grounded commitments or correspondence.
+reply/action items until reviewed. This is review-list placement, not an
+immediate native notification or urgency escalation.
 
 Resolved rows remain durable review evidence after `reviewed_at` is set. Weekly
 markdown digests under `data/voice-reviews/` are also retained until the
