@@ -37,6 +37,7 @@ import {
   localIMessageArgs,
   nativeNotificationCommand,
   remoteIMessageArgs,
+  REMOTE_IMESSAGE_TIMEOUT_MS,
 } from "../src/lib/intake/notification-transport.mjs";
 import {
   allocateAttention,
@@ -116,10 +117,13 @@ function notifyAttentionBanner(message, subtitle = "Needs your attention") {
   execFileSync(command.executable, command.args);
 }
 
-function notifyTextFailure(taskTitle) {
-  const command = nativeNotificationCommand(`I couldn't deliver your text reminder: ${taskTitle}. Check it here in Cove.`, {
+function notifyTextFailure(taskTitle, uncertain = false) {
+  const message = uncertain
+    ? `I couldn't confirm delivery of your text reminder: ${taskTitle}. Check it here in Cove.`
+    : `I couldn't deliver your text reminder: ${taskTitle}. Check it here in Cove.`;
+  const command = nativeNotificationCommand(message, {
     title: "Cove",
-    subtitle: "Reminder delivery failed",
+    subtitle: uncertain ? "Reminder delivery unconfirmed" : "Reminder delivery failed",
     sound: "Glass",
   }, nativeNotificationDependencies);
   execFileSync(command.executable, command.args);
@@ -149,7 +153,7 @@ function notifyRemoteIMessage(remoteHost, to, message) {
   execFileSync(
     "ssh",
     remoteIMessageArgs(remoteHost, to, message),
-    { timeout: 10_000 },
+    { timeout: REMOTE_IMESSAGE_TIMEOUT_MS },
   );
 }
 
@@ -383,16 +387,23 @@ async function runDeterministicFloor(db, config, token, now = new Date()) {
         });
         // A fallback banner is a real interruption, so it starts the cooldown
         // that stops this lane retrying a broken channel every minute.
-        finalizeAttentionDelivery(db, {
-          id: summary.row.id,
-          level: outcome === "text"
-            ? "text"
-            : outcome === "fallback_banner"
-              ? "banner"
-              : "suppressed",
-          suppressedReason: outcome === "none" ? "delivery_failed" : undefined,
-          now,
-        });
+        if (outcome === "uncertain") {
+          // Keep the original reservation: Messages may have accepted the text
+          // even if the connection and fallback both timed out. No blind replay.
+          db.prepare("UPDATE cove_attention_ledger SET suppressed_reason='delivery_uncertain' WHERE id=?")
+            .run(summary.row.id);
+        } else {
+          finalizeAttentionDelivery(db, {
+            id: summary.row.id,
+            level: outcome === "text"
+              ? "text"
+              : outcome === "fallback_banner"
+                ? "banner"
+                : "suppressed",
+            suppressedReason: outcome === "none" ? "delivery_failed" : undefined,
+            now,
+          });
+        }
       } else {
         // The per-item banners below still carry the day.
         finalizeAttentionDelivery(db, {
@@ -496,7 +507,8 @@ function recordDeliveryFailure(db, input) {
 
 /**
  * Returns "text" when the phone got it, "fallback_banner" when only the screen
- * did, "none" when nothing landed. Callers must record a successful fallback as
+ * did, "uncertain" when a timed-out send has no confirmed fallback, and "none"
+ * for a known failure of both paths. Callers must record a successful fallback as
  * a real delivery: a suppressed row starts no cooldown, so an every-minute lane
  * would retry a broken channel forever and banner on each pass.
  */
@@ -525,7 +537,7 @@ function deliverTextReminder(db, config, token, input) {
       );
     }
     try {
-      notifyTextFailure(input.bannerTitle ?? input.title);
+      notifyTextFailure(input.bannerTitle ?? input.title, /\b(?:ETIMEDOUT|timeout)\b|timed? out/i.test(failure));
       return "fallback_banner";
     } catch (fallbackError) {
       console.error(
@@ -533,7 +545,7 @@ function deliverTextReminder(db, config, token, input) {
         errorMessage(fallbackError),
       );
     }
-    return "none";
+    return /\b(?:ETIMEDOUT|timeout)\b|timed? out/i.test(failure) ? "uncertain" : "none";
   }
 }
 

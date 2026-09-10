@@ -106,3 +106,19 @@ test("responsibility route preserves request boundaries, unknown coverage and ve
   );
   verify.close();
 });
+
+test('current review success supersedes older failure and inferred items stay distinct',async t=>{
+ const dir=mkdtempSync(path.join(os.tmpdir(),'cove-responsibility-status-'));const dbPath=path.join(dir,'cove.db');
+ const env={COVE_DATA_DIR:dir,COVE_DB_PATH:dbPath,COVE_WORKSPACE_CONFIG:path.join(dir,'offline.json'),NEXT_PUBLIC_COVE_RUNTIME:'local'};
+ const previous=Object.fromEntries(Object.keys(env).map(k=>[k,process.env[k]]));Object.assign(process.env,env);
+ t.after(()=>{for(const [k,v]of Object.entries(previous))if(v===undefined)delete process.env[k];else process.env[k]=v;rmSync(dir,{recursive:true,force:true});});
+ const db=openLocalDatabase(dbPath);
+ db.prepare("INSERT INTO tasks(id,title,status) VALUES('task','Accepted task','open')").run();
+ db.prepare("INSERT INTO commitments(id,kind,title,source_kind,confirmed,created_at,updated_at) VALUES('inferred','promise','Possible promise','detector',0,?,?)").run('2026-09-10T10:00:00Z','2026-09-10T10:00:00Z');
+ const insert=db.prepare("INSERT INTO cove_jobs(id,type,run_after,status,idempotency_key,created_at,finished_at) VALUES(?,'chief-of-staff-wake',?,?,?, ?,?)");
+ insert.run('old','2026-09-10T10:00:00Z','dead','old','2026-09-10T10:00:00Z','2026-09-10T10:10:00Z');
+ insert.run('new','2026-09-10T11:00:00Z','done','new','2026-09-10T11:00:00Z','2026-09-10T11:10:00Z');db.close();
+ const body=await (await GET(new NextRequest('http://127.0.0.1:3200/api/responsibilities',{headers:{host:'127.0.0.1:3200'}}))).json();
+ assert.equal(body.job.status,'done');assert.deepEqual(body.counts,{tasks:1,confirmedCommitments:0,unconfirmed:1});
+ assert.equal(body.items[0].ref_id,'task');
+});

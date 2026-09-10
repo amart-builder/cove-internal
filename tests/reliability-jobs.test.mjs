@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { listFailures } from '../src/lib/reliability/failures.ts';
+import { listFailures, recordFailure } from '../src/lib/reliability/failures.ts';
 import { JobScheduler } from '../src/lib/reliability/jobs.ts';
 import { listRecentReceipts } from '../src/lib/reliability/receipts.ts';
 
@@ -366,4 +366,28 @@ test('budget exhaustion defers the original job without consuming execution retr
  const db=new Database(dbPath);t.after(()=>db.close());const row=db.prepare('SELECT status,attempts,run_after FROM cove_jobs WHERE id=?').get(job.id);assert.deepEqual(row,{status:'queued',attempts:0,run_after:'2026-07-30T12:00:00.000Z'});
  advance(25*3600000);await scheduler.runAvailable();assert.equal(calls,1);assert.equal(listFailures({dbPath}).some(f=>f.source==='jobs-unclaimed'),false);
  advance(24*3600000);assert.equal(await scheduler.runJob(job.id),'done');assert.equal(calls,2);
+});
+
+
+test('historical job issues explain cause and recovery without leaking diagnostics', (t) => {
+  const { dbPath } = schedulerFixture(t);
+  const error = 'Chief-of-staff wake timed out. sk-secret /private/work.txt';
+  const details = { type: 'chief-of-staff-wake', error };
+  recordFailure({ dbPath, source: 'job', sourceId: 'old-chief', message: 'job stopped retrying: ' + error, details });
+  const issue = listFailures({ dbPath })[0];
+  assert.match(issue.message, /open commitments/);
+  assert.match(issue.message, /time limit/);
+  assert.match(issue.message, /stopped retrying/);
+  assert.match(issue.message, /setup agent/);
+  assert.doesNotMatch(issue.message, /Open Issues|sk-secret|work.txt|automatically/);
+  assert.deepEqual(issue.details, details);
+  recordFailure({ dbPath, source: 'job', sourceId: 'old-chief', message: 'job stopped retrying: ' + error, details: { type: 'chief-of-staff-wake' } });
+  assert.match(listFailures({ dbPath })[0].message, /time limit/);
+  assert.doesNotMatch(listFailures({ dbPath })[0].message, /sk-secret|work.txt/);
+  recordFailure({ dbPath, source: 'job', sourceId: 'old-chief', message: 'job will retry: ' + error, details });
+  assert.match(listFailures({ dbPath })[0].message, /try again automatically/);
+  recordFailure({ dbPath, source: 'job', sourceId: 'old-chief', message: 'job will retry: ' + error, details: { ...details, retrying: false } });
+  assert.doesNotMatch(listFailures({ dbPath })[0].message, /automatically/);
+  recordFailure({ dbPath, source: 'other', sourceId: 'unchanged', message: 'Original safe wording.' });
+  assert.ok(listFailures({ dbPath }).some((item) => item.message === 'Original safe wording.'));
 });

@@ -38,7 +38,8 @@ For a person's first Cove install:
 - Keep the attention and urgent-email model lanes in shadow mode. Do not connect
   email, meeting notes, Telegram, or iMessage unless the user chooses that
   integration and stays for its live acceptance check.
-- Recommend the provider receiving the setup request, ask one model question,
+- Explicitly ask whether Claude or Codex should be the primary Cove agent.
+  Recommend the provider receiving the setup request, ask one model question,
   and verify the chosen exact model with cove-agent-settings.mjs. Full Cove
   includes chief-of-staff service and native follow-through by default. Basic
   Mode keeps the two-ritual contract. Do not require both providers.

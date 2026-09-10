@@ -2,6 +2,9 @@ import { existsSync } from "node:fs";
 
 export const COVE_NOTIFICATION_ICON_RELATIVE_PATH =
   "public/cove-notification-icon.png";
+// The SSH connection gets 10 seconds. Leave a separate bounded window for
+// Messages to handle the AppleScript instead of killing it at that same limit.
+export const REMOTE_IMESSAGE_TIMEOUT_MS = 30_000;
 
 export function appleScriptLiteral(value) {
   return `"${String(value)

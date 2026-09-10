@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { coveEnv } from "./env-runtime.mjs";
 import { readAgentSettings, validateAgentSettings } from "./agent-settings.mjs";
-import { reserveBackgroundAttempt, finishBackgroundAttempt } from "./background-usage.mjs";
+import { reserveBackgroundAttempt, finishBackgroundAttempt, isPlanningLane } from "./background-usage.mjs";
 
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const MAX_DIAGNOSTIC_BYTES = 64 * 1024;
@@ -187,6 +187,14 @@ function runCommand(command, options) {
       if (overflowed) return;
       const bytes = Buffer.byteLength(chunk, "utf8");
       const remaining = (options.maxOutputBytes ?? MAX_OUTPUT_BYTES) - stdoutBytes;
+      if (options.diagnosticOutput) {
+        stdoutBytes += bytes;
+        stdout = `${stdout}${chunk}`;
+        while (Buffer.byteLength(stdout, "utf8") > MAX_DIAGNOSTIC_BYTES) {
+          stdout = stdout.slice(Math.max(1, Math.floor(stdout.length / 8)));
+        }
+        return;
+      }
       if (bytes > remaining) {
         overflowed = true;
         stdoutBytes += bytes;
@@ -354,7 +362,12 @@ export async function runJob(input) {
   if (input.kind === "structured" && (!input.schema || typeof input.schema !== "object")) {
     return failure("runner_failed", input.lane, "Structured jobs require a JSON Schema.");
   }
-  const timeoutMs = selection ? Math.min(input.timeoutMs ?? 120_000, selection.backgroundLimits.timeoutMs) : input.timeoutMs ?? 120_000;
+  const planning = isPlanningLane(input.lane);
+  // Daily rituals and chief reviews own their reasoning deadlines. The short
+  // monitoring timeout must not silently shorten those bounded operations.
+  const ownsTimeout = planning || input.lane === "chief-of-staff";
+  const timeoutMs = selection && !ownsTimeout ? Math.min(input.timeoutMs ?? 120_000, selection.backgroundLimits.timeoutMs) : input.timeoutMs ?? 120_000;
+  const outputLimit = planning ? MAX_OUTPUT_BYTES : selection?.backgroundLimits.outputBytesPerCall;
   const basePrompt = input.kind === "structured" && backend === "codex-sol-high"
     ? `${input.prompt}\n\nJSON_SCHEMA=${JSON.stringify(input.schema)}\nReturn only a JSON value matching JSON_SCHEMA.`
     : input.prompt;
@@ -367,7 +380,11 @@ export async function runJob(input) {
     try {
       if (selection) reservation = reserveBackgroundAttempt({ env, settings: selection, lane: input.lane, inputBytes: Buffer.byteLength(prompt) + (backend === "claude" && input.kind === "structured" ? Buffer.byteLength(JSON.stringify(input.schema)) : 0) });
     } catch (error) {
-      return failure("runner_budget_exceeded", input.lane, error instanceof Error ? error.message : error);
+      const code = error?.code === "background_input_limit" ? "runner_input_too_large"
+        : error?.code === "background_usage_limit" ? "runner_budget_exceeded" : "runner_failed";
+      const result = failure(code, input.lane, error instanceof Error ? error.message : error);
+      if (error?.retryAt) result.error.retryAt = error.retryAt;
+      return result;
     }
     let raw;
     let usage;
@@ -389,7 +406,8 @@ export async function runJob(input) {
             env,
             spawnImpl: input.spawnImpl,
             timeoutMs,
-            maxOutputBytes: selection?.backgroundLimits.outputBytesPerCall,
+            maxOutputBytes: outputLimit,
+            diagnosticOutput: planning,
             abortSignal: input.abortSignal,
             terminationGraceMs: input.terminationGraceMs,
             onSpawn: input.onSpawn,
@@ -421,7 +439,7 @@ export async function runJob(input) {
           env,
           spawnImpl: input.spawnImpl,
           timeoutMs,
-          maxOutputBytes: selection?.backgroundLimits.outputBytesPerCall,
+          maxOutputBytes: outputLimit,
           abortSignal: input.abortSignal,
           terminationGraceMs: input.terminationGraceMs,
           onSpawn: input.onSpawn,
@@ -437,7 +455,7 @@ export async function runJob(input) {
         if (!result.ok) return failure("runner_failed", input.lane, result.stderr || result.error || `Claude exited ${result.code}.`);
         raw = input.kind === "structured" || selection ? unwrapClaudeStructured(result.stdout) : result.stdout;
       }
-      if (selection && Buffer.byteLength(raw) > selection.backgroundLimits.outputBytesPerCall) {
+      if (outputLimit && Buffer.byteLength(raw) > outputLimit) {
         return failure("runner_output_too_large", input.lane, "The model response exceeded Cove's per-call output limit.");
       }
       if (input.kind === "text") {

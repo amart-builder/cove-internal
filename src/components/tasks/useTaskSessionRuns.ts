@@ -21,6 +21,8 @@ export default function useTaskSessionRuns(taskIds: readonly string[]) {
     () => taskIdKey ? taskIdKey.split('\u0000') : [],
     [taskIdKey],
   );
+  const [connectedProviders, setConnectedProviders] = useState<("claude" | "codex")[]>([]);
+  const [defaultProvider, setDefaultProvider] = useState<"claude" | "codex">("claude");
   const [runs, setRuns] = useState<TaskSessionRun[]>([]);
   const [error, setError] = useState<string>();
   const [launchingTaskIds, setLaunchingTaskIds] = useState<Set<string>>(new Set());
@@ -29,6 +31,8 @@ export default function useTaskSessionRuns(taskIds: readonly string[]) {
     try {
       const snapshot = await listTaskSessionRuns(stableTaskIds);
       setRuns(snapshot.runs);
+      setDefaultProvider(snapshot.defaultProvider ?? "claude");
+      setConnectedProviders(snapshot.connectedProviders ?? [snapshot.defaultProvider ?? "claude"]);
       setError(undefined);
       return snapshot.runs;
     } catch (nextError) {
@@ -142,6 +146,8 @@ export default function useTaskSessionRuns(taskIds: readonly string[]) {
   }, [refresh, runs]);
 
   return {
+    defaultProvider,
+    connectedProviders,
     runs,
     activeRuns,
     outputReadyRuns,

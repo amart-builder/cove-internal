@@ -1417,3 +1417,25 @@ printf '%s\\n' '{"structured_output":{"journal":["Reviewed the desk.","No urgent
     }), /background_usage_limit/);
   });
 }
+
+test('phone reminder judgment queues one durable versioned intent and never reports delivery', () => {
+  const { dbPath, dataDir } = tempCove();
+  const stateDir = path.join(dataDir, 'phone-reminders'); mkdirSync(stateDir);
+  writeFileSync(path.join(dataDir, 'apple-reminders.json'), JSON.stringify({ enabled: true, allowAgentJudgment: true, stateDir }));
+  const db = openLocalDatabase(dbPath);
+  db.prepare("INSERT INTO tasks (id,title,status,updated_at) VALUES ('phone-task','Send proposal','open','2026-09-10T16:00:00Z')").run();
+  const expected = sourceVersion(sourceRecord(db, 'task', 'phone-task')); db.close();
+  const job = enqueue(dbPath, { reason: 'manual', note: 'Phone judgment' }).job;
+  const actions = [{ action_id: 'phone-alert', kind: 'phone_reminder', why: 'Accepted task with a time-bound consequence', task_id: 'phone-task', expected_version: expected,
+    level: 'notification', remind_at: '2026-09-10T15:00:00-07:00', reason: 'Proposal expected today', next_action: 'Review scope, then send' }];
+  assert.deepEqual(applyChiefOfStaffActions({ dbPath, dataDir, wakeJobId: job.id, actions }), { applied: 1, rejected: 0, skipped: 0 });
+  assert.deepEqual(applyChiefOfStaffActions({ dbPath, dataDir, wakeJobId: job.id, actions }), { applied: 0, rejected: 0, skipped: 1 });
+  const files = readdirSync(path.join(stateDir, 'queue')); assert.equal(files.length, 1);
+  const entry = JSON.parse(readFileSync(path.join(stateDir, 'queue', files[0]), 'utf8'));
+  assert.equal(entry.phase, 'queued'); assert.equal(entry.request.origin, 'agent');
+  const verify = openLocalDatabase(dbPath);
+  const payload = JSON.parse(verify.prepare('SELECT payload_json FROM chief_of_staff_actions WHERE wake_job_id=?').get(job.id).payload_json);
+  assert.equal(payload.phone_reminder_delivered, false); verify.close();
+  const staleJob = enqueue(dbPath, { reason: 'manual', note: 'stale' }).job;
+  assert.equal(applyChiefOfStaffActions({ dbPath, dataDir, wakeJobId: staleJob.id, actions: [{ ...actions[0], expected_version: 'stale' }] }).rejected, 1);
+});

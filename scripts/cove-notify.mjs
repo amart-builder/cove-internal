@@ -22,6 +22,7 @@ import {
   localIMessageArgs,
   nativeNotificationCommand,
   remoteIMessageArgs,
+  REMOTE_IMESSAGE_TIMEOUT_MS,
 } from "../src/lib/intake/notification-transport.mjs";
 import { coveConfigPath, coveEnv } from "../src/lib/env-runtime.mjs";
 
@@ -87,7 +88,7 @@ function sendRemoteIMessage(remoteHost, to, text) {
   execFileSync(
     "ssh",
     remoteIMessageArgs(remoteHost, to, text),
-    { timeout: 10_000 },
+    { timeout: REMOTE_IMESSAGE_TIMEOUT_MS },
   );
 }
 

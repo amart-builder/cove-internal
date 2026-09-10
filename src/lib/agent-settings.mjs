@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { coveDataDir } from "./operator-runtime.mjs";
 
@@ -9,9 +9,9 @@ export const RECOMMENDED_AGENTS = Object.freeze({
 
 // Provisional workload ceilings, not subscription percentages or token prices.
 export const DEFAULT_BACKGROUND_LIMITS = Object.freeze({
-  callsPerHour: 6,
-  callsPerDay: 24,
-  callsPerWeek: 100,
+  callsPerHour: 12,
+  callsPerDay: 96,
+  callsPerWeek: 400,
   inputBytesPerCall: 96_000,
   outputBytesPerCall: 64_000,
   timeoutMs: 120_000,
@@ -41,7 +41,65 @@ export function validateAgentSettings(value) {
       throw new Error(`Invalid Cove background limit: ${key}.`);
     }
   }
-  return { version: 1, provider: value.provider, model: value.model, effort: value.effort, backgroundLimits: limits };
+  let providers;
+  if (value.providers !== undefined) {
+    if (!value.providers || typeof value.providers !== "object" || Array.isArray(value.providers) ||
+        Object.keys(value.providers).some(key => !Object.hasOwn(RECOMMENDED_AGENTS, key))) {
+      throw new Error("Invalid connected Cove providers.");
+    }
+    providers = {};
+    for (const [provider, selection] of Object.entries(value.providers)) {
+      const checked = validateAgentSettings({ version: 1, provider, model: selection?.model, effort: selection?.effort });
+      providers[provider] = { provider, model: checked.model, effort: checked.effort };
+    }
+    if (providers[value.provider]?.model !== value.model || providers[value.provider]?.effort !== value.effort) {
+      throw new Error("The primary Cove agent must match a connected provider.");
+    }
+  }
+  return { version: 1, provider: value.provider, model: value.model, effort: value.effort, backgroundLimits: limits,
+    ...(providers ? { providers } : {}) };
+}
+
+// Older installs have verified only their saved primary. CLI presence alone is
+// not evidence of model access. Preserve the legacy Claude lane before setup.
+export function connectedAgents(settings) {
+  if (!settings) return {};
+  return settings.providers ?? { [settings.provider]: { provider: settings.provider, model: settings.model, effort: settings.effort } };
+}
+
+export function agentProviderStatus(settings) {
+  return { defaultProvider: settings?.provider ?? "claude", connectedProviders: settings ? Object.keys(connectedAgents(settings)) : ["claude"] };
+}
+
+export function saveAgentSettings(settings, original, env = process.env) {
+  const checked = validateAgentSettings(settings);
+  const file = agentSettingsPath(env);
+  mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const lock = `${file}.lock`;
+  try { writeFileSync(lock, String(process.pid), { mode: 0o600, flag: "wx" }); }
+  catch (error) {
+    if (error.code === "EEXIST") throw new Error("Another settings change holds the configuration lock. Finish that change before retrying.");
+    throw error;
+  }
+  try {
+    let latest;
+    try { latest = readFileSync(file, "utf8"); } catch (error) { if (error.code !== "ENOENT") throw error; }
+    if (latest !== original) throw new Error("Agent settings changed during verification. Read the current selection and retry.");
+    const pending = `${file}.${process.pid}.tmp`;
+    try {
+      writeFileSync(pending, JSON.stringify(checked, null, 2) + "\n", { mode: 0o600, flag: "wx" });
+      renameSync(pending, file);
+    } finally { rmSync(pending, { force: true }); }
+  } finally { rmSync(lock, { force: true }); }
+  return checked;
+}
+
+export function setPrimaryAgent(provider, env = process.env) {
+  const original = readFileSync(agentSettingsPath(env), "utf8");
+  const current = validateAgentSettings(JSON.parse(original));
+  const providers = connectedAgents(current);
+  if (!Object.hasOwn(providers, provider)) throw new Error(`Connect and verify ${provider} in Cove setup before choosing it.`);
+  return saveAgentSettings({ ...current, ...providers[provider], providers }, original, env);
 }
 
 /** No file means keep the existing installation's lane settings unchanged. */

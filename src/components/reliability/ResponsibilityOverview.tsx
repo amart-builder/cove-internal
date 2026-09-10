@@ -3,9 +3,11 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { getDayPlanCsrfToken } from "@/lib/data/day-plan";
 import FollowThrough from "./FollowThrough";
+import { capacityEstimate, responsibilityDate as when } from "@/lib/responsibility/presentation";
 type Desk = {
   enabled: boolean;
   total: number;
+  counts: { tasks: number; confirmedCommitments: number; unconfirmed: number };
   pendingReview: number;
   plannedCount: number;
   job?: { status: string; nextAttempt: string; error?: string };
@@ -46,13 +48,6 @@ type Desk = {
     created_at: string;
   }>;
 };
-const when = (value: string) =>
-  new Date(value).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
 export default function ResponsibilityOverview() {
   const [desk, setDesk] = useState<Desk>();
   const [error, setError] = useState("");
@@ -121,7 +116,7 @@ export default function ResponsibilityOverview() {
     }
   }
   return (
-    <main className="mx-auto max-w-3xl px-6 py-8">
+    <main className="mx-auto max-w-3xl px-6 pb-8 pt-16">
       <Link
         href="/tasks"
         className="text-sm text-muted-foreground hover:text-foreground"
@@ -133,6 +128,7 @@ export default function ResponsibilityOverview() {
         What Cove is keeping track of, what needs a decision, and what is ready
         for you.
       </p>
+      <FollowThrough />
       {error && (
         <p role="alert" className="mt-4 text-sm text-accent-red">
           {error} <button onClick={() => void refresh()}>Refresh</button>
@@ -146,11 +142,9 @@ export default function ResponsibilityOverview() {
       {desk?.enabled && (
         <>
           <section className="mt-6 rounded-xl border border-border bg-card p-5">
-            <h2 className="font-medium">A day that fits</h2>
+            <h2 className="font-medium">Your day’s capacity</h2>
             <p className="mt-2 text-sm">
-              {desk.plannedCount
-                ? `${desk.plannedCount} planned items. ${desk.capacity.proposedMinutes} minutes estimated.`
-                : "Your accepted daily focus and proposed work times will appear here."}{" "}
+              {capacityEstimate(desk.plannedCount, desk.capacity.proposedMinutes, desk.capacity.unknownEstimates)}{" "}
               {desk.capacity.availableMinutes !== null
                 ? `${desk.capacity.availableMinutes} minutes remain after calendar time and a buffer.`
                 : "Calendar availability is unknown."}
@@ -185,7 +179,8 @@ export default function ResponsibilityOverview() {
           <section className="mt-5 rounded-xl border border-border bg-card p-5">
             <h2 className="font-medium">Kept in view</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              {desk.total} open obligations.{" "}
+              {desk.counts.tasks} open tasks and {desk.counts.confirmedCommitments} confirmed commitments.{" "}
+              {desk.counts.unconfirmed > 0 && `${desk.counts.unconfirmed} additional suggestions from your sources are unconfirmed. `}
               {desk.pendingReview
                 ? `${desk.pendingReview} await their next agent review.`
                 : "All currently scheduled reviews are up to date."}
@@ -219,7 +214,7 @@ export default function ResponsibilityOverview() {
                       : `Owner: ${item.owner}`}{" "}
                   · Next review {when(item.next_check_at)}
                   {item.due_at
-                    ? ` · Deadline ${item.due_at.includes("T") ? when(item.due_at) : item.due_at}`
+                    ? ` · Deadline ${when(item.due_at)}`
                     : ""}
                   {item.planned_for
                     ? ` · Proposed work ${when(item.planned_for)}`
@@ -300,7 +295,6 @@ export default function ResponsibilityOverview() {
           )}
         </>
       )}
-      <FollowThrough />
     </main>
   );
 }

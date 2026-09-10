@@ -41,6 +41,7 @@ export type MorningArrivalBoardTask = {
 };
 
 interface MorningArrivalProps {
+  initialStep?: ArrivalStep;
   localDate: string;
   plan: DayPlan;
   focusCount: 1 | 2 | 3;
@@ -95,6 +96,7 @@ const STEP_ANNOUNCEMENTS: Record<ArrivalStep, string> = {
 };
 
 export default function MorningArrival({
+  initialStep = 'brief',
   localDate,
   plan,
   focusCount,
@@ -134,7 +136,7 @@ export default function MorningArrival({
   const { streamingTurn } = useBuddyStream();
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const availableSteps = morningArrivalSteps();
-  const [step, setStep] = useState<ArrivalStep>('brief');
+  const [step, setStep] = useState<ArrivalStep>(initialStep);
   const [stepAnnouncement, setStepAnnouncement] = useState('');
   const previousStepRef = useRef(step);
   const briefWriting = isMorningBriefWriting({

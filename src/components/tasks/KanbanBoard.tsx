@@ -1,5 +1,7 @@
 'use client';
 
+import { useTaskLink } from './useTaskLink';
+
 import type { TaskEditGuard } from '@/lib/tasks/edit-conflict';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -531,6 +533,7 @@ function KanbanBoardContent({
     };
   };
   const tasks = (localTasks ?? tasksData).map(normalizeDisplayTask);
+  useTaskLink('all-work', tasks, setDetailTaskId);
   const taskSessions = useTaskSessionRuns(
     getRuntimeMode() === 'local' ? tasks.map((task) => task._id) : [],
   );

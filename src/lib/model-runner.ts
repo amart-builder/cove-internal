@@ -8,6 +8,7 @@ export type ModelRunnerFailureCode =
   | "codex_invalid_output"
   | "runner_interrupted"
   | "runner_output_too_large"
+  | "runner_input_too_large"
   | "runner_timeout"
   | "runner_failed"
   | "runner_budget_exceeded";
@@ -51,7 +52,7 @@ export type RunJobInput = Omit<RunJobRuntimeInput, "kind"> & (
 
 export type RunJobResult<T = unknown> =
   | { ok: true; lane: string; backend: ModelRunnerBackend; text: string; value?: T }
-  | { ok: false; error: { code: ModelRunnerFailureCode; lane: string; message: string } };
+  | { ok: false; error: { code: ModelRunnerFailureCode; lane: string; message: string; retryAt?: string } };
 
 export async function runJob<T = unknown>(input: RunJobInput): Promise<RunJobResult<T>> {
   return runRuntimeJob(input) as Promise<RunJobResult<T>>;

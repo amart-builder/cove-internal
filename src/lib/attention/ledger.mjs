@@ -137,12 +137,15 @@ export function dailyAttentionUsage(db, now = new Date()) {
 }
 
 // Texts also consume banner capacity. Preserve two of the six slots for
-// meetings or urgent email, plus one floor slot until the floor has run.
-function bannerCapFor(kind, usage, refKind) {
-  // Keep two of the existing six slots available for meetings/urgent mail.
+// approaching deadlines, meetings or urgent email, plus one floor slot until the floor has run.
+function bannerCapFor(kind, floorDelivered, refKind, deadlineReminder = false) {
+  // Keep the final slot for meetings/urgent mail. An approaching deadline can
+  // use the penultimate slot even after routine reminders and the floor.
   // This reserves capacity; it does not increase the person's interruption cap.
   if (refKind === "meeting" || kind === "urgent_email") return ATTENTION_LIMITS.bannersPerDay;
-  if (kind === "floor_nudge" || usage.floorTexts >= ATTENTION_LIMITS.floorTextsPerDay) {
+  if (kind === "chief_of_staff" && deadlineReminder && ["task", "commitment"].includes(refKind)) return ATTENTION_LIMITS.bannersPerDay - (floorDelivered ? 1 : 2);
+  if (kind === "floor_nudge" && !floorDelivered) return ATTENTION_LIMITS.bannersPerDay - 1;
+  if (kind === "floor_nudge" || floorDelivered) {
     return ATTENTION_LIMITS.bannersPerDay - 2;
   }
   return ATTENTION_LIMITS.bannersPerDay - 3;
@@ -204,6 +207,12 @@ export function allocateAttention(db, input) {
       input.maximumLevel ?? input.requestedLevel,
     );
     let usage = dailyAttentionUsage(db, now);
+    const { start, end } = localDayBounds(now);
+    // A fallback native banner also satisfies the floor reservation. Keep that
+    // slot available if an advance warning is delivered earlier in the day.
+    const floorDelivered = Boolean(db.prepare(
+      "SELECT 1 FROM cove_attention_ledger WHERE kind='floor_nudge' AND level IN ('text','banner') AND delivered_at >= ? AND delivered_at < ? LIMIT 1",
+    ).get(start, end));
 
     if (finalLevel === "text") {
       const modelTextBlocked = input.kind !== "floor_nudge" &&
@@ -212,7 +221,7 @@ export function allocateAttention(db, input) {
       // than its reserved slot no matter how many items come due.
       const floorTextBlocked = input.kind === "floor_nudge" &&
         usage.floorTexts >= ATTENTION_LIMITS.floorTextsPerDay;
-      const bannerBlocked = usage.banners >= bannerCapFor(input.kind, usage, input.refKind);
+      const bannerBlocked = usage.banners >= bannerCapFor(input.kind, floorDelivered, input.refKind, input.deadlineReminder === true);
       if (
         usage.texts >= ATTENTION_LIMITS.textsPerDay ||
         bannerBlocked ||
@@ -245,7 +254,7 @@ export function allocateAttention(db, input) {
       }
     }
 
-    if (finalLevel === "banner" && usage.banners >= bannerCapFor(input.kind, usage, input.refKind)) {
+    if (finalLevel === "banner" && usage.banners >= bannerCapFor(input.kind, floorDelivered, input.refKind, input.deadlineReminder === true)) {
       appendSuppression(suppressionRows, db, {
         kind: input.kind,
         refKind: input.refKind,

@@ -489,3 +489,16 @@ test('buddy contact insert explains ambiguous candidates from a 409', async () =
     /Possible matches: John Smith <one@example\.com> \(john-1\), John Smith <two@example\.com> \(john-2\)/,
   );
 });
+
+test('Buddy can read providers and change primary through the CSRF-protected local API', async () => {
+  assert.throws(() => parseBuddyDataArgs(['agent','primary','--provider','other']), /Use agent/);
+  const calls = []; const lines = [];
+  await runBuddyDataCommand(parseBuddyDataArgs(['agent','primary','--provider','codex']), {
+    appUrl: 'http://127.0.0.1:3200', write: line => lines.push(line),
+    fetch: async (url, init) => { calls.push({url,init}); return Response.json(url.endsWith('/api/day-plan') ? {csrfToken:'test-csrf'} : {defaultProvider:'codex',connectedProviders:['claude','codex']}); },
+  });
+  assert.equal(calls[1].url, 'http://127.0.0.1:3200/api/agent-settings');
+  assert.equal(calls[1].init.headers['X-Cove-CSRF'], 'test-csrf');
+  assert.deepEqual(JSON.parse(calls[1].init.body), {provider:'codex'});
+  assert.equal(JSON.parse(lines[0]).defaultProvider, 'codex');
+});

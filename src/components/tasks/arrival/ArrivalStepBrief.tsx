@@ -78,7 +78,13 @@ export default function ArrivalStepBrief({
 
         {failed && (
           <p role="alert" className="mt-6 text-sm leading-relaxed text-muted-foreground">
-            Your plan is still here. Try the brief again, or continue to Today.
+            {briefGeneration?.failureMessage ?? 'Your plan is still here. Try the brief again, or continue to Today.'}
+          </p>
+        )}
+
+        {briefGeneration?.state === 'deferred' && (
+          <p role="status" className="mt-6 text-sm leading-relaxed text-muted-foreground">
+            Cove will try again automatically{briefGeneration.retryAt ? ` after ${new Date(briefGeneration.retryAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : ''}. You can continue to Today.
           </p>
         )}
 

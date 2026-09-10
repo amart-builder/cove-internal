@@ -31,6 +31,7 @@ import {
 } from 'react';
 import type {
   TaskSessionLaunchMode,
+  TaskSessionProvider,
   TaskSessionRun,
 } from '@/lib/task-sessions/types';
 import { reconcileFocusSeatTaskChanges } from '@/lib/tasks/focus-seats';
@@ -80,9 +81,12 @@ export type TodayRiverStageV2Model = {
   doneTitles: string[];
   focusCount: 1 | 2 | 3;
   orderedTasks: TodayRiverTaskV2[];
+  notTodayCount: number;
   selectedTaskId?: string;
   completingTaskId?: string;
   activeRunCount: number;
+  defaultProvider?: TaskSessionProvider;
+  connectedProviders?: TaskSessionProvider[];
   localMode: boolean;
   reorderEnabled: boolean;
   focusCountBusy: boolean;
@@ -102,12 +106,13 @@ export type TodayRiverStageV2Model = {
 
 export type TodayRiverStageV2Callbacks = {
   onOpenMorningArrival: () => void;
+  onOpenDayPlan: () => void;
   onOpenCloseDay: () => void;
   onPlanWeekend: () => void;
   onFocusTask: (taskId: string) => void;
   onCompleteTask: (taskId: string, seatIndex: number) => Promise<void>;
-  onStartSession: (taskId: string, mode: TaskSessionLaunchMode) => void;
-  onRetrySession: (taskId: string, mode: TaskSessionLaunchMode) => void;
+  onStartSession: (taskId: string, mode: TaskSessionLaunchMode, provider?: TaskSessionProvider) => void;
+  onRetrySession: (taskId: string, mode: TaskSessionLaunchMode, provider?: TaskSessionProvider) => void;
   onReorder: (orderedTaskIds: string[]) => void | Promise<void>;
   onFocusCountChange: (count: 1 | 2 | 3) => void;
   onGridOpenChange: (open: boolean) => void;
@@ -168,7 +173,7 @@ function SessionState({
 }: {
   task: TodayRiverTaskV2;
   compact: boolean;
-  onRetry: (mode: TaskSessionLaunchMode) => void;
+  onRetry: (mode: TaskSessionLaunchMode, provider?: TaskSessionProvider) => void;
 }) {
   const run = task.run;
   if (!run) return null;
@@ -240,7 +245,7 @@ function SessionState({
         </SessionLink>
         <button type="button" onClick={(event) => {
           event.stopPropagation();
-          onRetry(run.permissionMode === 'plan' ? 'planning' : 'auto');
+          onRetry(run.permissionMode === 'plan' ? 'planning' : 'auto', run.provider);
         }}>
           Retry
         </button>
@@ -254,17 +259,24 @@ function SessionFooter({
   task,
   localMode,
   activeRunCount,
+  defaultProvider,
+  connectedProviders,
   onStart,
   onRetry,
 }: {
   task: TodayRiverTaskV2;
+  defaultProvider?: TaskSessionProvider;
+  connectedProviders?: TaskSessionProvider[];
   localMode: boolean;
   activeRunCount: number;
-  onStart: (mode: TaskSessionLaunchMode) => void;
-  onRetry: (mode: TaskSessionLaunchMode) => void;
+  onStart: (mode: TaskSessionLaunchMode, provider?: TaskSessionProvider) => void;
+  onRetry: (mode: TaskSessionLaunchMode, provider?: TaskSessionProvider) => void;
 }) {
+  const [chosenProvider, setChosenProvider] = useState<TaskSessionProvider>();
+  const available = connectedProviders ?? [];
+  const provider = chosenProvider && available.includes(chosenProvider) ? chosenProvider : defaultProvider ?? 'claude';
   const modes = taskSessionModeButtons(task.run, undefined);
-  const launchDisabled = task.sessionBusy || activeRunCount >= 6;
+  const launchDisabled = task.sessionBusy || activeRunCount >= 6 || !available.includes(provider);
   const live = task.run?.status === 'running' || task.run?.status === 'awaiting_approval';
   // With a finished run the actions row holds a state chip plus both launch
   // buttons; the label no longer fits beside them in a compact card.
@@ -282,6 +294,17 @@ function SessionFooter({
           <SessionState task={task} compact={false} onRetry={onRetry} />
         </span>
       )}
+      {!live && localMode && (
+        <div className="today2-session-provider" role="group" aria-label="Choose your agent">
+          {(['claude', 'codex'] as const).map((choice) => (
+            <button key={choice} type="button" aria-pressed={provider === choice}
+              title={available.includes(choice) ? undefined : "Connect this provider during Cove setup"}
+              disabled={task.sessionBusy || !available.includes(choice)} onClick={(event) => { event.stopPropagation(); setChosenProvider(choice); }}>
+              {choice === 'claude' ? 'Claude' : 'Codex'}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="today2-session-footer-actions">
         {live ? (
           <SessionState task={task} compact onRetry={onRetry} />
@@ -291,14 +314,14 @@ function SessionFooter({
               type="button"
               className="is-planning"
               disabled={launchDisabled || !modes.includes('planning')}
-              onClick={() => onStart('planning')}
+              onClick={() => onStart('planning', chosenProvider && available.includes(chosenProvider) ? chosenProvider : undefined)}
             >
               {task.sessionBusy ? 'Starting…' : 'Planning'}
             </button>
             <button
               type="button"
               disabled={launchDisabled || !modes.includes('auto')}
-              onClick={() => onStart('auto')}
+              onClick={() => onStart('auto', chosenProvider && available.includes(chosenProvider) ? chosenProvider : undefined)}
             >
               {task.sessionBusy ? 'Starting…' : 'Auto'}
             </button>
@@ -320,6 +343,8 @@ function FocusCard({
   completing,
   localMode,
   activeRunCount,
+  defaultProvider,
+  connectedProviders,
   onSelect,
   onToggleDetail,
   onMore,
@@ -333,14 +358,16 @@ function FocusCard({
   selected: boolean;
   detailOpen: boolean;
   completing: boolean;
+  defaultProvider?: TaskSessionProvider;
+  connectedProviders?: TaskSessionProvider[];
   localMode: boolean;
   activeRunCount: number;
   onSelect: () => void;
   onToggleDetail: () => void;
   onComplete: () => void;
   onMore: (returnFocus: HTMLElement) => void;
-  onStart: (mode: TaskSessionLaunchMode) => void;
-  onRetry: (mode: TaskSessionLaunchMode) => void;
+  onStart: (mode: TaskSessionLaunchMode, provider?: TaskSessionProvider) => void;
+  onRetry: (mode: TaskSessionLaunchMode, provider?: TaskSessionProvider) => void;
 }) {
   const run = task.run;
   const cardClass = single ? 'today2-focus-card is-hero' : 'today2-focus-card is-compact';
@@ -407,6 +434,8 @@ function FocusCard({
           task={task}
           localMode={localMode}
           activeRunCount={activeRunCount}
+          defaultProvider={defaultProvider}
+          connectedProviders={connectedProviders}
           onStart={onStart}
           onRetry={onRetry}
         />
@@ -420,6 +449,8 @@ function FocusRichSheet({
   returnFocus,
   localMode,
   activeRunCount,
+  defaultProvider,
+  connectedProviders,
   onClose,
   onEdit,
   onStart,
@@ -427,12 +458,14 @@ function FocusRichSheet({
 }: {
   task: TodayRiverTaskV2;
   returnFocus: HTMLElement | null;
+  defaultProvider?: TaskSessionProvider;
+  connectedProviders?: TaskSessionProvider[];
   localMode: boolean;
   activeRunCount: number;
   onClose: () => void;
   onEdit: () => void;
-  onStart: (mode: TaskSessionLaunchMode) => void;
-  onRetry: (mode: TaskSessionLaunchMode) => void;
+  onStart: (mode: TaskSessionLaunchMode, provider?: TaskSessionProvider) => void;
+  onRetry: (mode: TaskSessionLaunchMode, provider?: TaskSessionProvider) => void;
 }) {
   const titleId = `today2-rich-sheet-${task.id}`;
   return (
@@ -457,6 +490,8 @@ function FocusRichSheet({
           task={task}
           localMode={localMode}
           activeRunCount={activeRunCount}
+          defaultProvider={defaultProvider}
+          connectedProviders={connectedProviders}
           onStart={onStart}
           onRetry={onRetry}
         />
@@ -945,6 +980,7 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
         closeGrid();
         return;
       }
+      if (target?.closest('[role="dialog"]')) return;
       if (!target?.closest('[data-today2-focus-unit]')) setDetailTaskId(undefined);
       if (!target?.closest('[data-today2-second-current]')) setSecondCurrentOpen(false);
     }
@@ -1198,6 +1234,8 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
                     completing={model.completingTaskId === task.id}
                     localMode={model.localMode}
                     activeRunCount={model.activeRunCount}
+          defaultProvider={model.defaultProvider}
+          connectedProviders={model.connectedProviders}
                     onSelect={() => callbacks.onFocusTask(task.id)}
                     onToggleDetail={() => setDetailTaskId((current) => current === task.id ? undefined : task.id)}
                     onMore={(returnFocus) => {
@@ -1205,8 +1243,8 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
                       setRichTaskId(task.id);
                     }}
                     onComplete={() => void handleCompleteTask(task, index)}
-                    onStart={(mode) => callbacks.onStartSession(task.id, mode)}
-                    onRetry={(mode) => callbacks.onRetrySession(task.id, mode)}
+                    onStart={(mode, provider) => callbacks.onStartSession(task.id, mode, provider)}
+                    onRetry={(mode, provider) => callbacks.onRetrySession(task.id, mode, provider)}
                   />
                 </div>
               ))}
@@ -1250,6 +1288,8 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
           returnFocus={richReturnFocus}
           localMode={model.localMode}
           activeRunCount={model.activeRunCount}
+          defaultProvider={model.defaultProvider}
+          connectedProviders={model.connectedProviders}
           onClose={() => {
             setRichTaskId(undefined);
             setDetailTaskId(undefined);
@@ -1262,8 +1302,8 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
             setDetailTaskId(undefined);
             window.requestAnimationFrame(() => callbacks.onEditTask(taskId));
           }}
-          onStart={(mode) => callbacks.onStartSession(richTaskId, mode)}
-          onRetry={(mode) => callbacks.onRetrySession(richTaskId, mode)}
+          onStart={(mode, provider) => callbacks.onStartSession(richTaskId, mode, provider)}
+          onRetry={(mode, provider) => callbacks.onRetrySession(richTaskId, mode, provider)}
         />
       )}
 
@@ -1357,6 +1397,21 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
                   </ol>
                 </SortableContext>
               </DndContext>
+              <footer className="today2-grid-footer">
+                <button
+                  type="button"
+                  disabled={model.morningArrivalDisabled}
+                  title={model.morningArrivalTitle ?? 'Open Plan your day'}
+                  onClick={() => {
+                    // Unmount the grid before opening another focus-trapped layer.
+                    setGridOpen(false);
+                    callbacks.onOpenDayPlan();
+                  }}
+                >
+                  {model.notTodayCount > 0 ? `+${model.notTodayCount} more · All tasks` : 'All tasks'}
+                  <span aria-hidden="true"> →</span>
+                </button>
+              </footer>
             </section>
           </div>
         </DayRitualLayer>

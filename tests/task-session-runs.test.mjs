@@ -1722,7 +1722,7 @@ test('selected Claude task model bypasses the router and survives persistence', 
 
 test('Codex task execution captures native session, refuses false success, and resumes with approvals', async t => {
   const opened = [];
-  const f = fixture(t, { env: { COVE_CODEX_BIN: '/fake/codex', COVE_MODEL_ROUTER: '0' }, openTerminal: async command => opened.push(command) });
+  const f = fixture(t, { env: { COVE_CODEX_BIN: '/fake/codex', COVE_MODEL_ROUTER: '0' }, openDesktop: async url => opened.push(url) });
   const auth = path.join(f.dir, 'operator-auth'); mkdirSync(auth); writeFileSync(path.join(auth, 'auth.json'), '{}');
   const settings = { version: 1, provider: 'codex', model: 'gpt-6-astra', effort: 'low' };
   writeFileSync(path.join(f.dir, 'agent-settings.json'), JSON.stringify(settings));
@@ -1730,7 +1730,7 @@ test('Codex task execution captures native session, refuses false success, and r
   const env = { COVE_CODEX_BIN: '/fake/codex', COVE_MODEL_ROUTER: '0', CODEX_HOME: auth };
   f.manager.close();
   const commands = []; const child = fakeChild(47000);
-  const manager = createTaskSessionManager({ dbPath: f.dbPath, dataDir: f.dir, env, spawnImpl: (exe, args, options) => { commands.push({ exe, args, options }); return child; }, routeModel: () => { throw new Error('unexpected router'); }, markSession: () => { throw new Error('unexpected Claude marker'); }, resolveProjectDirectory: () => null, openTerminal: async command => opened.push(command) });
+  const manager = createTaskSessionManager({ dbPath: f.dbPath, dataDir: f.dir, env, spawnImpl: (exe, args, options) => { commands.push({ exe, args, options }); return child; }, routeModel: () => { throw new Error('unexpected router'); }, markSession: () => { throw new Error('unexpected Claude marker'); }, resolveProjectDirectory: () => null, openDesktop: async url => opened.push(url) });
   t.after(() => manager.close());
   const run = manager.launch({ taskId: 'codex-task', owner: 'together', promptSnapshot: SNAPSHOT });
   assert.equal(run.provider, 'codex'); assert.equal(run.claudeSessionId, undefined);
@@ -1749,5 +1749,12 @@ test('Codex task execution captures native session, refuses false success, and r
   assert.equal(done.status, 'output_ready'); assert.equal(done.providerSessionId, 'native-codex-session');
   assert.equal(done.resultSummary, 'A verified plan.'); assert.doesNotMatch(done.hint, /Claude/);
   await manager.resume(run.id);
-  assert.match(opened[0], /native-codex-session/); assert.match(opened[0], /on-request/); assert.doesNotMatch(opened[0], /never|bypass/);
+  assert.equal(opened[0], 'codex://threads/native-codex-session');
+});
+
+test('single-provider setup rejects an unconnected override before spawning', t => {
+  const f = fixture(t);
+  writeFileSync(path.join(f.dir, 'agent-settings.json'), JSON.stringify({ version: 1, provider: 'claude', model: 'claude-fable-5-1', effort: 'low' }));
+  assert.throws(() => f.manager.launch({ taskId: 'unconnected', provider: 'codex', owner: 'together', promptSnapshot: SNAPSHOT }), /Connect and verify codex/);
+  assert.equal(f.spawnCalls.length, 0);
 });

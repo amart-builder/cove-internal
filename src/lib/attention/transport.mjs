@@ -6,6 +6,7 @@ import {
   localIMessageArgs,
   nativeNotificationCommand,
   remoteIMessageArgs,
+  REMOTE_IMESSAGE_TIMEOUT_MS,
 } from "../intake/notification-transport.mjs";
 import { coveConfigPath, coveEnv } from "../env-runtime.mjs";
 
@@ -74,7 +75,7 @@ export function createAttentionTransport(input = {}) {
             config.remote_host,
             config.imessage_to,
             message,
-          ), { timeout: 10_000 });
+          ), { timeout: REMOTE_IMESSAGE_TIMEOUT_MS });
         } else {
           execute("osascript", localIMessageArgs(config.imessage_to, message));
         }

@@ -1,3 +1,4 @@
+import { phoneReminderSnapshot } from "../apple-reminders/queue.mjs";
 import { responsibilityDesk, type Responsibility } from "../responsibility/store";
 import type Database from "better-sqlite3";
 import { mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
@@ -425,6 +426,7 @@ export async function buildChiefOfStaffSnapshot(input: {
         ...(input.wake.note ? [`Note: ${stripStoredText(input.wake.note, 1200)}`] : []),
         `Payload: ${safeJson(input.wake.payload, 1200)}`,
       ], 1_600),
+      boundedSection("Phone reminder delivery", phoneReminderSnapshot(input.dataDir), 2200),
       boundedSection("Rejected actions from previous wake", previousRejections(db, input.jobId), 1_800),
       boundedSection("Responsibilities", [desk.text], 8300),
       boundedSection("Open tasks", taskSection(db, now), 1000),

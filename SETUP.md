@@ -268,19 +268,39 @@ Check the Mac before cloning. Run every command you can for the user. The user s
    - Otherwise, find the current LTS package with `curl -s https://nodejs.org/dist/index.json`, download the correct macOS package to a temporary folder, and run `sudo installer -pkg <file> -target /`. Apple Silicon needs arm64. Warn the user before the password prompt. Do not install Homebrew just for Node.
    - Check Node again in a fresh shell.
 3. Run `git --version`. Fix the command line tools if it fails.
-4. Ask one model question, recommending the tool receiving this setup request:
-   "You're using Codex, so I recommend GPT-6 Astra at low effort for Cove. Shall
-   we use that?" For Claude, recommend Claude Fable 5.1 at low effort instead.
-   Accept the user's alternative. Use an exact supported model ID, not an alias.
-   Run only the selected CLI's version check (`codex --version` or
-   `claude --version`). Install or update that CLI to its current release, and let the user
-   complete its sign-in. They do not need subscriptions to both providers.
-   After Step 1 installs packages, verify and save the selection with
-   `node scripts/cove-agent-settings.mjs configure --provider codex` or
-   `--provider claude`. Defaults are `gpt-6-astra`/low and
-   `claude-fable-5-1`/low. `--model ID --effort low|medium|high` chooses an
-   alternative. The command tests a synthetic response before saving. A failed
-   access check is a real blocker; never silently substitute a model.
+4. Ask explicitly: "Would you like Claude or Codex as your primary Cove agent
+   and chief of staff? You can connect both. Since you're using [the provider
+   receiving this setup request], I recommend starting with that provider."
+   Do not infer their choice from installed CLIs. Once they choose, ask one
+   model question: recommend Claude Fable 5.1 at low effort for Claude, or
+   GPT-6 Astra at low effort for Codex. Accept an exact supported alternative.
+   Run the chosen CLI's version check (`claude --version` or `codex --version`),
+   install or update it, and let the user complete sign-in. One provider is enough.
+   After Step 1 installs packages, verify and save the primary with
+   `node scripts/cove-agent-settings.mjs configure --provider claude` or
+   `--provider codex`. Defaults are `claude-fable-5-1`/low and `gpt-6-astra`/low.
+   Use `--model ID --effort low|medium|high` for their chosen alternative.
+   The command tests a synthetic response before saving. A failed access check
+   is a real blocker; never silently substitute a model.
+
+   If they choose both, install/sign in to the second CLI and run
+   `node scripts/cove-agent-settings.mjs connect --provider codex` (or `claude`).
+   This verifies the second provider without changing the primary. Never copy
+   credentials or treat CLI installation as a successful connection. Read
+   `node scripts/cove-agent-settings.mjs status` back before continuing.
+
+   The primary is the default on Your day's Planning/Auto controls after Morning
+   Arrival, and for the chief of staff and Buddy. Unconnected providers are
+   disabled. With both connected, choosing a provider on a task affects only
+   that task; separate tasks may run with both providers at once. Users can tell
+   Buddy "make Claude my primary agent" or "use Codex from now on" to change
+   the saved default. An assisting agent can use
+   `node scripts/cove-agent-settings.mjs primary --provider claude|codex`.
+   This selects an already verified provider. Existing task sessions keep their
+   original provider. Buddy starts a new provider conversation on the next turn;
+   saved Cove work remains available, but private chat history does not transfer.
+   Basic Mode still uses its two Claude Mac app rituals; do not describe choosing
+   Codex as moving those rituals into another app.
 5. Run `xcrun --find swiftc`. The installer uses Apple's compiler to build a
    tiny local `Cove Notifications.app`, which gives native banners Cove's real
    icon and sender name. If it fails after Command Line Tools were installed,
@@ -503,8 +523,10 @@ Buddy, task sessions and enabled email/meeting jobs. The installer reads it and
 requires only the selected CLI. Do not hand-write this file to bypass the model
 access check. Existing installs without the file keep their legacy lane settings.
 
-Default background limits are 6 calls/hour, 24/day and 100/week, with bounded
-input, output and runtime. Retries and failures count. Issues shows actual calls
+Default limits are 12 calls/hour, 96/day and 400/week for each of the separate
+background-review and daily-planning pools. Daily planning keeps its own writing
+timeout and is not subject to the small monitoring input/output caps. Schema
+validation and a technical response-size boundary still apply. Retries and failures count. Issues shows actual calls
 and whether AI reviews are paused. These are workload limits, not a measurement
 of the provider's subscription balance. Interactive Buddy and user-assigned task
 sessions consume the subscription separately. Explain that distinction once.

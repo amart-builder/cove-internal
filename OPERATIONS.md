@@ -31,7 +31,7 @@ The internal repository is not a client artifact. Build a sanitized tree with `n
 
 ## Reminder coverage and model usage
 
-Issues > On your radar reports the reminder worker's heartbeat and calendar
+Reminder coverage at the top of Your follow-through reports the reminder worker's heartbeat and calendar
 freshness. A disconnected calendar means no meeting coverage. A stale heartbeat
 means the reminder service needs attention, even if no job has failed. Sleeping
 or shut-down Macs cannot notify. Existing explicit reminders continue if the
@@ -39,13 +39,34 @@ optional follow-through checker fails.
 
 The deterministic checker runs without AI tokens. It checks connected meetings
 at most every five minutes and eligible approaching/overdue tasks during local
-8am to 6pm hours. It shares cooldowns and banner limits with existing reminders.
+8am to 6pm hours. It shares cooldowns and banner limits with existing reminders. Approaching
+deadlines can use a reserved slot after ordinary overdue reminders, while the
+final slot stays available for meetings or urgent email. A morning deadline
+warning preserves the noon check-in slot. The daily total remains six.
+Task reminder clicks open the matching task details in Today or All Work.
 One-hour snooze persists across restarts. A notification with an uncertain
 handoff is shown for review, never blindly retried.
+Routine overdue reminders held by alert policy are informational. Held imminent
+deadlines, missed meetings and delivery failures remain visible until reviewed,
+even when newer reminder history exists. Text timeouts remain unconfirmed;
+the noon text reservation is retained even if its fallback Mac banner fails.
+Meetings whose entire prep window falls in quiet hours are not failed reminders.
+Remote iMessage allows 10 seconds to connect plus a bounded Messages window,
+within a 30-second overall timeout. A responsive Mini alone does not prove text
+arrival on the phone.
 
-Background AI shows rolling attempt limits and the selected model. Hitting a
-limit pauses model review, not deterministic reminders. Failures and retries
-count; interactive Buddy and task sessions are outside these background limits.
+The responsibility total separates actual tasks and confirmed commitments from
+unconfirmed suggestions. Unestimated work is shown as unknown. Ambiguous source
+dates are preserved with a confirmation label, without inventing deadlines.
+Completed routine reviews supersede older warnings only for the same routine
+with no event-specific payload. Specific failed event reviews remain visible.
+
+
+Background AI shows the selected model and separate rolling usage for background
+reviews and daily planning. Defaults are 12 calls/hour, 96/day and 400/week per
+pool. Background reviews cannot spend the Morning Brief and closeout allowance.
+Failures and retries count within their pool; interactive Buddy and task sessions
+are outside these background limits. Deterministic reminders remain available.
 Neither tokens observed nor calls remaining measure a subscription balance.
 
 When a Codex task needs permission, use its Continue button to resume in an
@@ -77,8 +98,11 @@ acceptance.
 
 AI-capacity denial keeps a queued job until the indicated rolling window clears;
 it does not spend execution retries. Actual process failures still count. Routine
-work leaves a quarter of the same bounded allowance for chief-of-staff and brief
-calls, while total hourly, daily and weekly caps remain authoritative. This is a
+work leaves a quarter of the background pool for chief-of-staff calls. Daily
+planning has a separate pool with the same configured hourly, daily and weekly
+caps. A brief denied by its own pool stays queued across restarts, shows its
+next eligible time, and retries automatically. Input-size errors are distinct
+from usage denial, and the UI displays only safe failure explanations. This is a
 call allowance, not a provider subscription balance or a guarantee of equal token
 cost. Check pending reviews and Issues when the allowance is resting.
 
@@ -91,3 +115,38 @@ item and explain why it needs attention now, using plain language. For example:
 Use the actual schedule, never invent a deadline or claim that open work is
 definitely unfinished. Keep source labels and content sanitization for inferred
 work. Routine reminders use local templates and require no extra model calls.
+
+Scheduler failures name the affected work and link to Issues. The Issues entry
+explains a safe cause and whether Cove is retrying. Once retries stop, it gives
+the person an immediate fallback and directs repair to their setup agent. Raw
+provider diagnostics stay in stored job and failure details, not banner text.
+Chief reviews use their fifteen-minute driver timeout rather than the shared
+two-minute monitoring timeout; the scheduler renews its lease during execution.
+
+## Optional iCloud reminder bridge
+
+The personal phone beta uses `com.cove.apple-reminders`, a 30-second deterministic
+sync service. It reads `data/apple-reminders.json`; receipts, queue entries and
+link state live under its configured `stateDir`. The helper needs its own full
+macOS Reminders permission through the standard app dialog. Running it as a
+child of an already-authorized terminal is not sufficient proof that launchd
+can use it. Rebuilding an ad-hoc signed helper can require permission again.
+
+Verify a fresh service tick, then actual iCloud arrival and a displayed phone
+alert. Verify completion and exact-time edits both ways using one labeled test
+task. A saved native record alone proves neither device synchronization nor
+notification presentation. Complete the Apple test item and recoverably archive
+its Cove task afterward. Do not change unrelated Apple reminders.
+
+The Mac must be awake for chat access and new synchronization. After a reminder
+has synced through iCloud, the iPhone can deliver that saved reminder without
+the Mac remaining awake. This does not make the Cove agent an always-on cloud
+service. Urgent alarm activation is not automated by this beta.
+
+To disconnect, disable the configuration, stop the dedicated sync LaunchAgent
+and restart the phone MCP process without its reminder connection. Existing
+Apple reminders remain scheduled until explicitly cancelled. Do not erase link
+state to recover from an error: uncertain saves and concurrent edits need their
+receipts to prevent duplicates. Queue errors and native conflicts are returned
+by `cove_reminders` and the chief snapshot. The standard Mac reminder service
+and other background lanes keep their existing configuration.

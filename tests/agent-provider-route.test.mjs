@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import { NextRequest } from 'next/server';
+import { GET, PATCH } from '../src/app/api/agent-settings/implementation.ts';
+import { getQuietCurrentCsrfToken } from '../src/lib/quiet-current/store.ts';
+
+test('provider route exposes only connected choices and protects switching with local origin and CSRF', async t => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cove-provider-route-'));
+  const old = process.env.COVE_DATA_DIR; const oldMode = process.env.NEXT_PUBLIC_COVE_RUNTIME;
+  process.env.COVE_DATA_DIR = dir; process.env.NEXT_PUBLIC_COVE_RUNTIME = 'local';
+  t.after(() => { if (old === undefined) delete process.env.COVE_DATA_DIR; else process.env.COVE_DATA_DIR = old;
+    if (oldMode === undefined) delete process.env.NEXT_PUBLIC_COVE_RUNTIME; else process.env.NEXT_PUBLIC_COVE_RUNTIME = oldMode;
+    rmSync(dir,{recursive:true,force:true}); });
+  const file = path.join(dir,'agent-settings.json');
+  const settings = {version:1,provider:'claude',model:'claude-fable-5-1',effort:'low'};
+  writeFileSync(file,JSON.stringify(settings));
+  const headers = {host:'localhost:3200',origin:'http://localhost:3200','content-type':'application/json'};
+  const patch = (provider, extra = {}) => PATCH(new NextRequest('http://localhost:3200/api/agent-settings', {method:'PATCH',headers:{...headers,...extra},body:JSON.stringify({provider})}));
+  const snapshot = await GET(new NextRequest('http://localhost:3200/api/agent-settings',{headers}));
+  assert.deepEqual(await snapshot.json(),{defaultProvider:'claude',connectedProviders:['claude']});
+  assert.equal((await patch('codex')).status,403);
+  const csrf = {'x-cove-csrf':getQuietCurrentCsrfToken()};
+  assert.equal((await patch('codex',{...csrf,origin:'https://evil.example'})).status,403);
+  assert.equal((await patch('codex',csrf)).status,400);
+  assert.equal(readFileSync(file,'utf8'),JSON.stringify(settings));
+  writeFileSync(file,JSON.stringify({...settings,providers:{claude:settings,codex:{model:'gpt-6-astra',effort:'high'}}}));
+  const changed = await patch('codex',csrf);
+  assert.equal(changed.status,200);
+  assert.equal((await changed.json()).defaultProvider,'codex');
+  const saved = JSON.parse(readFileSync(file,'utf8'));
+  assert.equal(saved.model,'gpt-6-astra'); assert.equal(saved.effort,'high');
+  assert.equal(saved.providers.claude.model,settings.model);
+});

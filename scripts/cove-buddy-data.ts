@@ -56,6 +56,8 @@ type RecurrenceCommand = {
   operation: "pause" | "resume" | "stop";
 };
 export type BuddyDataCommand =
+  | { action: "agent-status" }
+  | { action: "agent-primary"; provider: "claude" | "codex" }
   | TableCommand
   | DayPlanCommand
   | SpawnSessionCommand
@@ -81,6 +83,12 @@ function option(
 }
 
 export function parseBuddyDataArgs(args: string[]): BuddyDataCommand {
+  if (args[0] === "agent") {
+    if (args.length === 2 && args[1] === "status") return { action: "agent-status" };
+    if (args.length === 4 && args[1] === "primary" && args[2] === "--provider" &&
+        (args[3] === "claude" || args[3] === "codex")) return { action: "agent-primary", provider: args[3] };
+    fail("Use agent status or agent primary --provider claude|codex.");
+  }
   if (args[0] === "recurrence") {
     if (args[1] === "confirm") {
       const taskId = option(args, "--task-id");
@@ -261,6 +269,19 @@ export async function runBuddyDataCommand(
   const request = options.fetch ?? fetch;
   const write = options.write ?? ((line) => process.stdout.write(`${line}\n`));
   const appUrl = (options.appUrl ?? coveEnv("BUDDY_APP_URL") ?? "http://127.0.0.1:3200").replace(/\/$/, "");
+  if (command.action === "agent-status" || command.action === "agent-primary") {
+    let init: RequestInit = { cache: "no-store" };
+    if (command.action === "agent-primary") {
+      const state = await responseJson(await request(`${appUrl}/api/day-plan`, { cache: "no-store" }));
+      const token = (state as { csrfToken?: unknown } | null)?.csrfToken;
+      if (typeof token !== "string") fail("Cove request token is unavailable");
+      init = { method: "PATCH", headers: { "Content-Type": "application/json", "X-Cove-CSRF": token },
+        body: JSON.stringify({ provider: command.provider }) };
+    }
+    const result = await responseJson(await request(`${appUrl}/api/agent-settings`, init));
+    write(JSON.stringify(result));
+    return 0;
+  }
   if (command.action === "intake") {
     const result = await (options.runIntake ?? runCoveIntake)(command.input, {
       fetchImpl: request,

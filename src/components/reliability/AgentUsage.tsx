@@ -6,7 +6,10 @@ type UsageResponse = {
   enabled?: boolean;
   error?: string;
   settings?: { model: string; effort: string; backgroundLimits: { callsPerHour: number; callsPerDay: number; callsPerWeek: number } };
-  usage?: { windows: Record<"hour" | "day" | "week", { calls: number; callsWithoutTokenUsage: number }> };
+  usage?: {
+    pools: Record<"background" | "planning", { windows: Record<"hour" | "day" | "week", { calls: number }> }>;
+    availability: { routineRetryAt: string | null; chiefRetryAt: string | null; planningRetryAt: string | null };
+  };
 };
 
 export default function AgentUsage() {
@@ -28,8 +31,10 @@ export default function AgentUsage() {
   if (!state.settings || !state.usage) return null;
   const modelName = ({ "gpt-6-astra": "GPT-6 Astra", "claude-fable-5-1": "Claude Fable 5.1" } as Record<string, string>)[state.settings.model] ?? state.settings.model;
   const limits = state.settings.backgroundLimits;
-  const windows = state.usage.windows;
-  const paused = windows.hour.calls >= limits.callsPerHour || windows.day.calls >= limits.callsPerDay || windows.week.calls >= limits.callsPerWeek;
+  const windows = state.usage.pools.background.windows;
+  const planning = state.usage.pools.planning.windows;
+  const availability = state.usage.availability;
+  const retryLabel = (value: string) => new Date(value).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
   return (
     <section aria-label="Background AI usage" className="mt-7 rounded-xl border border-border bg-card p-5">
       <h2 className="text-base font-medium text-foreground">Background AI</h2>
@@ -37,8 +42,10 @@ export default function AgentUsage() {
       <p className="mt-3 text-sm text-foreground">
         {windows.hour.calls} of {limits.callsPerHour} calls in the past hour. {windows.day.calls} of {limits.callsPerDay} calls in the past 24 hours. {windows.week.calls} of {limits.callsPerWeek} in the past 7 days.
       </p>
-      {paused && <p role="status" className="mt-2 text-sm text-amber-800 dark:text-amber-200">AI reviews are paused until a usage window clears. Your scheduled task reminders can still run.</p>}
-      <p className="mt-2 text-xs text-muted-foreground">These are Cove&apos;s call limits. Your provider&apos;s subscription allowance is not available here. Retries count toward the limit. Routine work leaves part of this same allowance for the chief of staff and Morning Brief. Jobs held by the allowance wait for capacity instead of using up retries.</p>
+      <p className="mt-2 text-sm text-foreground">Daily planning has its own allowance: {planning.day.calls} of {limits.callsPerDay} calls in the past 24 hours. Background checks cannot use it.</p>
+      {availability.routineRetryAt && <p role="status" className="mt-2 text-sm text-amber-800 dark:text-amber-200">Routine AI checks are waiting until {retryLabel(availability.routineRetryAt)}.{availability.chiefRetryAt ? ` Chief reviews can resume after ${retryLabel(availability.chiefRetryAt)}.` : ' Chief reviews still have reserved capacity.'}</p>}
+      {availability.planningRetryAt && <p role="status" className="mt-2 text-sm text-amber-800 dark:text-amber-200">Daily planning is waiting until {retryLabel(availability.planningRetryAt)}. A queued brief will retry automatically.</p>}
+      <p className="mt-2 text-xs text-muted-foreground">These calls include Cove working while you are away. Morning Brief and closeout use a separate allowance with the same hourly, daily and weekly limits. Retries count. Scheduled reminders run without model calls. Your provider&apos;s subscription allowance is not available here.</p>
     </section>
   );
 }

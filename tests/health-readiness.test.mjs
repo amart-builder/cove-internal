@@ -221,7 +221,7 @@ test('empty email copy distinguishes checking, ready, stale, and unsupported run
     readinessState: 'ready',
     checking: false,
     notApplicable: false,
-  }), 'Inbox is clear. Nothing needs you right now.');
+  }), 'No replies or actions were recorded at the last inbox review.');
   assert.equal(emailEmptyStateMessage({
     readinessState: 'not_configured',
     checking: false,
@@ -240,5 +240,11 @@ test('empty email copy distinguishes checking, ready, stale, and unsupported run
   assert.equal(emailEmptyStateMessage({
     checking: false,
     notApplicable: true,
-  }), 'Inbox is clear. Nothing needs you right now.');
+  }), 'No open email is recorded in Cove.');
+});
+
+test('a partial inbox review does not imply there is no work left', () => {
+  assert.equal(emailEmptyStateMessage({ readinessState: 'ready', checking: false,
+    notApplicable: false, lastRunOutcome: 'partial' }),
+    'No open email is recorded, but the last inbox review was incomplete.');
 });

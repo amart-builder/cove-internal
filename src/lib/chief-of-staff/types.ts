@@ -82,6 +82,7 @@ export const CHIEF_OF_STAFF_ACTION_FIELDS: Record<string, readonly string[]> = {
   crm_note: ["contact_id", "title", "content"],
   suggest: ["suggestion_kind", "title", "description", "reason", "priority", "due_date", "claim_key"],
   notify: ["ref_kind", "ref_id", "level", "reason"],
+  phone_reminder: ["task_id", "expected_version", "remind_at", "level", "reason", "next_action"],
 };
 
 export function scrubModelText(value: string, maximum: number): string {

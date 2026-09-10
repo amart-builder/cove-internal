@@ -4,7 +4,7 @@ import {
   preferredDarkTheme,
   tabNavItems,
 } from '../src/components/layout/TabNav.tsx';
-import { requestedTaskWorkspaceView } from '../src/components/tasks/task-workspace-view.ts';
+import { requestedTaskWorkspaceView, requestedTaskLink } from '../src/components/tasks/task-workspace-view.ts';
 
 test('Issues navigation is available only in local runtime mode', () => {
   assert.deepEqual(
@@ -33,4 +33,14 @@ test('the merged task switcher preserves direct links to Today and All Work', ()
   assert.equal(requestedTaskWorkspaceView('?view=today', true), 'today');
   assert.equal(requestedTaskWorkspaceView('?view=today', false), undefined);
   assert.equal(requestedTaskWorkspaceView('', true), undefined);
+});
+
+
+test('notification task links wait for loaded tasks and match only the exact task', () => {
+ const tasks=[{_id:'carlo-task'},{_id:'other'}];
+ assert.equal(requestedTaskLink('?task=carlo-task',[]),undefined);
+ assert.equal(requestedTaskLink('?task=carlo-task',tasks),'carlo-task');
+ assert.equal(requestedTaskLink('?view=all-work&task=carlo%2Dtask',tasks),'carlo-task');
+ assert.equal(requestedTaskLink('?task=missing',tasks),undefined);
+ assert.equal(requestedTaskLink('?task=',tasks),undefined);
 });

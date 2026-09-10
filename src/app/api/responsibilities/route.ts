@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     const due = rows.filter((row) => Date.parse(row.next_check_at) <= +now);
     const jobRow = db
       .prepare(
-        "SELECT status,run_after AS nextAttempt,last_error AS error FROM cove_jobs WHERE type='chief-of-staff-wake' AND status IN ('queued','leased','failed','dead') ORDER BY created_at DESC LIMIT 1",
+        "SELECT status,run_after AS nextAttempt,last_error AS error FROM cove_jobs WHERE type='chief-of-staff-wake' ORDER BY created_at DESC, rowid DESC LIMIT 1",
       )
       .get() as
       | { status: string; nextAttempt: string; error: string | null }
@@ -77,6 +77,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       enabled: true,
       total: rows.length,
+      counts: {
+        tasks: rows.filter((row) => row.ref_kind === "task").length,
+        confirmedCommitments: rows.filter((row) => row.ref_kind === "commitment" && !row.needs_confirmation).length,
+        unconfirmed: rows.filter((row) => row.needs_confirmation).length,
+      },
       pendingReview: due.length,
       job,
       capacity: assessCapacity({
@@ -91,7 +96,7 @@ export async function GET(request: NextRequest) {
       items: [...rows]
         .sort(
           (a, b) =>
-            Number(b.needs_confirmation) - Number(a.needs_confirmation) ||
+            Number(a.needs_confirmation) - Number(b.needs_confirmation) ||
             a.next_check_at.localeCompare(b.next_check_at),
         )
         .slice(0, 8),

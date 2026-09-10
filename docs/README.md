@@ -10,6 +10,7 @@ this directory.
 | Document | Status | Use it for |
 | --- | --- | --- |
 | `cove-north-star-draft.md` | Proposed product direction | The responsibility Cove should assume; not an activated agent mandate. |
+| `brief-capacity-review-2026-09-07.md` | Local repair acceptance record | Daily planning capacity, chief review timeout and useful failure notifications. |
 | `chief-of-staff-methodology-review-2026-09-05.md` | Current methodology audit | Confirmed gaps, synthetic reproductions and acceptance criteria for reliable follow-through. |
 | `handoff-sales-pipeline-gpt6.md` | Prior implementation handoff | Sales pipeline ownership and remaining implementation context. |
 | `responsibility-rollout-2026-09-05.md` | Implementation and acceptance record | Four-part chief-of-staff improvement, verification and activation limits. |
@@ -30,6 +31,7 @@ code.
 | `code-review-2026-07-26.md` | Point-in-time audit. Many findings were fixed or superseded later. |
 | `cove-plan-2026-07.md` | Settled July build plan and product decisions. Implementation status is historical. |
 | `wave-summary-2026-07-29.md` | Build-wave completion summary. Product and repository status in it is stale. |
+| `gary-install-2026-09-10.md` | Pre-beta install preparation. Phone-option claims predate the personal Claude/iCloud beta; current STATUS.md and SETUP.md take precedence. |
 | `gary-install-runbook-2026-08-03.md` | Superseded install-day plan. `SETUP.md` is authoritative. |
 | `gary-handoff-one-pager.md` | Client leave-behind drafted for a specific rollout. Not general engineering documentation. |
 

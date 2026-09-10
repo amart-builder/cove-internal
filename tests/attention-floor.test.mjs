@@ -231,3 +231,16 @@ test("a broken text channel produces one fallback banner, not one every tick", (
   ).pluck().get(), "banner");
   check.close();
 });
+
+test('an uncertain text with a failed fallback retains its claim and never blindly resends',t=>{
+ const {dir,bin,calls,texts,config,dbPath,db}=fixture(t);
+ writeFileSync(path.join(bin,'ssh'),'#!/bin/sh\nprintf "attempt\\n" >> "$COVE_TEST_TEXTS"\nprintf "ETIMEDOUT\\n" >&2\nexit 255\n');
+ writeFileSync(path.join(bin,'osascript'),'#!/bin/sh\nexit 1\n');
+ insertTask(db,{id:'direct-task',title:'Review the launch',inboundSource:'chat'});db.close();
+ const run=minute=>spawnSync(process.execPath,['--import','tsx','scripts/cove-reminders.mjs'],{cwd:process.cwd(),encoding:'utf8',env:{...process.env,PATH:`${bin}:${process.env.PATH}`,COVE_DB_PATH:dbPath,COVE_DATA_DIR:dir,COVE_REMINDER_CONFIG_PATH:config,COVE_ATTENTION_NOW:`2099-08-06T12:${minute}:00-07:00`,COVE_TEST_CALLS:calls,COVE_TEST_TEXTS:texts}});
+ for(const minute of ['00','01','02'])assert.equal(run(minute).status,0);
+ assert.equal(readFileSync(texts,'utf8'),'attempt\n');
+ const check=new Database(dbPath,{readonly:true});
+ assert.deepEqual(check.prepare("SELECT level,suppressed_reason FROM cove_attention_ledger WHERE ref_id LIKE '__floor_daily__%' AND level='text'").get(),{level:'text',suppressed_reason:'delivery_uncertain'});
+ assert.equal(check.prepare("SELECT count(*) FROM cove_failure_inbox WHERE source='reminder-delivery' AND dismissed_at IS NULL").pluck().get(),1);check.close();
+});

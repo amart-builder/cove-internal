@@ -1323,6 +1323,12 @@ export async function runOneMorningBrief(
       ...modelJobChildLifecycle(options, "brief", claimed.id),
     });
     if (!result.ok) {
+      if (result.error.code === "runner_budget_exceeded" && result.error.retryAt && Date.parse(result.error.retryAt) > clock().getTime()) {
+        options.store.deferMorningBrief(claimed.id, result.error.retryAt);
+        recordBriefReceipt("skipped", "Morning brief is queued until writing capacity returns.", { retryAt: result.error.retryAt });
+        if (relay) writeBriefAttemptStatus({ targetLocalDate: claimed.targetLocalDate, attemptId: claimed.id, state: "queued" }, { dataDir: relay.dataDir, host: relayHost, now: clock() });
+        return true;
+      }
       failBrief(backgroundFailureCode("brief", result.error.code));
       return true;
     }

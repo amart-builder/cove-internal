@@ -1,3 +1,4 @@
+import { agentProviderStatus, readAgentSettings } from "@/lib/agent-settings.mjs";
 import { NextRequest, NextResponse } from "next/server";
 import { getQuietCurrentCsrfToken } from "@/lib/quiet-current/store";
 import { hasDayPlanRouteAccess } from "@/lib/request-security";
@@ -107,6 +108,7 @@ export async function handleTaskSessionRunsGet(
   manager.reapOrphans();
   return NextResponse.json({
     enabled: true,
+    ...agentProviderStatus(readAgentSettings()),
     runs: manager.listLatest(taskIds.length > 0 ? taskIds : undefined),
   });
 }
@@ -148,7 +150,11 @@ export async function handleTaskSessionRunsPost(
     if (object.action !== "launch") {
       throw new TaskSessionRequestError("Unknown task session action.");
     }
+    if (object.provider !== undefined && object.provider !== "claude" && object.provider !== "codex") {
+      throw new TaskSessionRequestError("provider must be claude or codex.");
+    }
     const input: LaunchTaskSessionInput = {
+      provider: object.provider,
       taskId: requiredText(object.taskId, "taskId", 240),
       dayPlanId: optionalText(object.dayPlanId, "dayPlanId", 240),
       itemId: optionalText(object.itemId, "itemId", 240),

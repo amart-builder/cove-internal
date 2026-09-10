@@ -6,7 +6,7 @@
 - **canonical_repo:** Projects/Cove
 - **macbook_path:** ~/Atlas/Projects/Cove
 - **mac_mini_path:** retired
-- **github:** PRIVATE development repo `amart-builder/cove-internal`; sanitized client mirror `amart-builder/cove`
+- **github:** PRIVATE development repo `amart-builder/cove-internal`; PRIVATE sanitized client mirror `amart-builder/cove`
 - **default_branch:** main
 - **owned_by:** shared
 - **deploy:** http://localhost:3200 on the MacBook, bound to 127.0.0.1 only. The Mac Mini install is retired.
@@ -16,13 +16,391 @@
 
 <!-- BEGIN active-session -->
 ## Active Session
-- **system:** none
-- **device:** —
-- **since:** —
-- **task:** —
+- **system:** cowork
+- **device:** Alexanders-MacBook-Pro-2
+- **since:** 2026-09-10T12:33:43-0700
+- **task:** Review, verify sanitized distribution, commit and push combined release
 <!-- END active-session -->
 
 ---
+
+## 2026-09-10 Combined release verification
+
+- Both GitHub repositories are private, verified through GitHub. Alex authorized
+  combined review, sanitized-distribution build and verification, commit and
+  push. Release branch: `codex/cove-provider-reminder-release-20260910`.
+- Exact sanitized package verification passed under Node 24.19.0: 1,394 tests,
+  one intentional live-model skip, TypeScript, zero-warning lint and a Next.js
+  16.3.4 production build. The complete dependency audit found zero advisories.
+  The release preserves the patched dependencies already in the client mirror.
+- Independent reviews covered providers, phone/Apple reminders, reliability,
+  email UI, navigation and planning capacity. Three release defects were fixed
+  and independently rechecked: cancellation recovery preserves newer Apple
+  edits, rejected chief actions cannot clear older warnings, and timezone
+  changes cannot erase genuine historical missed reminders.
+- The client export uses the existing 560-file allowlist and excludes private
+  runtime data and internal records. Final export content must match the tested
+  package hashes, with a clean source commit recorded in its manifest.
+- Release evidence: `data/review-artifacts/release-20260910/`. The live web app
+  still uses the combined build recorded below; this release does not restart
+  it. Existing phone chat and Apple Reminders services remain running.
+- Historical meeting recovery: three of the four requeued analyses succeeded.
+  The remaining job is pending with zero attempts until 12:43pm PDT. This task
+  owns the final drain and ingestion receipt check. Alex confirmed the Mini
+  iMessage route works after signing back into Claude; no test text was sent.
+- Earlier entries below are point-in-time implementation and acceptance records.
+  Their statements about uncommitted work predate this combined release.
+
+## 2026-09-10 Primary provider and connected task choices (LIVE, LOCAL)
+
+- Alex requested an explicit setup choice of Claude or Codex as primary chief
+  of staff, matching new-task defaults, disabled unconnected choices, both
+  providers available concurrently, and conversational primary switching.
+- Setup now asks provider first, then exact model. The settings command verifies
+  an additional provider with `connect` while preserving primary; `primary`
+  selects a previously verified model. Per-provider model/effort and background
+  limits survive switches. Older settings register their saved primary only.
+- Your day disables unconnected provider buttons. Task manager rejects an
+  unconnected override; default launches resolve the current primary on the
+  server. Separate tasks can run on both; running tasks and retries retain their
+  stored provider. Navigation's All tasks / Plan your day behavior is preserved.
+- Buddy's restricted data tool supports `agent status` and `agent primary
+  --provider claude|codex`, through local Host/Origin/CSRF-protected settings
+  routes. This is for explicit user requests only. Buddy completion refreshes
+  task choices. Switching provider starts a new Buddy provider conversation;
+  saved Cove work persists, private chat history is not automatically copied.
+- Isolated Node 24 full verification: 1,378 passed, one opt-in skip, TypeScript,
+  zero-warning lint and production build. Fresh review found a stale-default
+  race; fixed by omitting implicit provider overrides and refreshing after Buddy.
+  Reviewer rechecked fix and focused provider test passed. Final three-file UI
+  typecheck, lint and build passed. Synthetic browser acceptance passed at
+  1280x720 and 1280x640: primary defaults, disabled unconnected provider, both
+  connected, and deliberate task override. No real tasks were launched.
+- Evidence: data/review-artifacts/provider-choice-20260910/. Exact checked source
+  and build: /tmp/cove-provider-verify. Provider work is local/uncommitted, not
+  published. Final combined build Rdp7JMnPuXEgzIMrgMzvb is live locally after
+  1,390 tests passed, one optional skip, typecheck, zero-warning lint and build.
+  Desktop and phone browser acceptance passed. Meeting recovery is tracked below.
+  Do not deploy an older build over these changes. Phone chat and iCloud sync
+  were preserved. Claude Fable 5.1/low passed the real synthetic connection
+  probe and is now registered alongside Codex. Alex's primary remains
+  GPT-6 Astra/low, with the same background limits. Combined activation restarted
+  only com.cove.local. No Git push or public release was performed.
+
+
+## 2026-09-10 Reminder and responsibility reliability repair (LIVE, LOCAL)
+
+- Alex authorized fixing the reminder/Issues diagnosis. Routine overdue alert
+  holds are informational. Real delivery problems are shown first and remain
+  visible across days, with dates, task links and appropriate actions. Meetings
+  whose entire prep window falls outside 8am to 6pm no longer become false
+  misses. Six genuine historical missed reminders remain visible.
+- Follow-through separates actual tasks, confirmed commitments and unconfirmed
+  suggestions. Accepted work appears first. Unknown estimates and ambiguous
+  source dates remain explicit. Current review status includes newer successful
+  runs; only proven recovery clears old service warnings. Event-specific failed
+  jobs and audit history are preserved.
+- Meeting capacity waits honor the bounded retry time without consuming attempts.
+  Failure reports distinguish a failed fallback from completed extraction.
+  Successful reviews resolve their own issue. Legacy aggregate warnings require
+  every analysis job to have succeeded before clearing.
+- Remote iMessage has a 30-second total window, allowing time after the 10-second
+  SSH connection timeout. Uncertain text delivery remains unconfirmed. If both
+  the text and native fallback fail, the noon reservation remains claimed so
+  Cove cannot blindly resend the text. Read-only live checks verified Tailscale,
+  SSH, and an iMessage service on the Mini. No connection settings changed.
+- Four old capacity-exhausted meeting jobs were requeued after a verified DB
+  backup and checking that no prior analyst actions, legacy tasks, commitments,
+  or spooled work would be duplicated. Two completed and their ingestion
+  records were repaired through the normal claim/receipt API. Two are pending
+  with zero attempts, eligible after 12:33pm PDT. Capacity limits are unchanged.
+- Final integrated verification: 1,390 tests passed, one optional skip,
+  TypeScript, zero-warning lint and production build. Independent fresh-context
+  review found and verified the fixes above. Installed browser checks passed
+  at 1280x800 and 390x844, with no page errors or API mutations.
+- Activated build Rdp7JMnPuXEgzIMrgMzvb includes the other task's frozen provider
+  choices and all current source. Only com.cove.local restarted. Mac/iCloud
+  reminder services remain healthy; phone chat stayed intact. Prior builds are
+  retained in data/build-backups/20260910-reliability/ and the matching -final/
+  directory. Evidence: data/review-artifacts/reliability-20260910/.
+- Alex confirmed iMessage delivery is fixed after signing back into Claude on
+  the Mini. No additional test text is needed or was sent by this task. Finish
+  the two pending reviews after their capacity window opens, then verify
+  ingestion and record the outcome through the release task. This repair task
+  performed no Git commit/push or public release.
+
+## 2026-09-10 Reopen Plan your day from Your day (LIVE, LOCAL)
+
+- Alex approved preserving existing dirty edits and directly coordinating with
+  the phone/Reminders task. Your day now has `+N more · All tasks` (or `All tasks`
+  with no remaining tasks), using Arrival's eligible Not today count. Clicking
+  it unmounts the grid and reopens Arrival directly at Plan your day. Ordinary
+  Morning Arrival and a different day's plan still start at the brief.
+- Files: TodayRiverStageV2.tsx, TodayView.tsx, MorningArrival.tsx, globals.css,
+  and tests/day-plan-navigation.test.mjs. Existing changes were preserved.
+- Coordinated source freeze followed the other task's notification-fixture and
+  documentation fixes. Integrated Node 24 verification passed: TypeScript,
+  zero-warning lint, 1,374 tests passed (one opt-in skip), production build.
+  Existing browser configuration was preserved. Snapshot:
+  /tmp/cove-nav-integrated-20260910. Build: nByRkeKr7VD_sAtCH09gB.
+- Local web app activated and HTTP 200 verified for /api/health, /tasks and
+  /api/day-plan. Only com.cove.local restarted. The phone chat and
+  com.cove.apple-reminders service were left running. macOS initially rejected
+  bootstrap; rollback restored the prior build, then a bounded unload/retry
+  sequence succeeded. Automatic review rejected one proposed script rewrite;
+  the rewritten, inspected, non-recursive script was approved and succeeded.
+- Browser acceptance against the installed app verified the actual +34 footer,
+  direct Plan your day entry, single dialog, keyboard trap, return to Today and
+  no page errors. All browser API writes were intercepted, so the check did not
+  modify the real day plan/tasks. Earlier mock checks passed at 1280x720,
+  1280x480 and 390x700; fresh independent source review found no material issue.
+- Evidence: data/review-artifacts/navigation-20260910/. Verified pre-update DB
+  backup and previous build: data/build-backups/20260910-plan-navigation/.
+  Temporary browser closed. No commit or GitHub push performed. Alex can refresh
+  Cove and use the new footer. No remaining navigation activation blocker.
+
+## 2026-09-10 Personal phone and iCloud Reminders beta (LIVE, LOCAL)
+
+- The same Claude Code conversation is named Cove and remains running today by
+  Alex's explicit request. The earlier cellular checks verified the real brief,
+  task completion and dictated notes. Its six-tool allowlist now includes
+  cove_reminders and cove_set_reminder, with no shell/browser/external messaging.
+  Runtime: `data/mobile-pilot`; preserve runtime.json's existing session ID.
+- Alex approved full macOS Reminders access. The native helper operates on the
+  dedicated writable iCloud Cove list and linked one-off items. The helper uses
+  LaunchServices for its own privacy identity and a native lock covering each
+  EventKit operation. It does not depend on Codex's inherited app permission.
+- Alex confirmed iCloud arrival and the actual 11:46 a.m. iPhone notification,
+  then completed it in Apple Reminders. Independent Cove readback verified that
+  completion. Live checks also verified reopening, completion and exact-time
+  changes both ways without changing the task deadline. Only the temporary
+  Cove test task was archived; its Apple item remains completed.
+- Reminder previews now begin with the useful next step. Alex asked to remove
+  the visible tracking ID; IDs and machine markers are gone from the notes.
+  Link identity is stored in the conversation URL fragment. User-added notes
+  are preserved when generated context changes.
+- Active new service: com.cove.apple-reminders every 30 seconds, deterministic
+  and without extra model calls. Existing chief wakes can queue useful alerts
+  under the phone-reminder contract. Explicit user preferences are protected;
+  automatic routine alerts respect daytime, a two-per-day budget and a repeat
+  guard. Duplicate existing Cove due notifications are suppressed per link.
+- Ordinary phone notifications are verified. macOS 26.3's public EventKit API
+  does not expose the Urgent alarm switch, so alarm requests remain visibly
+  pending and require a manual step. Mac sleep stops new chat/sync work; once
+  synced, the iPhone can deliver its saved reminder independently.
+- Final checks: 114 focused tests, isolated TypeScript, zero-warning scoped lint,
+  native compile/signature, independent review, eight documentation checks and
+  live acceptance. The two notification tests crossed their old seven-day
+  expiry today; their existing test clock hook now prevents clock drift.
+- Evidence/recovery: `data/apple-reminders-beta/20260910/README.md`,
+  `live-acceptance.json`, `final-validation.txt`, `activated-source.tar.gz`,
+  and `activation-backup/`. Earlier dirty edits were preserved. The original
+  candidate source in that package is historical; do not redeploy over final.
+- Coordinated directly with Fix task list navigation at Alex's request. That
+  task owns combined web verification and local navigation activation. Its
+  missing documentation and notification-test blockers are resolved. No Git
+  commit/push or public release was performed here. Gary/Codex phone acceptance
+  remains separate. The final activated Jarvis handoff is queued locally because
+  its V2 hub is unreachable; the hub save is not confirmed.
+
+## 2026-09-10 Email review panel and system audit (LIVE, LOCAL)
+
+- Alex requested a wider, calmer reading panel with larger text and clearer
+  sections. The panel now reaches 860px, separates sender/subject/summary,
+  offers section shortcuts, and separates useful updates from collapsed routine
+  mail. Gmail remains the conversation and reply surface. The selection rules
+  are unchanged. Archive controls explain the Gmail effect and remove rows only
+  after confirmation; preparation failures and incomplete reviews are visible.
+- Local data refreshes on focus and every visible minute. This does not perform
+  Gmail reconciliation or classification. The old blanket draft-ready and
+  inbox-clear claims were removed. Email uses the shared focus-trapped modal;
+  a dialog pointer guard preserves Second Current behind it.
+- Final isolated Node 24 gate: 1,317 tests passed, one opt-in skip, TypeScript,
+  zero-warning lint, production build. Fresh independent review found no
+  material issues. Browser checks passed at 1280x720, 1280x640 and 390x700,
+  including section navigation, disclosure, keyboard trapping, Escape and
+  return focus. No real email archive/draft/send action was used for acceptance.
+- Read-only end-to-end email audit and isolated failure reproduction are in
+  `data/review-artifacts/email-20260910/REVIEW.md`. At 9:27 a.m., all eight inbox
+  messages were recorded. Three of ten open card entries were already archived
+  in Gmail, and two of five reply entries referenced missing Gmail drafts.
+- Highest-priority finding: classification marks the whole thread reviewed,
+  which can mark a newly arriving message before it was observed. Both intake
+  queries then skip it. This was reproduced with zero external requests; no
+  current inbox message was found missing. Next: authorize a focused backend
+  fix to mark only the processed message, then bounded Gmail reconciliation and
+  draft-existence checks on panel opening. Backend recommendations remain
+  unimplemented because the requested backend scope was review. The known
+  shared-runner isolation decision remains unchanged.
+- Final local build `2VXvtBeoG3RLFyQWNY9a_`. Only the web app restarted. Settings,
+  environment and LaunchAgent hashes are unchanged, and the database backup
+  passed quick_check. Recovery:
+  `data/deploy-backups/email-panel-20260910-093929/RECOVERY.md`.
+- Changes remain local and uncommitted. Earlier dirty work was preserved.
+  Temporary UI tab was closed; no development server was left running.
+
+## 2026-09-10 Task provider choice and desktop handoff (LIVE, LOCAL)
+
+- The Today detail footer puts its label on a separate left-aligned line, with
+  Claude/Codex choices and Planning/Auto below. The open panel now stays above
+  the Focus Grid control and scrolls inside short windows.
+- A per-task provider choice keeps the existing immediate launch: Cove sends the
+  complete authoritative saved brief and begins work. It does not change the
+  saved background provider. Retry preserves the run's original provider.
+- New Codex sessions use desktop-visible history without changing personal
+  configuration. Launches ignore user config and project rules, explicitly
+  disable apps, web search, multi-agent tools and workspace network access, and
+  preserve read-only Planning or workspace-write Auto with on-request approvals.
+  Completed runs reopen in Codex desktop. Older isolated Codex sessions retain
+  their original Terminal recovery. Claude's existing session handoff is retained.
+- Node 24.19.0 full verification: 1,314 passing tests, one opt-in skip, typecheck,
+  zero-warning lint and production build. A final CSS-only correction passed a
+  fresh production build. Independent review found no material issues; installed
+  desktop source preserves stored sandbox settings unless explicitly overridden.
+- Live acceptance: a harmless session launched through the actual manager,
+  automatically received its context, completed, opened via its desktop URL and
+  was read back through the desktop app. Browser checks verified both toggle
+  states, matching left edges, unobstructed controls at 1280x720, and keyboard
+  access to Auto through the scrollable panel at 1280x640. No real task was run.
+- Final build `9DvBVZSc-3Bsx5KJuydaC` is live at localhost:3200. Only the web app
+  restarted; saved agent settings, environment and service plist hashes were
+  unchanged. The database backup passed quick_check. Recovery and validation:
+  `data/deploy-backups/agent-desktop-20260910-092254/RECOVERY.md`.
+- Jarvis handoff is queued locally because the V2 hub was unreachable; its
+  save to the hub is not confirmed. STATUS contains the complete handoff.
+- Changes remain local and uncommitted, with earlier dirty work preserved.
+  No publishing or Git actions were requested. Next: use either provider from
+  the Today footer; public distribution remains a separate authorized release.
+
+## 2026-09-09 Public reliability release (PUBLISHED)
+
+- Alex authorized updating public Cove before a supervised install with Christine.
+  Public PR #4 merged as `c8c9c944bbaeaf1a49786b70ab0db4d5f3186b86`:
+  https://github.com/amart-builder/cove/pull/4 . Release head:
+  `0493c67fb123f0f3290e3cf0d9c84f0789dd466d`.
+- Published the September 7 planning/background pool separation, durable brief
+  retry, chief timeout, safe failure wording, reminder priorities and task links.
+  These improvements are no longer local-only in the public distribution.
+- Fresh dependency audit found Next.js, sharp and js-yaml advisories. Compatible
+  lockfile fixes select Next 16.3.4, sharp 0.35.4 and js-yaml 4.3.2. Final audit:
+  zero vulnerabilities. This dependency patch is in the isolated release source;
+  the personal running install and its lockfile were not changed or redeployed.
+- Exact public candidate passed Node 24.19.0 verification: 1,313 tests, one opt-in
+  model skip, typecheck, zero-warning lint and production build. Independent code,
+  coverage, docs and final lockfile reviews found no blockers. Public GitHub has
+  no CI status checks; the complete release gate was run locally.
+- Public main's tree equals the tested release tree. All 543 exported file hashes
+  match the clean-source manifest (`30644c8`, use manifest for full SHA). Private
+  data, settings, STATUS and internal history were excluded. Exported source is
+  recoverable in `data/release-artifacts/public-20260909/source.bundle`; validation
+  logs, audit and published hash verification are in the same directory.
+- Work used `/private/tmp/cove-release-source-20260909` and
+  `/private/tmp/cove-public-release-20260909`. Existing local changes and services
+  were preserved. Private development history was not pushed by this release.
+- Next: Alex and Christine can use the public repository with SETUP.md for a
+  supervised install. The Neo, her selected provider, real brief, task edit,
+  closeout, native banner/click and restart checks remain live acceptance work.
+  A future personal update should include the dependency security patches above.
+
+## 2026-09-07 Native reminder priority and task links (LIVE, LOCAL)
+
+- Alex clarified that laptop Tailscale being off explains Mini connectivity.
+  Keep the existing Mini text route. Native Mac notifications are the priority.
+- Confirmed that three older overdue reminders consumed routine capacity at
+  08:01 PDT, and the noon floor used the fourth banner. The Carlo Kemp follow-up
+  due at 17:00 was held solely by the ordinary daily banner cap.
+- Approaching deadlines can now use a reserved slot, with the last slot kept for
+  meetings or urgent email. Morning advance warnings preserve the noon floor,
+  including when that floor arrives as a native fallback. The total remains six.
+  Each check handles meetings and advance warnings before overdue work.
+- Native task URLs included ?task= but the browser ignored it. Today and All Work
+  now open the exact loaded TaskDetail, consume only that link and preserve view
+  and unrelated parameters. No task state is changed by opening the link.
+- Full verify: 1,313 tests passed, one opt-in skip, typecheck, zero-warning lint,
+  production build. Two scheduling regressions fail against original code.
+  All 26 focused checks pass; final independent review has no P1/P2 findings.
+- Build `XUi4i-0Qr1rsqUVWzD31x` is live. All 61 table fingerprints were preserved
+  at cutover; .env.local, agent settings and service plists are unchanged. All
+  14 original services resumed. Recovery:
+  `data/deploy-backups/native-reminders-20260907-162145/RECOVERY.md`.
+- The normal worker submitted Carlo's previously held native reminder at
+  16:22:22 PDT on its first attempt, without manually altering its ledger.
+  The real task link was verified in the browser in Today and All Work, including
+  exact task title, one-time query consumption and unrelated parameter retention.
+- Remaining acceptance: Alex has been asked whether the real native banner
+  appeared and opened Carlo's task. macOS sender exit success is submission
+  evidence, not proof of on-screen presentation. Do not call that verified yet.
+- Changes are local and uncommitted. No text route, Focus or privacy setting was
+  changed. Next owner: Alex confirms banner visibility/click; agent investigates
+  the macOS presentation layer only if that check fails.
+
+## 2026-09-07 Follow-through failure notification repair (LIVE, LOCAL)
+
+- Alex reported a banner saying a job exhausted its retries. The associated
+  chief review hit an inherited two-minute timeout twice. The chief now honors
+  its intended fifteen-minute window, including selected-provider execution.
+  Other monitoring jobs retain their shorter timeout and existing byte limits.
+- Scheduler banners explain affected work and open Issues. Issues supplies a
+  safe cause, accurate retry status and a concrete recovery owner/action. Older
+  records receive the same presentation; raw diagnostic details are preserved.
+- Full verify passed typecheck, zero-warning lint, 1,309 tests with one opt-in
+  skip, and production build. Extra historical-message fallback coverage passed
+  in the scheduler suite. Fresh independent review: no remaining P1/P2 findings.
+- Local build `wODKk289jhpR8ODYbs3SQ` is active. Verified consistent backup and
+  cutover preserved all 61 table fingerprints, .env.local, saved agent settings
+  and service plists. All 14 original services were restored. Recovery:
+  `data/deploy-backups/notifications-20260907-155544/RECOVERY.md`.
+- Real Issues API and browser render showed the revised explanation. The exact
+  failed review `25b68bc2-c0bd-47a2-92ff-d7a446be8df9` was requeued with its prior
+  record preserved in the backup. The normal hourly allowance deferred it until
+  15:59:26 PDT. The real Astra review then completed at 16:00:49 PDT on
+  its first attempt, and the associated issue resolved automatically.
+- Alex clarified that Tailscale was off on the laptop, explaining the Mini
+  connection failures. He will keep Tailscale on. Retain the existing Mini text
+  reminder route; the MacBook route candidate is not approved or needed.
+  Native Mac notification delivery and usefulness are the current priority.
+- Changes remain local and uncommitted. No public release or integration change.
+
+## 2026-09-07 Daily planning capacity fix (LIVE, LOCAL)
+
+- Alex authorized reviewing and fixing brief failures against Cove's goal of
+  reducing the burden of remembering, prioritizing and following through.
+- Confirmed a 101,106-byte input rejected by the 96 KB runner guard, mislabeled
+  as usage denial. Background work also consumed the shared 24/day allowance.
+  The live backlog had 370 active responsibilities and 233 never reviewed;
+  suppressing those checks would leave work unattended.
+- Morning Brief and closeout now have a separate call pool from background
+  reviews. The personal saved limits are explicitly 12/hour, 96/day and 400/week
+  per pool. GPT-6 Astra low is unchanged. Other installs keep their saved caps.
+- Daily planning no longer uses the small monitoring input/output guard or its
+  two-minute timeout. Briefs retain their configured eight-minute window,
+  relevant-source rules, schema/evidence validation and the 4 MiB technical
+  response boundary. Codex diagnostics are drained separately from the artifact.
+- A brief denied by its own allowance remains queued across restart, shows its
+  retry time and resumes automatically. The UI distinguishes safe failure
+  reasons and reports planning/background usage separately.
+- Full verify: typecheck, zero-warning lint, 1,305 tests passed, one opt-in skip,
+  production build. Two additional worker/polling regressions passed afterward.
+  New regression cases fail against original code. Two independent reviews
+  found no blocking issues. Personal build: `cX5bXR9qnw66ooEmJ26aG`.
+- Backed-up cutover preserved all 61 table fingerprints. Original .env.local and
+  all service plists were unchanged; all 14 original services were restored.
+  Three old budget-held jobs were made eligible under the updated allowance.
+- Real brief `e395bc37-3c31-450a-9a76-16ad1c4f6c26` accepted 101,120 input bytes on
+  Astra low, succeeded at 14:42:28 PDT, and rendered in the existing Chrome
+  Morning Arrival page. Its validated artifact was 8,705 characters. Normal
+  brief handling applied five board changes and left one protected card alone.
+- Review: `docs/brief-capacity-review-2026-09-07.md`. Recovery:
+  `data/deploy-backups/brief-capacity-20260907-143936/RECOVERY.md`.
+  Changes are local and uncommitted, based on `338233f`. Independent candidate:
+  `/private/tmp/cove-brief-capacity-20260907`, branch `codex/brief-capacity`.
+  Nothing was pushed or published. No new integration or model context source
+  was added; existing shadow modes and shared-runner configuration remain.
+- Jarvis handoff is queued in the local spool because the hub is unreachable.
+  It is not a confirmed hub save; this STATUS is the current handoff.
+- Next: normal use can continue now. Future publication should ship this reviewed
+  local patch through the private/public release process with explicit authority.
+  Long-term subscription sustainability and judgment quality remain observational.
 
 ## 2026-09-05 Responsibility and notification release (LIVE)
 

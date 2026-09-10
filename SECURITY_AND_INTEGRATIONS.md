@@ -40,13 +40,19 @@ Never place secrets in Git, prompts, task descriptions, STATUS files, or client 
 Cove prepares drafts and proposals. Sending email, publishing, purchasing, changing repository visibility, and other public or hard-to-reverse actions remain explicit operator actions.
 
 
-Selected Codex task work uses a separate configuration home with on-request
-approvals, no inherited personal MCP/apps and no network-enabled workspace
-shell. Planning is read-only; task work may edit its approved workspace and
-output directory. Resume uses stored provider/model/session metadata and literal
-shell quoting. Cove does not open an interactive resume while its headless
-child is still stopping. This task path is separate from the unchanged shared
-background Codex runner described above.
+Codex task launches save conversations in the operator's desktop-visible Codex
+home. They ignore personal config and project rules and explicitly disable apps,
+web search, multi-agent tools and workspace network access. Cove does not modify
+the personal configuration. Planning is read-only; Auto may edit the selected
+workspace and output directory, with on-request approvals. The full saved brief
+is sent as fenced context when the process starts. A task can override the saved
+provider without changing the background agent settings.
+
+Completed Codex sessions reopen through their native desktop URL. Cove does not
+open a session while its headless child is running or still stopping. Older
+sessions in Cove's isolated home keep their original terminal recovery path.
+Desktop continuation is an operator-controlled session. This task path is
+separate from the shared background Codex runner described above.
 
 Native follow-through uses bounded calendar observations and task records, not
 model judgment. It stores minimal meeting timing/title data, skips stale sources,
@@ -58,3 +64,23 @@ validated data MCP tool. It uses on-request approval with automatic review,
 so tool calls can be reviewed instead of silently failing under `never`.
 A denial is reported; there is no shell fallback. This configuration is separate
 from the shared background runner whose isolation change was explicitly deferred.
+
+## Optional Apple Reminders phone beta
+
+Installation requires explicit consent for full macOS Reminders access. Apple
+cannot scope that grant to one list. The helper narrows its own operations to
+the selected writable iCloud Cove list and items linked to Cove task IDs. It
+does not import or change other lists. User-facing notes contain useful context;
+internal task IDs are carried in the approved conversation URL fragment.
+
+LaunchServices starts the helper with its own privacy identity. Bounded JSON
+requests and responses use private temporary files. A helper-owned native lock
+serializes EventKit operations even if the launcher times out. Existing items
+require exact ID and revision checks, while creation recovery uses the linked
+task identity. A missing or moved reminder is not silently recreated.
+
+The mobile connector uses only Cove's loopback API and keeps the CSRF token
+inside the process. The six-tool allowlist does not grant shell, browser, email
+sending or other external actions. Explicit user reminder preferences outrank
+automatic judgments. Ordinary notifications and unconfirmed Urgent requests
+must remain distinguishable in tool receipts and user-facing claims.

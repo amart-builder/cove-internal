@@ -1,3 +1,4 @@
+export type TaskSessionProvider = "claude" | "codex";
 export type TaskSessionOwner = "claude" | "together";
 export type TaskSessionLaunchMode = "planning" | "auto";
 export type TaskSessionPermissionMode = "acceptEdits" | "plan";
@@ -55,6 +56,7 @@ export type LaunchTaskSessionInput = {
   itemId?: string;
   owner: TaskSessionOwner;
   mode?: TaskSessionLaunchMode;
+  provider?: TaskSessionProvider;
   promptSnapshot: TaskSessionPromptSnapshot;
 };
 

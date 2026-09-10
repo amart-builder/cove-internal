@@ -77,6 +77,7 @@ import { applyAssistantProposal, validateAssistantProposal } from "./assistant-p
 import { arrivalAdditionOutcomeKey } from "./arrival-addition";
 import {
   isWeekendLocalDate,
+  BRIEF_DEFERRED_PREFIX,
   morningBriefFromArtifact,
   morningBriefCreatedTaskId,
   morningBriefWriterFromJson,
@@ -2642,17 +2643,19 @@ export function createDayPlanStore(options: {
         .prepare(
           `SELECT * FROM day_plan_briefs
            WHERE status = 'queued'
+             AND (error_code IS NULL OR error_code NOT LIKE 'budget_deferred:%'
+                  OR substr(error_code, 17) <= ?)
              AND NOT EXISTS (
                SELECT 1 FROM day_plan_briefs active WHERE active.status = 'running'
              )
            ORDER BY created_at, id LIMIT 1`,
         )
-        .get() as MorningBriefRow | undefined;
+        .get(now().toISOString()) as MorningBriefRow | undefined;
       if (!row) return undefined;
       const startedAt = now().toISOString();
       db.prepare(
         `UPDATE day_plan_briefs
-         SET status = 'running', started_at = ?, updated_at = ?
+         SET status = 'running', started_at = ?, updated_at = ?, error_code = NULL
          WHERE id = ? AND status = 'queued'`,
       ).run(startedAt, startedAt, row.id);
       return getMorningBrief(row.id);
@@ -3234,6 +3237,17 @@ export function createDayPlanStore(options: {
       parts.push(`${counts.offlimits} protected ${(counts.offlimits ?? 0) === 1 ? "card" : "cards"} left alone`);
     }
     return `Cove reorganized the board this morning: ${parts.join(", ")}.`;
+  }
+
+  function deferMorningBrief(id: string, retryAt: string): void {
+    const parsed = Date.parse(retryAt);
+    if (!Number.isFinite(parsed) || parsed <= now().getTime()) throw new Error("invalid_brief_retry_time");
+    immediate(() => {
+      db.prepare(`UPDATE day_plan_briefs
+        SET status = 'queued', error_code = ?, started_at = NULL, finished_at = NULL, updated_at = ?
+        WHERE id = ? AND status = 'running'`)
+        .run(`${BRIEF_DEFERRED_PREFIX}${new Date(parsed).toISOString()}`, now().toISOString(), id);
+    });
   }
 
   function failMorningBrief(id: string, errorCode: string): void {
@@ -5019,6 +5033,7 @@ export function createDayPlanStore(options: {
     morningBriefCreatedTaskPicks,
     morningBriefManagementSummary,
     failMorningBrief,
+    deferMorningBrief,
     importMorningBrief,
     interruptStaleMorningBriefs,
     close: () => {

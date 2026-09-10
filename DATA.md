@@ -103,8 +103,12 @@ pending or failed actions resume after a crash with deterministic target IDs.
 Kinds are `task`, `commitment`, `crm_note`, and `research_note`. Research is
 cached permanently by CRM activity `source_ref=research:<contact_id>`, not by
 age. A job retries with backoff and becomes `dead` after five attempts, at which
-point a visible failure-inbox item records that legacy extraction ran as a
-degraded fallback.
+point a visible failure-inbox item records the degraded fallback outcome.
+A failed fallback is explicit. Temporary AI allowance waits honor their bounded
+retry time without consuming execution attempts. Completed analysis resolves
+its matching failure. A legacy aggregate warning clears only when every
+analysis job has succeeded and a later success exists; resetting a failed job
+to pending does not count as recovery.
 
 Meeting job artifacts, membership, and action rows are durable audit and replay
 state in Phase 2 and have no automatic age-based deletion. A future retention

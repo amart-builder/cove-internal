@@ -50,10 +50,10 @@ test('a stopped Codex process cannot be resumed until it actually exits',async t
  const {EventEmitter}=await import('node:events');const {PassThrough}=await import('node:stream');
  const dir=mkdtempSync(path.join(os.tmpdir(),'cove-resume-stop-'));const auth=path.join(dir,'auth');mkdirSync(auth);writeFileSync(path.join(auth,'auth.json'),'{}');writeFileSync(path.join(dir,'agent-settings.json'),JSON.stringify({version:1,provider:'codex',model:'gpt-6-astra',effort:'low'}));
  const child=Object.assign(new EventEmitter(),{pid:47001,stdin:new PassThrough(),stdout:new PassThrough(),stderr:new PassThrough(),kill:()=>true,unref:()=>child});const opened=[];
- const manager=createTaskSessionManager({dbPath:path.join(dir,'cove.db'),dataDir:dir,env:{CODEX_HOME:auth},spawnImpl:()=>child,signalGroup:()=>{},openTerminal:async command=>opened.push(command),resolveProjectDirectory:()=>null});
+ const manager=createTaskSessionManager({dbPath:path.join(dir,'cove.db'),dataDir:dir,env:{CODEX_HOME:auth},spawnImpl:()=>child,signalGroup:()=>{},openDesktop:async url=>opened.push(url),resolveProjectDirectory:()=>null});
  t.after(()=>{manager.close();rmSync(dir,{recursive:true,force:true});});const run=manager.launch({taskId:'stop',owner:'together',promptSnapshot:{title:'Synthetic',detail:'Plan'}});
  child.stdout.write(JSON.stringify({type:'thread.started',thread_id:'native-stop'})+'\n');manager.abandonRun(run.id);
- await assert.rejects(manager.resume(run.id),/finish stopping/);assert.equal(opened.length,0);child.emit('close',1);await manager.resume(run.id);assert.equal(opened.length,1);
+ await assert.rejects(manager.resume(run.id),/finish stopping/);assert.equal(opened.length,0);child.emit('close',1);await manager.resume(run.id);assert.deepEqual(opened,['codex://threads/native-stop']);
 });
 
 test('the background worker starts a Codex-only empty queue without requiring Claude',async t=>{
@@ -61,4 +61,47 @@ test('the background worker starts a Codex-only empty queue without requiring Cl
  writeFileSync(path.join(dir,'agent-settings.json'),JSON.stringify({version:1,provider:'codex',model:'gpt-6-astra',effort:'low'}));
  const result=spawnSync(process.execPath,['--import','tsx','scripts/cove-claude-worker.ts','--lane','execution'],{encoding:'utf8',timeout:15000,env:{HOME:dir,PATH:process.env.PATH,COVE_DATA_DIR:dir,COVE_DB_PATH:path.join(dir,'cove.db'),COVE_CLAUDE_WORKER_ENABLED:'1',COVE_CLAUDE_BIN:path.join(dir,'missing-claude'),COVE_CODEX_BIN:path.join(dir,'must-not-call'),COVE_NOTIFY:'0'}});
  assert.equal(result.status,0,result.stderr);assert.ok(readFileSync(path.join(dir,'cove.db')).length>0);
+});
+
+test('per-task provider overrides keep saved settings and submit the full brief with isolated launch flags', async t => {
+  const { EventEmitter } = await import('node:events');
+  const { PassThrough } = await import('node:stream');
+  const { default: Database } = await import('better-sqlite3');
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cove-provider-choice-'));
+  const auth = path.join(dir, 'auth'); mkdirSync(auth);
+  writeFileSync(path.join(auth, 'auth.json'), '{}');
+  const personalConfig = 'model = "personal-model"\n';
+  writeFileSync(path.join(auth, 'config.toml'), personalConfig);
+  const settings = JSON.stringify({version: 1, provider: 'claude', model: 'claude-fable-5-1', effort: 'medium', providers: {claude: {model: 'claude-fable-5-1', effort: 'medium'}, codex: {model: 'gpt-6-astra', effort: 'low'}}});
+  writeFileSync(path.join(dir, 'agent-settings.json'), settings);
+  const children = []; const calls = []; const prompts = [];
+  const manager = createTaskSessionManager({dbPath: path.join(dir, 'cove.db'), dataDir: dir,
+    env: { CODEX_HOME: auth, COVE_NOTIFY: '0' }, resolveProjectDirectory: () => null,
+    markSession: () => {}, signalGroup: () => {},
+    spawnImpl: (executable, args, options) => {
+      const child = Object.assign(new EventEmitter(), {pid: 48001 + children.length,
+        stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), unref: () => child});
+      let prompt = ''; child.stdin.on('data', data => { prompt += data.toString(); });
+      calls.push({executable,args,options}); prompts.push(() => prompt); children.push(child); return child;
+    }});
+  t.after(() => { for (const child of children) child.emit('close', 1); manager.close(); rmSync(dir, {recursive:true, force:true}); });
+  const brief = 'Saved briefing context. ' + 'x'.repeat(17000) + ' FULL_BRIEF_END';
+  const db = new Database(path.join(dir, 'cove.db'));
+  db.prepare("INSERT INTO tasks (id,title,brief,status,created_at,updated_at) VALUES ('choice','Choice',?,'open',?,?)").run(brief,new Date().toISOString(),new Date().toISOString()); db.close();
+  const run = manager.launch({taskId:'choice',provider:'codex',owner:'together',mode:'planning',promptSnapshot:{title:'Choice',detail:'Prepare a plan',brief:'Client brief must be ignored'}});
+  assert.equal(run.provider,'codex'); assert.equal(run.model,'gpt-6-astra');
+  assert.equal(calls[0].options.env.CODEX_HOME,auth);
+  for (const flag of ['--ignore-user-config','--ignore-rules','approval_policy="on-request"','web_search="disabled"','features.apps=false','features.multi_agent=false','sandbox_workspace_write.network_access=false','read-only']) assert.ok(calls[0].args.includes(flag),flag);
+  assert.ok(prompts[0]().includes(brief)); assert.ok(!prompts[0]().includes('Client brief must be ignored'));
+  const claude = manager.launch({taskId:'other',provider:'claude',owner:'claude',mode:'auto',promptSnapshot:{title:'Other',detail:'Prepare draft'}});
+  assert.equal(claude.provider,'claude'); assert.equal(claude.model,'claude-fable-5-1'); assert.equal(claude.effort,'medium');
+  assert.equal(readFileSync(path.join(dir,'agent-settings.json'),'utf8'),settings);
+  assert.equal(readFileSync(path.join(auth,'config.toml'),'utf8'),personalConfig);
+  const { setPrimaryAgent } = await import('../src/lib/agent-settings.mjs');
+  setPrimaryAgent('codex', {COVE_DATA_DIR:dir});
+  assert.equal(manager.getRun(claude.id).provider, 'claude');
+  assert.equal(manager.launch({taskId:'other',owner:'claude',mode:'auto',promptSnapshot:{title:'Other',detail:'Prepare draft'}}).id, claude.id);
+  const next = manager.launch({taskId:'new-primary',owner:'together',mode:'planning',promptSnapshot:{title:'Next',detail:'Plan next'}});
+  assert.equal(next.provider,'codex'); assert.equal(next.model,'gpt-6-astra');
+
 });

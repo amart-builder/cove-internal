@@ -225,3 +225,16 @@ test("routine lanes preserve the floor and two time-sensitive slots", (t) => {
   });
   assert.equal(floor.finalLevel, "text");
 });
+
+
+test('morning advance warnings preserve the noon floor and the final meeting slot', (t) => {
+ const db=fixture(t);
+ const allocate=(kind,refId,now,extra={})=>allocateAttention(db,{kind,refKind:'task',refId,requestedLevel:'banner',reason:'test',now:new Date(now),...extra});
+ for(let i=0;i<3;i++)assert.equal(allocate('chief_of_staff',`old-${i}`,'2026-08-06T08:00:00-07:00').finalLevel,'banner');
+ assert.equal(allocate('chief_of_staff','deadline','2026-08-06T09:00:00-07:00',{deadlineReminder:true}).finalLevel,'banner');
+ assert.equal(allocate('chief_of_staff','deadline-2','2026-08-06T10:00:00-07:00',{deadlineReminder:true}).finalLevel,'suppressed');
+ assert.equal(allocate('floor_nudge','floor','2026-08-06T12:00:00-07:00').finalLevel,'banner');
+ assert.equal(allocate('floor_nudge','extra-floor','2026-08-06T12:01:00-07:00').finalLevel,'suppressed');
+ assert.equal(allocate('chief_of_staff','meeting','2026-08-06T13:00:00-07:00',{refKind:'meeting'}).finalLevel,'banner');
+ assert.equal(dailyAttentionUsage(db,new Date('2026-08-06T14:00:00-07:00')).banners,6);
+});

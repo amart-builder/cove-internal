@@ -4,6 +4,7 @@ import {
   type NativeNotificationDependencies,
 } from "../claude-execution/notify";
 import { coveEnv } from "../env";
+import { jobFailureCopy } from "./job-failure-copy";
 
 type HardFailureNotificationDependencies = NativeNotificationDependencies & {
   env?: NodeJS.ProcessEnv;
@@ -24,11 +25,12 @@ export function notifyHardFailure(input: {
   if (coveEnv("NOTIFY", dependencies.env ?? process.env) !== "1") return;
 
   const source = sanitizeNotificationText(input.source) || "background work";
-  const message = sanitizeNotificationText(input.message) || "A background job failed.";
+  const copy = jobFailureCopy(input.source.startsWith("job:") ? input.source.slice(4) : "");
   try {
     const child = spawnNativeNotification({
-      title: "Cove needs attention",
-      body: `${source}: ${message}`.slice(0, 200),
+      title: copy.title,
+      body: copy.body,
+      openUrl: "http://127.0.0.1:3200/failures",
       group: `cove-hard-failure-${source}`.slice(0, 120),
     }, dependencies);
     child.once("error", (error) => {

@@ -1338,9 +1338,24 @@ async function failJob(
   job: MeetingJobRow,
   error: unknown,
   options: AnalysisSweepOptions,
-): Promise<"failed" | "dead"> {
+): Promise<"failed" | "dead" | "deferred"> {
   const now = (options.now ?? (() => new Date()))();
   const message = boundedError(error);
+  // An allowance wait is not a failed execution. Honor the provider's bounded
+  // retry time even on the fifth claim, and return the unused attempt.
+  const retryAt = message.includes("background_usage_limit:")
+    ? /cove_budget_retry_at=(\d{4}-\d{2}-\d{2}T[\d:.]+Z)/.exec(message)?.[1]
+    : undefined;
+  if (retryAt && Number.isFinite(Date.parse(retryAt)) &&
+      Date.parse(retryAt) > +now && Date.parse(retryAt) <= +now + 8 * 86400000) {
+    const deferred = db.prepare(`UPDATE meeting_analysis_jobs
+      SET status='pending', attempts=MAX(0,attempts-1), not_before=?,
+          lease=NULL, lease_expires=NULL, error=?, updated_at=?
+      WHERE id=? AND lease=? AND status='running'`)
+      .run(retryAt, message, now.toISOString(), job.id, job.lease);
+    if (deferred.changes !== 1) throw new Error("meeting_analysis_lease_lost");
+    return "deferred";
+  }
   if (job.attempts >= MAX_JOB_ATTEMPTS) {
     const claimed = db.prepare(
       "UPDATE meeting_analysis_jobs SET status = 'dead', lease = NULL, lease_expires = NULL, error = ?, updated_at = ? WHERE id = ? AND lease = ?",
@@ -1376,14 +1391,24 @@ async function failJob(
       details: { jobId: job.id, error: message, degradation: "legacy-extraction" },
       occurredAt: now.toISOString(),
     });
-    for (const envelope of loadEnvelopes(db, job.id)) {
-      db.prepare(
-        `UPDATE cove_message_ingestion
-         SET status = 'retry', lease_token = NULL, lease_until = NULL,
-             processed_at = NULL, outcome = 'degraded-retry', updated_at = ?
-         WHERE message_id = ?`,
-      ).run(now.toISOString(), envelope.gmailMessageId);
-      await options.legacyFallback(envelope);
+    try {
+      for (const envelope of loadEnvelopes(db, job.id)) {
+        db.prepare(
+          `UPDATE cove_message_ingestion
+           SET status = 'retry', lease_token = NULL, lease_until = NULL,
+               processed_at = NULL, outcome = 'degraded-retry', updated_at = ?
+           WHERE message_id = ?`,
+        ).run(now.toISOString(), envelope.gmailMessageId);
+        await options.legacyFallback(envelope);
+      }
+    } catch (fallbackError) {
+      recordFailureInDatabase(db, {
+        source: "meeting-analysis-degraded", sourceId: job.id,
+        message: "Meeting deep analysis stopped, and basic extraction could not finish. The source notes are preserved for recovery.",
+        details: { jobId: job.id, error: message, fallbackError: boundedError(fallbackError), degradation: "legacy-extraction-failed" },
+        occurredAt: now.toISOString(),
+      });
+      throw fallbackError;
     }
     return "dead";
   }
@@ -1419,6 +1444,9 @@ export async function runMeetingAnalysisSweep(options: AnalysisSweepOptions): Pr
           "UPDATE meeting_analysis_jobs SET status = 'succeeded', lease = NULL, lease_expires = NULL, error = NULL, updated_at = ? WHERE id = ? AND lease = ?",
         ).run((options.now ?? (() => new Date()))().toISOString(), job.id, job.lease);
         if (completed.changes !== 1) throw new Error("meeting_analysis_lease_lost");
+        db.prepare(`UPDATE cove_failure_inbox SET dismissed_at=?
+          WHERE source='meeting-analysis-degraded' AND source_id=? AND dismissed_at IS NULL`)
+          .run((options.now ?? (() => new Date()))().toISOString(), job.id);
         const contactIds = (db.prepare(
           `SELECT DISTINCT target_id FROM meeting_analysis_actions
            WHERE job_id = ? AND kind = 'crm_note' AND status = 'done' AND target_id IS NOT NULL
@@ -1434,7 +1462,7 @@ export async function runMeetingAnalysisSweep(options: AnalysisSweepOptions): Pr
         summary.processed += 1;
       } catch (error) {
         const status = await failJob(db, job, error, options);
-        summary[status] += 1;
+        if (status !== "deferred") summary[status] += 1;
       }
     }
     return summary;

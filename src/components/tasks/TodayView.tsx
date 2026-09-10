@@ -1,5 +1,7 @@
 'use client';
 
+import { useTaskLink } from './useTaskLink';
+
 import { taskEditError, type TaskEditGuard } from '@/lib/tasks/edit-conflict';
 
 /**
@@ -748,9 +750,11 @@ function TodayExperience({
   const [focusExpanded, setFocusExpanded] = useState(false);
   const [wakeOpen, setWakeOpen] = useState(false);
   const [arrivalPlanCanvas, setArrivalPlanCanvas] = useState(false);
+  const [arrivalEntry, setArrivalEntry] = useState<{ planId: string; step: 'brief' | 'plan' }>();
   const [showAllDownstream, setShowAllDownstream] = useState(false);
   const [expandedSuggestionId, setExpandedSuggestionId] = useState<string | null>(null);
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
+  useTaskLink('today', tasks, setDetailTaskId);
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
   const [undo, setUndo] = useState<UndoAction | null>(null);
   const [undoPaused, setUndoPaused] = useState(false);
@@ -1135,9 +1139,10 @@ function TodayExperience({
     if (searchOpen) closeSearch(false);
   }, [closeSearch, searchOpen]);
 
-  const openMorningArrival = useCallback(async () => {
+  const openMorningArrival = useCallback(async (step: 'brief' | 'plan' = 'brief') => {
     closeTransientSurfaces();
     setSurfaceError(undefined);
+    if (dayRitual.plan) setArrivalEntry({ planId: dayRitual.plan.id, step });
     try {
       await dayRitual.openArrival();
     } catch (nextError) {
@@ -2272,6 +2277,7 @@ function TodayExperience({
   const launchToday2Session = useCallback(async (
     taskId: string,
     mode: NonNullable<LaunchTaskSessionInput['mode']>,
+    provider?: LaunchTaskSessionInput['provider'],
   ) => {
     const plan = dayRitual.plan;
     const entry = today2PlanEntries.find((candidate) => candidate.task._id === taskId);
@@ -2280,6 +2286,7 @@ function TodayExperience({
       ...taskSessionInput(plan.id, entry.item),
       owner: mode === 'planning' ? 'together' : 'claude',
       mode,
+      provider,
     }).catch(() => undefined);
   }, [dayRitual.plan, localMode, taskSessions, today2PlanEntries]);
 
@@ -2368,9 +2375,12 @@ function TodayExperience({
             doneTitles: doneToday.map((task) => task.title),
             focusCount,
             orderedTasks: today2Tasks,
+            notTodayCount: notTodayTasks.length,
             selectedTaskId: focusedTaskId ?? undefined,
             completingTaskId: completingTaskId ?? undefined,
             activeRunCount: taskSessions.activeRuns.length,
+            defaultProvider: taskSessions.defaultProvider,
+            connectedProviders: taskSessions.connectedProviders,
             localMode,
             reorderEnabled: dayRitual.plan?.state === 'active' && !dayRitual.busy,
             focusCountBusy: focusCountBusy || !localMode,
@@ -2391,6 +2401,7 @@ function TodayExperience({
           }}
           callbacks={{
             onOpenMorningArrival: () => void openMorningArrival(),
+            onOpenDayPlan: () => void openMorningArrival('plan'),
             onOpenCloseDay: () => void openDaySettlement(),
             onPlanWeekend: () => void dayRitual.planWeekendAnyway(),
             onFocusTask: (taskId) => focusTask(taskId, 'today2_card'),
@@ -2416,8 +2427,8 @@ function TodayExperience({
                 nextTaskIds,
               });
             },
-            onStartSession: (taskId, owner) => void launchToday2Session(taskId, owner),
-            onRetrySession: (taskId, owner) => void launchToday2Session(taskId, owner),
+            onStartSession: (taskId, mode, provider) => void launchToday2Session(taskId, mode, provider),
+            onRetrySession: (taskId, mode, provider) => void launchToday2Session(taskId, mode, provider),
             onReorder: (orderedTaskIds) => {
               const startingPlanId = dayRitual.plan?.id;
               return persistToday2Order(orderedTaskIds).catch((nextError) => {
@@ -3159,6 +3170,7 @@ function TodayExperience({
           >
             {ritualView === 'arrival' ? (
               <MorningArrival
+                initialStep={arrivalEntry?.planId === dayRitual.plan.id ? arrivalEntry.step : 'brief'}
                 localDate={dayRitual.plan.localDate}
                 plan={dayRitual.plan}
                 focusCount={focusCount}

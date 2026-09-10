@@ -25,7 +25,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { Writable } from "node:stream";
-import { readAgentSettings } from "../agent-settings.mjs";
+import { readAgentSettings, connectedAgents, agentProviderStatus } from "../agent-settings.mjs";
 import { openAgentTerminal } from "../agent-terminal";
 import { buildCodexTaskCommand, codexTaskResumeCommand, createCodexTaskParser, taskCodexHome } from "./codex";
 import { resolveProjectDirectory } from "../atlas-projects";
@@ -61,6 +61,7 @@ import type {
   TaskSessionModel,
   TaskSessionPermissionMode,
   TaskSessionPromptSnapshot,
+  TaskSessionProvider,
   TaskSessionRun,
   TaskSessionRunStatus,
 } from "./types";
@@ -208,19 +209,6 @@ function humanDueDate(value: string | undefined): string {
   }).format(parsed);
 }
 
-const MAX_TASK_BRIEF_CHARS = 16_000;
-const TASK_BRIEF_TRUNCATION_MARKER = "\n[Brief truncated by Cove.]";
-
-function boundedTaskBrief(value: string | undefined): string | undefined {
-  const brief = value?.trim();
-  if (!brief) return undefined;
-  if (brief.length <= MAX_TASK_BRIEF_CHARS) return brief;
-  return `${brief.slice(
-    0,
-    MAX_TASK_BRIEF_CHARS - TASK_BRIEF_TRUNCATION_MARKER.length,
-  )}${TASK_BRIEF_TRUNCATION_MARKER}`;
-}
-
 export function buildTaskSessionPrompt(input: {
   mode: TaskSessionLaunchMode;
   outputDir: string;
@@ -229,7 +217,7 @@ export function buildTaskSessionPrompt(input: {
 }): string {
   const task = input.promptSnapshot;
   const name = sessionOperatorName(input.operatorDisplayName);
-  const brief = boundedTaskBrief(task.brief);
+  const brief = task.brief?.trim();
   const cleanLine = (value: string | undefined) =>
     value === undefined
       ? undefined
@@ -677,6 +665,7 @@ export type TaskSessionManagerDependencies = {
   timeoutMs?: number;
   terminationGraceMs?: number;
   env?: NodeJS.ProcessEnv;
+  openDesktop?: (url: string) => Promise<void>;
   openTerminal?: (command: string) => Promise<void>;
   processExists?: (pid: number) => boolean;
   processStartedAt?: (pid: number) => string | undefined;
@@ -1062,8 +1051,12 @@ export function createTaskSessionManager(
     // event loop for its duration (up to 15s), so it can be switched off per
     // environment. COVE_MODEL_ROUTER=0 (set by the demo scripts) skips
     // straight to the fixed fallback rule.
-    const selection = readAgentSettings({ ...env, COVE_DATA_DIR: dataDir });
-    const provider = selection?.provider === "codex" ? "codex" : "claude";
+    const savedSelection = readAgentSettings({ ...env, COVE_DATA_DIR: dataDir });
+    const provider: TaskSessionProvider = input.provider ?? (savedSelection?.provider === "codex" ? "codex" : "claude");
+    if (!agentProviderStatus(savedSelection).connectedProviders.includes(provider)) {
+      throw new Error(`Connect and verify ${provider} in Cove setup before starting a task with it.`);
+    }
+    const selection = connectedAgents(savedSelection)[provider];
     const routerEnabled = env.COVE_MODEL_ROUTER !== "0";
     const modelDecision: TaskSessionModelDecision = selection ? {
       model: selection.model as TaskSessionModel, effort: selection.effort as TaskSessionEffort,
@@ -1217,7 +1210,7 @@ export function createTaskSessionManager(
     let stderrLog: Writable | undefined;
     let stdoutTail = "";
     const codexParser = provider === "codex" ? createCodexTaskParser(id => {
-      db.prepare("UPDATE cove_task_session_runs SET provider_session_id = ? WHERE id = ? AND status = 'running'").run(id, runId);
+      db.prepare("UPDATE cove_task_session_runs SET provider_session_id = ?, resume_url = ? WHERE id = ? AND status = 'running'").run(id, `codex://threads/${encodeURIComponent(id)}`, runId);
     }) : undefined;
     let stderrTail = "";
     let settled = false;
@@ -1351,7 +1344,13 @@ export function createTaskSessionManager(
       if (!run) throw new TaskSessionRunNotFoundError();
       if (run.provider !== "codex" || !run.providerSessionId || !run.resumeCommand) throw new Error("This task has no Codex session to resume yet.");
       if (run.status === "running" || children.has(runId) || terminators.has(runId)) throw new Error("Wait for this task to finish stopping before resuming.");
-      await (dependencies.openTerminal ?? openAgentTerminal)(run.resumeCommand);
+      if (run.resumeUrl.startsWith("codex://threads/")) {
+        if (dependencies.openDesktop) await dependencies.openDesktop(run.resumeUrl);
+        else execFileSync("/usr/bin/open", [run.resumeUrl], { timeout: 10_000, stdio: "ignore" });
+      } else {
+        // Older isolated sessions retain their original recovery path.
+        await (dependencies.openTerminal ?? openAgentTerminal)(run.resumeCommand);
+      }
     },
     getRun,
     latestForTask,

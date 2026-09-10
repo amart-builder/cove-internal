@@ -50,7 +50,9 @@ import {
 import { maybeQueueMorningBrief } from '../src/lib/day-plan/brief-triggers.ts';
 import { morningBriefSyncDecision } from '../src/lib/day-plan/brief-view.ts';
 import { writeDayClosureRelay, writeSourceCheckpoint } from '../src/lib/day-plan/brief-relay.ts';
-import { morningBriefArrivalPresentation } from '../src/lib/day-plan/presentation.ts';
+import { morningBriefArrivalPresentation, shouldPollBriefGeneration } from '../src/lib/day-plan/presentation.ts';
+import { reserveBackgroundAttempt } from '../src/lib/background-usage.mjs';
+import { validateAgentSettings } from '../src/lib/agent-settings.mjs';
 import { publicDayPlan } from '../src/lib/day-plan/public-execution.ts';
 import {
   buildMorningBriefCommand,
@@ -2009,14 +2011,9 @@ test('Codex console chatter cannot invalidate a valid brief artifact', async (t)
   assert.equal(store.listMorningBriefs('2026-07-14')[0].errorCode, undefined);
 });
 
-test('a Codex response over four megabytes fails with the brief overflow code', async (t) => {
+test('a Codex final artifact over four megabytes fails with the brief overflow code', async (t) => {
   const { dir, store } = briefFixture(t);
-  const fake = fakeCodex(
-    dir,
-    [JSON.stringify(WIRE_BRIEF)],
-    [],
-    4 * 1024 * 1024 + 1,
-  );
+  const fake = fakeCodex(dir, ['x'.repeat(4 * 1024 * 1024 + 1)]);
   store.enqueueMorningBrief('2026-07-14', {
     modelAlias: 'opus',
     effort: 'high',
@@ -2605,4 +2602,77 @@ test('the client brief state is keyed to plan.briefId', () => {
   assert.equal(morningBriefSyncDecision('b1', { id: 'b1' }), 'keep');
   assert.equal(morningBriefSyncDecision('b1', undefined), 'refresh');
   assert.equal(morningBriefSyncDecision('b2', { id: 'b1' }), 'refresh');
+});
+
+
+test('brief capacity deferral survives restart, keeps one queue row and resumes only when due', t => {
+  const fixture = briefFixture(t);
+  const { store, setNow } = fixture;
+  setNow('2026-07-14T13:00:00.000Z');
+  const provenance = { modelAlias: 'opus', effort: 'high', budgetUsd: 1.5 };
+  const queued = store.enqueueMorningBrief('2026-07-14', provenance).brief;
+  store.claimNextMorningBrief();
+  store.deferMorningBrief(queued.id, '2026-07-14T14:00:00.000Z');
+  assert.equal(store.claimNextMorningBrief(), undefined);
+  const reopened = createDayPlanStore({ dbPath: path.join(fixture.dir, 'cove.db'), now: () => new Date('2026-07-14T13:30:00.000Z') });
+  assert.equal(reopened.claimNextMorningBrief(), undefined);
+  reopened.close();
+  assert.equal(store.enqueueMorningBrief('2026-07-14', provenance).created, false);
+  const state = selectMorningBriefGeneration(store.listMorningBriefs('2026-07-14'), '2026-07-14', new Date('2026-07-14T13:01:00.000Z'));
+  assert.deepEqual(state, { state: 'deferred', retryAt: '2026-07-14T14:00:00.000Z' });
+  setNow('2026-07-14T14:00:00.000Z');
+  assert.equal(store.claimNextMorningBrief().id, queued.id);
+  assert.equal(store.getMorningBrief(queued.id).errorCode, undefined);
+});
+
+test('brief failures explain only a safe category and deferred UI promises an automatic retry', () => {
+  const now = new Date('2026-07-14T14:00:00.000Z');
+  const failed = selectMorningBriefGeneration([genArtifact({ status: 'failed', errorCode: 'runner_input_too_large' })], '2026-07-14', now);
+  assert.match(failed.failureMessage, /context/);
+  const privateError = selectMorningBriefGeneration([genArtifact({ status: 'failed', errorCode: 'secret local diagnostic' })], '2026-07-14', now);
+  assert.doesNotMatch(privateError.failureMessage, /secret local diagnostic/);
+  const html = renderToStaticMarkup(createElement(ArrivalStepBriefComponent, {
+    paragraphs: [], watchItems: [], briefWriting: false, briefAttached: false, hasBriefContent: false,
+    briefGeneration: { state: 'deferred', retryAt: '2026-07-14T15:00:00.000Z' }, onForceBrief: () => {},
+  }));
+  assert.match(html, /try again automatically/);
+  assert.doesNotMatch(html, /Generate your brief/);
+});
+
+
+test('the brief worker defers an exhausted planning pool without spawning and resumes automatically', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(CLOCK) });
+  const { dir, store, setNow } = briefFixture(t);
+  const keys = ['COVE_DATA_DIR', 'COVE_DB_PATH'];
+  const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  t.after(() => { for (const key of keys) { if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key]; } });
+  process.env.COVE_DATA_DIR = dir;
+  process.env.COVE_DB_PATH = path.join(dir, 'cove.db');
+  const settings = validateAgentSettings({ version: 1, provider: 'codex', model: 'gpt-6-astra', effort: 'low', backgroundLimits: { callsPerDay: 1 } });
+  writeFileSync(path.join(dir, 'agent-settings.json'), JSON.stringify(settings));
+  reserveBackgroundAttempt({ env: process.env, settings, lane: 'day-dump', inputBytes: 1 });
+  const fake = fakeCodex(dir, [JSON.stringify(WIRE_BRIEF)]);
+  const queued = store.enqueueMorningBrief('2026-07-14', { modelAlias: 'opus', effort: 'high', budgetUsd: 1.5 }).brief;
+  const options = { ...briefWorkerOptions(dir, store, path.join(dir, 'unused'), async () => collectedSources()),
+    now: () => new Date(), briefWriter: 'codex', codexPath: fake.executable };
+  assert.equal(await runOneMorningBrief(options), true);
+  const deferred = store.getMorningBrief(queued.id);
+  assert.equal(deferred.status, 'queued');
+  assert.match(deferred.errorCode, /^budget_deferred:/);
+  assert.equal(existsSync(fake.capture), false);
+  assert.equal(await runOneMorningBrief(options), false);
+  assert.equal(existsSync(fake.capture), false);
+  t.mock.timers.tick(86_400_001);
+  setNow(new Date().toISOString());
+  assert.equal(await runOneMorningBrief(options), true);
+  assert.equal(store.getMorningBrief(queued.id).status, 'succeeded');
+  assert.equal(store.listMorningBriefs('2026-07-14').length, 1);
+});
+
+test('deferred briefs keep polling only for a visible untouched arrival without an attached brief', () => {
+  const base = { view: 'arrival', documentVisible: true, briefAttached: false, arrivalInteracted: false, attachTimedOut: false, generationState: 'deferred' };
+  assert.equal(shouldPollBriefGeneration(base), true);
+  for (const change of [{ view: 'today' }, { documentVisible: false }, { briefAttached: true }, { arrivalInteracted: true }]) {
+    assert.equal(shouldPollBriefGeneration({ ...base, ...change }), false);
+  }
 });

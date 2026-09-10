@@ -95,7 +95,7 @@ test('oversized context and invalid settings stop before any model call', async 
   const { dir, env } = fixture(t, 'claude', { inputBytesPerCall: 5 });
   let spawns = 0;
   const result = await runJob({ lane: 'test', kind: 'text', prompt: 'This input is too long', env, spawnImpl: () => { spawns++; } });
-  assert.equal(result.error.code, 'runner_budget_exceeded');
+  assert.equal(result.error.code, 'runner_input_too_large');
   assert.equal(spawns, 0);
   const file = path.join(dir, 'agent-settings.json');
   const settings = JSON.parse(readFileSync(file, 'utf8'));
@@ -111,7 +111,7 @@ test('schema bytes count toward the Claude input ceiling', async (t) => {
   let spawns = 0;
   const result = await runJob({ lane: 'test', kind: 'structured', prompt: 'hi', schema, env,
     spawnImpl: () => { spawns++; } });
-  assert.equal(result.error.code, 'runner_budget_exceeded');
+  assert.equal(result.error.code, 'runner_input_too_large');
   assert.equal(spawns, 0);
 });
 
@@ -194,4 +194,108 @@ test('routine calls cannot consume the chief and brief reserve, and reset time r
  let reset;try{reserveBackgroundAttempt({env,settings,lane:'brief',inputBytes:1,now:now+7});}catch(e){reset=e.retryAt;}
  assert.equal(reset,new Date(now+3600001).toISOString());
  assert.doesNotThrow(()=>reserveBackgroundAttempt({env,settings,lane:'brief',inputBytes:1,now:Date.parse(reset)}));
+});
+
+for (const provider of ['claude', 'codex']) {
+  test(`${provider} daily planning reads a large context and writes a long result despite background exhaustion`, async t => {
+    const { env, settings } = fixture(t, provider, { callsPerDay: 2, inputBytesPerCall: 20, outputBytesPerCall: 20 });
+    const now = Date.now();
+    for (let i = 0; i < 2; i++) reserveBackgroundAttempt({ env, settings, lane: 'chief-of-staff', inputBytes: 1, now: now - i });
+    const calls = [];
+    const answer = 'Relevant detail. '.repeat(6000);
+    const result = await runJob({ lane: 'morning-brief', kind: 'structured', prompt: 'Context '.repeat(15000), schema, env,
+      codexPath: process.execPath, claudePath: process.execPath, spawnImpl: fakeSpawn(calls, [{ answer }]) });
+    assert.equal(result.ok, true, JSON.stringify(result.error));
+    assert.equal(result.value.answer, answer);
+    assert.equal(calls.length, 1);
+    const usage = readBackgroundUsage(env, Date.now(), settings);
+    assert.equal(usage.pools.background.windows.day.calls, 2);
+    assert.equal(usage.pools.planning.windows.day.calls, 1);
+    assert.ok(usage.availability.chiefRetryAt);
+    assert.equal(usage.availability.planningRetryAt, null);
+  });
+}
+
+test('planning exhaustion cannot stop monitoring, and similarly named jobs do not get planning privileges', t => {
+  const { env, settings } = fixture(t, 'claude', { callsPerDay: 2, inputBytesPerCall: 10 });
+  const now = Date.now();
+  for (const lane of ['morning-brief', 'day-dump']) reserveBackgroundAttempt({ env, settings, lane, inputBytes: 100000, now });
+  assert.throws(() => reserveBackgroundAttempt({ env, settings, lane: 'morning-brief', inputBytes: 1, now }), /background_usage_limit/);
+  assert.doesNotThrow(() => reserveBackgroundAttempt({ env, settings, lane: 'email-classifier', inputBytes: 1, now }));
+  assert.throws(() => reserveBackgroundAttempt({ env, settings, lane: 'morning-brief-review', inputBytes: 100000, now }), /background_input_limit/);
+});
+
+test('planning retries count and return their own durable retry time', async t => {
+  const { env } = fixture(t, 'claude', { callsPerDay: 1 });
+  const calls = [];
+  const result = await runJob({ lane: 'morning-brief', kind: 'structured', prompt: 'Review', schema, env,
+    spawnImpl: fakeSpawn(calls, [{ wrong: true }]) });
+  assert.equal(result.error.code, 'runner_budget_exceeded');
+  assert.ok(Date.parse(result.error.retryAt) > Date.now());
+  assert.equal(calls.length, 1);
+});
+
+test('long Codex diagnostic chatter cannot kill a valid brief artifact', async t => {
+  const { env } = fixture(t, 'codex');
+  const calls = [];
+  const normal = fakeSpawn(calls, []);
+  const result = await runJob({ lane: 'morning-brief', kind: 'structured', prompt: 'Review', schema, env,
+    codexPath: process.execPath, spawnImpl: (...args) => {
+      const child = normal(...args);
+      child.stdin.prependListener('finish', () => child.stdout.write('x'.repeat(5 * 1024 * 1024) + '\n'));
+      return child;
+    } });
+  assert.equal(result.ok, true);
+  assert.equal(readBackgroundUsage(env).windows.day.outputTokens, 20);
+});
+
+for (const provider of ['claude', 'codex']) {
+  test(`${provider} planning retains a technical output safety boundary`, async t => {
+    const { env } = fixture(t, provider);
+    const calls = [];
+    const normal = fakeSpawn(calls, [{ answer: 'x'.repeat(4 * 1024 * 1024) }]);
+    const result = await runJob({ lane: 'morning-brief', kind: 'structured', prompt: 'Review', schema, env,
+      codexPath: process.execPath, claudePath: process.execPath, spawnImpl: normal });
+    assert.equal(result.error.code, 'runner_output_too_large');
+    assert.equal(readBackgroundUsage(env).recent[0].status, 'failed');
+  });
+}
+
+test('planning and chief reviews keep their own deadlines while monitoring uses its shorter timeout', async t => {
+  const { env } = fixture(t, 'claude', { timeoutMs: 10 });
+  const delayedSpawn = () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.stdin = new PassThrough();
+    let timer;
+    child.kill = () => { clearTimeout(timer); queueMicrotask(() => child.emit('close', null, 'SIGTERM')); };
+    child.stdin.on('finish', () => { timer = setTimeout(() => {
+      child.stdout.write(JSON.stringify({ structured_output: { answer: 'done' } }));
+      child.emit('close', 0, null);
+    }, 60); });
+    return child;
+  };
+  const planning = await runJob({ lane: 'morning-brief', kind: 'structured', prompt: 'Review', schema, env, timeoutMs: 500, spawnImpl: delayedSpawn });
+  assert.equal(planning.ok, true);
+  const chief = await runJob({ lane: 'chief-of-staff', kind: 'structured', prompt: 'Review', schema, env, timeoutMs: 500, spawnImpl: delayedSpawn });
+  assert.equal(chief.ok, true);
+  const monitoring = await runJob({ lane: 'test', kind: 'structured', prompt: 'Review', schema, env, timeoutMs: 500, spawnImpl: delayedSpawn });
+  assert.equal(monitoring.error.code, 'runner_timeout');
+});
+
+test('connecting both preserves primary and exact models; switching keeps limits and failed probes keep all settings', async t => {
+  const { env, dir, settings } = fixture(t, 'claude', { callsPerDay: 35 });
+  const { connectedAgents, setPrimaryAgent, agentProviderStatus } = await import('../src/lib/agent-settings.mjs');
+  assert.deepEqual(agentProviderStatus(readAgentSettings(env)).connectedProviders, ['claude']);
+  assert.throws(() => setPrimaryAgent('codex', env), /Connect and verify/);
+  const connected = await configureAgent({ provider: 'codex', model: 'gpt-6-astra', effort: 'high', makePrimary: false, env, runner: async () => ({ ok: true }) });
+  assert.equal(connected.provider, 'claude');
+  assert.deepEqual(Object.keys(connectedAgents(connected)).sort(), ['claude', 'codex']);
+  const switched = setPrimaryAgent('codex', env);
+  assert.equal(switched.model, 'gpt-6-astra'); assert.equal(switched.effort, 'high');
+  assert.deepEqual(switched.backgroundLimits, settings.backgroundLimits);
+  assert.equal(setPrimaryAgent('claude', env).model, settings.model);
+  const before = readFileSync(path.join(dir, 'agent-settings.json'), 'utf8');
+  await assert.rejects(configureAgent({ provider: 'codex', model: 'gpt-unavailable', makePrimary: false, env, runner: async () => ({ ok: false, error: { message: 'denied' } }) }), /Settings were not changed/);
+  assert.equal(readFileSync(path.join(dir, 'agent-settings.json'), 'utf8'), before);
+  assert.throws(() => validateAgentSettings({ ...switched, providers: { claude: switched.providers.claude } }), /must match a connected/);
 });

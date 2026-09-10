@@ -523,8 +523,8 @@ test('notifyHardFailure uses the native banner path only when COVE_NOTIFY=1', ()
   assert.equal(calls[0].executable, '/usr/bin/osascript');
   assert.deepEqual(calls[0].args.slice(-3), [
     '--',
-    'Cove needs attention',
-    'job:backup: Backup retries exhausted.',
+    'Your Cove backup needs attention',
+    "Cove couldn't create a fresh backup. Open Issues before relying on today's backup.",
   ]);
 });
 
@@ -551,4 +551,27 @@ test('Cove sender app accepts a hard-failure group without an open URL', () => {
     '--group', 'cove-hard-failure-job:backup',
   ]);
   assert.equal(calls[0].args.includes('--open-url'), false);
+});
+
+
+test('hard-failure banners explain affected work and never echo raw diagnostics', () => {
+  const result = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '--eval', `
+    import notifications from './src/lib/reliability/notifications.ts';
+    const calls = [];
+    notifications.notifyHardFailure({ source: 'job:chief-of-staff-wake',
+      message: 'Job exhausted its retries: sk-secret /Users/private/work.txt', details: { attempts: 2 } }, {
+      env: { COVE_NOTIFY: '1', COVE_NOTIFICATION_APP: '/Applications/Cove Notifications.app' },
+      exists: () => true, logError: () => {},
+      spawnImpl: (executable, args) => { calls.push({ executable, args }); return { once() {}, unref() {} }; },
+    });
+    process.stdout.write(JSON.stringify(calls));
+  `], { cwd: process.cwd(), encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const calls = JSON.parse(result.stdout);
+  assert.equal(calls.length, 1);
+  const text = calls[0].args.join(' ');
+  assert.match(text, /open commitments/);
+  assert.match(text, /Check Today/);
+  assert.match(text, /http:\/\/127.0.0.1:3200\/failures/);
+  assert.doesNotMatch(text, /sk-secret|work.txt|exhausted|attempts/);
 });

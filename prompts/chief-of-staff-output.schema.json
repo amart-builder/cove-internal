@@ -90,7 +90,8 @@
               "suggest",
               "notify",
               "plan_update",
-              "prepare"
+              "prepare",
+              "phone_reminder"
             ]
           },
           "why": {
@@ -277,6 +278,9 @@
             "enum": [
               "banner",
               "text",
+              "notification",
+              "alarm",
+              "none",
               null
             ]
           },

@@ -1134,6 +1134,7 @@ export function selectEligibleMorningBrief(
 }
 
 export type MorningBriefGenerationState =
+  | "deferred"
   | "idle"
   | "queued"
   | "running"
@@ -1146,12 +1147,35 @@ export type MorningBriefGenerationState =
 export type MorningBriefGeneration = {
   state: MorningBriefGenerationState;
   startedAt?: string;
+  retryAt?: string;
+  failureMessage?: string;
   pickedTasks?: Array<{ taskId: string; whyToday: string }>;
   // How long this run is expected to take, from recent history. Attached by the
   // read path (which can reach the store), never by the pure selector below, and
   // only while a run is actually live. Drives the arrival's progress bar.
   estimateSeconds?: number;
 };
+
+// Deferred timestamps live in the existing error column so queued work survives
+// restart without a second queue. Never expose arbitrary worker error text.
+export const BRIEF_DEFERRED_PREFIX = "budget_deferred:";
+
+export function morningBriefRetryAt(code?: string): string | undefined {
+  if (!code?.startsWith(BRIEF_DEFERRED_PREFIX)) return undefined;
+  const value = code.slice(BRIEF_DEFERRED_PREFIX.length);
+  const at = Date.parse(value);
+  return Number.isFinite(at) && new Date(at).toISOString() === value ? value : undefined;
+}
+
+export function morningBriefFailureDetail(code: string): string {
+  if (code === "runner_budget_exceeded") return "Cove reached its writing allowance before it could start your brief. Your plan is still here.";
+  if (code === "runner_input_too_large") return "Cove could not fit the supplied context into this request. Your plan is still here.";
+  if (code.startsWith("required_source_missing:")) return "Cove is missing required profile or goals information. Your plan is still here.";
+  if (code.includes("unavailable")) return "Cove could not reach your selected writer. Check that Codex or Claude is signed in.";
+  if (code.includes("timeout")) return "Your brief writer ran out of time. Your plan is still here, and you can try again.";
+  if (code.includes("output_too_large")) return "Your writer returned more data than Cove could safely process. Your plan is still here.";
+  return "Your writer could not finish a valid brief. Your plan is still here, and you can try again.";
+}
 
 // How recently a failed generation is still worth reporting. Past this a stale
 // failure is treated as idle: the arrival stays silent and does not imply a
@@ -1201,6 +1225,8 @@ export function selectMorningBriefGeneration(
     .filter((artifact) => artifact.status === "queued")
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
   if (queued) {
+    const retryAt = morningBriefRetryAt(queued.errorCode);
+    if (retryAt && Date.parse(retryAt) > now.getTime()) return { state: "deferred", retryAt };
     return { state: "queued", ...(queued.startedAt ? { startedAt: queued.startedAt } : {}) };
   }
 
@@ -1259,7 +1285,9 @@ export function selectMorningBriefGeneration(
   }
 
   if (failed) {
-    return { state: "failed", ...(failed.startedAt ? { startedAt: failed.startedAt } : {}) };
+    return { state: "failed", ...(failed.startedAt ? { startedAt: failed.startedAt } : {}),
+      ...(failed.errorCode ? { failureMessage: morningBriefFailureDetail(failed.errorCode) } : {}),
+    };
   }
 
   return { state: "idle" };

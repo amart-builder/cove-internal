@@ -21,3 +21,9 @@ export function announceTaskWorkspaceView(view: TaskWorkspaceView): void {
   else url.searchParams.set('view', view);
   window.history.replaceState(window.history.state, '', url);
 }
+
+/** Wait for task data before consuming a notification's exact-task link. */
+export function requestedTaskLink(search: string, tasks: ReadonlyArray<{ _id: string }>): string | undefined {
+  const requested = new URLSearchParams(search).get('task');
+  return requested && tasks.some((task) => task._id === requested) ? requested : undefined;
+}

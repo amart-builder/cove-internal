@@ -1,5 +1,7 @@
 'use client';
 
+import { announceTaskSessionChange } from '@/lib/data/task-sessions';
+
 import { usePathname } from 'next/navigation';
 import {
   createContext,
@@ -252,6 +254,8 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
             queueStreamingTurn(live);
             const receipts = event.receipts as BuddyReceipts | undefined;
             emitReceiptChanges(receipts);
+            // A conversational primary change must reach task controls immediately.
+            announceTaskSessionChange();
             if (typeof event.costUsd === 'number') {
               const costUsd = event.costUsd;
               setSessionInfo((current) => current ? {
@@ -279,6 +283,8 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
             };
             queueStreamingTurn(live);
             emitReceiptChanges(receipts);
+            // A conversational primary change must reach task controls immediately.
+            announceTaskSessionChange();
           }
         }
         if (done) break;

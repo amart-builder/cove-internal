@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { EmailReviewRow, emailReviewStatus } from '../src/components/tasks/EmailCardDetail.tsx';
 import test from 'node:test';
 import { listHandledEmailItems } from '../src/lib/data/email.ts';
 
@@ -43,22 +44,33 @@ test('listHandledEmailItems sends the bounded seven-day REST query', {
   assert.equal(url.searchParams.has('or'), false);
 });
 
-test('EmailCardDetail renders the handled section and its empty state', () => {
-  const source = readFileSync(path.join(
-    process.cwd(),
-    'src/components/tasks/EmailCardDetail.tsx',
-  ), 'utf8');
+const item = {
+  id: 'email-test', thread_id: 'thread/123', account_email: 'person@example.com',
+  sender_name: 'A sender', subject: 'A useful subject', summary: 'A readable summary.',
+  bucket: 'reply', gmail_draft_id: 'possibly-stale-id',
+};
 
-  assert.match(source, /listHandledEmailItems\(\{ days: 7, limit: 200 \}\)/);
-  assert.match(source, /<Section title="Things you should know" count=\{handledItems\.length\}>/);
-  assert.match(source, /handledItems\.slice\(0, 12\)/);
-  assert.match(source, /`Show all \(\$\{handledItems\.length\}\)`/);
-  assert.match(source, /Showing the most recent 200\./);
-  assert.match(source, /const \[handledError, setHandledError\] = useState<string>\(\)/);
-  assert.match(source, /setHandledItems\(\[\]\);[\s\S]*setHandledError\('Could not load this list\.'\)/);
-  assert.doesNotMatch(source, /Promise\.all/);
-  assert.match(source, /calendarDays >= 2 && calendarDays <= 5/);
-  assert.match(source, /month: 'short', day: 'numeric'/);
-  assert.match(source, /Could not load this list\./);
-  assert.match(source, /Nothing else happened in email in the last 7 days\./);
+test('email rows expose the Gmail archive action without claiming a stored draft is still ready', () => {
+  const html = renderToStaticMarkup(React.createElement(EmailReviewRow, { item, onHandle() {} }));
+  assert.match(html, /A useful subject/);
+  assert.match(html, /A readable summary/);
+  assert.match(html, /authuser=person%40example.com#all\/thread%2F123/);
+  assert.match(html, /Mark handled and archive in Gmail/);
+  assert.doesNotMatch(html, /drafts? ready/i);
+  const handled = renderToStaticMarkup(React.createElement(EmailReviewRow, { item, handled: true, onHandle() {} }));
+  assert.doesNotMatch(handled, /<button/);
+  assert.match(handled, /Open in Gmail/);
+});
+
+test('email rows surface preparation failures and preserved draft warnings', () => {
+  const failed = renderToStaticMarkup(React.createElement(EmailReviewRow, { item: { ...item, workflow_state: 'failed' } }));
+  assert.match(failed, /could not finish preparing this email/);
+  const preserved = renderToStaticMarkup(React.createElement(EmailReviewRow, { item: { ...item, recommended_action: 'Review the existing Gmail draft before proceeding.' } }));
+  assert.match(preserved, /Review the existing Gmail draft/);
+});
+
+test('email status does not turn partial or unavailable runs into a successful inbox review', () => {
+  assert.equal(emailReviewStatus({ state: 'ready', lastRunOutcome: 'partial' }), 'Last inbox review was incomplete');
+  assert.equal(emailReviewStatus({ state: 'unavailable' }), 'Inbox review needs attention');
+  assert.equal(emailReviewStatus({ state: 'stale' }), 'Inbox review is overdue');
 });

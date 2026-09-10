@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { queuePhoneReminder } from "../apple-reminders/queue.mjs";
 import { createHash } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -86,7 +87,8 @@ function renderChiefOfStaffMandateForWake(input: {
     ? source.replace(SALES_PIPELINE_STATUS_PLACEHOLDER, status).trim()
     : status ? `${source}\n\n${status}` : source;
   const contract = readFileSync(path.join(input.repoDir, "prompts", "responsibility-contract.md"), "utf8");
-  const expected = `${rendered}\n\n${contract}\n`;
+  const phoneContract = readFileSync(path.join(input.repoDir, "prompts", "phone-reminder-contract.md"), "utf8");
+  const expected = `${rendered}\n\n${contract}\n\n${phoneContract}\n`;
   if (readFileSync(input.mandatePath, "utf8") === expected) return;
   atomicWrite(input.mandatePath, expected, 0o444);
 }
@@ -669,7 +671,16 @@ function applyChiefOfStaffActionsWithDetails(input: {
         continue;
       }
       try {
-        if (action.kind === "notify") {
+        if (action.kind === "phone_reminder") {
+          prepareActionFields(action, ["task_id", "expected_version", "remind_at", "level", "reason", "next_action"]);
+          const taskId = requiredActionText(action, "task_id", 200);
+          assertSourceVersion(db, "task", taskId, action.expected_version);
+          const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND status = 'open'").get(taskId);
+          const queued = queuePhoneReminder({ dataDir: input.dataDir, task, action, intentKey: `${input.wakeJobId}:${contentHash}` });
+          action.phone_reminder_queued = queued.queued;
+          action.phone_reminder_delivered = false;
+          db.transaction(() => insertLedger(db, { wakeJobId: input.wakeJobId, contentHash, action, status: "applied", now: now.toISOString() }))();
+        } else if (action.kind === "notify") {
           // The flat schema carries both a generic `why` and a notify `reason`.
           // Models often fill only `why`; treat it as the reason when `reason`
           // is empty so a real interruption is not lost to a field name.
@@ -909,7 +920,7 @@ export async function runWake(
         claudeMcpConfigPath: path.join(options.repoDir, "scripts", "cove-empty-mcp.json"),
         claudeNoChrome: true,
         claudeDisableSlashCommands: true,
-        timeoutMs: options.timeoutMs,
+        timeoutMs: options.timeoutMs ?? WAKE_TIMEOUT_MS,
         spawnImpl: options.spawnImpl,
         validate: (_text, value) => validateChiefOfStaffOutput(value),
       });

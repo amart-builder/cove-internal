@@ -120,6 +120,7 @@ Treat request bodies, query strings, headers, and stored model text as untrusted
 | `/api/responsibilities` | Local review queue, proposed day capacity, draft artifacts and versioned acknowledgement | `src/lib/responsibility/` |
 | `/api/follow-through` | Native reminder coverage, source freshness, acknowledgement and one-hour snooze | `src/lib/attention/follow-through.mjs` |
 | `/api/buddy/codex-auth` | Local Codex sign-in status and explicit Terminal login | `src/lib/buddy/codex-auth.ts` |
+| `/api/agent-settings` | Read connected providers or explicitly change primary, local and CSRF-protected | `src/lib/agent-settings.mjs` |
 | `/api/agent-usage` | Selected model and rolling bounded-job usage, local read-only | `src/lib/agent-settings.mjs`, `src/lib/background-usage.mjs` |
 | `/api/health` | Read-only readiness and latest health snapshot | `src/lib/health/` |
 | `/api/task-settings` | Local focus-seat and stale-task settings | `src/lib/tasks/settings.ts` |
@@ -347,8 +348,12 @@ CLI, and `scripts/cove-buddy-mcp.ts` owns bounded stdio framing. `stream.ts`
 maps each provider's native events and trusts only Cove tool results for
 confirmed changes. Codex session heads use a `codex:` namespace; provider
 switches start a new conversation without transferring prior chat. Task sessions and Buddy-spawned sessions store their exact provider, model,
-effort and native session head. Codex task work uses a separate configuration
-home with on-request approvals and provider-aware interactive resume.
+effort and native session head. The Today footer accepts a per-launch Claude or
+Codex choice while keeping the saved background provider unchanged. Codex task
+launches use desktop-visible history with `--ignore-user-config`, explicit
+on-request approvals, and the existing Planning/Auto sandbox limits. Completed
+sessions open `codex://threads/{id}`; older isolated sessions retain their stored
+recovery command. Task briefs are sent in full from the authoritative database.
 `attention/follow-through.mjs` owns deterministic meeting/deadline checks,
 source freshness, durable delivery claims and snooze. The existing minute
 reminder worker invokes it for saved-agent installs.
@@ -405,6 +410,30 @@ identity.
 `src/lib/health/` collects factual readiness. Never report an integration as
 healthy merely because configuration exists. Distinguish not configured, waiting
 for first run, healthy, stale, and failed.
+
+### Apple Reminders phone beta
+
+`src/lib/apple-reminders/` owns the optional personal iCloud reminder bridge.
+`bridge.mjs` synchronizes linked one-off tasks through Cove's existing loopback
+API, preserves explicit user choices, detects concurrent edits and records
+retry receipts. `queue.mjs` gives the existing chief-of-staff agent a bounded
+phone-reminder action and returns delivery failures in its next snapshot.
+
+`scripts/cove-apple-reminders.swift` is the native EventKit helper. It accepts
+only the selected writable iCloud Cove list and linked task identities. The
+identifier lives in the conversation URL fragment, not the visible notes.
+LaunchServices gives the helper its own macOS permission identity; its native
+file lock spans EventKit operations even if a caller exits. Ordinary alerts
+are verified in the saved alarm record. EventKit does not expose Apple's
+Urgent switch, so alarm requests remain visibly unconfirmed.
+
+`scripts/cove-apple-reminders.mjs` drains the versioned queue and synchronizes
+both directions without a model call. `scripts/cove-mobile-mcp.mjs` exposes six
+narrow tools to the personal phone conversation, including reminder read/set.
+The existing chief gets `prompts/phone-reminder-contract.md` alongside its
+mandate. This beta requires explicit installation and full Reminders permission;
+the standard client installer does not enable it. See CONFIGURATION.md and
+OPERATIONS.md for configuration and acceptance boundaries.
 
 ### Autonomy and progress evidence
 

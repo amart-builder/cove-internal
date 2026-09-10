@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 import { openLocalDatabase } from "../local/database";
 import { recordFailureInDatabase } from "./failures";
 import { notifyHardFailure } from "./notifications";
+import { jobFailureDetail } from "./job-failure-copy";
 import { recordReceiptInDatabase } from "./receipts";
 
 export type JobStatus = "queued" | "leased" | "done" | "failed" | "dead";
@@ -321,8 +322,8 @@ export class JobScheduler {
         recordFailureInDatabase(this.db, {
           source: "job",
           sourceId: row.id,
-          message: `${row.type} job ${nextStatus === "dead" ? "stopped retrying" : "will retry"}: ${message}`,
-          details: { jobId: row.id, type: row.type, attempts: row.attempts },
+          message: jobFailureDetail(row.type, message, nextStatus !== "dead"),
+          details: { jobId: row.id, type: row.type, attempts: row.attempts, retrying: nextStatus !== "dead", error: message },
           occurredAt: now.toISOString(),
         });
       }
@@ -557,12 +558,14 @@ export class JobScheduler {
         recordFailureInDatabase(this.db, {
           source: "job",
           sourceId: job.id,
-          message: `${job.type} job ${nextStatus === "dead" ? "stopped retrying" : "will retry"}: ${message}`,
+          message: jobFailureDetail(job.type, message, nextStatus !== "dead"),
           details: {
             jobId: job.id,
             type: job.type,
             attempts: job.attempts,
             maxAttempts: job.maxAttempts,
+            retrying: nextStatus !== "dead",
+            error: message,
           },
           occurredAt: finishedAt,
         });

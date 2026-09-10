@@ -628,12 +628,15 @@ export function morningBriefArrivalPresentation(input: {
   leadHeadline?: string;
   body: string[];
 } {
+  const deferred = input.generationState === 'deferred';
   const stalled =
-    !input.hasBriefContent && !input.briefWriting && !input.briefAttached;
+    !deferred && !input.hasBriefContent && !input.briefWriting && !input.briefAttached;
   const failed =
     !input.hasBriefContent && !input.briefAttached && input.generationState === 'failed';
   const writing = input.briefWriting && !input.hasBriefContent;
-  const leadHeadline = failed
+  const leadHeadline = deferred
+    ? 'Your brief is waiting for writing capacity.'
+    : failed
     ? "Cove couldn't finish your brief."
     : writing
       ? 'Your brief is on the way.'
@@ -673,7 +676,7 @@ export function shouldPollBriefGeneration(input: {
   if (input.view !== 'arrival') return false;
   if (!input.documentVisible) return false;
   if (input.arrivalInteracted) return false;
-  return isMorningBriefWriting(input);
+  return !input.briefAttached && input.generationState === 'deferred' || isMorningBriefWriting(input);
 }
 
 // Pure gate for the ONE-SHOT attach/heal ensure fired at initialization and on
@@ -688,7 +691,7 @@ export function shouldAttemptLateBriefAttach(input: {
   documentVisible: boolean;
   candidatesReady: boolean;
   candidateCount: number;
-  generationState?: 'idle' | 'queued' | 'running' | 'succeeded' | 'failed';
+  generationState?: MorningBriefGenerationState;
   itemCount?: number;
   alreadyAttempted: boolean;
 }): boolean {

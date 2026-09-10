@@ -7,6 +7,8 @@ import type {
 
 type TaskSessionSnapshot = {
   enabled: boolean;
+  defaultProvider?: "claude" | "codex";
+  connectedProviders?: ("claude" | "codex")[];
   runs: TaskSessionRun[];
 };
 
@@ -28,7 +30,7 @@ export function subscribeTaskSessionChanges(listener: Listener): () => void {
   return () => listeners.delete(listener);
 }
 
-function announceTaskSessionChange(): void {
+export function announceTaskSessionChange(): void {
   for (const listener of listeners) listener();
 }
 

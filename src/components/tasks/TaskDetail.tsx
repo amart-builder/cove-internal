@@ -7,6 +7,7 @@ import type {
   TaskSessionRun,
 } from '@/lib/task-sessions/types';
 import EmailCardDetail from './EmailCardDetail';
+import ModalScrim from './arrival/ModalScrim';
 import { TaskSessionLauncher } from './TaskSessionLauncher';
 import { visibleTags } from '@/lib/tasks/tags';
 import { taskEditError, type TaskEditGuard } from '@/lib/tasks/edit-conflict';
@@ -88,6 +89,7 @@ export default function TaskDetail({
   sessionError,
   onLaunchSession,
 }: TaskDetailProps) {
+  const [returnFocus] = useState<HTMLElement | null>(() => typeof document === 'undefined' ? null : document.activeElement as HTMLElement);
   const baselineRef = useRef(taskEditorDraft(task));
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? '');
@@ -208,25 +210,13 @@ export default function TaskDetail({
 
   if (isEmailCard) {
     return (
-      <div
-        ref={backdropRef}
-        onMouseDown={handleBackdropMouseDown}
-        onClick={handleBackdropClick}
-        className="fixed inset-0 z-[160] flex items-center justify-center bg-black/20 dark:bg-black/40 backdrop-blur-sm"
-      >
-        <div className="bg-card rounded-lg border w-full max-w-lg mx-4 p-5 max-h-[90vh] overflow-y-auto transition-colors duration-200">
-          <div className="flex items-start justify-between mb-4">
-            <h2 className="text-sm font-semibold">{task.title}</h2>
-            <button
-              onClick={onClose}
-              className="text-muted-foreground hover:text-foreground text-lg leading-none"
-            >
-              &times;
-            </button>
-          </div>
-          <EmailCardDetail onClose={onClose} />
-        </div>
-      </div>
+      <ModalScrim labelledBy="email-review-title" returnFocus={returnFocus} onClose={onClose} panelClassName="email-review-panel">
+        <header className="email-review-header">
+          <div><h2 id="email-review-title">Email needs you</h2><p>Read here. Reply in Gmail.</p></div>
+          <button type="button" data-modal-initial-focus aria-label="Close email" onClick={onClose}>&times;</button>
+        </header>
+        <EmailCardDetail onClose={onClose} />
+      </ModalScrim>
     );
   }
 

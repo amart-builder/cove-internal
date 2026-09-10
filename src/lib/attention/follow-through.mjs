@@ -13,6 +13,12 @@ CREATE TABLE IF NOT EXISTS cove_follow_through_notices (
  snoozed_until TEXT, error TEXT
 );`;
 const MINUTE = 60_000;
+const POLICY_HOLD = 'Reminder held by the attention allowance or a prior alert. Review this item in Cove.';
+// Routine backlog holds are normal attention policy. A held imminent deadline,
+// missed meeting or actual delivery failure still needs to be visible.
+const NEEDS_ATTENTION = `(status IN ('uncertain','failed','missed') OR
+ (status='pending' AND error IS NOT NULL AND
+ (error <> '${POLICY_HOLD}' OR attempts > 0 OR stage IN ('meeting','advance'))))`;
 function state(db, key) { const row = db.prepare('SELECT value, updated_at FROM cove_follow_through_state WHERE key = ?').get(key); return row ? { ...JSON.parse(row.value), updatedAt: row.updated_at } : null; }
 function put(db, key, value, now) { db.prepare('INSERT INTO cove_follow_through_state VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at').run(key, JSON.stringify(value), now.toISOString()); }
 function localParts(now, timezone) {
@@ -23,12 +29,20 @@ function previousDate(date) { return new Date(Date.parse(`${date}T12:00:00Z`) - 
 function noticeId(kind, id, due, stage) { return createHash('sha256').update(JSON.stringify([kind,id,due,stage])).digest('hex'); }
 function safeTitle(value) { return cleanAttentionText(sanitizeAttentionContent(String(value))).slice(0,140) || 'Open Cove to review'; }
 
+
 export function followThroughStatus(db, now = new Date()) {
  const heartbeat = state(db,'heartbeat'); const calendar = state(db,'calendar');
- const unresolved = Number(db.prepare("SELECT COUNT(*) FROM cove_follow_through_notices WHERE updated_at > ? AND (status IN ('uncertain','failed','missed') OR (status='pending' AND error IS NOT NULL))").pluck().get(new Date(now-86400000).toISOString()));
+ const cutoff = new Date(now-86400000).toISOString();
+ const unresolved = Number(db.prepare(`SELECT COUNT(*) FROM cove_follow_through_notices WHERE ${NEEDS_ATTENTION}`).pluck().get());
+ const held = Number(db.prepare(`SELECT COUNT(*) FROM cove_follow_through_notices WHERE updated_at > ? AND status='pending' AND error=? AND NOT ${NEEDS_ATTENTION}`).pluck().get(cutoff,POLICY_HOLD));
  return { protection: unresolved ? 'attention_required' : 'current', unresolved, lastCheckedAt: heartbeat?.updatedAt ?? null, healthy: Boolean(heartbeat && now - new Date(heartbeat.updatedAt) < 5*MINUTE),
+  held,
   calendar: { status: calendar?.status ?? 'not_checked', checkedAt: calendar?.updatedAt ?? null, fresh: Boolean(calendar?.status === 'ready' && now - new Date(calendar.updatedAt) < 10*MINUTE) },
-  notices: db.prepare("SELECT id, title, ref_kind AS refKind, ref_id AS refId, stage, due_at AS dueAt, status, snoozed_until AS snoozedUntil, error FROM cove_follow_through_notices WHERE updated_at > ? ORDER BY updated_at DESC LIMIT 20").all(new Date(now-7*86400000).toISOString()) };
+  notices: db.prepare(`SELECT id, title, ref_kind AS refKind, ref_id AS refId, stage, due_at AS dueAt, status, snoozed_until AS snoozedUntil, error,
+   ${NEEDS_ATTENTION} AS needsAttention
+   FROM cove_follow_through_notices WHERE ${NEEDS_ATTENTION}
+   OR id IN (SELECT id FROM cove_follow_through_notices WHERE updated_at > ? ORDER BY updated_at DESC LIMIT 20)
+   ORDER BY needsAttention DESC, updated_at DESC`).all(new Date(now-7*86400000).toISOString()) };
 }
 export function snoozeFollowThrough(db, id, now = new Date()) {
  // Snoozing dismisses this advance warning for one hour; completion and meeting
@@ -42,6 +56,9 @@ export function acknowledgeFollowThrough(db,id,now=new Date()) {
 
 export async function runFollowThrough({ db, now = new Date(), timezone, calendar, notify }) {
  const nowIso = now.toISOString(); const local = localParts(now,timezone);
+ // Historical notices lack their original timezone. Never reclassify a
+ // genuine miss using today's timezone; quiet-hour eligibility is checked
+ // before creating new candidates below.
  db.prepare("UPDATE cove_follow_through_notices SET status='uncertain', error='Delivery was interrupted. Review this item in Cove.' WHERE status='sending' AND updated_at < ?").run(new Date(now-5*MINUTE).toISOString());
  const poll = db.transaction(() => {
   const current = state(db,'calendar');
@@ -87,21 +104,22 @@ export async function runFollowThrough({ db, now = new Date(), timezone, calenda
   const until=Date.parse(event.start)-now;
   if (event.id && until>0 && until<=15*MINUTE) candidates.push({kind:'meeting',ref:event.id,due:event.start,stage:'meeting',title:event.title});
  }
- // Meetings first; never flood a busy day with a banner for every task.
- candidates.sort((a,b)=>(a.kind==='meeting'?0:1)-(b.kind==='meeting'?0:1) || a.due.localeCompare(b.due));
+ // Prioritize meetings and approaching deadlines before the overdue backlog.
+ const priority = candidate => candidate.kind === 'meeting' ? 0 : candidate.stage === 'advance' ? 1 : 2;
+ candidates.sort((a,b)=>priority(a)-priority(b) || Date.parse(a.due)-Date.parse(b.due));
  for (const candidate of candidates) {
   const id=noticeId(candidate.kind,candidate.ref,candidate.due,candidate.stage);
-  db.prepare("INSERT OR IGNORE INTO cove_follow_through_notices(id,ref_kind,ref_id,title,stage,due_at,status,updated_at) VALUES(?,?,?,?,?,?,'pending',?)").run(id,candidate.kind,candidate.ref,candidate.title,candidate.stage,candidate.due,nowIso);
   if (local.hour<8 || local.hour>=18) continue;
+  db.prepare("INSERT OR IGNORE INTO cove_follow_through_notices(id,ref_kind,ref_id,title,stage,due_at,status,updated_at) VALUES(?,?,?,?,?,?,'pending',?)").run(id,candidate.kind,candidate.ref,candidate.title,candidate.stage,candidate.due,nowIso);
   const claim=db.transaction(()=>{
    const row=db.prepare('SELECT * FROM cove_follow_through_notices WHERE id=?').get(id);
    if (!row || row.status!=='pending' || (row.snoozed_until && Date.parse(row.snoozed_until)>+now) || row.attempts>=3 || (row.attempts && now-new Date(row.updated_at)<5*MINUTE)) return null;
    if (candidate.kind==='task' && !db.prepare("SELECT 1 FROM tasks WHERE id=? AND status='open' AND archived_at IS NULL AND due_at=? AND remind_native=1 AND (? <> 'advance' OR remind_at IS NULL OR remind_at = '') AND (notification_policy IS NULL OR notification_policy IN ('both', ?)) AND (engaged_at IS NULL OR julianday(engaged_at) <= julianday(?))").get(candidate.ref,candidate.due,candidate.stage,candidate.stage==='advance'?'predeadline':'due',new Date(now-60*MINUTE).toISOString())) return null;
    if(candidate.kind==='commitment'&&!db.prepare("SELECT 1 FROM commitments WHERE id=? AND status='open' AND confirmed=1 AND kind<>'idea' AND due_at=?").get(candidate.ref,candidate.due))return null;
    if (db.prepare("SELECT 1 FROM sqlite_master WHERE name='cove_responsibilities' AND type='table'").get() && db.prepare("SELECT 1 FROM cove_responsibilities WHERE ref_kind=? AND ref_id=? AND acknowledged_at>?").get(candidate.kind,candidate.ref,new Date(+now-60*MINUTE).toISOString())) return null;
-   const allocation=allocateAttention(db,{kind:'chief_of_staff',refKind:candidate.kind,refId:row.snoozed_until ? `${candidate.ref}:snooze:${row.snoozed_until}` : candidate.kind==='meeting'?`${candidate.ref}:${candidate.due}`:candidate.ref,requestedLevel:'banner',reason:'Scheduled follow-through',now});
+   const allocation=allocateAttention(db,{kind:'chief_of_staff',refKind:candidate.kind,refId:row.snoozed_until ? `${candidate.ref}:snooze:${row.snoozed_until}` : candidate.kind==='meeting'?`${candidate.ref}:${candidate.due}`:candidate.ref,requestedLevel:'banner',deadlineReminder:candidate.stage==='advance',reason:'Scheduled follow-through',now});
    if (!allocation.row || allocation.finalLevel!=='banner') {
-    db.prepare("UPDATE cove_follow_through_notices SET error=? WHERE id=?").run('Reminder held by the attention allowance or a prior alert. Review this item in Cove.',id);
+    db.prepare("UPDATE cove_follow_through_notices SET error=CASE WHEN attempts=0 THEN ? ELSE error END WHERE id=?").run(POLICY_HOLD,id);
     return null;
    }
    db.prepare("UPDATE cove_follow_through_notices SET status='sending', attempts=attempts+1, updated_at=? WHERE id=?").run(nowIso,id);
