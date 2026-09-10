@@ -82,6 +82,7 @@ export function buildEmailClassifierPrompt(input: {
     "- action: Alex needs to do or review something outside a reply. draft_body must be null.",
     "- fyi: useful information worth recording, but no action is needed. draft_body must be null.",
     "- noise: promotional, automated, low-value, or irrelevant. draft_body must be null.",
+    "Money leaving the operator's account is never noise or passive FYI. Charges, card purchases, ACH debits, paid invoices, payment receipts and subscription renewals require at least action so the operator can review the merchant and amount. This applies even to small, recurring or apparently expected charges. Never assume a charge is authorized, and do not draft a payment approval or dispute unless the context explicitly calls for a reply.",
     "",
     "A reply draft must never promise work, money, timing, or a decision that is not explicit in the context.",
     "When the Cove records include a meeting summary, a pipeline stage, or an open commitment with this person, the draft must reflect them. Never ask for or offer something those records already settled, and never contradict a date or decision recorded there.",

@@ -24,6 +24,32 @@
 
 ---
 
+## 2026-09-10 Charge emails require review
+
+- Alex reported a $500 ACH notice hidden as automatically handled noise.
+  The classifier allowed automated financial notices to become noise and queue
+  archive. Added a prompt rule and deterministic outgoing-charge review floor.
+- Recognized charges, card spending, ACH debits, payment confirmations and
+  subscription renewals remain open action/reply items, regardless of amount.
+  The existing durable email-artifacts job requests a native charge notification.
+  Attempt state prevents duplicate sends after failures or interruption.
+  Notification and contact/commitment failures do not block each other.
+- Restored the exact reported notice locally to pending action review after a
+  checked database backup. Pending-email API confirms it appears in Email needs
+  you. Its native notification was accepted. Gmail and the bank account were
+  not changed. Physical banner visibility remains unverified.
+- Regression first reproduced the noise/FYI mistake, then passed. Independent
+  review cleared 21 focused cases, including outgoing formats, negated charges,
+  customer charges, refunds, stale items, replay and both failure directions.
+- Full verification: 1,440 tests passed, zero failed, one opt-in live test skipped;
+  TypeScript, zero-warning lint, production build, 574-file sanitized export and
+  exact tested-source parity passed. No dependencies changed.
+- Live build `jn1BN--PoXV4O592EwubW` activated with health checks,
+  verified backup and rollback. Phone runtime, environment and Apple Reminders
+  service preserved. Recovery: data/build-backups/20260910-charge-notice/.
+  Evidence: data/review-artifacts/charge-notice-20260910/.
+- Main remains unchanged. This correction is part of the prepared release.
+
 ## 2026-09-10 Final merge-readiness review
 
 - Fixed two reproduced reminder races: cancelling interrupted native creation

@@ -21,6 +21,7 @@ import { judgeDraftVoice } from "./voice-judge";
 import { coveDataDir } from "../operator";
 import { formatOperatorPolicy, readOperatorPolicy } from "../operator-policy";
 import { detectCalendarNotice, summarizeCalendarNotice } from "./calendar-notice";
+import { isChargeNotice, protectChargeNotice, deliverChargeNotice } from "./charge-notice";
 
 function header(message: MailMessage, name: string): string {
   return message.headers.find((item) => item.name.toLowerCase() === name.toLowerCase())
@@ -245,14 +246,17 @@ export function createEmailClassificationHandler(input: {
             : calendarSummary!,
         }
       : classified;
-    const result = classifiedWithCalendarSummary.bucket === "reply" && draftBlockReason
+    const chargeProtected = protectChargeNotice(classifiedWithCalendarSummary, {
+      subject: header(message, "Subject"), text: message.text || message.snippet,
+    });
+    const result = chargeProtected.bucket === "reply" && draftBlockReason
       ? {
-          ...classifiedWithCalendarSummary,
+          ...chargeProtected,
           bucket: "action" as const,
           draftBody: null,
           recommendedAction: `Cove withheld the reply draft: ${draftBlockReason}. Fix the contact record in CRM, then rerun triage.`,
         }
-      : classifiedWithCalendarSummary;
+      : chargeProtected;
     let voiceJudgeScore: number | null = null;
     let voiceJudgeVerdict: string | null = null;
     if (result.draftBody && input.dataDir) {
@@ -288,6 +292,7 @@ export function createEmailClassificationHandler(input: {
       voiceJudgeVerdict,
       signatureText: input.signatureText,
       artifactPayload: {
+        emailItemId: claim.emailItemId,
         messageId: message.id,
         threadId: message.threadId,
         senderName: from.displayName.slice(0, 240),
@@ -301,6 +306,7 @@ export function createEmailClassificationHandler(input: {
         recordCorrespondence:
           result.recordCorrespondence === true && result.bucket !== "noise",
         accountEmail: input.accountEmail,
+        financialChargeNotice: isChargeNotice({subject: header(message, "Subject"), text: message.text || message.snippet}),
       },
       modelVersion: result.modelVersion,
       dbPath: input.dbPath,
@@ -370,6 +376,7 @@ export function createEmailArtifactHandler(input: {
   dbPath?: string;
   dataDir?: string;
   now?: () => Date;
+  chargeNotifier?: (subject: string, openUrl: string) => void;
 }) {
   return async (job: ScheduledJob): Promise<{ summary: string; actions: unknown }> => {
     if (!job.payload || typeof job.payload !== "object" || Array.isArray(job.payload)) {
@@ -386,6 +393,15 @@ export function createEmailArtifactHandler(input: {
     const messageId = required("messageId", 500);
     const threadId = required("threadId", 500);
     const accountEmail = required("accountEmail", 500);
+    let chargeNotice: ReturnType<typeof deliverChargeNotice> | undefined;
+    let chargeError: Error | undefined;
+    if (row.financialChargeNotice === true) {
+      try {
+        chargeNotice = deliverChargeNotice({jobId: job.id, messageId, emailItemId: required("emailItemId", 200), dbPath: input.dbPath, now: input.now?.()}, {notify: input.chargeNotifier});
+      } catch (error) {
+        chargeError = error instanceof Error ? error : new Error(String(error));
+      }
+    }
     const rawCommitments = Array.isArray(row.commitments) ? row.commitments : [];
     const commitments = rawCommitments.slice(0, 5).flatMap<EmailCommitmentInput>((value) => {
       if (!value || typeof value !== "object" || Array.isArray(value)) return [];
@@ -428,12 +444,14 @@ export function createEmailArtifactHandler(input: {
         now: input.now?.(),
       }).status;
     }
+    if (chargeError) throw chargeError;
     return {
       summary: "Persisted grounded email commitment and relationship candidates.",
       actions: {
         messageId,
         commitments: commitments.length,
         correspondenceStatus,
+        chargeNotice,
       },
     };
   };
