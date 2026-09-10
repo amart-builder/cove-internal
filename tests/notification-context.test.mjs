@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import {syncBuiltinESMExports} from 'node:module';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
@@ -77,3 +79,36 @@ test('requesting another reminder during delivery preserves both the active clai
  drainNotificationReminders({db,dataDir:dir,now:new Date(+later+60*60_000),notify:()=>{calls++;},onFailure:f=>failures.push(f)});
  assert.equal(calls,2);assert.equal(failures.length,0);
 });
+
+for (const replaceDuringRestore of [false,true]) {
+ test(`a replacement before claim survives delivery${replaceDuringRestore?' and concurrent restoration':''}`, t=>{
+  const {db,dir}=fixture(t);
+  const now=new Date('2026-09-10T20:00:00Z');
+  const due=new Date(+now+60*60_000);
+  scheduleNotificationReminder(dir,'task-a',now);
+  const originalRename=fs.renameSync, originalLink=fs.linkSync;
+  let replaced=false;
+  fs.renameSync=(from,to)=>{
+   if(!replaced&&String(to).endsWith('.claimed')){replaced=true;scheduleNotificationReminder(dir,'task-a',due);}
+   return originalRename(from,to);
+  };
+  fs.linkSync=(from,to)=>{
+   if(replaceDuringRestore)scheduleNotificationReminder(dir,'task-a',new Date(+due+60*60_000));
+   return originalLink(from,to);
+  };
+  syncBuiltinESMExports();
+  t.after(()=>{fs.renameSync=originalRename;fs.linkSync=originalLink;syncBuiltinESMExports();});
+  const calls=[],failures=[];
+  const input={db,dataDir:dir,notify:task=>calls.push(task.id),onFailure:f=>failures.push(f)};
+  drainNotificationReminders({...input,now:due});
+  assert.deepEqual(calls,[]);
+  const file=path.join(dir,'reminders',readdirSync(path.join(dir,'reminders')).find(name=>name.endsWith('.json')));
+  assert.equal(JSON.parse(fs.readFileSync(file,'utf8')).remindAt,new Date(+due+(replaceDuringRestore?2:1)*60*60_000).toISOString());
+  fs.renameSync=originalRename;fs.linkSync=originalLink;syncBuiltinESMExports();
+  drainNotificationReminders({...input,now:new Date(+due+60*60_000)});
+  assert.equal(calls.length,replaceDuringRestore?0:1);
+  drainNotificationReminders({...input,now:new Date(+due+2*60*60_000)});
+  assert.deepEqual(calls,['task-a']);assert.deepEqual(failures,[]);
+  assert.equal(db.prepare('SELECT due_at FROM tasks').get().due_at,'2026-09-10T15:00:00-07:00');
+ });
+}

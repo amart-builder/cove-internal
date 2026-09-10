@@ -24,6 +24,30 @@
 
 ---
 
+## 2026-09-10 Final merge-readiness review
+
+- Fixed two reproduced reminder races: cancelling interrupted native creation
+  cannot resurrect an alert, and replacing a reminder before delivery preserves
+  its new time. Restart, revision and concurrent replacement regressions pass.
+- Fixed Follow-through scrolling, task dialogs under Morning Arrival, and
+  completion Undo inside the notification. Keyboard focus stays in the visible
+  dialog across startup, complete, Undo and Escape. Independent browser review
+  found no further issue, including failure handling.
+- Clean client install: TypeScript, zero-warning lint, 1,419 tests passed,
+  zero failures, one opt-in live Codex test skipped, production build passed.
+  Current dependency audit: zero vulnerabilities. All 572 exported files match
+  the tested candidate; allowlist, secret scan and privacy checks passed.
+- Independent provider review passed 66 focused tests; reminder review passed
+  41 focused tests. Final UI fixes passed independent synthetic browser checks.
+- Live build `TByeXdcdFbW5wASTO5pt8` activated with a verified database backup,
+  rollback, HTTP checks and preservation of the phone runtime, environment and
+  Apple Reminders service. Recovery: data/build-backups/20260910-merge-ready/.
+- Evidence: data/review-artifacts/merge-readiness-20260910/.
+- Remaining acceptance limit: the notifier accepted a test, but a physical Mac
+  banner click-through was not proved. Native UI automation timed out. No Focus
+  or notification settings were changed. Main and PRs remain unchanged pending
+  Alex's merge authorization. No GitHub Actions workflow is configured.
+
 ## 2026-09-10 Second Current email count
 
 - Alex requested the pending email count on the parent Second Current card,

@@ -200,7 +200,8 @@ export function createReminderBridge(config, dependencies = {}) {
         check(existing?.origin !== 'explicit', 'An automatic judgment cannot change or cancel an explicit user reminder.');
       }
       const reminders = (await native(nativeInput({ command: 'list' }))).reminders;
-      const reminder = existing?.nativeId ? reminders.find(row => row.id === existing.nativeId) : undefined;
+      const reminder = existing?.nativeId ? reminders.find(row => row.id === existing.nativeId)
+        : existing ? reminders.find(row => row.taskId === task.id || row.notes?.startsWith(`Cove task: ${task.id}\n`)) : undefined;
       if (existing?.nativeId && !reminder) throw new Error('The linked Apple reminder was removed or moved. No duplicate was created.');
       if (reminder && reminder.revision !== existing.nativeBase?.revision) {
         check(input.expectedReminderRevision === reminder.revision, 'The Apple reminder changed. Read its current reminder context and provide expectedReminderRevision before editing.');
@@ -222,11 +223,12 @@ export function createReminderBridge(config, dependencies = {}) {
       }
       await atomic(receiptFile, { fingerprint, state: 'pending', taskId: task.id, requestedAt: now().toISOString() });
       if (input.delivery === 'none') {
-        if (existing && reminder) {
-          existing.phase = 'pending_cancel'; existing.cancelOperationId = input.mutationId;
+        if (existing) {
+          existing.phase = reminder ? 'pending_cancel' : 'cancelled'; existing.cancelOperationId = input.mutationId;
+          existing.nativeId = reminder?.id ?? null;
           existing.cancelNativeBase = reminder; existing.cancelTaskBase = task; await saveState();
-          const cancelled = await nativeSave(existing, reminder, task, { completed: true });
-          existing.nativeBase = cancelled; existing.phase = 'cancelled'; existing.updatedAt = now().toISOString();
+          if (reminder) existing.nativeBase = await nativeSave(existing, reminder, task, { completed: true });
+          existing.phase = 'cancelled'; existing.updatedAt = now().toISOString();
           await saveState();
         }
         const result = { saved: true, cancelled: true, taskId: task.id };
@@ -370,9 +372,11 @@ export function createReminderBridge(config, dependencies = {}) {
     const status = await native({ command: 'status' });
     const state = await readJson(stateFile, initial());
     let task; let nativeReminder;
-    if (taskId && status.authorized && state.links[taskId]?.nativeId) {
+    if (taskId && status.authorized && state.links[taskId]) {
       const rows = (await native(nativeInput({ command: 'list' }))).reminders;
-      nativeReminder = rows.find(row => row.id === state.links[taskId].nativeId) ?? null;
+      const link = state.links[taskId];
+      nativeReminder = (link.nativeId ? rows.find(row => row.id === link.nativeId)
+        : rows.find(row => row.taskId === taskId || row.notes?.startsWith(`Cove task: ${taskId}\n`))) ?? null;
     }
     if (taskId) { const row = await api.task(taskId); task = { id: row.id, title: row.title, status: row.status, dueAt: row.due_at, description: row.description, version: taskVersion(row) }; }
     return { connected: status.authorized === true, timezone, notificationSupported: true, urgentAlarmSupported: status.urgentAlarmSupported === true,

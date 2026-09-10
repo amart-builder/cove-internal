@@ -116,7 +116,7 @@ export default function ResponsibilityOverview() {
     }
   }
   return (
-    <main className="mx-auto max-w-3xl px-6 pb-8 pt-16">
+    <main className="mx-auto h-full max-w-3xl overflow-y-auto px-6 pb-8 pt-16">
       <Link
         href="/tasks"
         className="text-sm text-muted-foreground hover:text-foreground"

@@ -1771,7 +1771,7 @@ function TodayExperience({
       setFocusedTaskId(nextTask?._id ?? null);
       if (nextTask) writeLocalValue(FOCUS_KEY, nextTask._id);
       else removeLocalValue(FOCUS_KEY);
-      showUndo({
+      const completionUndo: UndoAction = {
         message: 'Completed',
         run: async () => {
           const restore = async () => {
@@ -1801,7 +1801,9 @@ function TodayExperience({
             await restore();
           }
         },
-      });
+      };
+      if (requireReceipt) return completionUndo.run;
+      showUndo(completionUndo);
     } catch (nextError) {
       setSurfaceError("Cove couldn't finish completing that task. Refresh the current to confirm its state, then try again.");
       if (today2Order || requireReceipt) throw nextError;
@@ -3160,8 +3162,7 @@ function TodayExperience({
             if (action === 'complete') {
               const current = tasks.find(candidate => candidate._id === task.id);
               if (!current) throw new Error('Refresh Cove to load this task before completing it.');
-              await completeTask(current, undefined, true);
-              return;
+              return completeTask(current, undefined, true);
             }
             let plan = dayRitual.plan;
             let item = plan?.items.find(candidate => candidate.taskId === task.id && ['pending', 'preselected', 'accepted'].includes(candidate.decision));

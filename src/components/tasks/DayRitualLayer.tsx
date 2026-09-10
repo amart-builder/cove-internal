@@ -56,6 +56,9 @@ export default function DayRitualLayer({
     if (inertTarget) inertTarget.setAttribute('inert', '');
 
     const focusDialog = window.requestAnimationFrame(() => {
+      // A task opened from a deep link can mount alongside the ritual.
+      // Let the foreground portal keep keyboard focus.
+      if (document.querySelector('[data-cove-modal]')) return;
       (initialFocusRef?.current ?? dialogRef.current)?.focus();
     });
 

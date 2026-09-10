@@ -104,8 +104,6 @@ export default function TaskDetail({
   const [confirmingRecurrence, setConfirmingRecurrence] = useState(false);
   const localMode = getRuntimeMode() === 'local';
 
-  const backdropRef = useRef<HTMLDivElement>(null);
-  const mouseDownTargetRef = useRef<EventTarget | null>(null);
 
   // Re-seed the draft fields only when a different task is opened.
   //
@@ -125,22 +123,6 @@ export default function TaskDetail({
     setColumnId(task.columnId);
     setBlocked(taskEditorDraft(task).blocked);
   }, [taskId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Only close if BOTH mousedown and mouseup (click) happened on the backdrop.
-  // This prevents accidental close when drag-selecting text inside the modal
-  // and releasing the mouse outside the modal boundary.
-  function handleBackdropMouseDown(e: React.MouseEvent) {
-    mouseDownTargetRef.current = e.target;
-  }
-
-  function handleBackdropClick(e: React.MouseEvent) {
-    if (
-      e.target === backdropRef.current &&
-      mouseDownTargetRef.current === backdropRef.current
-    ) {
-      onClose();
-    }
-  }
 
   async function handleSave() {
     setSaving(true);
@@ -221,16 +203,12 @@ export default function TaskDetail({
   }
 
   return (
-    <div
-      ref={backdropRef}
-      onMouseDown={handleBackdropMouseDown}
-      onClick={handleBackdropClick}
-      className="fixed inset-0 z-[160] flex items-center justify-center bg-black/20 dark:bg-black/40 backdrop-blur-sm"
-    >
-      <div className="bg-card rounded-lg border w-full max-w-lg mx-4 p-5 max-h-[90vh] overflow-y-auto transition-colors duration-200">
+    <ModalScrim labelledBy="task-detail-title" returnFocus={returnFocus} onClose={onClose}
+      panelClassName="bg-card rounded-lg border w-full max-w-lg p-5 max-h-[90vh] overflow-y-auto transition-colors duration-200">
         <div className="flex items-start justify-between mb-4">
-          <h2 className="text-sm font-semibold">Edit Task</h2>
+          <h2 id="task-detail-title" className="text-sm font-semibold">Edit Task</h2>
           <button
+            type="button" data-modal-initial-focus aria-label="Close task"
             onClick={onClose}
             className="text-muted-foreground hover:text-foreground text-lg leading-none"
           >
@@ -414,7 +392,6 @@ export default function TaskDetail({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </ModalScrim>
   );
 }

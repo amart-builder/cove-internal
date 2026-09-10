@@ -7,13 +7,14 @@ import EmailCardDetail from './EmailCardDetail';
 
 type Action='today'|'priority'|'complete';
 export default function NotificationTaskSheet({query,onClose,onAction}: {
-  query:string;onClose:()=>void;onAction:(action:Action,task:NotificationTask)=>Promise<void>;
+  query:string;onClose:()=>void;onAction:(action:Action,task:NotificationTask)=>Promise<void|(()=>Promise<void>)>;
 }) {
   const closeButtonRef=useRef<HTMLButtonElement>(null);
   const [context,setContext]=useState<NotificationContext|null>(null);
   const [error,setError]=useState('');
   const [busy,setBusy]=useState(false);
   const [receipt,setReceipt]=useState('');
+  const [undoCompletion,setUndoCompletion]=useState<(()=>Promise<void>)|null>(null);
   useEffect(()=>{
     const abort=new AbortController();
     fetch(`/api/notifications?${query}`,{signal:abort.signal,cache:'no-store'})
@@ -32,7 +33,8 @@ export default function NotificationTaskSheet({query,onClose,onAction}: {
         const result=await response.json();if(!response.ok)throw new Error(result.error??'Could not schedule the reminder.');
         setReceipt(`Reminder set for ${new Date(result.remindAt).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}. The deadline is unchanged.`);
       } else {
-        await onAction(action,task);
+        const undo=await onAction(action,task);
+        if(action==='complete'&&undo)setUndoCompletion(()=>undo);
         if(action==='complete'){
           setContext(current=>current?{...current,task:{...task,status:'done'}}:current);
           closeButtonRef.current?.focus();
@@ -40,6 +42,18 @@ export default function NotificationTaskSheet({query,onClose,onAction}: {
         setReceipt(action==='complete'?'Task marked complete.':action==='priority'?'Added to your initial priorities.':'Added to today.');
       }
     }catch(error){setError(error instanceof Error?error.message:'Cove could not save that change.');}
+    finally{setBusy(false);}
+  }
+  async function undo() {
+    if(!undoCompletion||busy)return;
+    setBusy(true);setError('');
+    try {
+      await undoCompletion();
+      setUndoCompletion(null);
+      setContext(current=>current?.task?{...current,task:{...current.task,status:'open'}}:current);
+      setReceipt('Task reopened.');
+      closeButtonRef.current?.focus();
+    }catch(error){setError(error instanceof Error?error.message:'Cove could not undo that change.');}
     finally{setBusy(false);}
   }
   return <ModalScrim labelledBy="notification-title" returnFocus={null} onClose={onClose} panelClassName="notification-task-panel">
@@ -66,6 +80,7 @@ export default function NotificationTaskSheet({query,onClose,onAction}: {
         {!task&&!context.unavailable&&<a className="notification-related-link" href="/follow-through">Open follow-through</a>}
       </>}
       {receipt&&<p role="status" className="notification-receipt">{receipt}</p>}
+      {undoCompletion&&<button disabled={busy} onClick={()=>void undo()}>Undo completion</button>}
     </div>}
     {error&&<p role="alert" className="notification-task-error">{error}</p>}
   </ModalScrim>;

@@ -327,3 +327,33 @@ test('interrupted cancellation retries only an unchanged pre-cancellation record
   assert.equal((await bridge.sync()).results[0].state, 'cancelled');
   assert.equal((await bridge.set(intent)).replayed, true);
 });
+
+for (const interruption of ['before', 'after']) {
+  test(`cancelling creation interrupted ${interruption} native save cannot resurrect a reminder`, async t => {
+    const f = await fixture(t);
+    let interrupt = true;
+    const bridge = createReminderBridge(f.config, {...f.deps, native: async input => {
+      if (input.command === 'save' && interrupt) {
+        interrupt = false;
+        if (interruption === 'after') await f.native(input);
+        throw new Error('Interrupted native creation');
+      }
+      return f.native(input);
+    }});
+    await assert.rejects(bridge.set(f.input()), /Interrupted/);
+    const state = JSON.parse(await readFile(path.join(f.stateDir, 'state.json'), 'utf8'));
+    assert.equal(state.links['task-1'].phase, 'pending_native');
+    assert.equal(state.links['task-1'].nativeId, null);
+    const context = await bridge.context('task-1');
+    const cancel = f.input('task-1', {delivery:'none', mutationId:'cancel-pending-create',
+      expectedReminderRevision:context.nativeReminder?.revision});
+    assert.equal((await bridge.set(cancel)).cancelled, true);
+    const resumed = createReminderBridge(f.config, f.deps);
+    await resumed.sync(); await resumed.sync();
+    assert.equal((await resumed.context('task-1')).reminders[0].state, 'cancelled');
+    assert.equal(f.tasks.get('task-1').status, 'open');
+    assert.equal([...f.reminders.values()].filter(row => !row.completed).length, 0);
+    assert.equal(f.reminders.size, interruption === 'after' ? 1 : 0);
+    assert.equal((await resumed.set(cancel)).cancelled, true);
+  });
+}

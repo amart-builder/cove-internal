@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 function reminderPath(dataDir, taskId) {
@@ -40,6 +40,16 @@ export function drainNotificationReminders({db, dataDir, notify, onFailure, now 
     if (existsSync(claim)) continue;
     try { renameSync(file, claim); utimesSync(claim, now, now); } catch (error) { if (error.code === 'ENOENT') continue; throw error; }
     try {
+      // Scheduling can replace the file between the eligibility read and claim.
+      // Deliver only the version we actually claimed.
+      entry = JSON.parse(readFileSync(claim, 'utf8'));
+      if (typeof entry.taskId !== 'string' || !entry.taskId || !Number.isFinite(Date.parse(entry.remindAt))) throw new Error('Invalid requested reminder.');
+      if (Date.parse(entry.remindAt) > +now) {
+        // A hard link restores the entry atomically without replacing a newer request.
+        try { linkSync(claim, file); } catch (error) { if (error.code !== 'EEXIST') throw error; }
+        unlinkSync(claim);
+        continue;
+      }
       const task = db.prepare("SELECT id,title,source_type FROM tasks WHERE id=? AND status='open' AND archived_at IS NULL").get(entry.taskId);
       if (task) notify(task);
       unlinkSync(claim);

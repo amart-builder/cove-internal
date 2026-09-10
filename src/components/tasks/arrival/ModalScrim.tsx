@@ -92,6 +92,7 @@ export default function ModalScrim({
     >
       <section
         ref={dialogRef}
+        data-cove-modal
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
