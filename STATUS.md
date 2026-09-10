@@ -24,6 +24,23 @@
 
 ---
 
+## 2026-09-10 Second Current email count
+
+- Alex requested the pending email count on the parent Second Current card,
+  visible even when its child cards are collapsed. It reuses the Email needs
+  you count and badge styling, updates with that count, hides at zero and
+  includes a descriptive accessible label. No additional polling or email
+  mutations were added.
+- TypeScript, zero-warning lint and production builds passed. Browser fixtures
+  verified collapsed/expanded visibility, matching counts, changes to 1/127/0,
+  and desktop/phone fit. Evidence: data/review-artifacts/email-badge-20260910/.
+- Live build `IxLuj7ZrV7orhqAWPb3E0` activated with database backup, health checks,
+  rollback, and preservation of the phone session, environment and Apple
+  Reminders service. Recovery: data/build-backups/20260910-email-badge/.
+- This is the only follow-up implementation. The architectural recommendations
+  for Follow-through remain a read-only review, not approved changes.
+  Release remains prepared for the existing Gary readiness review task.
+
 ## 2026-09-10 Notification click-through and release freeze (PUSHED)
 
 - Native task notifications now link to Plan Your Day with the exact task

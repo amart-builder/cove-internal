@@ -563,6 +563,7 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
   const [richTaskId, setRichTaskId] = useState<string>();
   const [richReturnFocus, setRichReturnFocus] = useState<HTMLElement | null>(null);
   const [secondCurrentOpen, setSecondCurrentOpen] = useState(false);
+  const emailNeedsYouCount = model.secondCurrentItems.find(item => item.kind === 'email')?.count ?? 0;
   const [wakeOpen, setWakeOpen] = useState(false);
   const [displayDoneCount, setDisplayDoneCount] = useState(model.doneCount);
   const [beadPoints, setBeadPoints] = useState<Array<{ x: number; y: number }>>([]);
@@ -1122,11 +1123,15 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
         >
           <button
             type="button"
-            className="today2-second-current-card"
+            className={`today2-second-current-card${emailNeedsYouCount > 0 ? ' has-badge' : ''}`}
+            aria-label={`Second Current. Email${emailNeedsYouCount > 0 ? `, ${emailNeedsYouCount} ${emailNeedsYouCount === 1 ? 'email needs' : 'emails need'} you` : ''}. ${model.rhythmCount} ${model.rhythmCount === 1 ? 'rhythm' : 'rhythms'}.`}
             aria-expanded={secondCurrentOpen}
             onClick={() => setSecondCurrentOpen((current) => !current)}
           >
             <span>Second Current</span>
+            {emailNeedsYouCount > 0 && (
+              <span className="today2-second-current-badge" aria-hidden="true">{emailNeedsYouCount}</span>
+            )}
             <svg viewBox="0 0 198 26" preserveAspectRatio="none" aria-hidden="true">
               <defs>
                 <linearGradient id="today2-mini-gradient" x1="0" y1="0" x2="1" y2="1">
