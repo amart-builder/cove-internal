@@ -40,10 +40,11 @@ export function createAttentionTransport(input = {}) {
   const config = input.config ?? reminderConfig(repoDir);
   const token = input.telegramToken ?? telegramToken();
   return {
-    banner(message, subtitle = "Needs your attention") {
+    banner(message, subtitle = "Needs your attention", openUrl) {
       const command = nativeNotificationCommand(message, {
         title: "Cove",
         subtitle,
+        openUrl,
         sound: "Glass",
       }, {
         notificationAppPath: input.notificationAppPath ??

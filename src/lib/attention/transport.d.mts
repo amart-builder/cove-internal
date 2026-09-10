@@ -1,5 +1,5 @@
 export type AttentionTransport = {
-  banner(message: string, subtitle?: string): void;
+  banner(message: string, subtitle?: string, openUrl?: string): void;
   text(message: string): boolean;
   textConfigured: boolean;
 };

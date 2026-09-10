@@ -1,3 +1,4 @@
+import { notificationUrl } from "./notification-links.mjs";
 import Database from "better-sqlite3";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -173,7 +174,7 @@ export function handleUrgentEmail(input: {
         transport.banner(sanitizeNonDirectBanner(
           `Urgent message. ${input.urgencyReason}`,
           "from email",
-        ));
+        ), "Email needs you", notificationUrl({ attentionId: allocation.row.id, email: true }));
         bannerDelivered = true;
       } catch {
         bannerDelivered = false;

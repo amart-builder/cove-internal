@@ -1,5 +1,6 @@
 'use client';
 
+import NotificationTaskSheet from './NotificationTaskSheet';
 import { useTaskLink } from './useTaskLink';
 
 import { taskEditError, type TaskEditGuard } from '@/lib/tasks/edit-conflict';
@@ -753,6 +754,8 @@ function TodayExperience({
   const [arrivalEntry, setArrivalEntry] = useState<{ planId: string; step: 'brief' | 'plan' }>();
   const [showAllDownstream, setShowAllDownstream] = useState(false);
   const [expandedSuggestionId, setExpandedSuggestionId] = useState<string | null>(null);
+  const [notificationQuery, setNotificationQuery] = useState<string | null>(null);
+  const notificationLinkConsumed = useRef(false);
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
   useTaskLink('today', tasks, setDetailTaskId);
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
@@ -1151,6 +1154,27 @@ function TodayExperience({
       );
     }
   }, [closeTransientSurfaces, dayRitual]);
+
+  useEffect(() => {
+    if (!localMode || !dayRitual.plan || notificationLinkConsumed.current) return;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('notice') && params.get('email') !== '1') return;
+    const query = new URLSearchParams();
+    for (const key of ['task', 'notice', 'email']) {
+      const value = params.get(key);
+      if (value) query.set(key, value);
+    }
+    const timer = window.setTimeout(() => {
+      notificationLinkConsumed.current = true;
+      void openMorningArrival('plan').then(() => {
+        setNotificationQuery(query.toString());
+        const url = new URL(window.location.href);
+        for (const key of ['task', 'notice', 'email']) url.searchParams.delete(key);
+        window.history.replaceState(window.history.state, '', url);
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [localMode, dayRitual.plan, openMorningArrival]);
 
   const openDaySettlement = useCallback(async () => {
     closeTransientSurfaces();
@@ -1710,6 +1734,7 @@ function TodayExperience({
       previousItemIds: string[];
       nextTaskIds: string[];
     },
+    requireReceipt = false,
   ) {
     if (!doneColumn) throw new Error('Cove needs a Done list to complete this task.');
     if (completingTaskId) throw new Error('Another task completion is still in progress.');
@@ -1717,8 +1742,11 @@ function TodayExperience({
     setSurfaceError(undefined);
     if (!today2Order) await new Promise((resolve) => window.setTimeout(resolve, 230));
     try {
-      const completed = today2Order
-        ? await dayRitual.completeItem(today2Order.itemId, task.title)
+      const completionItemId = today2Order?.itemId ?? (requireReceipt
+        ? dayRitual.plan?.items.find(item => item.taskId === task._id && ['pending', 'preselected', 'accepted'].includes(item.decision))?.id
+        : undefined);
+      const completed = completionItemId
+        ? await dayRitual.completeItem(completionItemId, task.title)
         : undefined;
       await updateTask(task._id, {
         columnId: doneColumn._id,
@@ -1747,8 +1775,8 @@ function TodayExperience({
         message: 'Completed',
         run: async () => {
           const restore = async () => {
-            const reopened = today2Order
-              ? await dayRitual.reopenItem(today2Order.itemId, task.title)
+            const reopened = completionItemId
+              ? await dayRitual.reopenItem(completionItemId, task.title)
               : undefined;
             await updateTask(task._id, {
               columnId: task.columnId,
@@ -1776,7 +1804,7 @@ function TodayExperience({
       });
     } catch (nextError) {
       setSurfaceError("Cove couldn't finish completing that task. Refresh the current to confirm its state, then try again.");
-      if (today2Order) throw nextError;
+      if (today2Order || requireReceipt) throw nextError;
     } finally {
       setCompletingTaskId(null);
     }
@@ -3125,6 +3153,28 @@ function TodayExperience({
         </div>
       )}
 
+      {notificationQuery && (
+        <NotificationTaskSheet query={notificationQuery}
+          onClose={() => setNotificationQuery(null)}
+          onAction={async (action, task) => {
+            if (action === 'complete') {
+              const current = tasks.find(candidate => candidate._id === task.id);
+              if (!current) throw new Error('Refresh Cove to load this task before completing it.');
+              await completeTask(current, undefined, true);
+              return;
+            }
+            let plan = dayRitual.plan;
+            let item = plan?.items.find(candidate => candidate.taskId === task.id && ['pending', 'preselected', 'accepted'].includes(candidate.decision));
+            if (!item) {
+              const result = await dayRitual.addTask(task.id, task.title);
+              plan = result.plan;
+              item = plan.items.find(candidate => candidate.taskId === task.id && ['pending', 'preselected', 'accepted'].includes(candidate.decision));
+            }
+            if (!item) throw new Error('Cove could not add this task to today.');
+            if (action === 'priority') await dayRitual.reorder(item.id, 0, task.title);
+            await retry();
+          }} />
+      )}
       {detailTask && (
         <TaskDetail
           taskId={detailTask._id}
@@ -3170,6 +3220,7 @@ function TodayExperience({
           >
             {ritualView === 'arrival' ? (
               <MorningArrival
+                key={`${dayRitual.plan.id}:${arrivalEntry?.planId === dayRitual.plan.id ? arrivalEntry.step : 'brief'}`}
                 initialStep={arrivalEntry?.planId === dayRitual.plan.id ? arrivalEntry.step : 'brief'}
                 localDate={dayRitual.plan.localDate}
                 plan={dayRitual.plan}

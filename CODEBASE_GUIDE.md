@@ -118,6 +118,7 @@ Treat request bodies, query strings, headers, and stored model text as untrusted
 | `/api/recurrence` | Recurring template confirmation and lifecycle | `src/lib/tasks/recurrence.ts` |
 | `/api/failures` | Visible failure inbox | `src/lib/reliability/failures.ts` |
 | `/api/responsibilities` | Local review queue, proposed day capacity, draft artifacts and versioned acknowledgement | `src/lib/responsibility/` |
+| `/api/notifications` | Read full notification context; request a native-only reminder in one hour with CSRF protection | `src/lib/notifications/` |
 | `/api/follow-through` | Native reminder coverage, source freshness, acknowledgement and one-hour snooze | `src/lib/attention/follow-through.mjs` |
 | `/api/buddy/codex-auth` | Local Codex sign-in status and explicit Terminal login | `src/lib/buddy/codex-auth.ts` |
 | `/api/agent-settings` | Read connected providers or explicitly change primary, local and CSRF-protected | `src/lib/agent-settings.mjs` |
@@ -410,6 +411,8 @@ identity.
 `src/lib/health/` collects factual readiness. Never report an integration as
 healthy merely because configuration exists. Distinguish not configured, waiting
 for first run, healthy, stale, and failed.
+
+`src/lib/notifications/` resolves task and ledger links into full explanations and current task state. Native banners open Plan Your Day with `NotificationTaskSheet` expanded. Actions use the existing day-plan and task mutations. Requested one-hour repeats are stored under `data/reminders/`, never alter deadlines, and never use text messaging. The worker claims delivery before sending; interrupted deliveries become visible failures instead of automatic retries.
 
 ### Apple Reminders phone beta
 

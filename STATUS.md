@@ -24,6 +24,37 @@
 
 ---
 
+## 2026-09-10 Notification click-through and release freeze
+
+- Native task notifications now link to Plan Your Day with the exact task
+  expanded. The sheet includes the full stored explanation, task details,
+  current status and deadline, plus initial-priority, today, complete and
+  one-hour reminder actions. Email notices open email review; other notices
+  preserve their explanation and link to follow-through.
+- One-hour repeats are durable and native-only. They leave task deadlines
+  unchanged, skip completed tasks and report uncertain delivery without blindly
+  resending. Reminder scheduling is protected by local access and CSRF checks.
+- Explicit notification entry remounts the planning step if Morning Arrival
+  already opened during startup, so closing the task reveals Plan Your Day.
+- Completion synchronizes the board and matching day-plan item, including Undo.
+  Failed saves show errors rather than success receipts; completed tasks have
+  no action buttons. Keyboard focus stays on Close after completion.
+- Independent fresh-context review cleared all findings. Release validation:
+  1415 tests passed, one intentional skip, TypeScript, zero-warning lint and
+  production build. After the final focus and startup corrections, TypeScript, lint and
+  production build passed again. Synthetic browser checks passed desktop,
+  phone and short landscape, full text, actions, failed saves and Escape.
+- Live build `1SEO0xF8OFSkjZZ4V4Exg` activated after backup and idle checks.
+  Web health and database quick_check passed. Existing phone runtime,
+  environment and Apple Reminders service preserved. Recovery is in
+  data/build-backups/20260910-notifications-final/.
+- Evidence: data/review-artifacts/notifications-20260910/. Release source is
+  frozen for the existing task "Review Cove readiness for Gary". Live task
+  routing, Plan Your Day after close and email review passed without task or
+  email mutations. Physical macOS banner clicks were not exercised. Private
+  branch push receipts follow below. Main is unchanged;
+  Gary's installation and native notification acceptance remain unproved.
+
 ## 2026-09-10 Final email polish and review freeze (PUSHED)
 
 - Final requested UI pass: review sheet widened from 860 to 1040 pixels,

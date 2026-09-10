@@ -12,6 +12,8 @@ export function useTaskLink(
     // Today mounts briefly before an explicit All Work switch. Only the
     // requested view may consume the link, or that switch would lose it.
     if ((requestedTaskWorkspaceView(window.location.search, true) ?? 'today') !== view) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('notice') || params.get('email') === '1') return;
     const id = requestedTaskLink(window.location.search, tasks);
     if (!id) return;
     const timer = window.setTimeout(() => {

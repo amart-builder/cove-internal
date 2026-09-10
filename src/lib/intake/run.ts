@@ -1,3 +1,4 @@
+import { notificationUrl } from "../attention/notification-links.mjs";
 /**
  * Source-to-task intake coordinator.
  *
@@ -409,11 +410,13 @@ function runBestEffort(
 async function defaultNotifyNow(
   title: string,
   options: CoveIntakeOptions,
+  taskId: string,
 ): Promise<void> {
   const repoDir = options.repoDir ?? MODULE_REPO_DIR;
   const notificationCommand = nativeNotificationCommand(title, {
     title: "Cove",
     subtitle: "Needs attention",
+    openUrl: notificationUrl({ taskId }),
   }, {
     notificationAppPath: coveEnvTrimmed("NOTIFICATION_APP"),
   });
@@ -440,11 +443,13 @@ async function defaultNotifyNow(
 async function notifyNativeOnly(
   title: string,
   options: CoveIntakeOptions,
+  taskId: string,
 ): Promise<void> {
   if (process.platform !== "darwin") return;
   const command = nativeNotificationCommand(title, {
     title: "Cove",
     subtitle: "Needs attention",
+    openUrl: notificationUrl({ taskId }),
   }, {
     notificationAppPath: coveEnvTrimmed("NOTIFICATION_APP"),
   });
@@ -486,7 +491,7 @@ async function surfaceTriage(
   if (triage.surface === "now") {
     await (options.notifyNow
       ? options.notifyNow(triage.title)
-      : defaultNotifyNow(triage.title, options));
+      : defaultNotifyNow(triage.title, options, taskId));
     try {
       unlinkSync(scheduledReminderPath(options.dataDir, taskId));
     } catch (error) {
@@ -511,7 +516,7 @@ async function resumePendingSurface(
   }
   await (options.notifyNow
     ? options.notifyNow(value.title)
-    : defaultNotifyNow(value.title, options));
+    : defaultNotifyNow(value.title, options, taskId));
   try {
     unlinkSync(file);
   } catch (error) {
@@ -572,7 +577,7 @@ export async function triageRecordedEvent(
   );
   await surfaceTriage(taskId, policy.triage, runtimeOptions);
   if (policy.nativeOnly) {
-    await notifyNativeOnly(policy.triage.title, runtimeOptions);
+    await notifyNativeOnly(policy.triage.title, runtimeOptions, taskId);
   }
   return true;
 }

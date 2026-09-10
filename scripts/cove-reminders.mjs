@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { drainNotificationReminders } from "../src/lib/notifications/reminders.mjs";
+import { notificationUrl } from "../src/lib/attention/notification-links.mjs";
 /**
  * Cove reminder helper. Run every minute by the com.cove.reminders LaunchAgent.
  *
@@ -99,19 +101,21 @@ function telegramToken() {
   }
 }
 
-function notifyNative(taskTitle) {
+function notifyNative(taskTitle, taskId) {
   const command = nativeNotificationCommand(`Here's your reminder: ${taskTitle}`, {
     title: "Cove",
     subtitle: "Your reminder",
+    openUrl: notificationUrl({taskId, reminder: true}),
     sound: "Glass",
   }, nativeNotificationDependencies);
   execFileSync(command.executable, command.args);
 }
 
-function notifyAttentionBanner(message, subtitle = "Needs your attention") {
+function notifyAttentionBanner(message, subtitle = "Needs your attention", openUrl) {
   const command = nativeNotificationCommand(message, {
     title: "Cove",
     subtitle,
+    openUrl,
     sound: "Glass",
   }, nativeNotificationDependencies);
   execFileSync(command.executable, command.args);
@@ -124,6 +128,7 @@ function notifyTextFailure(taskTitle, uncertain = false) {
   const command = nativeNotificationCommand(message, {
     title: "Cove",
     subtitle: uncertain ? "Reminder delivery unconfirmed" : "Reminder delivery failed",
+    openUrl: "http://127.0.0.1:3200/failures",
     sound: "Glass",
   }, nativeNotificationDependencies);
   execFileSync(command.executable, command.args);
@@ -448,7 +453,7 @@ async function runDeterministicFloor(db, config, token, now = new Date()) {
       : `Due today and still open in Cove. ${sanitizedNonDirectText(title, candidate.provenance.prefix)}`;
     let bannerDelivered = false;
     try {
-      notifyAttentionBanner(banner);
+      notifyAttentionBanner(banner, "Needs your attention", notificationUrl({ taskId: candidate.refKind === "task" ? candidate.refId : undefined, attentionId: allocation.row.id }));
       bannerDelivered = true;
     } catch (error) {
       console.error(`Floor nudge ${candidate.refId} banner failed:`, errorMessage(error));
@@ -592,7 +597,7 @@ function fireScheduledReminders(db, config, token) {
     try {
       let nativeFailure = null;
       try {
-        notifyNative(title);
+        notifyNative(title, entry.task_id ?? entry.id);
       } catch (error) {
         nativeFailure = errorMessage(error);
         console.error(
@@ -760,7 +765,7 @@ async function firePredeadlineNudges(db, dueTaskIds, now) {
       : `This is your advance reminder. ${sanitizedNonDirectText(title, provenance.prefix)}`;
     let delivered = false;
     try {
-      notifyAttentionBanner(banner, "Upcoming task");
+      notifyAttentionBanner(banner, "Upcoming task", notificationUrl({ taskId: task.id, attentionId: allocation.row.id }));
       delivered = true;
     } catch (error) {
       console.error(`Nudge for task ${task.id} native notification failed:`, errorMessage(error));
@@ -795,6 +800,10 @@ async function main() {
   fireScheduledReminders(db, config, token);
   if (!db) return;
   const now = attentionNow();
+  try { drainNotificationReminders({db, dataDir:path.dirname(dbPath), now,
+    notify:task=>notifyNative(sanitizedNonDirectText(plainAttentionText(task.title), "your requested reminder"),task.id),
+    onFailure:failure=>recordNativeOnlyFailure(db,{kind:"notification-repeat",...failure}),
+  }); } catch (error) { console.error("Requested reminder check failed:", errorMessage(error)); }
   await runDeterministicFloor(db, config, token, now);
   // Only explicit new agent settings activate the additional native checks.
   // Existing installs keep their reminder behavior until their setup is changed.
@@ -807,7 +816,7 @@ async function main() {
       },
       notify: ({ id, message, taskId }) => {
         const command = nativeNotificationCommand(message, { title: "Cove", subtitle: "On your radar", group: `follow-through-${id}`,
-          openUrl: `${coveEnv("BUDDY_APP_URL") ?? "http://127.0.0.1:3200"}/tasks${taskId ? `?task=${encodeURIComponent(taskId)}` : ""}` }, nativeNotificationDependencies);
+          openUrl: notificationUrl({ taskId, followThroughId: id }, coveEnv("BUDDY_APP_URL") ?? "http://127.0.0.1:3200") }, nativeNotificationDependencies);
         execFileSync(command.executable, command.args, { timeout: 10_000, maxBuffer: 64_000 });
       },
     });
@@ -867,7 +876,7 @@ async function main() {
         // sanitized and labelled before it borrows Cove's credibility.
         notifyNative(provenance.direct
           ? title
-          : sanitizedNonDirectText(title, provenance.prefix));
+          : sanitizedNonDirectText(title, provenance.prefix), task.id);
       } catch (error) {
         nativeFailure = errorMessage(error);
         console.error(`Reminder for task ${task.id} native notification failed:`, nativeFailure);

@@ -1,3 +1,4 @@
+import { notificationUrl } from "./notification-links.mjs";
 import type Database from "better-sqlite3";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -332,7 +333,7 @@ export function deliverAttentionNudge(input: {
   }
   if (allocation.finalLevel === "banner" || !textDelivered) {
     try {
-      transport.banner(banner);
+      transport.banner(banner, "Needs your attention", notificationUrl({ taskId: fresh.targetTaskId, attentionId: allocation.row.id }));
       bannerDelivered = true;
     } catch (error) {
       bannerDelivered = false;
