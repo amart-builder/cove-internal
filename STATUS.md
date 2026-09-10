@@ -24,7 +24,7 @@
 
 ---
 
-## 2026-09-10 Final email polish and review freeze
+## 2026-09-10 Final email polish and review freeze (PUSHED)
 
 - Final requested UI pass: review sheet widened from 860 to 1040 pixels,
   desktop email launcher from 182 to 216 pixels. Larger text, clearer contrast,
@@ -46,12 +46,17 @@
   only com.cove.local restarted after the idle check. Database backup quick_check
   and HTTP health checks passed. Existing phone runtime, environment and Apple
   Reminders service preserved. Recovery: data/build-backups/20260910-email-polish/.
-- Evidence: data/review-artifacts/email-polish-20260910/. Final release-branch
-  commits and sanitized export are being recorded below. Next owner is the
-  existing task "Review Cove readiness for Gary", for the final setup assessment.
-  No more feature work is planned for this candidate. Main is unchanged.
+- Evidence: data/review-artifacts/email-polish-20260910/. Both private release
+  branches pushed: internal source `f1b84f7`, sanitized client `32f3a57`, branch
+  `codex/cove-provider-reminder-release-20260910`. All 563 exported file hashes
+  match the verified candidate; the manifest records clean source `f1b84f7`.
+  Follow-up documentation commits only record these receipts.
+- Next owner is the existing task "Review Cove readiness for Gary", for final
+  setup assessment. The candidate is frozen; no more feature work is planned.
+  Main branches remain unchanged and PR/merge approval remains pending. Gary's
+  installation and live acceptance are not yet proved by this release check.
 
-## 2026-09-10 Task duplicate prevention instructions (LOCAL)
+## 2026-09-10 Task duplicate prevention instructions (IN FROZEN RELEASE)
 
 - Alex requested a check for existing work before Cove adds similar tasks.
   Buddy and the task-capture skill now page through all open work, compare the
@@ -73,7 +78,7 @@
   installed skills passed validation. The actual Buddy renderer includes the
   rule. Documented live query read 59 open tasks across two pages with unique
   IDs. No tasks were changed or model calls made during verification.
-- Changes remain local and uncommitted alongside the prior Buddy access fix.
+- These changes and the prior Buddy access fix are in the frozen release above.
   Next: observe ordinary capture for fewer duplicates; a guaranteed check across
   automated ingestion paths would require a separate intake implementation.
 
@@ -106,8 +111,8 @@
   and .env.local were preserved; Apple Reminders remained loaded.
 - Evidence: data/review-artifacts/buddy-access-20260910/. Recovery build/database:
   data/build-backups/20260910-buddy-access/. Next Buddy turn gets the updated
-  instructions and tool configuration. These new changes are local/uncommitted;
-  the earlier pushed release branches do not yet contain this follow-up fix.
+  instructions and tool configuration. These changes are included in the final
+  frozen release above; this entry records their earlier local acceptance.
 - Next: Alex can repeat the original Buddy request. If publishing this follow-up,
   repeat sanitized-export verification and obtain any missing external-write
   approval; prior PR creation approval remains pending.
