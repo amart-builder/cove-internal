@@ -494,8 +494,12 @@ or broken agent.
 | `com.cove.morning-brief` | `scripts/cove-claude-worker.ts --lane brief` | Scheduled brief generation on a legacy always-on host | `--mini` profile only |
 
 The table covers both installer profiles. The supported default profile does not
-install `com.cove.morning-brief`; laptop backfill and post-settlement generation
-cover that need. The legacy `--mini` profile installs only the scheduled brief,
+install `com.cove.morning-brief`. The existing brief worker checks the local
+schedule on each idle poll: 08:00 in the brief timezone, weekdays only, with
+wake catch-up. It holds while an earlier day is open or the latest closeout's
+reconciliation is pending. Evening closeout waits for that timer; overdue
+closeout after 08:00 queues today's brief immediately. Automatic scheduling
+makes at most one attempt per target day; failed attempts retain manual retry. The legacy `--mini` profile installs only the scheduled brief,
 meeting, and progress agents, then exits before rendering the default-profile
 agents.
 

@@ -12,6 +12,16 @@ The Current displays live readiness for email, the brief writer, and the backgro
 
 Failures that need attention are recorded in Cove's Issues surface. A partial receipt means useful work completed but the named remainder needs a later run or operator action.
 
+## Morning Brief schedule
+
+The existing Claude worker starts the Morning Brief at 08:00 on weekdays in
+Cove's brief timezone once the previous workday is closed. Closing an overdue
+day after 08:00 starts today's brief automatically after reconciliation.
+Evening closeout and closeout before 08:00 wait for the scheduled morning.
+An asleep Mac catches up when it wakes; the browser does not need to be open.
+A failed attempt stays in Issues and Morning Arrival for manual retry instead
+of repeatedly spending model capacity. Explicit Brief me anyway remains available.
+
 ## Recovery
 
 - Stale Morning Brief claims become retryable through the normal Morning Arrival control.

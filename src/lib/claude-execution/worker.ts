@@ -24,6 +24,7 @@ import {
   assembleMorningBriefContext,
   localDateInTimezone,
   morningBriefInputHash,
+  settlementReconciliationComplete,
   stripMorningBriefDateClaim,
   validateMorningBrief,
   MORNING_BRIEF_PROMPT_VERSION,
@@ -31,6 +32,7 @@ import {
   type MorningBriefArtifact,
 } from "../day-plan/brief";
 import { evaluateScheduledBriefGate } from "../day-plan/brief-gate";
+import { automaticBriefIsDue } from "../day-plan/brief-schedule";
 import {
   briefCheckpointSources,
   collectMorningBriefSources,
@@ -1391,8 +1393,8 @@ export async function runOneMorningBrief(
   return true;
 }
 
-// Scheduled entry point (the ~7:30 local LaunchAgent run, which may fire late
-// on wake). Targets today with a validated COVE_BRIEF_TIMEZONE first (so the
+// Scheduled entry point, also polled by the single-Mac worker at 08:00 or wake.
+// Targets today with a validated COVE_BRIEF_TIMEZONE first (so the
 // Mini, whose local day_plans is stale by design, still targets the operator's real
 // morning), then the open plan's zone, the latest settlement's, the machine's,
 // and UTC. When relaying, it first imports any already-synced artifact and waits
@@ -1404,6 +1406,22 @@ export function enqueueDueMorningBrief(
   options: { relay?: BriefRelayOptions } = {},
 ): MorningBriefArtifact | undefined {
   const target = resolveBriefTargetDate(store, now);
+  if (!options.relay?.requireSourceCheckpoint) {
+    let timezone = resolveBriefTimezone(store);
+    if (!isValidTimezone(timezone)) timezone = "UTC";
+    if (!automaticBriefIsDue(target, now, timezone)) return undefined;
+    const model = store.getReadModel();
+    // Read local durable closure state, never the potentially stale relay.
+    if (model.currentPlan && model.currentPlan.localDate < target) return undefined;
+    if (model.currentPlan?.briefId) return undefined;
+    if (model.latestSnapshot && model.latestSnapshot.localDate >= target) return undefined;
+    if (model.latestSnapshot && !settlementReconciliationComplete(
+      model.pendingReconciliations, model.latestSnapshot.id,
+    )) return undefined;
+    // A failed attempt stays visible for an explicit retry. Polling and worker
+    // restarts must not spend the daily planning budget on automatic retries.
+    if (store.listMorningBriefs(target).length > 0) return undefined;
+  }
   if (options.relay) {
     scanAndImportBriefRelay({
       store,
@@ -1421,22 +1439,13 @@ export function enqueueDueMorningBrief(
     if (remote) return undefined;
   }
   if (store.latestEligibleMorningBrief(target)) return undefined;
-  // The scheduled 7:30 generation is the one that caused the original bug: it
-  // fired off the calendar alone, so on any morning the previous day was never
-  // closed it wrote a brief that could not see that day at all and said so
-  // nowhere. Now it simply does not run. The arrival already routes an unclosed
-  // day into Settlement before it will plan today, and committing that
-  // settlement enqueues the brief through the settlement trigger.
-  //
-  // This deliberately does NOT ask the local store: this lane runs on the Mini,
-  // whose day_plans is stale by design, so a local answer would be about the
-  // wrong machine. It reads the closure fact the ritual machine publishes, and
-  // treats no signal as no opinion.
-  const gate = evaluateScheduledBriefGate({
+  // Only a legacy remote generator needs the published closure fact. The
+  // supported single-Mac timer uses the authoritative database checks above.
+  const gate = options.relay?.requireSourceCheckpoint ? evaluateScheduledBriefGate({
     targetLocalDate: target,
     dataDir: options.relay?.dataDir,
     now,
-  });
+  }) : { blocked: false as const };
   if (gate.blocked) {
     // The one place this decision is visible. Without it a missing brief looks
     // identical to a crashed worker.
@@ -1473,6 +1482,13 @@ export async function watchMorningBriefQueue(
   const MAINTENANCE_INTERVAL_MS = 5 * 60 * 1000;
   let lastMaintenanceAt = 0;
   while (!options.abortSignal?.aborted) {
+    if (!relay?.requireSourceCheckpoint) {
+      try {
+        enqueueDueMorningBrief(options.store, clock(), { relay });
+      } catch (error) {
+        console.error("Morning brief schedule check failed; will retry.", error);
+      }
+    }
     if (relay) {
       // Pull in any synced artifact before this machine considers generating.
       scanAndImportBriefRelay({

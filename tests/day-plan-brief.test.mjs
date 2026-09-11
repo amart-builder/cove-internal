@@ -67,6 +67,7 @@ import {
 } from '../src/lib/claude-execution/morning-brief-writer.ts';
 import {
   enqueueDueMorningBrief,
+  watchMorningBriefQueue,
   runOneMorningBrief,
 } from '../src/lib/claude-execution/worker.ts';
 import { writeMorningBriefInput } from '../src/lib/claude-execution/brief-inputs.ts';
@@ -2335,6 +2336,8 @@ function triggerStore({ pending = [], plans = {}, eligible } = {}) {
   const enqueued = [];
   return {
     enqueued,
+    getReadModel: () => ({ pendingReconciliations: [] }),
+    listMorningBriefs: () => [],
     listPendingReconciliations: () => pending,
     getPlan: (id) => plans[id],
     latestEligibleMorningBrief: () => eligible,
@@ -2345,11 +2348,11 @@ function triggerStore({ pending = [], plans = {}, eligible } = {}) {
   };
 }
 
-// 04:30 UTC Jul 15 is the evening of Jul 14 in Los Angeles.
-const TRIGGER_NOW = new Date('2026-07-15T04:30:00.000Z');
+// 08:30 Pacific: yesterday is being closed this morning.
+const TRIGGER_NOW = new Date('2026-07-15T15:30:00.000Z');
 const LA_PLAN = { id: 'plan-1', localDate: '2026-07-14', timezone: 'America/Los_Angeles', briefId: undefined };
 
-test('a commit with no defers or drops enqueues the next brief exactly once', () => {
+test('a late closeout with no defers or drops enqueues today immediately', () => {
   const store = triggerStore();
   maybeQueueMorningBrief(
     store,
@@ -2487,6 +2490,7 @@ function dueStore({ plan, snapshot, eligible } = {}) {
       pendingTaskMutations: [],
     }),
     latestEligibleMorningBrief: () => eligible,
+    listMorningBriefs: () => [],
     enqueueMorningBrief: (date) => {
       enqueued.push(date);
       return { created: true, brief: { id: 'queued' } };
@@ -2500,7 +2504,7 @@ test('the scheduled lane resolves timezone as plan, then snapshot, then system, 
   // whether the developer running it happens to have closed yesterday.
   const dataDir = mkdtempSync(path.join(os.tmpdir(), 'cove-due-lane-'));
   t.after(() => rmSync(dataDir, { recursive: true, force: true }));
-  const relay = { relay: { dataDir } };
+  const relay = { relay: { dataDir, requireSourceCheckpoint: true } };
 
   // 16:00 UTC Jul 14 is already Jul 15 in Tokyo but still Jul 14 in LA.
   const now = new Date('2026-07-14T16:00:00.000Z');
@@ -2542,7 +2546,7 @@ test('the scheduled lane holds the brief when the ritual machine says yesterday 
     now,
   });
   const blocked = dueStore({ plan: { timezone: 'America/Los_Angeles' } });
-  assert.equal(enqueueDueMorningBrief(blocked, now, { relay: { dataDir } }), undefined);
+  assert.equal(enqueueDueMorningBrief(blocked, now, { relay: { dataDir, requireSourceCheckpoint: true } }), undefined);
   assert.deepEqual(blocked.enqueued, []);
 
   // Close it, and the same lane queues normally.
@@ -2552,7 +2556,7 @@ test('the scheduled lane holds the brief when the ritual machine says yesterday 
     now,
   });
   const allowed = dueStore({ plan: { timezone: 'America/Los_Angeles' } });
-  enqueueDueMorningBrief(allowed, now, { relay: { dataDir } });
+  enqueueDueMorningBrief(allowed, now, { relay: { dataDir, requireSourceCheckpoint: true } });
   assert.deepEqual(allowed.enqueued, ['2026-07-14']);
 });
 
@@ -2674,5 +2678,110 @@ test('deferred briefs keep polling only for a visible untouched arrival without 
   assert.equal(shouldPollBriefGeneration(base), true);
   for (const change of [{ view: 'today' }, { documentVisible: false }, { briefAttached: true }, { arrivalInteracted: true }]) {
     assert.equal(shouldPollBriefGeneration({ ...base, ...change }), false);
+  }
+});
+
+
+test('evening and early-morning closeouts wait until 08:00, including Friday to Monday', () => {
+  for (const [localDate, instant] of [
+    ['2026-07-14', '2026-07-15T04:30:00Z'],
+    ['2026-07-14', '2026-07-15T14:59:59Z'],
+    ['2026-07-17', '2026-07-18T01:00:00Z'],
+  ]) {
+    const store = triggerStore();
+    maybeQueueMorningBrief(store, 'settlement_commit', {
+      plan: { ...LA_PLAN, localDate }, snapshot: { id: 'snap-1' }, replayed: false,
+    }, new Date(instant));
+    assert.deepEqual(store.enqueued, []);
+  }
+  const store = triggerStore();
+  maybeQueueMorningBrief(store, 'ensure', { plan: LA_PLAN }, new Date('2026-07-14T14:59:59Z'));
+  assert.deepEqual(store.enqueued, []);
+});
+
+test('the local schedule starts at 08:00 across DST and catches up after sleep, without a browser', (t) => {
+  const { store, dir, setNow } = briefFixture(t);
+  store.ensureDayPlan({ localDate: '2026-07-14', timezone: 'America/Los_Angeles', mutationId: 'schedule-plan', candidates: candidatePool() });
+  const options = { relay: { dataDir: dir } };
+  assert.equal(enqueueDueMorningBrief(store, new Date('2026-07-14T14:59:59Z'), options), undefined);
+  setNow('2026-07-14T15:00:00Z');
+  const brief = enqueueDueMorningBrief(store, new Date('2026-07-14T15:00:00Z'), options);
+  assert.equal(brief.targetLocalDate, '2026-07-14');
+  assert.equal(enqueueDueMorningBrief(store, new Date('2026-07-14T15:30:00Z'), options), undefined);
+  store.claimNextMorningBrief();
+  store.failMorningBrief(brief.id, 'runner_failed');
+  assert.equal(enqueueDueMorningBrief(store, new Date('2026-07-14T16:00:00Z'), options), undefined);
+  assert.equal(store.listMorningBriefs('2026-07-14').length, 1, 'failed attempts are not retried by the timer');
+  for (const [before, due] of [
+    ['2026-03-09T14:59:59Z', '2026-03-09T15:00:00Z'],
+    ['2026-11-02T15:59:59Z', '2026-11-02T16:00:00Z'],
+    ['2026-07-14T14:59:59Z', '2026-07-14T17:30:00Z'],
+  ]) {
+    const fake = dueStore({ snapshot: { timezone: 'America/Los_Angeles' } });
+    assert.equal(enqueueDueMorningBrief(fake, new Date(before)), undefined);
+    assert.ok(enqueueDueMorningBrief(fake, new Date(due)));
+    assert.equal(fake.enqueued.length, 1);
+  }
+});
+
+test('the local timer holds an unfinished day even with a missing or misleading closure relay', (t) => {
+  const { store, dir } = briefFixture(t);
+  store.ensureDayPlan({ localDate: '2026-07-13', timezone: 'America/Los_Angeles', mutationId: 'old-plan', candidates: candidatePool() });
+  const now = new Date('2026-07-14T15:30:00Z');
+  assert.equal(enqueueDueMorningBrief(store, now, { relay: { dataDir: dir } }), undefined);
+  writeDayClosureRelay({ store: { dayClosureFacts: () => ({ latestLocalDate: '2026-07-13', openLocalDate: null }) }, dataDir: dir, now });
+  assert.equal(enqueueDueMorningBrief(store, now, { relay: { dataDir: dir } }), undefined);
+  assert.deepEqual(store.listMorningBriefs('2026-07-14'), []);
+});
+
+test('the local timer waits for closeout reconciliation and skips closed days and weekends', () => {
+  const now = new Date('2026-07-14T15:30:00Z');
+  const fake = dueStore();
+  const model = { latestSnapshot: { id: 's', localDate: '2026-07-13', timezone: 'America/Los_Angeles' }, pendingReconciliations: [{ snapshotId: 's', state: 'pending', action: 'defer' }] };
+  fake.getReadModel = () => model;
+  assert.equal(enqueueDueMorningBrief(fake, now), undefined);
+  model.pendingReconciliations = [];
+  assert.ok(enqueueDueMorningBrief(fake, now));
+  model.latestSnapshot.localDate = '2026-07-14';
+  assert.equal(enqueueDueMorningBrief(fake, now), undefined);
+  assert.equal(enqueueDueMorningBrief(fake, new Date('2026-07-18T15:30:00Z')), undefined);
+});
+
+test('the installed watch loop writes the scheduled brief without an arrival request', async (t) => {
+  const { dir, store, setNow } = briefFixture(t);
+  const now = new Date('2026-07-14T15:00:00Z');
+  setNow(now.toISOString());
+  store.ensureDayPlan({ localDate: '2026-07-14', timezone: 'America/Los_Angeles', mutationId: 'watch-plan', candidates: candidatePool() });
+  const fake = fakeClaude(dir, JSON.stringify(WIRE_BRIEF));
+  const controller = new AbortController();
+  const options = briefWorkerOptions(dir, store, fake.executable, async () => {
+    return collectedSources();
+  });
+  const complete = store.completeMorningBrief;
+  store.completeMorningBrief = (...args) => {
+    const result = complete(...args);
+    controller.abort();
+    return result;
+  };
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    await watchMorningBriefQueue({ ...options, now: () => now, abortSignal: controller.signal }, 10);
+    assert.equal(store.latestEligibleMorningBrief('2026-07-14')?.status, 'succeeded');
+    assert.equal(store.listMorningBriefs('2026-07-14').length, 1);
+  } finally { clearTimeout(timeout); }
+});
+
+
+test('opening Cove after a scheduled failure or during closeout reconciliation does not bypass the timer', () => {
+  for (const action of ['ensure', 'arrival_open']) {
+    const failed = triggerStore();
+    failed.listMorningBriefs = () => [{ status: 'failed' }];
+    const plan = { ...LA_PLAN, localDate: '2026-07-15' };
+    maybeQueueMorningBrief(failed, action, { plan }, TRIGGER_NOW);
+    assert.deepEqual(failed.enqueued, []);
+    const reconciling = triggerStore();
+    reconciling.getReadModel = () => ({ latestSnapshot: { id: 's' }, pendingReconciliations: [{ snapshotId: 's', state: 'pending', action: 'defer' }] });
+    maybeQueueMorningBrief(reconciling, action, { plan }, TRIGGER_NOW);
+    assert.deepEqual(reconciling.enqueued, []);
   }
 });

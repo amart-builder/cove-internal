@@ -24,6 +24,33 @@
 
 ---
 
+## 2026-09-11 Morning Brief at 08:00 after closeout (LIVE, LOCAL)
+
+- Alex requested: close the previous day in advance and the brief runs at 08:00;
+  leave it open and Cove shows Close the Day, then starts today's brief after
+  closeout. Added the timer to the existing worker, using the brief timezone,
+  existing weekday policy and wake catch-up. Evening closeout no longer writes
+  tomorrow's brief early. An explicit Brief me anyway remains available.
+- The timer reads authoritative local closure and latest reconciliation state.
+  Arrival follows the same reconciliation and existing-attempt checks, so it
+  cannot silently retry a failed timer attempt. No new LaunchAgent or model lane.
+- Independent fresh-context review cleared the final implementation. All 1,444
+  tests passed, one opt-in skip, TypeScript, zero-warning lint and production
+  build passed in an isolated tree. The three focused brief suites passed 158
+  tests, including real evening closure without an open plan, Monday after Friday,
+  late closeout, DST, sleep catch-up, replay, failed attempts and reconciliation.
+- Activated build `BwmGXqJNazaofGCTDRXRK` with checked DB/build backup and preserved
+  installed environment. Local app/route returned 200 and the restarted brief
+  worker has a fresh heartbeat. Today's pre-existing queued brief began running.
+  A future actual 08:00 run remains the live timing acceptance check.
+- Initial focused tests read live agent settings and wrote twelve fake-run usage
+  rows; removed only those exact rows after saving a recovery copy. All subsequent
+  verification was isolated. No task, closeout or message was submitted by this task.
+- Recovery: `data/build-backups/20260911-brief-schedule/`. Evidence:
+  `data/review-artifacts/brief-schedule-20260911/`. Source committed for the authorized GitHub push;
+  prior Buddy/closeout changes preserved. Next: ordinary weekday use verifies
+  the real-clock run. Mac must be awake; otherwise generation catches up on wake.
+
 ## 2026-09-10 Charge emails stay in review, without extra alerts
 
 - Alex reported a $500 ACH email hidden in Automatically filed. The classifier

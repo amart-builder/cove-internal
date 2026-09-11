@@ -5,12 +5,14 @@ import {
   settlementReconciliationComplete,
 } from "./brief";
 import { writeBriefAttemptStatus } from "./brief-relay";
+import { automaticBriefIsDue } from "./brief-schedule";
 import type { MorningBriefArtifact } from "./brief";
 import type {
   DayPlan,
   DayPlanMutationResult,
   DayPlanReconciliation,
   DayPlanReconciliationResult,
+  DayPlanReadModel,
 } from "./types";
 
 // The slice of the store the trigger decision needs. Structural so tests can
@@ -18,6 +20,8 @@ import type {
 export type MorningBriefTriggerStore = {
   listPendingReconciliations(): DayPlanReconciliation[];
   getPlan(id: string): DayPlan | undefined;
+  getReadModel(): DayPlanReadModel;
+  listMorningBriefs(targetLocalDate: string): MorningBriefArtifact[];
   latestEligibleMorningBrief(
     targetLocalDate: string,
   ): MorningBriefArtifact | undefined;
@@ -39,6 +43,8 @@ export function withQueuedAttemptStatus(
   return {
     listPendingReconciliations: () => store.listPendingReconciliations(),
     getPlan: (id) => store.getPlan(id),
+    getReadModel: () => store.getReadModel(),
+    listMorningBriefs: (date) => store.listMorningBriefs(date),
     latestEligibleMorningBrief: (date) => store.latestEligibleMorningBrief(date),
     enqueueMorningBrief: (targetLocalDate, provenance) => {
       const result = store.enqueueMorningBrief(targetLocalDate, provenance);
@@ -58,12 +64,8 @@ export function withQueuedAttemptStatus(
   };
 }
 
-// The settlement triggers enqueue UNCONDITIONALLY: they are never gated on the
-// previous day being closed, and that asymmetry is deliberate. Gating them
-// deadlocks. Picture an old plan he is never going to close sitting behind a
-// day he settles normally: if closing a day could itself be blocked by that
-// older day, no brief would ever be produced again. Closing a day always earns
-// a brief.
+// Evening closeout leaves generation to the next morning's worker timer.
+// Closing an overdue day after 08:00 queues today's brief immediately.
 function enqueueAfterSettlement(
   store: MorningBriefTriggerStore,
   settledLocalDate: string,
@@ -71,6 +73,7 @@ function enqueueAfterSettlement(
   now: Date,
 ): void {
   const target = nextBriefTargetLocalDate(settledLocalDate, now, timezone);
+  if (!automaticBriefIsDue(target, now, timezone)) return;
   store.enqueueMorningBrief(target, morningBriefModelConfig());
 }
 
@@ -140,7 +143,13 @@ export function maybeQueueMorningBrief(
       // Only today's arrival regenerates. A stale plan surfacing here heads to
       // settlement, whose reconciliation trigger targets the right morning.
       if (plan.localDate !== localDateInTimezone(now, plan.timezone)) return;
+      if (!automaticBriefIsDue(plan.localDate, now, plan.timezone)) return;
       if (store.latestEligibleMorningBrief(plan.localDate)) return;
+      if (store.listMorningBriefs(plan.localDate).length > 0) return;
+      const model = store.getReadModel();
+      if (model.latestSnapshot && !settlementReconciliationComplete(
+        model.pendingReconciliations, model.latestSnapshot.id,
+      )) return;
       // No closure gate here, and none is needed: `day_plans.open_slot` is
       // UNIQUE, so at most one plan is ever unsettled, and ensureDayPlan hands
       // back that open plan whatever date it is asked for. A plan for TODAY can

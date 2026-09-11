@@ -11,6 +11,7 @@ import {
   writeDayClosureRelay,
 } from '../src/lib/day-plan/brief-relay.ts';
 import { mkdtempSync } from 'node:fs';
+import { enqueueDueMorningBrief } from '../src/lib/claude-execution/worker.ts';
 import { maybeQueueMorningBrief } from '../src/lib/day-plan/brief-triggers.ts';
 import {
   briefProgress,
@@ -26,13 +27,15 @@ import {
 // below).
 // ---------------------------------------------------------------------------
 
-const TRIGGER_NOW = new Date('2026-07-24T04:30:00.000Z'); // evening of Jul 23 in LA
+const TRIGGER_NOW = new Date('2026-07-24T15:30:00.000Z'); // morning closeout of Jul 23 in LA
 const TZ = 'America/Los_Angeles';
 
 function triggerStore({ eligible } = {}) {
   const enqueued = [];
   return {
     enqueued,
+    getReadModel: () => ({ pendingReconciliations: [] }),
+    listMorningBriefs: () => [],
     listPendingReconciliations: () => [],
     getPlan: (id) => ({ id, localDate: '2026-07-23', timezone: TZ }),
     latestEligibleMorningBrief: () => eligible,
@@ -43,7 +46,7 @@ function triggerStore({ eligible } = {}) {
   };
 }
 
-test('settling a day always earns a brief, even with an older day still open', () => {
+test('late morning settlement queues today without requiring an older closure signal', () => {
   // The deadlock guard. If closing a day could itself be blocked by some older
   // day he will never close, no brief would ever be produced again.
   const store = triggerStore();
@@ -427,4 +430,23 @@ test('the remaining-time line reads like an estimate, not a countdown', () => {
   assert.equal(briefRemainingLabel(140, 150), 'Almost done.');
   assert.equal(briefRemainingLabel(150, 150), 'Taking longer than usual. Still working.');
   assert.equal(briefRemainingLabel(900, 150), 'Taking longer than usual. Still working.');
+});
+
+
+test('an evening closeout produces no brief until the next workday at 08:00 with no browser open', (t) => {
+  for (const [closed, evening, target, morning] of [
+    ['2026-07-23', '2026-07-24T01:00:00Z', '2026-07-24', '2026-07-24T15:00:00Z'],
+    ['2026-07-24', '2026-07-25T01:00:00Z', '2026-07-27', '2026-07-27T15:00:00Z'],
+  ]) {
+    const { store, setClock } = isolatedStore(t, evening);
+    const settled = settleFully(store, ensureFor(store, closed));
+    maybeQueueMorningBrief(store, 'settlement_commit', { plan: settled, snapshot: store.getReadModel().latestSnapshot }, new Date(evening));
+    assert.equal(store.getReadModel().currentPlan, undefined);
+    assert.equal(store.listMorningBriefs(target).length, 0);
+    assert.equal(enqueueDueMorningBrief(store, new Date(Date.parse(morning) - 1000)), undefined);
+    setClock(morning);
+    assert.equal(enqueueDueMorningBrief(store, new Date(morning)).targetLocalDate, target);
+    maybeQueueMorningBrief(store, 'ensure', { plan: ensureFor(store, target) }, new Date(morning));
+    assert.equal(store.listMorningBriefs(target).length, 1);
+  }
 });
