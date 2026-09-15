@@ -24,6 +24,30 @@
 
 ---
 
+## 2026-09-15 Remaining-review fixes (LIVE, PUBLICATION PENDING)
+
+- Deterministic generated time/source references, complete local-date labels and
+  cached calendar offset filtering. Strengthened evidence rules for stale calendar
+  answers, optional preparation and unsupported follow-through claims.
+- Restored discoverable navigation; aligned Done today and notification limits to
+  the operator timezone; repaired selected data-folder and backup-path handling.
+- Noon reminders name a next step, suppress unchanged repeat work, retain uncertain
+  attempts and reset when work reopens. Archived tasks are excluded. Private
+  transport receipts persist for 90 days; accepted does not mean visible/read.
+- Material GPT-6 and Fable findings repaired; fresh independent reviews clear.
+  Exact final9 candidate: 1,646 passing tests, zero failures, one opt-in skip,
+  TypeScript, zero-warning lint and production build. State simulation 40/40;
+  final targeted model trials 12/12 validated and persisted. Earlier semantic
+  failures remain in the report, not counted as passes or unseen holdouts.
+- Activated build EGjebGucmzvLRIlK2Sjk1, prompt 28. Saved day choices/order/full
+  brief, settings, database integrity and worker heartbeat preserved. Live full
+  brief reload, Today, keyboard navigation, People and All Work checked.
+  Recovery: data/build-backups/20260915-remaining-findings/.
+- Private evidence: data/review-artifacts/remaining-findings-20260915/REPORT.md.
+  Next: publish verified changes to both private release branches.
+  Real device/account acceptance and the unavailable external phone route remain
+  separate. Real-note reconstruction was not transmitted and remains unapproved.
+
 ## 2026-09-15 Morning-only planning and working-week evaluation (LIVE)
 
 - Removed Review suggestions and Review proposed changes from Today/Arrival.

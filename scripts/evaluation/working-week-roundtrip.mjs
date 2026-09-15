@@ -55,7 +55,7 @@ for (const [index, filename] of files.entries()) {
     assert.deepEqual(context.references, fixture.context.references, 'Fixture source identity changed during replay');
     const before = db.prepare('SELECT id,title,status,due_at FROM tasks ORDER BY id').all();
     let decision;
-    try { decision = validateDailyDecision(response.wire, fixture.context, { requireNarrative: true }); }
+    try { decision = validateDailyDecision(response.wire, fixture.context, { requireNarrative: true, sourcePrompt: fixture.sourcePrompt }); }
     catch (error) {
       result.status = 'rejected-before-persistence'; result.rejection = error.message;
       assert.deepEqual(db.prepare('SELECT id,title,status,due_at FROM tasks ORDER BY id').all(), before);
@@ -68,7 +68,7 @@ for (const [index, filename] of files.entries()) {
     const plan = store.ensureDayPlan({ localDate: scenario.now.slice(0, 10), timezone: 'America/Los_Angeles', mutationId: `roundtrip:${index}`, candidates: [] }).plan;
     assert.ok(plan);
     const bundle = store.planningReadBundle();
-    assert.deepEqual(bundle.brief.narrativeParagraphs, response.wire.narrativeParagraphs);
+    assert.deepEqual(bundle.brief.narrativeParagraphs, decision.narrativeParagraphs);
     assert.deepEqual(db.prepare('SELECT id,title,status,due_at FROM tasks ORDER BY id').all(), before, 'Unaccepted model output changed canonical tasks');
     assert.equal(plan.items.some(item => item.decision === 'accepted'), false);
     result.status = 'persisted-and-projected';

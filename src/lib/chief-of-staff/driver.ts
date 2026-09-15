@@ -2,7 +2,7 @@ import { createDayPlanStore } from "../day-plan/store";
 import { morningBriefModelConfig } from "../claude-execution/brief-commands";
 import { PLANNING_QUESTIONS } from "./planning-contract";
 import {
-  DAILY_PLANNING_SCHEMA,
+  dailyPlanningSchema,
   dailyPlanningPrompt,
   validateDailyDecision,
   decisionAsBrief,
@@ -1113,8 +1113,8 @@ export async function planDay(input: {
     ...input.run,
     kind: "structured",
     prompt: dailyPlanningPrompt(input.context, input.sourcePrompt),
-    schema: DAILY_PLANNING_SCHEMA,
+    schema: dailyPlanningSchema(input.context),
     validate: (_text, value) =>
-      decisionAsBrief(validateDailyDecision(value, input.context, { requireNarrative: true })),
+      decisionAsBrief(validateDailyDecision(value, input.context, { requireNarrative: true, sourcePrompt: input.sourcePrompt })),
   });
 }

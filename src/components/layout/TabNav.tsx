@@ -29,6 +29,10 @@ export function preferredDarkTheme(
   return storedTheme === 'dark' || (!storedTheme && systemPrefersDark);
 }
 
+export function shouldAutoHideMainNav(pathname: string, taskView: TaskWorkspaceView): boolean {
+  return pathname === '/tasks' && taskView === 'today';
+}
+
 export default function TabNav() {
   const pathname = usePathname();
   const runtimeMode = getRuntimeMode();
@@ -43,6 +47,8 @@ export default function TabNav() {
     quietCurrentAvailable ? 'today' : 'all-work',
   );
   const [visible, setVisible] = useState(true);
+  const autoHide = shouldAutoHideMainNav(pathname, taskView);
+  const barVisible = !autoHide || visible;
   const navRef = useRef<HTMLElement>(null);
   const hideTimerRef = useRef<number | undefined>(undefined);
 
@@ -59,6 +65,7 @@ export default function TabNav() {
 
   const scheduleHide = useCallback((delay: number) => {
     clearHideTimer();
+    if (!autoHide) return;
     hideTimerRef.current = window.setTimeout(() => {
       const nav = navRef.current;
       if (
@@ -71,7 +78,7 @@ export default function TabNav() {
       setVisible(false);
       hideTimerRef.current = undefined;
     }, delay);
-  }, [clearHideTimer]);
+  }, [autoHide, clearHideTimer]);
 
   useEffect(() => {
     try {
@@ -117,16 +124,41 @@ export default function TabNav() {
 
   return (
     <>
-    <div
+    {autoHide && <div
       className="fixed inset-x-0 top-0 z-[129] h-6"
       aria-hidden="true"
       onMouseEnter={showBar}
       onMouseLeave={() => scheduleHide(700)}
-    />
+    />}
+    {!barVisible && (
+      <button
+        type="button"
+        aria-label="Show main navigation"
+        aria-controls="cove-main-navigation"
+        aria-expanded={false}
+        className="fixed left-1/2 top-0 z-[130] flex min-h-11 -translate-x-1/2 items-center gap-2 rounded-b-xl border border-t-0 bg-background px-4 text-xs font-medium text-muted-foreground shadow-sm hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground"
+        onClick={() => {
+          showBar();
+          // The handle unmounts when opened. Move keyboard focus into the bar
+          // rather than dropping it onto the document body.
+          window.requestAnimationFrame(() => {
+            navRef.current?.querySelector<HTMLAnchorElement>('a')?.focus();
+          });
+        }}
+      >
+        Menu
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="m3 4.5 3 3 3-3" />
+        </svg>
+      </button>
+    )}
     <nav
+      id="cove-main-navigation"
+      inert={!barVisible}
+      aria-hidden={!barVisible}
       ref={navRef}
       className={`quiet-main-nav fixed inset-x-0 top-0 z-[130] grid h-12 grid-cols-[1fr_auto_1fr] items-center border-b px-4 transition-[translate,opacity] duration-[350ms] ease-[cubic-bezier(.22,.8,.25,1)] motion-reduce:translate-none motion-reduce:duration-150 sm:px-6 ${
-        visible ? 'translate-y-0 opacity-100' : 'pointer-events-none -translate-y-full opacity-0'
+        barVisible ? 'translate-y-0 opacity-100' : 'pointer-events-none -translate-y-full opacity-0'
       }`}
       aria-label="Main navigation"
       onMouseEnter={showBar}

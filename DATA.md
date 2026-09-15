@@ -314,3 +314,22 @@ history until the database is removed. There is no automatic deletion of calenda
 occurrences, question decisions or retry links in this release. Expiry changes
 question or proposal lifecycle state; it does not delete audit evidence or resolve
 an accepted commitment. No new external storage is introduced.
+
+### Reminder attempt history
+
+`data/notification-deliveries/` retains private per-attempt JSON receipts for the
+reminder helper, including scheduled and one-hour repeats. A receipt records the
+rendered content, reference, channel and claim time before transport begins.
+`accepted` means the transport returned successfully, not that a banner was
+visible or a message was read. `failed`, `uncertain` and an interrupted `claimed`
+attempt remain distinct. Recipient credentials and raw transport errors are not
+copied into these receipts. They never authorize a retry. Receipts are retained for 90 days and pruned on
+the next reminder attempt; receipt cleanup never clears task delivery claims.
+
+`cove_floor_reminder_state` remembers the title, due date and next-action
+fingerprint claimed before the noon floor attempts delivery. An unchanged overdue item does not
+consume another interruption on the next day. A changed deadline or next action
+can qualify again, under the same shared caps. Reopening completed or archived
+work resets its eligibility. Uncertain attempts remain claimed; only a known
+transport rejection releases the claim. The task remains open and its
+deadline remains intact; explicit user reminders are separate.

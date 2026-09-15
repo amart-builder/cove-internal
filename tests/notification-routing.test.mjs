@@ -6,6 +6,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -238,6 +239,12 @@ test('a failed scheduled text is finalized, surfaced natively, and recorded', (t
   assert.equal(failure.source, 'reminder-delivery');
   assert.equal(failure.source_id, 'scheduled:task-3');
   assert.match(failure.message, /Remote delivery must settle this/);
+  const receipts = readdirSync(path.join(dir, 'notification-deliveries')).filter(name => name.endsWith('.json'))
+    .map(name => JSON.parse(readFileSync(path.join(dir, 'notification-deliveries', name), 'utf8')));
+  assert.deepEqual(receipts.map(row => `${row.channel}:${row.status}`).sort(), ['imessage:failed', 'native:accepted']);
+  assert.ok(receipts.every(row => row.reference.includes('task-3')));
+  assert.match(receipts.find(row => row.channel === 'native').content, /Remote delivery must settle this/);
+  assert.doesNotMatch(JSON.stringify(receipts), /13105550123|100\.64\.0\.9/);
 });
 
 test('a failed due-task text finalizes once, records failure, and attempts fallback', (t) => {

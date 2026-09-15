@@ -86,7 +86,7 @@ try {
   save('manifest.json', {
     kind: 'production-prompt-and-validator', createdAt: new Date().toISOString(),
     fixtureHash: hash(readFileSync(scenariosFile)), repeats, providers,
-    sourceHashes: Object.fromEntries(['src/lib/chief-of-staff/daily-planning.ts', 'src/lib/chief-of-staff/planning-contract.ts', 'scripts/evaluation/working-week-models.mjs'].map(f => [f, hash(readFileSync(path.join(root, f)))])),
+    sourceHashes: Object.fromEntries(['src/lib/chief-of-staff/daily-planning.ts', 'src/lib/chief-of-staff/planning-contract.ts', 'src/lib/chief-of-staff/planning-dates.ts', 'src/lib/chief-of-staff/planning-time-text.ts', 'scripts/evaluation/working-week-models.mjs'].map(f => [f, hash(readFileSync(path.join(root, f)))])),
     isolation: { syntheticData: true, providerTools: false, claudeSafeMode: true, codexChildOnlyConfigHome: true, authentication: 'existing sign-in; Codex auth symlink only' },
     cases: prepared.map(({ bundle }) => ({ id: bundle.id, promptHash: bundle.promptHash })),
     limits: ['No live source ingestion', 'No OS notification delivery', 'No human time-saved measurement', 'No future outcomes supplied', 'Independent semantic review required; validator pass is not usefulness'],
@@ -123,7 +123,7 @@ try {
         const execution = await invoke(provider.executable, argv, prompt, work);
         save(`${id}.stdout`, execution.stdout);
         save(`${id}.stderr`, execution.stderr);
-        let wire, validationError, text, observedModels;
+        let wire, decision, validationError, text, observedModels;
         try {
           if (execution.error || execution.exitCode !== 0) throw new Error(execution.error || `provider_exit_${execution.exitCode}`);
           if (provider.provider === 'claude') {
@@ -139,13 +139,13 @@ try {
             text = readFileSync(last, 'utf8');
           }
           wire = JSON.parse(text.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/, '$1'));
-          validateDailyDecision(wire, bundle.context, { requireNarrative: true });
+          decision = validateDailyDecision(wire, bundle.context, { requireNarrative: true, sourcePrompt: bundle.sourcePrompt });
         } catch (error) { validationError = error.message; }
         const result = {
           id, caseId: bundle.id, repeat, provider: provider.provider, requestedModel: provider.model, observedModels,
           effort: 'low', argv, elapsedMs: Date.now() - began, exitCode: execution.exitCode, executionError: execution.error,
           promptHash: bundle.promptHash, validation: validationError ? 'fail' : 'pass', validationError,
-          semanticReview: 'pending', wire, text,
+          semanticReview: 'pending', wire, decision, text,
         };
         save(`${id}.result.json`, result);
         results.push(result);

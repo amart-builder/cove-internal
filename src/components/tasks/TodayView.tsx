@@ -58,6 +58,7 @@ import {
 import {
   canStartDayPlanSettlement,
   combineSurfaceErrors,
+  completedTasksForToday,
   currentDayPlanItems,
   firstContinuingItem,
   focusBandItems,
@@ -909,19 +910,9 @@ function TodayExperience({
       : undefined;
 
   const doneToday = useMemo(() => {
-    const today = new Date();
-    return tasks
-      .filter((task) => {
-        if (task.columnId !== doneColumn?._id && task.status !== 'done') return false;
-        const updated = new Date(task.updatedAt);
-        return (
-          updated.getFullYear() === today.getFullYear() &&
-          updated.getMonth() === today.getMonth() &&
-          updated.getDate() === today.getDate()
-        );
-      })
-      .sort((left, right) => right.updatedAt - left.updatedAt);
-  }, [doneColumn?._id, tasks]);
+    return completedTasksForToday(tasks, doneColumn?._id,
+      dayRitual.plan?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
+  }, [dayRitual.plan?.timezone, doneColumn?._id, tasks]);
 
   const today2PlanEntries = useMemo(() => {
     const taskById = new Map(openTasks.map((task) => [task._id, task]));

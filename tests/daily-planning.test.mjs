@@ -213,6 +213,19 @@ test("source changes reject the complete decision atomically", (t) => {
     0,
   );
 });
+test("short source keys preserve stale-source rejection before persistence", (t) => {
+  const { db, store } = fixture(t);
+  task(db);
+  const context = store.planningContext(date);
+  const raw = wire(context);
+  const index = context.references.findIndex(ref => ref.kind === "task" && ref.id === "strategic");
+  raw.actions[0].source = `ref.${index + 1}`;
+  const resolved = validateDailyDecision(raw, context);
+  assert.deepEqual(resolved.actions[0].source, context.references[index]);
+  db.prepare("UPDATE tasks SET title='Changed' WHERE id='strategic'").run();
+  assert.throws(() => generate(store, context, raw), /planning_source_changed/);
+  assert.equal(db.prepare("SELECT count(*) FROM cove_quiet_current").pluck().get(), 0);
+});
 test("unchanged calendar observations preserve semantic source version", (t) => {
   const { db } = fixture(t);
   rememberCalendarOccurrences(db, [event], now);

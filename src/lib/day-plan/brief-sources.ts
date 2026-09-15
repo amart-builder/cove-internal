@@ -16,6 +16,7 @@ import {
   recordGroundworkCheckinPresentation,
 } from "../autonomy/settings";
 import type { Commitment, CommitmentKind } from "../data/types";
+import { localDateLabel } from "../chief-of-staff/planning-dates";
 import { countSpooledEvents } from "../intake/inbox";
 import { readProgressDigestRelays } from "../progress/relay";
 import {
@@ -1706,11 +1707,11 @@ export function closeoutTimestampHeader(input: {
 }): string {
   const parts = [
     `CLOSEOUT PROVENANCE (added by Cove, not written by the operator).`,
-    input.asOf ? `Saved: ${input.asOf}.` : `Saved: time unknown.`,
+    input.asOf ? `Saved: ${input.asOf}. Saved local: ${localDateLabel(input.asOf, input.targetTimezone)}.` : `Saved: time unknown.`,
     input.closeoutLocalDate
-      ? `Covers the working day ${weekdayLabel(input.closeoutLocalDate, input.targetTimezone)}.`
+      ? `Covers the working day ${weekdayLabel(input.closeoutLocalDate)}.`
       : `The day it covers was not recorded.`,
-    `This brief is for ${weekdayLabel(input.targetLocalDate, input.targetTimezone)}.`,
+    `This brief is for ${weekdayLabel(input.targetLocalDate)}.`,
   ];
   const gap = closeoutGapWeekdays(input.closeoutLocalDate, input.targetLocalDate);
   if (gap === 0) {
@@ -1719,7 +1720,7 @@ export function closeoutTimestampHeader(input: {
     const skipped = previousWeekdays(input.targetLocalDate, gap)
       .slice()
       .reverse()
-      .map((date) => weekdayLabel(date, input.targetTimezone));
+      .map((date) => weekdayLabel(date));
     parts.push(
       `${gap} working day${gap === 1 ? "" : "s"} (${skipped.join(", ")}) went by without a closeout, so anything time-bound in it may have moved since.`,
     );
@@ -1727,10 +1728,11 @@ export function closeoutTimestampHeader(input: {
   return parts.join(" ");
 }
 
-function weekdayLabel(localDate: string, timezone: string): string {
+function weekdayLabel(localDate: string): string {
   try {
+    // A local date is already a calendar day, not an instant to convert.
     return new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone,
+      timeZone: "UTC",
       weekday: "long",
       month: "short",
       day: "numeric",
@@ -1748,6 +1750,7 @@ function recentDumpsSource(input: {
   dumps: readonly DayDump[];
   newestId: string | undefined;
   targetLocalDate: string;
+  targetTimezone: string;
   now: Date;
 }): BriefSourceInput {
   const base = {
@@ -1769,7 +1772,7 @@ function recentDumpsSource(input: {
       ...base,
       content: history
         .map((dump) =>
-          `--- closeout for ${dump.targetLocalDate} (written ${dump.createdAt}) ---\n` +
+          `--- closeout for ${dump.targetLocalDate} (written ${dump.createdAt}; written local: ${localDateLabel(dump.createdAt, input.targetTimezone)}) ---\n` +
           dump.rawText.trim(),
         )
         .join("\n\n"),
@@ -2010,7 +2013,7 @@ function formatCalendarEvents(
       if (!dayEvents) return [];
       return [
         "",
-        weekdayLabel(localDate, timezone),
+        weekdayLabel(localDate),
         ...dayEvents.map((event) => formatCalendarEvent(event, timezone)),
       ];
     }),
@@ -2498,6 +2501,7 @@ export async function collectMorningBriefSources(
       dumps: localDumps,
       newestId: newestLocalDump?.id,
       targetLocalDate,
+      targetTimezone,
       now,
     }),
     recentBriefsSource({

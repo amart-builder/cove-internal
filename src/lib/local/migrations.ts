@@ -1693,6 +1693,34 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
       }
     },
   },
+  {
+    version: 35,
+    name: "floor-reminder-source-state",
+    up: (db) => db.exec(`CREATE TABLE cove_floor_reminder_state (
+      ref_kind TEXT NOT NULL CHECK(ref_kind IN ('task','commitment')),
+      ref_id TEXT NOT NULL,
+      fingerprint TEXT NOT NULL,
+      noticed_at TEXT NOT NULL,
+      PRIMARY KEY(ref_kind,ref_id)
+    )`),
+  },
+  {
+    version: 36,
+    name: "floor-reminder-reopened-lifecycle",
+    up: (db) => db.exec(`
+      CREATE TRIGGER cove_floor_task_reopened AFTER UPDATE OF status, archived_at ON tasks
+      WHEN NEW.status = 'open' AND NEW.archived_at IS NULL
+        AND (OLD.status <> 'open' OR OLD.archived_at IS NOT NULL)
+      BEGIN
+        DELETE FROM cove_floor_reminder_state WHERE ref_kind='task' AND ref_id=NEW.id;
+      END;
+      CREATE TRIGGER cove_floor_commitment_reopened AFTER UPDATE OF status ON commitments
+      WHEN NEW.status = 'open' AND OLD.status <> 'open'
+      BEGIN
+        DELETE FROM cove_floor_reminder_state WHERE ref_kind='commitment' AND ref_id=NEW.id;
+      END;
+    `),
+  },
 ];
 
 function migrationTableExists(db: Database.Database, name: string): boolean {

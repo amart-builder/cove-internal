@@ -17,6 +17,7 @@ test("Basic Mode suppresses unsolicited noon reminders while Full Cove retains t
   symlinkSync(path.join(sourceRoot, "node_modules"), path.join(root, "node_modules"));
   copyFileSync(path.join(sourceRoot, "scripts/cove-reminders.mjs"), path.join(root, "scripts/cove-reminders.mjs"));
   copyFileSync(path.join(sourceRoot, "scripts/lib/load-local-env.mjs"), path.join(root, "scripts/lib/load-local-env.mjs"));
+  copyFileSync(path.join(sourceRoot, "scripts/lib/cove-runtime-paths.mjs"), path.join(root, "scripts/lib/cove-runtime-paths.mjs"));
   const calls = path.join(root, "notification-attempts");
   const notifier = path.join(root, "bin/osascript");
   writeFileSync(notifier, '#!/bin/sh\nprintf "%s\\n" "$*" >> "$COVE_TEST_CALLS"\n');

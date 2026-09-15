@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   preferredDarkTheme,
   tabNavItems,
+  shouldAutoHideMainNav,
 } from '../src/components/layout/TabNav.tsx';
 import { requestedTaskWorkspaceView, requestedTaskLink } from '../src/components/tasks/task-workspace-view.ts';
 
@@ -43,4 +44,12 @@ test('notification task links wait for loaded tasks and match only the exact tas
  assert.equal(requestedTaskLink('?view=all-work&task=carlo%2Dtask',tasks),'carlo-task');
  assert.equal(requestedTaskLink('?task=missing',tasks),undefined);
  assert.equal(requestedTaskLink('?task=',tasks),undefined);
+});
+
+test('only Today hides navigation, while All Work and other screens keep it visible', () => {
+  assert.equal(shouldAutoHideMainNav('/tasks', 'today'), true);
+  assert.equal(shouldAutoHideMainNav('/tasks', 'all-work'), false);
+  for (const path of ['/crm', '/failures', '/guide', '/settings', '/tasks/new']) {
+    assert.equal(shouldAutoHideMainNav(path, 'today'), false);
+  }
 });

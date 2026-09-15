@@ -7,6 +7,8 @@
  * alert.
  */
 import { randomUUID } from "node:crypto";
+import { operatorTimezone } from "../operator-runtime.mjs";
+import { localDayBounds as boundsInTimezone } from "../local-time.mjs";
 
 export const ATTENTION_LIMITS = Object.freeze({
   textsPerDay: 3,
@@ -20,15 +22,7 @@ const SHADOW_AWARE_LEVELS = [...DELIVERED_LEVELS, "shadow"];
 const LEVEL_RANK = Object.freeze({ board: 0, banner: 1, text: 2 });
 
 function localDayBounds(now) {
-  // Attention quotas currently reset on the Mac's local day, unlike product
-  // scheduling, which uses the operator profile's IANA timezone. Supported
-  // single-Mac installs normally align those zones; keep this distinction
-  // explicit if remote-host operation returns.
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return { start: start.toISOString(), end: end.toISOString() };
+  return boundsInTimezone(now, operatorTimezone());
 }
 
 function insertRow(db, input) {
@@ -169,7 +163,7 @@ function upcomingMeetingSlots(db, now) {
   }
   const reserved = new Set();
   let clock;
-  try { clock = new Intl.DateTimeFormat('en-US', { timeZone: calendar.timezone, hour: 'numeric', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }); }
+  try { clock = new Intl.DateTimeFormat('en-US', { timeZone: operatorTimezone(), hour: 'numeric', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }); }
   catch { clock = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }); }
   for (const event of calendar.events) {
     if (!event?.id || typeof event.start !== 'string' || !event.start.includes('T') || event.status === 'cancelled' || event.attendees?.some(a => a.self && a.responseStatus === 'declined')) continue;

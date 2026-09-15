@@ -8,6 +8,7 @@
  */
 import type { MorningBriefGenerationState } from './brief';
 import { getRuntimeMode, type RuntimeMode } from '../runtime/mode';
+import { localDateKey } from '../local-time.mjs';
 import type {
   DayPlan,
   DayPlanExecutionConfig,
@@ -21,6 +22,16 @@ import type {
 } from './types';
 
 export type SettlementDecision = SettlementDisposition;
+
+export function completedTasksForToday<T extends { columnId?: string; status?: string; updatedAt: number }>(
+  tasks: readonly T[], doneColumnId: string | undefined, timezone: string, now = new Date(),
+): T[] {
+  const today = localDateKey(now, timezone);
+  return tasks.filter(task =>
+    (task.status === 'done' || (doneColumnId !== undefined && task.columnId === doneColumnId)) &&
+    Number.isFinite(task.updatedAt) && localDateKey(new Date(task.updatedAt), timezone) === today,
+  ).sort((left, right) => right.updatedAt - left.updatedAt);
+}
 
 function withNormalizedPositions<T extends DayPlanItem>(items: readonly T[]): T[] {
   return items.map((item, position) => ({ ...item, position }));

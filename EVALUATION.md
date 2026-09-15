@@ -111,6 +111,8 @@ Interpret failures by layer:
 - An isolation failure makes that run diagnostic. Preserve it and rerun in a
   new directory after fixing the boundary; do not relabel old outputs as final.
 
+The runner saves both the raw wire response and the validated decision. Exact clock references in new model prose are rendered from saved timestamps or supplied source labels before persistence; grade the rendered decision alongside the wire references and source evidence. Old stored prose remains readable. This removes duplicate clock formatting, but does not prove that the chosen review time or source interpretation is sensible.
+
 The manifest records fixture and prompt provenance. Keep diagnostics, repaired
 runs, semantic judgments and holdouts distinguishable. Do not change a criterion
 after seeing an answer simply to make a run pass.
@@ -122,3 +124,18 @@ behavior, browser interaction, native notification visibility, or time saved.
 They also do not exhaust possible tasks and source conflicts. Repeated model
 responses are correlated samples. Validate the intended production model/effort
 configuration and perform the actual-device acceptance checks in `SETUP.md`.
+
+## Source and time references
+
+New planner responses select source keys from a frozen `ref.N` catalog. Cove
+resolves each key to the saved identity and revision, then checks that revision
+again before persistence. This avoids asking the writer to reproduce hashes.
+Older stored full references remain readable and retain version validation.
+
+Generated review/start/expiry clocks in new prose use typed references to the
+validated decision fields. Source clocks use a separate catalog. Cove formats
+them in the operator timezone. Exact supplied local labels remain valid quotes.
+This prevents independent clock conversion for compliant references; it does
+not prove that the writer chose the right source, inferred the right priority,
+or avoided every unsupported sentence. Grade meaning separately, keep failed
+trials, and treat provider/network errors as unevaluated, not model passes.

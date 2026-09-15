@@ -25,7 +25,7 @@ import {
   surfaceAttentionSuggestion,
   surfaceAttentionSuppression,
 } from "../src/lib/attention/quiet-current.ts";
-import { coveEnv } from "../src/lib/env-runtime.mjs";
+import { loadCoveRuntimePaths } from "./lib/cove-runtime-paths.mjs";
 import { runJob } from "../src/lib/model-runner-runtime.mjs";
 
 const repoDirDefault = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -182,8 +182,11 @@ export async function callAttentionSweepClaude(snapshot, input = {}) {
 
 export async function runAttentionSweep(options = {}) {
   const repoDir = options.repoDir ?? repoDirDefault;
-  const dbPath = options.dbPath ?? coveEnv("DB_PATH") ?? path.join(repoDir, "data", "cove.db");
-  const dataDir = options.dataDir ?? path.dirname(dbPath);
+  const { dbPath, dataDir } = loadCoveRuntimePaths(repoDir, {
+    ...process.env,
+    ...(options.dbPath ? { COVE_DB_PATH: options.dbPath, COVE_DATA_DIR: options.dataDir ?? path.dirname(options.dbPath) } : {}),
+    ...(options.dataDir ? { COVE_DATA_DIR: options.dataDir } : {}),
+  });
   const now = options.now instanceof Date ? options.now : new Date(options.now ?? Date.now());
   const db = new Database(dbPath, { fileMustExist: true });
   db.pragma("busy_timeout = 5000");
@@ -227,7 +230,7 @@ export async function runAttentionSweep(options = {}) {
         });
         for (const row of allocation.suppressionRows) {
           try {
-            surfaceSuppression({ row, now });
+            surfaceSuppression({ row, now, dataDir });
           } catch {
             // The ledger preserves the suppression if the file-backed board is busy.
           }

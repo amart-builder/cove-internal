@@ -110,6 +110,7 @@ local_env_value() {
 INSTALL_RUNTIME="$REPO_DIR/scripts/lib/cove-install-runtime.mjs"
 COVE_DATA_DIR="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" dataDir)"
 COVE_DB_PATH="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" dbPath)"
+COVE_BACKUP_DIR="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" backupDir)"
 COVE_BRIEF_WEB_BASE="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" webBase)"
 WEB_HOST="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" host)"
 WEB_PORT="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" port)"
@@ -1120,7 +1121,7 @@ if [ -n "$UP" ]; then
   "$TSX_BIN" "$REPO_DIR/scripts/cove-jobs.ts" enqueue-backup --run
   echo "Cove is running at $COVE_BRIEF_WEB_BASE and will start automatically on login."
   echo "Server logs: $LOG_DIR/cove.log"
-  echo "Daily database backups: $REPO_DIR/data/backups"
+  echo "Daily database backups: $COVE_BACKUP_DIR"
   echo "Reliability jobs: bounded scheduler supervised by com.cove.jobs"
   echo "Attention sweep: shadow mode at 11:30 and 16:00"
   echo "Claude worker: supervised by com.cove.claude-worker"

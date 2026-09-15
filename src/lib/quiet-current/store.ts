@@ -13,7 +13,8 @@ import { taskColumnKeyForName } from "../tasks/columns";
 import { syncRecurringOccurrenceForTask } from "../tasks/recurrence";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { coveDataDir } from "../operator";
+import { coveDataDir, operatorTimezone } from "../operator";
+import { nextLocalMorning } from "../local-time.mjs";
 import { coveEnv } from "../env";
 import { localDatabasePath } from "../local/database";
 import { transactQuietCurrent } from "./persistence";
@@ -91,10 +92,7 @@ function nowDate(): Date {
 }
 
 function nextMorning(now: Date): Date {
-  const morning = new Date(now);
-  morning.setHours(5, 0, 0, 0);
-  if (morning <= now) morning.setDate(morning.getDate() + 1);
-  return morning;
+  return nextLocalMorning(now, operatorTimezone());
 }
 
 function storePath(dataDir?: string): string {

@@ -405,13 +405,14 @@ export function consumeProgressSuggestionRelays(options: {
     if (Date.parse(relay.expires_at) <= now.getTime()) {
       result.expired += 1;
     } else {
-      const existing = getSnapshot().suggestions.find((suggestion) =>
+      const existing = getSnapshot(options.dataDir).suggestions.find((suggestion) =>
         equivalentSuggestion(suggestion, relay, now)
       );
       if (existing) {
         result.deduped += 1;
       } else {
         createSuggestion({
+          dataDir: options.dataDir,
           id: relay.id,
           kind: "observed_progress",
           title: relay.title,

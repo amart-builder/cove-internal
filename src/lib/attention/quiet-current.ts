@@ -1,11 +1,10 @@
 import type { AttentionLedgerRow } from "./ledger.mjs";
 import { createWorkSuggestion } from "../quiet-current/store";
+import { operatorTimezone } from "../operator";
+import { localDateKey as dateInTimezone } from "../local-time.mjs";
 
 function localDateKey(now: Date): string {
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return dateInTimezone(now, operatorTimezone());
 }
 
 export function surfaceAttentionSuggestion(input: {

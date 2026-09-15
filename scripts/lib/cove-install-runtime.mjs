@@ -52,8 +52,8 @@ export function persistInstallRuntime(repoDir, runtime) {
 
 if (process.argv[1] && existsSync(process.argv[1]) && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [repoDir, field] = process.argv.slice(2);
-  if (!repoDir || !['dataDir', 'dbPath', 'webBase', 'host', 'port', '--save'].includes(field)) {
-    throw new Error('Usage: cove-install-runtime.mjs <repo> dataDir|dbPath|webBase|host|port|--save');
+  if (!repoDir || !['dataDir', 'dbPath', 'backupDir', 'webBase', 'host', 'port', '--save'].includes(field)) {
+    throw new Error('Usage: cove-install-runtime.mjs <repo> dataDir|dbPath|backupDir|webBase|host|port|--save');
   }
   const runtime = resolveInstallRuntime(repoDir);
   if (field === '--save') persistInstallRuntime(repoDir, runtime);

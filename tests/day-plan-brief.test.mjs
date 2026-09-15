@@ -189,6 +189,7 @@ function currentPlanningFixture(output, input) {
     const wire = raw.structured_output ?? raw;
     if (!Array.isArray(wire.existing_task_candidates)) return output;
     const view = JSON.parse(input.split("\n").find(line => line.startsWith("CURRENT_WORKING_VIEW=")).slice("CURRENT_WORKING_VIEW=".length));
+    const references = JSON.parse(input.split("\n").find(line => line.startsWith("SOURCE_REFERENCES=")).slice("SOURCE_REFERENCES=".length));
     const actions = wire.existing_task_candidates.flatMap((candidate) => {
       const record = view.records.find(
         (row) =>
@@ -197,7 +198,7 @@ function currentPlanningFixture(output, input) {
       if (!record) return [];
       return [
         {
-          source: record.source,
+          source: references.find(ref => ref.source.kind === record.source.kind && ref.source.id === record.source.id).key,
           proposal: null,
           nextAction: record.title,
           rationale: candidate.why_today,
@@ -1742,7 +1743,7 @@ test('ensure keeps at most three items from a larger deterministic pool', (t) =>
 // ---------------------------------------------------------------------------
 
 test('the brief command is the exact bounded toolless invocation', () => {
-  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 25);
+  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 28);
   const repoCwd = process.cwd();
   const ownerPrompt = readFileSync(path.join(repoCwd, 'prompts', 'chief-of-staff.md'), 'utf8').trimEnd();
   assert.ok(ownerPrompt.includes(
@@ -2029,6 +2030,7 @@ test('the preferred Codex writer retries invalid JSON once and records its prove
 
   assert.equal(await runOneMorningBrief(options), true);
   const artifact = store.latestEligibleMorningBrief('2026-07-14');
+  assert.ok(artifact, JSON.stringify(store.listMorningBriefs('2026-07-14')));
   assert.equal(artifact.writer, 'codex');
   const captures = readFileSync(fake.capture, 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(captures.length, 2);
