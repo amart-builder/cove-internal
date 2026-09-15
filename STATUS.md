@@ -47,7 +47,9 @@
 - Real-note reconstruction remains local pending explicit transmission approval;
   automatic approval review blocked that payload, not the fictional cases.
 - Private evidence/report: data/review-artifacts/working-week-20260915/REPORT.md.
-  Publication proceeds on the existing release branch in both private repos.
+  Both private repos pushed and remote hashes verified on the existing release
+  branch: internal software a152b69, sanitized client e5d5f9b (621 files matching
+  the verified candidate). Jarvis handoff queued locally; hub unreachable.
   Next owner: Alex with setup agent for Gary's actual-device acceptance, and
   engineering for deterministic generated review times/stale calendar reasoning.
 
