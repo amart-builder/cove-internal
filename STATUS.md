@@ -24,6 +24,20 @@
 
 ---
 
+## 2026-09-15 Reviewed release pushed to GitHub
+
+- All 157 pending source, test and documentation files committed to the existing
+  private development release branch. Software commit: `e95e1c5e4a7e3528f148b28da192ceca1d0879db`.
+- Sanitized client release pushed to `amart-builder/cove` on the same branch,
+  `codex/cove-provider-reminder-release-20260910`, at `0608a22f965986e1a547b6abaeaefc9c550e7944`.
+- Fresh export from a clean committed checkout passed secret/setup scans. All
+  612 client file hashes match the final6 candidate verified above. No runtime
+  database, environment, credentials or private review records were published.
+- Both pushes used the Syncthing-aware safe-push wrapper. Remote branch hashes
+  verified. No merge to main or repository visibility change was performed.
+- For Gary, use the client release branch explicitly and follow SETUP.md. The
+  supervised acceptance gates remain required on his Mac.
+
 ## 2026-09-15 GPT-6 and Fable 5.1 release review (LIVE, LOCAL)
 
 - Reviewed the current product contract, shipped screens, runtime authority,
