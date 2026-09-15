@@ -51,6 +51,8 @@ type BuddyContextValue = {
   open: boolean;
   setOpen: Dispatch<SetStateAction<boolean>>;
   pageContext: Record<string, unknown>;
+  notificationContext: Record<string, unknown> | null;
+  setNotificationContext: Dispatch<SetStateAction<Record<string, unknown> | null>>;
   setPageContext: (value: Record<string, unknown>) => void;
   turns: BuddyTurnView[];
   busy: boolean;
@@ -90,6 +92,7 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [pageContext, setPageContext] = useState<Record<string, unknown>>({ view: viewForPath(pathname) });
+  const [notificationContext, setNotificationContext] = useState<Record<string, unknown> | null>(null);
   const [turns, setTurns] = useState<BuddyTurnView[]>([]);
   const [streamingTurn, setStreamingTurn] = useState<BuddyTurnView>();
   const [thinking, setThinking] = useState(false);
@@ -204,7 +207,7 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
       response = await fetch('/api/buddy/turn', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Cove-CSRF': token },
-        body: JSON.stringify({ text: text.trim(), pageContext, ...(override ? { override } : {}) }),
+        body: JSON.stringify({ text: text.trim(), pageContext: { ...pageContext, ...(notificationContext ? { notification: notificationContext } : {}) }, ...(override ? { override } : {}) }),
         cache: 'no-store',
       });
     } catch (error) {
@@ -244,6 +247,9 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
             live = {
               ...live,
               state: event.isError === true ? 'failed' : 'succeeded',
+              error_code: event.isError === true
+                ? (typeof event.errorSubtype === 'string' ? event.errorSubtype : 'claude_error')
+                : null,
               assistant_text: typeof event.resultText === 'string' && (event.resultText || event.receipts)
                 ? event.resultText
                 : live.assistant_text,
@@ -295,7 +301,7 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
       await hydrate();
     }
     return live;
-  }, [clearStreamingTurn, ensureCsrf, hydrate, pageContext, queueStreamingTurn]);
+  }, [clearStreamingTurn, ensureCsrf, hydrate, pageContext, notificationContext, queueStreamingTurn]);
 
   const setPendingDisposition = useCallback((turnId: string, pending: PendingDelete,
     disposition: 'confirmed' | 'dismissed', expiresAt?: string) => {
@@ -420,11 +426,12 @@ export function BuddyProvider({ children }: { children: ReactNode }) {
   }, [ensureCsrf]);
 
   const value = useMemo(() => ({
-    open, setOpen, pageContext, setPageContext, turns, busy, send, resetConversation,
+    open, setOpen, pageContext, setPageContext, notificationContext, setNotificationContext, turns, busy, send, resetConversation,
     confirmDelete, dismissDelete, applyReplan, getCsrfToken: ensureCsrf, sessionInfo,
   }), [
     open,
     pageContext,
+    notificationContext,
     turns,
     busy,
     send,

@@ -226,7 +226,10 @@ test('a failed scheduled text is finalized, surfaced natively, and recorded', (t
   assert.equal(result.status, 0);
   assert.equal(existsSync(entry), false);
   assert.match(result.stderr, /configured channel failed/);
-  assert.match(readFileSync(calls, 'utf8'), /I couldn't deliver your text reminder: Remote delivery must settle this/);
+  const fallback = readFileSync(calls, 'utf8');
+  assert.match(fallback, /Here's your reminder: Remote delivery must settle this/);
+  assert.doesNotMatch(fallback, /text reminder|could not be sent|couldn't deliver/);
+  assert.equal(fallback.trim().split('\n').length, 1);
   const db = new Database(dbPath, { readonly: true });
   const failure = db.prepare(
     'SELECT source, source_id, message FROM cove_failure_inbox',
@@ -282,7 +285,9 @@ test('a failed due-task text finalizes once, records failure, and attempts fallb
   assert.equal(failures[0].source_id, 'task:due-task');
   assert.match(failures[0].message, /Call Maya about the launch/);
   const callsAfterFirst = readFileSync(calls, 'utf8');
-  assert.match(callsAfterFirst, /I couldn't deliver your text reminder: Call Maya about the launch/);
+  assert.match(callsAfterFirst, /Here's your reminder: Call Maya about the launch/);
+  assert.match(callsAfterFirst, /The text reminder could not be sent/);
+  assert.equal(callsAfterFirst.trim().split('\n').length, 1);
 
   const second = run();
   assert.equal(second.status, 0);

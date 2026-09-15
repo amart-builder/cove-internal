@@ -987,6 +987,35 @@ export function prepareProgressAnalysisInput(
   }
 }
 
+// Publication is replayable from the saved model result. Stable relay IDs
+// make a partial write safe to finish without running the model again.
+function publishProgressDigest(digest, options) {
+  const written = (options.writeDigestRelay ?? writeProgressDigestRelay)({
+    digest, dataDir: options.dataDir, host: options.host,
+  });
+  let suggestions = 0;
+  const titles = digest.evidence?.publication_task_titles ?? {};
+  for (const item of digest.perTask) {
+    if (item.progress !== "likely_done" && !item.scope_changed) continue;
+    const result = (options.writeSuggestionRelay ?? writeProgressSuggestionRelay)({
+      suggestion: {
+        digestId: digest.id,
+        taskId: item.task_id,
+        taskTitle: titles[item.task_id] ?? item.task_id,
+        note: item.note,
+        evidenceQuote: item.evidence_quote.slice(0, 300),
+        claim: item.progress === "likely_done" ? "likely_done" : "scope_changed",
+        suggestedReshape: item.suggested_reshape,
+        createdAt: digest.runAt,
+      },
+      dataDir: options.dataDir,
+      host: options.host,
+    });
+    if (result.written) suggestions += 1;
+  }
+  return { digests: written ? 1 : 0, suggestions };
+}
+
 export async function runProgressReconcile(options = {}) {
   const now = options.now ?? (() => new Date());
   const startedAt = now();
@@ -1107,6 +1136,11 @@ export async function runProgressReconcile(options = {}) {
             ? relayed
             : local;
         }
+        if (!dryRun && priorDigest) {
+          const published = publishProgressDigest(priorDigest, { ...options, dataDir });
+          summary.digests_written += published.digests;
+          summary.suggestions_filed += published.suggestions;
+        }
         if (!hasNewProjectEvidence(group, gitResult.head, priorDigest)) {
           summary.skipped_no_new_evidence += 1;
           summary.projects.push({
@@ -1170,39 +1204,16 @@ export async function runProgressReconcile(options = {}) {
           project: group.project,
           summary: analysis.project_summary,
           perTask: analysis.tasks,
-          evidence: prepared.evidence,
+          evidence: {
+            ...prepared.evidence,
+            publication_task_titles: Object.fromEntries(tasks.map(task => [task.id, task.title])),
+          },
         };
         if (!dryRun) {
           store.recordSessionDigest(digest);
-          (options.writeDigestRelay ?? writeProgressDigestRelay)({
-            digest,
-            dataDir,
-            host: options.host,
-          });
+          const published = publishProgressDigest(digest, { ...options, dataDir });
           summary.digests_written += 1;
-          const tasksById = new Map(tasks.map((task) => [task.id, task]));
-          for (const item of analysis.tasks) {
-            if (item.progress !== "likely_done" && !item.scope_changed) continue;
-            const relayed = (
-              options.writeSuggestionRelay ?? writeProgressSuggestionRelay
-            )({
-              suggestion: {
-                digestId: digest.id,
-                taskId: item.task_id,
-                taskTitle: tasksById.get(item.task_id)?.title ?? item.task_id,
-                note: item.note,
-                evidenceQuote: item.evidence_quote.slice(0, 300),
-                claim: item.progress === "likely_done"
-                  ? "likely_done"
-                  : "scope_changed",
-                suggestedReshape: item.suggested_reshape,
-                createdAt: startedAt.toISOString(),
-              },
-              dataDir,
-              host: options.host,
-            });
-            if (relayed.written) summary.suggestions_filed += 1;
-          }
+          summary.suggestions_filed += published.suggestions;
           projectState[group.project] = {
             last_successful_run_at: startedAt.toISOString(),
             evidence_fingerprint: fingerprint,

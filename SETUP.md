@@ -7,6 +7,13 @@ details. Read this entire playbook yourself, follow the steps in order, walk the
 user through the parts that need their input, and do the rest yourself. The
 same product behavior and safety rules apply whether you are Claude or Codex.
 
+Custom-data upgrades: before rerunning the installer, preserve the installed
+server's loopback origin in `COVE_BRIEF_WEB_BASE` in `.env.local` if it differs
+from `http://127.0.0.1:3200`. The installer keeps that host/port, saves the resolved
+selected database paths, and pairs all background lanes and direct CLI commands
+with that endpoint. Do not point a scratch database at a live server merely to
+pass the isolation guard. Follow the existing backup and restart checks below.
+
 ## Start by explaining Cove
 
 Do this before running a command or asking the user to choose an experience.
@@ -328,6 +335,61 @@ Check the Mac before cloning. Run every command you can for the user. The user s
 Do not continue until every required tool check passes and any existing
 checkout or port conflict is resolved.
 
+### Existing installation: preserve it before upgrading
+
+An existing Cove database makes this an upgrade, even if the user calls it an
+installation. Do not clone a second copy or repeat the first-day interview.
+Use their saved goals, real tasks, chosen provider, integrations, and ritual
+times unless they ask to change them.
+
+Before replacing code, installing packages, building, or opening the new app:
+
+1. Identify the authoritative checkout and its exact commit/build, resolved
+   database and private data paths, open task count, current day plan, and saved
+   brief. Inspect Cove and older Forge LaunchAgents plus any Claude-app rituals.
+   Record which services and schedules should resume; do not add duplicate
+   rituals or silently adopt the default times.
+2. Stop the web app and every old database-using worker or scheduled writer.
+   Verify none still has the database or its WAL open. Keep them stopped through
+   migration. If another machine still writes this state, stop and resolve that
+   ownership before proceeding.
+3. Create a private recovery folder with mode 0700. Take a verified database
+   snapshot using the existing installation, passing its resolved paths
+   explicitly so an older backup script cannot choose a default database:
+
+   ```bash
+   COVE_DB_PATH="<verified database path>" \
+   COVE_BACKUP_DIR="<private recovery folder>" bash scripts/cove-backup.sh
+   ```
+
+   Verify the actual snapshot exists and passes SQLite integrity checks. Keep
+   separate permission-restricted recovery copies of private configuration,
+   profile/goals, mandate, any legacy Quiet Current file and its migration
+   backup, and the previous application build. A database snapshot alone does
+   not preserve these files or provider credentials. Never put recovery files
+   in the client export, Git, or a shared artifact folder.
+4. Rehearse the guarded restore on an isolated copy with a synthetic destination
+   or copied recovery database. Confirm its rows and schema without starting
+   integrations. Record the previous code/build and the stopped services needed
+   for rollback. If backup, integrity, or restore fails, do not upgrade.
+5. Verify the exact candidate in an isolated checkout before activation. Preserve
+   uncommitted local changes and personal configuration; never reset the working
+   tree. Skip Step 1's clone commands for an existing authoritative checkout.
+   Install only the verified candidate, then start one set of its services.
+   Reload or close all older Cove browser tabs before making changes so their
+   cached code cannot replay a legacy task mutation after the upgrade.
+6. Compare task identities/counts, saved priorities, owners, brief and closeout
+   state with the pre-upgrade record. Check migrated Quiet Current decisions and
+   the provider selection. Stop on unexplained differences. For rollback, stop
+   the new writers, restore the verified database and matching private state,
+   restore the previous code/build, then start only the previously recorded
+   services. Never run old code against a newly migrated database by guessing
+   that its schema remains compatible.
+
+Complete the real workflow, notification, backup, and restart acceptance below
+on the upgraded installation. A successful migration is not proof the user's
+daily experience is ready.
+
 ## Step 1: Clone and install packages
 
 **What to tell the user:** "I am installing a clean, verified copy of Cove and
@@ -614,7 +676,10 @@ It still needs this Mac awake, and connected sources must stay healthy."
 
 Basic Mode keeps two rituals. Set `COVE_CHIEF_OF_STAFF=0` and
 `COVE_FOLLOW_THROUGH=0` for that profile unless its user explicitly requests
-additional background behavior. A failed sign-in, missing mandate or incomplete
+additional background behavior. The latter also disables unsolicited noon
+follow-through notices. Explicit task alarms and requested one-hour reminders
+remain separate opt-in actions; do not enable them as part of Basic Mode alone.
+A failed sign-in, missing mandate or incomplete
 first wake leaves Full Cove setup incomplete. Do not call it ready.
 
 **Worker-start checkpoint.** Before continuing, confirm the profile and goals

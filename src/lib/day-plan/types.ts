@@ -71,7 +71,15 @@ export type RecommendationCandidate = {
   definitionOfDone?: string;
   project?: string;
   owner: DayPlanOwner;
-  commitment: "ink";
+  commitment: "ink" | "pencil";
+  planningRef?: {
+    kind: "task" | "commitment" | "suggestion";
+    id: string;
+    revision: number;
+  };
+  planningState?: "ready" | "waiting" | "blocked" | "deferred" | "resolved";
+  planningAssumptions?: string[];
+  planningStale?: boolean;
   whyToday: string;
   priority: "low" | "medium" | "high";
   dueAt?: string;
@@ -97,6 +105,7 @@ export type DayPlanItem = RecommendationCandidate & {
   decision: DayPlanItemDecision;
   brief?: DayPlanItemBriefAnnotation;
   preCompletionPlanPosition?: number;
+  completionSourceVersion?: string;
   preCompletionBoardPlacement?: {
     columnId: string;
     position: number;
@@ -216,6 +225,7 @@ export type DayPlanEvent = {
 export type DayPlanEventType =
   | "ensure"
   | "brief_attach"
+  | "source_reconcile"
   | "arrival_interact"
   | "assistant_patch"
   | "item_kickoff"
@@ -236,6 +246,7 @@ export type DayPlanMutationAction =
   | "item_reopen"
   | "item_owner"
   | "item_reorder"
+  | "plan_revision_accept"
   | "start_day"
   | "settlement_offer"
   | "settlement_skip"
@@ -260,6 +271,7 @@ export type EnsureDayPlanInput = {
 };
 
 export type DayPlanMutationInput = {
+  briefId?: string;
   planId: string;
   mutationId: string;
   expectedVersion: number;
@@ -305,7 +317,8 @@ export type DayPlanWeekendGateResult = {
   replayed: false;
 };
 
-export type EnsureDayPlanResult = DayPlanMutationResult | DayPlanWeekendGateResult;
+export type EnsureDayPlanResult =
+  | DayPlanMutationResult | DayPlanWeekendGateResult;
 
 export type DayPlanReconciliationResult = {
   reconciliation: DayPlanReconciliation;
@@ -329,7 +342,7 @@ export type DayPlanTaskMutation = {
   description?: string;
   priority?: "low" | "medium" | "high";
   project?: string;
-  state: "pending" | "applied";
+  state: "pending" | "applied" | "blocked";
   createdAt: string;
   appliedAt?: string;
 };

@@ -105,3 +105,33 @@ test('per-task provider overrides keep saved settings and submit the full brief 
   assert.equal(next.provider,'codex'); assert.equal(next.model,'gpt-6-astra');
 
 });
+
+test('new Codex task sessions keep neutral cwd, explicit project context, scoped Auto access and stable resumes', async t => {
+  const { EventEmitter }=await import('node:events');const { PassThrough }=await import('node:stream');const { default:Database }=await import('better-sqlite3');
+  const dir=mkdtempSync(path.join(os.tmpdir(),'cove-project-routing-'));const auth=path.join(dir,'auth');mkdirSync(auth);writeFileSync(path.join(auth,'auth.json'),'{}');
+  writeFileSync(path.join(dir,'agent-settings.json'),JSON.stringify({version:1,provider:'codex',model:'gpt-6-astra',effort:'low'}));
+  const children=[],calls=[],prompts=[];const workspace='/work/catalyst';
+  const manager=createTaskSessionManager({dbPath:path.join(dir,'cove.db'),dataDir:dir,env:{CODEX_HOME:auth,COVE_NOTIFY:'0'},resolveProjectDirectory:hint=>hint==='catalyst'?workspace:null,signalGroup:()=>{},spawnImpl:(executable,args,options)=>{
+    const child=Object.assign(new EventEmitter(),{pid:49001+children.length,stdin:new PassThrough(),stdout:new PassThrough(),stderr:new PassThrough(),unref:()=>child});
+    let prompt='';child.stdin.on('data',data=>{prompt+=data.toString();});children.push(child);calls.push({executable,args,options});prompts.push(()=>prompt);return child;
+  }});
+  t.after(()=>{for(const child of children)child.emit('close',1);manager.close();rmSync(dir,{recursive:true,force:true});});
+  const db=new Database(path.join(dir,'cove.db'));const insert=db.prepare("INSERT INTO tasks(id,title,project,status,created_at,updated_at) VALUES(?,?,'catalyst','open',?,?)");
+  for(const id of ['planning','auto'])insert.run(id,'Prepare Edge AI proposals',new Date().toISOString(),new Date().toISOString());
+  const planning=manager.launch({taskId:'planning',provider:'codex',owner:'together',mode:'planning',promptSnapshot:{title:'Prepare Edge AI proposals',detail:'Prepare a plan',project:'Radius EHR'}});
+  children[0].stdout.write('{"type":"thread.started","thread_id":"new-planning-thread"}\n');
+  assert.equal(calls[0].options.cwd,planning.outputDir);assert.equal(calls[0].args[calls[0].args.indexOf('-C')+1],planning.outputDir);
+  assert.equal(planning.workspacePath,planning.outputDir);assert.equal(planning.promptSnapshot.project,'catalyst');
+  assert.ok(prompts[0]().includes(`Cove's saved task project workspace: ${workspace}`));assert.ok(prompts[0]().includes('Project: catalyst.'));
+  assert.ok(calls[0].args.includes('read-only'));assert.ok(!calls[0].args.includes('--add-dir'));
+  const planningResume=manager.getRun(planning.id).resumeCommand;assert.ok(planningResume.includes(`'-C' '${planning.outputDir}'`));assert.ok(!planningResume.includes('--add-dir'));
+  const auto=manager.launch({taskId:'auto',provider:'codex',owner:'claude',mode:'auto',promptSnapshot:{title:'Prepare Edge AI proposals',detail:'Draft approved files',project:'Radius EHR'}});
+  children[1].stdout.write('{"type":"thread.started","thread_id":"new-auto-thread"}\n');
+  assert.equal(calls[1].options.cwd,auto.outputDir);assert.ok(calls[1].args.includes('workspace-write'));
+  assert.deepEqual(calls[1].args.flatMap((arg,i)=>arg==='--add-dir'?[calls[1].args[i+1]]:[]),[workspace]);
+  const autoResume=manager.getRun(auto.id).resumeCommand;assert.ok(autoResume.includes(`'-C' '${auto.outputDir}'`));assert.ok(autoResume.includes(`'--add-dir' '${workspace}'`));
+  // Existing runs keep their original working directory and output grant.
+  db.prepare('UPDATE cove_task_session_runs SET workspace_path=?,prompt_json=? WHERE id=?').run('/work/legacy',JSON.stringify({title:'Legacy task',detail:'Old context',project:'legacy'}),auto.id);
+  const legacy=manager.getRun(auto.id).resumeCommand;assert.ok(legacy.includes("'-C' '/work/legacy'"));assert.ok(legacy.includes(`'--add-dir' '${auto.outputDir}'`));assert.ok(!legacy.includes(`'--add-dir' '${workspace}'`));
+  db.close();
+});

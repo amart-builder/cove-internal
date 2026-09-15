@@ -57,6 +57,24 @@ function patch(row, extra = {}) {
     ...extra,
   };
 }
+test("engagement and reminder stamps preserve a reviewed plan while actual edits invalidate it", (t) => {
+  const { db } = fixture(t);
+  task(db, "work");
+  reconcileResponsibilities(db, now);
+  updateResponsibility(db, patch(listResponsibilities(db)[0]), now);
+  const before = listResponsibilities(db)[0];
+  db.prepare("UPDATE tasks SET engaged_at=?, notified_at=?, nudged_at=? WHERE id='work'")
+    .run(now.toISOString(), now.toISOString(), now.toISOString());
+  reconcileResponsibilities(db, now);
+  const after = listResponsibilities(db)[0];
+  assert.equal(after.source_version, before.source_version);
+  assert.equal(after.revision, before.revision);
+  assert.equal(after.state, "ready");
+  db.prepare("UPDATE tasks SET title='Changed action' WHERE id='work'").run();
+  reconcileResponsibilities(db, now);
+  assert.notEqual(listResponsibilities(db)[0].source_version, before.source_version);
+  assert.equal(listResponsibilities(db)[0].state, "blocked");
+});
 test("original deadline, source quote and next check survive restart, planning and source edits", (t) => {
   const { db, dbPath } = fixture(t);
   task(db, "proposal", { due: "2026-09-04" });

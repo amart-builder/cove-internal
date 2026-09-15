@@ -71,8 +71,8 @@ function bodyText(payload: unknown, depth = 0): string {
   const row = payload as Json;
   const mimeType = typeof row.mimeType === "string" ? row.mimeType : "";
   const body = row.body && typeof row.body === "object" && !Array.isArray(row.body)
-    ? row.body as Json
-    : {};
+    ? (row.body as Json)
+      : {};
   if (
     typeof body.data === "string" &&
     (mimeType === "text/plain" || (!mimeType && depth === 0))
@@ -118,8 +118,10 @@ function normalizeMessage(value: unknown): MailMessage {
 }
 
 function header(message: MailMessage, name: string): string {
-  return message.headers.find((entry) => entry.name.toLowerCase() === name.toLowerCase())
-    ?.value ?? "";
+  return (
+    message.headers.find((entry) => entry.name.toLowerCase() === name.toLowerCase())
+    ?.value ?? ""
+  );
 }
 
 function parseAddress(value: string): string {
@@ -256,7 +258,7 @@ class GoogleTransport {
             safeMessage: "Google returned more data than Cove can safely process.",
           });
         }
-        return text ? JSON.parse(text) as Json : {};
+        return text ? (JSON.parse(text) as Json) : {};
       } catch (error) {
         if (error instanceof WorkspaceGatewayError) throw error;
         if (options.uncertainWrite) {
@@ -449,8 +451,8 @@ class GoogleMailGateway implements RestrictedMailGateway {
         if (!value || typeof value !== "object" || Array.isArray(value)) return [];
         const draft = value as Json;
         const message = draft.message && typeof draft.message === "object" && !Array.isArray(draft.message)
-          ? draft.message as Json
-          : {};
+          ? (draft.message as Json)
+            : {};
         return [{
           id: id(boundedText(draft.id, 500), "Draft id"),
           messageId: id(boundedText(message.id, 500), "Message id"),
@@ -481,7 +483,8 @@ class GoogleMailGateway implements RestrictedMailGateway {
     return labels;
   }
 
-  async ensureCoveLabel(input: { name: string }): Promise<{ id: string; name: string }> {
+  async ensureCoveLabel(input: { name: string;
+  }): Promise<{ id: string; name: string }> {
     if (input.name !== "Cove/Triaged" && input.name !== "Cove/Meeting-Processed") {
       throw new WorkspaceGatewayError({
         code: "unsafe_operation",
@@ -595,7 +598,7 @@ class GoogleMailGateway implements RestrictedMailGateway {
       body: input.body,
       htmlBody: input.htmlBody,
       inReplyTo: messageId,
-      references: (header(source, "References").match(/<[^<>]+>/g) ?? []),
+      references: header(source, "References").match(/<[^<>]+>/g) ?? [],
       idempotencyKey: input.idempotencyKey,
       accountEmail: this.accountEmail,
     });
@@ -657,10 +660,11 @@ class GoogleMailGateway implements RestrictedMailGateway {
     return { id: draft.id, messageId: draft.messageId };
   }
 
-  private normalizeDraft(row: Json): { id: string; messageId: string; threadId: string } {
+  private normalizeDraft(row: Json): { id: string; messageId: string; threadId: string;
+  } {
     const message = row.message && typeof row.message === "object" && !Array.isArray(row.message)
-      ? row.message as Json
-      : {};
+      ? (row.message as Json)
+        : {};
     return {
       id: id(boundedText(row.id, 500), "Draft id"),
       messageId: id(boundedText(message.id, 500), "Message id"),
@@ -702,6 +706,7 @@ class GoogleCalendarGateway implements ReadonlyCalendarGateway {
       timeMax: max.toISOString(),
       timeZone: input.timeZone.slice(0, 100),
       singleEvents: "true",
+      showDeleted: "true",
       orderBy: "startTime",
       maxResults: String(Math.min(Math.max(input.maxResults ?? 100, 1), 250)),
     });
@@ -719,16 +724,16 @@ class GoogleCalendarGateway implements ReadonlyCalendarGateway {
       if (!value || typeof value !== "object" || Array.isArray(value)) return [];
       const event = value as Json;
       const start = event.start && typeof event.start === "object" && !Array.isArray(event.start)
-        ? event.start as Json
-        : {};
+        ? (event.start as Json)
+          : {};
       const end = event.end && typeof event.end === "object" && !Array.isArray(event.end)
-        ? event.end as Json
-        : {};
+        ? (event.end as Json)
+          : {};
       const conferenceData =
         event.conferenceData &&
         typeof event.conferenceData === "object" &&
         !Array.isArray(event.conferenceData)
-          ? event.conferenceData as Json
+          ? (event.conferenceData as Json)
           : {};
       const conferenceEntryPoints = Array.isArray(conferenceData.entryPoints)
         ? conferenceData.entryPoints
@@ -742,8 +747,17 @@ class GoogleCalendarGateway implements ReadonlyCalendarGateway {
             : [];
         })[0] ||
         "";
+      const original =
+        event.originalStartTime && typeof event.originalStartTime === "object"
+          ? (event.originalStartTime as Json)
+          : {};
       return [{
-        id: boundedText(event.id, 500),
+          provider: "google",
+          calendarId: "primary",
+          originalStart:
+            boundedText(original.dateTime ?? original.date, 100) ||
+            boundedText(event.id, 500),
+          id: boundedText(event.id, 500),
         status: boundedText(event.status, 100),
         summary: boundedText(event.summary, 2_000),
         description: boundedText(event.description, 20_000),

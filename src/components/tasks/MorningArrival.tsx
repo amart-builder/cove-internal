@@ -2,6 +2,8 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { useBuddy, useBuddyStream } from '@/components/buddy/BuddyProvider';
+import PlanningQuestion from './arrival/PlanningQuestion';
+import PlanningFollowUp from './arrival/PlanningFollowUp';
 import type { MorningBriefGeneration, PublicMorningBrief } from '@/lib/day-plan/brief';
 import type {
   DayPlan,
@@ -103,7 +105,6 @@ export default function MorningArrival({
   items,
   notTodayTasks,
   tasksById,
-  recommendation,
   brief,
   briefGeneration,
   briefAttachTimedOut,
@@ -246,6 +247,8 @@ export default function MorningArrival({
           </div>
         )}
 
+        <PlanningFollowUp plan={plan} brief={brief} />
+        <PlanningQuestion />
         <div key={step} className="day-ritual-swap-in pb-24 sm:pb-0">
           {step === 'brief' ? (
             <ArrivalStepBrief
@@ -256,12 +259,12 @@ export default function MorningArrival({
                     ...brief.narrativeParagraphs,
                     ...(brief.managementSummary ? [brief.managementSummary] : []),
                   ]
-                : recommendation ? [recommendation] : []}
+                : []}
               watchItems={brief?.watchItems ?? []}
               briefWriting={briefWriting}
               briefGeneration={briefGeneration}
               briefAttached={Boolean(plan.briefId)}
-              hasBriefContent={Boolean(brief)}
+              hasBriefContent={Boolean(brief?.narrativeParagraphs.length)}
               onForceBrief={onForceBrief}
               forcingBrief={forcingBrief}
             />
@@ -319,7 +322,14 @@ export default function MorningArrival({
                   else changeStep(availableSteps[currentStepIndex + 1]);
                 }}
               >
-                {isFinalStep ? (busy ? 'Setting your day…' : 'Start my day') : 'Continue'}
+                {isFinalStep ? busy ? 'Setting your day…' : plan.items.some(
+                          (item) =>
+                            item.commitment === 'pencil' &&
+                            ['preselected', 'accepted'].includes(item.decision),
+                        )
+                      ? 'Accept proposals and start my day'
+                      : 'Start my day'
+                  : 'Continue'}
               </button>
             </div>
           </div>

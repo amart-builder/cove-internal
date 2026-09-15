@@ -1,5 +1,7 @@
 'use client';
 
+import PlanningQuestion from './arrival/PlanningQuestion';
+
 import { taskEditError } from '@/lib/tasks/edit-conflict';
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
@@ -280,6 +282,7 @@ export default function DaySettlement({
           </header>
 
           <div className="space-y-6 px-4 py-5 sm:px-7">
+            <PlanningQuestion />
             <section aria-labelledby={`${titleId}-completed`}>
               <div className="flex items-baseline justify-between gap-4">
                 <h2 id={`${titleId}-completed`} className="text-base font-semibold">Completed work</h2>
@@ -372,7 +375,7 @@ export default function DaySettlement({
                             <p className="mt-2 text-xs text-muted-foreground">{ownerDescription('claude')}</p>
                           )}
                           {view.item.workedToday === true && (
-                            <p className="mt-2 text-xs text-muted-foreground">Claude worked on this today.</p>
+                            <p className="mt-2 text-xs text-muted-foreground">{ownerLabel('claude')} worked on this today.</p>
                           )}
                           {sessionNote && (
                             <p className="mt-2 text-xs text-muted-foreground">

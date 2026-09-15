@@ -12,7 +12,7 @@ export function taskCodexHome(_dataDir: string, env: NodeJS.ProcessEnv): string 
 }
 
 export function buildCodexTaskCommand(input: {
-  executable: string; home: string; cwd: string; outputDir: string; runId: string;
+  executable: string; home: string; cwd: string; outputDir: string; runId: string; projectDirectory?: string;
   model: string; effort: string; planning: boolean; prompt: string;
 }) {
   return {
@@ -24,6 +24,8 @@ export function buildCodexTaskCommand(input: {
       "-c", 'web_search="disabled"', "-c", "features.apps=false",
       "-c", "features.multi_agent=false", "-c", "sandbox_workspace_write.network_access=false",
       ...(input.planning || input.outputDir === input.cwd ? [] : ["--add-dir", input.outputDir]),
+      ...(!input.planning && input.projectDirectory && input.projectDirectory !== input.cwd
+        ? ["--add-dir", input.projectDirectory] : []),
       "-m", input.model, "-c", `model_reasoning_effort=${JSON.stringify(input.effort)}`,
       "--output-last-message", path.join(input.outputDir, `result-${input.runId}.txt`), "-"],
     stdin: input.prompt,
@@ -32,13 +34,15 @@ export function buildCodexTaskCommand(input: {
 
 export function codexTaskResumeCommand(input: {
   executable: string; home: string; cwd: string; sessionId: string;
-  model: string; effort: string; planning: boolean; outputDir?: string;
+  model: string; effort: string; planning: boolean; outputDir?: string; projectDirectory?: string;
 }): string {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,120}$/.test(input.sessionId)) throw new Error("Invalid Codex session identifier.");
   const args = [input.executable, "resume", input.sessionId, "-C", input.cwd,
     "--sandbox", input.planning ? "read-only" : "workspace-write", "--ask-for-approval", "on-request", "-m", input.model,
     "-c", `model_reasoning_effort=${JSON.stringify(input.effort)}`,
-    ...(!input.planning && input.outputDir && input.outputDir !== input.cwd ? ["--add-dir", input.outputDir] : [])];
+    ...(!input.planning && input.outputDir && input.outputDir !== input.cwd ? ["--add-dir", input.outputDir] : []),
+    ...(!input.planning && input.projectDirectory && input.projectDirectory !== input.cwd
+      ? ["--add-dir", input.projectDirectory] : [])];
   return `CODEX_HOME=${shellQuote(input.home)} ${args.map(shellQuote).join(" ")}`;
 }
 

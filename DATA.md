@@ -294,3 +294,23 @@ reuse the existing artifact; revised drafts remain separate. Source changes make
 a draft visibly stale. Saving a draft never sends anything or completes work.
 These records persist until the user removes their database; they currently have
 no automatic deletion policy. Backups include them.
+
+## Shared daily planning
+
+Migrations 32 and 33 extend responsibility references to stored suggestions and
+calendar occurrences. `cove_calendar_occurrences` retains provider, calendar,
+event and recurrence identity, semantic source state and separate observation
+freshness. Responsibilities retain the parent source link through task acceptance.
+`cove_planning_questions` keeps decision keys, question lifecycle, answer source,
+review and expiry times. Question answers also create responsibility audit events.
+
+Day-plan migration 108 adds `day_plan_planning_retries`. Each failed generation
+can link to one retry; a retry cannot spawn another retry. Brief schema 8 stores
+one daily decision and its linked candidates. Public reads resolve current source
+state and return the same plan version as the brief projection.
+
+These records are included in database backups and retain their source/decision
+history until the database is removed. There is no automatic deletion of calendar
+occurrences, question decisions or retry links in this release. Expiry changes
+question or proposal lifecycle state; it does not delete audit evidence or resolve
+an accepted commitment. No new external storage is introduced.

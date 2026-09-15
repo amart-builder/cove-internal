@@ -22,7 +22,6 @@ import {
   getDayPlanExecutionState,
   getDayPlanState,
   kickoffDayPlanItem,
-  markDayPlanArrivalInteraction,
   mutateDayPlan,
   newDayPlanMutationId,
   onceOnlyDayPlanMutationId,
@@ -85,8 +84,7 @@ export function executionPollingPolicy(localMode: boolean): {
       };
 }
 
-export type DayRitualView =
-  | 'checking'
+export type DayRitualView = 'checking'
   | 'none'
   | 'arrival'
   | 'settlement';
@@ -117,7 +115,7 @@ function inferView(plan?: DayPlan): DayRitualView {
   if (plan.state === 'settling' && plan.settlementState === 'in_progress') {
     return 'settlement';
   }
-  if (plan.state === 'proposed' && plan.arrivalState === 'opened') {
+  if ((plan.state === 'proposed' || plan.state === 'active') && plan.arrivalState === 'opened') {
     return 'arrival';
   }
   return 'none';
@@ -233,32 +231,27 @@ export default function useDayRitual({
   }, [briefGeneration, onBriefPicksChange]);
 
   const applyMorningBrief = useCallback((next: PublicMorningBrief | undefined) => {
+    if (
+      next &&
+      planRef.current &&
+      next.targetLocalDate === planRef.current.localDate &&
+      next.planVersion !== undefined &&
+      next.planVersion < planRef.current.version
+    )
+      return;
     morningBriefRef.current = next;
     setMorningBrief(next);
   }, []);
 
-  // The first content interaction inside an open arrival. It freezes the arrival
-  // against any late-brief hot-swap and stops the generation poll for the day,
-  // and durably records the interaction on the server so the guarded late-attach
-  // will not fire either. Fire-and-forget: the local freeze is authoritative for
-  // this session regardless of the request outcome.
-  const markArrivalInteraction = useCallback(() => {
-    if (arrivalInteractedRef.current) return;
-    arrivalInteractedRef.current = true;
-    setArrivalInteracted(true);
-    const current = planRef.current;
-    if (current) {
-      void markDayPlanArrivalInteraction({
-        planId: current.id,
-        mutationId: `arrival_interact:${current.id}:${newDayPlanMutationId()}`,
-      }).catch(() => undefined);
-    }
-  }, []);
+  // Card viewing has no durable planning effect. Actual content mutations
+  // record human interaction in the store transaction.
+  const markArrivalInteraction = useCallback(() => undefined, []);
 
   const acceptPlan = useCallback((nextPlan: DayPlan, snapshot?: DaySnapshot) => {
-    // A brand-new plan (a new day, or after settlement) is a fresh, untouched
-    // arrival; same-id updates from the user's own mutations keep the frozen flag.
-    if (planRef.current?.id !== nextPlan.id) {
+      if (planRef.current?.id === nextPlan.id && planRef.current.version > nextPlan.version) return;
+      // A brand-new plan (a new day, or after settlement) is a fresh, untouched
+      // arrival; same-id updates from the user's own mutations keep the frozen flag.
+      if (planRef.current?.id !== nextPlan.id) {
       arrivalInteractedRef.current = false;
       setArrivalInteracted(false);
       // A new plan gets its own one-shot late-attach attempt.
@@ -272,20 +265,42 @@ export default function useDayRitual({
     // The held brief is keyed to plan.briefId: a plan that consumed no brief
     // clears it (yesterday's content must never render against today's plan),
     // and a plan whose brief we do not hold refetches the pinned projection.
-    const decision = morningBriefSyncDecision(nextPlan.briefId, morningBriefRef.current);
+    const decision = morningBriefSyncDecision(nextPlan.briefId ?? `plan:${nextPlan.id}`, morningBriefRef.current,
+        nextPlan.version,
+      );
     if (decision === 'clear') {
       applyMorningBrief(undefined);
     } else if (decision === 'refresh') {
+      const held = morningBriefRef.current;
+      if (held && (held.id !== (nextPlan.briefId ?? `plan:${nextPlan.id}`) ||
+          held.targetLocalDate !== nextPlan.localDate)) applyMorningBrief(undefined);
       void getDayPlanState()
         .then((readModel) => {
-          if (planRef.current?.id !== nextPlan.id) return;
-          applyMorningBrief(
-            readModel.morningBrief && readModel.morningBrief.id === nextPlan.briefId
-              ? readModel.morningBrief
-              : undefined,
-          );
+          const current = planRef.current;
+          const refreshed = readModel.currentPlan;
+          const brief = readModel.morningBrief;
+          // Background reconciliation can advance the server after the mutation.
+          // Adopt its coherent bundle without regressing a newer client plan or
+          // clearing the same saved narrative just because its projection is older.
+          if (!current || current.id !== nextPlan.id || current.localDate !== nextPlan.localDate ||
+              !refreshed || refreshed.id !== current.id || refreshed.localDate !== current.localDate ||
+              refreshed.version < current.version || refreshed.version < nextPlan.version ||
+              !brief || brief.id !== (refreshed.briefId ?? `plan:${refreshed.id}`) ||
+              brief.targetLocalDate !== refreshed.localDate || brief.planVersion !== refreshed.version) return;
+          planRef.current = refreshed;
+          setPlan(refreshed);
+          applyMorningBrief(brief);
+          if (readModel.latestSnapshot) setLatestSnapshot(readModel.latestSnapshot);
+          if (readModel.pendingReconciliations) setPendingReconciliations(readModel.pendingReconciliations);
+          if (readModel.pendingTaskMutations) setPendingTaskMutations(readModel.pendingTaskMutations);
+          setBriefGeneration(readModel.briefGeneration);
+          setView(inferView(refreshed));
         })
-        .catch(() => undefined);
+        .catch(() => {
+          if (planRef.current?.id === nextPlan.id && nextPlan.briefId && !morningBriefRef.current?.narrativeParagraphs.length) {
+            setError("Cove couldn't load your saved brief. Retry loading it in Morning Arrival.");
+          }
+        });
     }
     setView(inferView(nextPlan));
   }, [applyMorningBrief]);
@@ -298,6 +313,11 @@ export default function useDayRitual({
 
   const refreshPlan = useCallback(async () => {
     const readModel = await getDayPlanState();
+    if (
+      readModel.currentPlan?.id === planRef.current?.id &&
+      readModel.currentPlan!.version < planRef.current!.version
+    )
+      return planRef.current;
     setLatestSnapshot(readModel.latestSnapshot);
     setPendingReconciliations(readModel.pendingReconciliations);
     setPendingTaskMutations(readModel.pendingTaskMutations);
@@ -309,7 +329,24 @@ export default function useDayRitual({
     return readModel.currentPlan;
   }, [acceptPlan, applyMorningBrief]);
 
-  useDataChanged(['day_plan'], () => void refreshPlan().catch(() => undefined));
+  useDataChanged(['day_plan', 'tasks', 'cove_responsibilities'], () => void refreshPlan().catch(() => undefined));
+
+  // Current-source changes and proposed revisions must reach an already-open day.
+  // The store preserves human choices; these reads cannot accept a proposal.
+  useEffect(() => {
+    if (!enabled || !plan?.id || ['settled', 'abandoned'].includes(plan.state)) return;
+    let running = false;
+    const refresh = async () => {
+      if (running || document.visibilityState !== 'visible') return;
+      running = true;
+      try { await refreshPlan(); } catch { /* Keep the last coherent bundle. */ }
+      finally { running = false; }
+    };
+    const timer = window.setInterval(() => void refresh(), 30_000);
+    const visible = () => void refresh();
+    document.addEventListener('visibilitychange', visible);
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', visible); };
+  }, [enabled, plan?.id, plan?.state, refreshPlan]);
 
   // Keep the ref current because acceptPlan reads it synchronously.
   useEffect(() => {
@@ -785,7 +822,7 @@ export default function useDayRitual({
     const current = planRef.current;
     if (!current) throw new Error('There is no day plan to open.');
     if (current.state === 'settled') throw new Error('Today is already closed.');
-    if (current.state === 'proposed' && current.arrivalState === 'opened') {
+    if ((current.state === 'proposed' || current.state === 'active') && current.arrivalState === 'opened') {
       setView('arrival');
       return;
     }
@@ -1293,8 +1330,15 @@ export default function useDayRitual({
     const current = planRef.current;
     if (!current) return;
     setForcingBrief(true);
-    setBriefGeneration({ state: 'queued' });
+    setError(undefined);
     try {
+      // An attached artifact is already written. Recover its read projection;
+      // never queue another generation because loading that artifact failed.
+      if (current.briefId) {
+        await refreshPlan();
+        return;
+      }
+      setBriefGeneration({ state: 'queued' });
       const result = await forceMorningBrief(current.localDate);
       // Unconditional, including undefined: the server declining to start one
       // (it attached an existing brief, or the other machine is already writing)
@@ -1307,9 +1351,11 @@ export default function useDayRitual({
       // puts the brief on screen.
       if (result.attached) await refreshPlan().catch(() => undefined);
     } catch (nextError) {
-      setBriefGeneration(undefined);
+      if (!current.briefId) setBriefGeneration(undefined);
       setError(
-        nextError instanceof Error ? nextError.message : "Cove couldn't start the brief.",
+        current.briefId ? "Cove couldn't load your saved brief. Try loading it again."
+          : nextError instanceof Error ? nextError.message
+          : "Cove couldn't start the brief.",
       );
     } finally {
       setForcingBrief(false);

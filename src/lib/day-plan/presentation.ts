@@ -7,6 +7,7 @@
  * the full Today surface.
  */
 import type { MorningBriefGenerationState } from './brief';
+import { getRuntimeMode, type RuntimeMode } from '../runtime/mode';
 import type {
   DayPlan,
   DayPlanExecutionConfig,
@@ -218,12 +219,24 @@ export function executionReadinessMessage(
   return 'This brief needs more context before kickoff.';
 }
 
-export function ownerLabel(owner: DayOwner): string {
+export function ownerLabel(owner: DayOwner, runtime: RuntimeMode = getRuntimeMode()): string {
+  if (runtime === 'local' && owner === 'claude') return 'Cove agent';
   return OWNER_LABELS[owner];
 }
 
-export function ownerDescription(owner: DayOwner): string {
+export function ownerDescription(owner: DayOwner, runtime: RuntimeMode = getRuntimeMode()): string {
+  if (runtime === 'local' && owner !== 'me') {
+    return owner === 'claude'
+      ? 'Open a session from Today when you are ready for your Cove agent to work on this task.'
+      : 'Open a planning session from Today when you are ready to work with your Cove agent.';
+  }
   return OWNER_DESCRIPTIONS[owner];
+}
+
+/** Closed-day history keeps every decision; Today's work honors the final disposition. */
+export function currentDayPlanItems(plan?: Pick<DayPlan, 'state' | 'items'>): DayPlanItem[] {
+  return (plan?.items ?? []).filter(item => plan?.state !== 'settled' || item.decision === 'completed' ||
+    !['defer', 'drop'].includes(item.settlementDecision?.disposition ?? ''));
 }
 
 /** The active Today items in committed order, limited to the configured focus slots. */
@@ -628,26 +641,25 @@ export function morningBriefArrivalPresentation(input: {
   leadHeadline?: string;
   body: string[];
 } {
-  const deferred = input.generationState === 'deferred';
-  const stalled =
-    !deferred && !input.hasBriefContent && !input.briefWriting && !input.briefAttached;
-  const failed =
-    !input.hasBriefContent && !input.briefAttached && input.generationState === 'failed';
-  const writing = input.briefWriting && !input.hasBriefContent;
-  const leadHeadline = deferred
-    ? 'Your brief is waiting for writing capacity.'
-    : failed
-    ? "Cove couldn't finish your brief."
-    : writing
-      ? 'Your brief is on the way.'
-    : stalled
-      ? "Today's brief isn't written yet."
-      : input.headline ?? input.paragraphs[0];
-  const body = stalled || writing
-    ? []
-    : input.headline
-      ? [...input.paragraphs]
-      : input.paragraphs.slice(1);
+  const hasWrittenBrief = input.briefAttached && input.hasBriefContent;
+  if (input.briefAttached && !hasWrittenBrief) {
+    return { stalled: true, failed: false, leadHeadline: 'Loading your saved brief.', body: [] };
+  }
+  const deferred = !hasWrittenBrief && input.generationState === 'deferred';
+  const stalled = !hasWrittenBrief && !deferred && !input.briefWriting;
+  const failed = !hasWrittenBrief && input.generationState === 'failed';
+  const writing = input.briefWriting && !hasWrittenBrief;
+  const leadHeadline = hasWrittenBrief
+    ? input.headline
+    : deferred
+      ? 'Your brief is waiting for writing capacity.'
+      : failed
+        ? "Cove couldn't finish your brief."
+        : writing
+          ? 'Your brief is on the way.'
+          : "Today's brief isn't written yet.";
+  // A complete saved brief is the only body this screen can display.
+  const body = hasWrittenBrief ? [...input.paragraphs] : [];
   return { stalled, failed, leadHeadline, body };
 }
 

@@ -34,7 +34,7 @@ elif [ "$MINI" = "1" ]; then
 else
   BUDDY_DEEPLINKS=1
 fi
-BUDDY_APP_URL="${COVE_BUDDY_APP_URL:-http://127.0.0.1:3200}"
+
 # Optional content-engine integration. Set COVE_SUPERNOVA_DIR to the checkout;
 # nothing is guessed from the filesystem, because no two machines are laid out
 # the same way and a wrong guess silently feeds the brief the wrong repo.
@@ -107,14 +107,15 @@ local_env_value() {
 }
 # A saved provider identifies the assisted full setup. Existing installs without
 # settings retain their explicit service choices.
-COVE_DATA_DIR="$("$NODE_REAL" --input-type=module -e '
-  import { pathToFileURL } from "node:url";
-  const { loadLocalEnv } = await import(pathToFileURL(process.argv[1]).href);
-  const { coveDataDir } = await import(pathToFileURL(process.argv[2]).href);
-  process.chdir(process.argv[3]);
-  process.stdout.write(coveDataDir(undefined, loadLocalEnv(process.argv[3], { ...process.env })));
-' "$REPO_DIR/scripts/lib/load-local-env.mjs" "$REPO_DIR/src/lib/operator-runtime.mjs" "$REPO_DIR")"
-export COVE_DATA_DIR
+INSTALL_RUNTIME="$REPO_DIR/scripts/lib/cove-install-runtime.mjs"
+COVE_DATA_DIR="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" dataDir)"
+COVE_DB_PATH="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" dbPath)"
+COVE_BRIEF_WEB_BASE="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" webBase)"
+WEB_HOST="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" host)"
+WEB_PORT="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" port)"
+export COVE_DATA_DIR COVE_DB_PATH COVE_BRIEF_WEB_BASE
+BUDDY_APP_URL="$(local_env_value COVE_BUDDY_APP_URL)"
+BUDDY_APP_URL="${BUDDY_APP_URL:-$COVE_BRIEF_WEB_BASE}"
 AGENT_PROVIDER="$("$NODE_REAL" --input-type=module -e '
   import { pathToFileURL } from "node:url";
   const { readAgentSettings } = await import(pathToFileURL(process.argv[1]).href);
@@ -254,6 +255,12 @@ printf -v NOTIFICATION_PLIST_ENTRY \
   '    <key>COVE_NOTIFICATION_APP</key>\n    <string>%s</string>' \
   "$NOTIFICATION_APP_XML"
 
+# Persist the explicitly installed DB/server pairing for direct CLI use too.
+"$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" --save
+xml_escape() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
+printf -v RUNTIME_PLIST_ENTRY '    <key>COVE_DATA_DIR</key>\n    <string>%s</string>\n    <key>COVE_DB_PATH</key>\n    <string>%s</string>\n    <key>COVE_BRIEF_WEB_BASE</key>\n    <string>%s</string>' \
+  "$(xml_escape "$COVE_DATA_DIR")" "$(xml_escape "$COVE_DB_PATH")" "$(xml_escape "$COVE_BRIEF_WEB_BASE")"
+
 mkdir -p "$LOG_DIR" "$LA_DIR"
 LANE_DATA_DIR="${COVE_DATA_DIR:-$REPO_DIR/data}"
 mkdir -p "$LANE_DATA_DIR"
@@ -356,6 +363,7 @@ STIGNORE_BLOCK
   <string>$LOG_DIR/cove-morning-brief.error.log</string>
   <key>EnvironmentVariables</key>
   <dict>
+$RUNTIME_PLIST_ENTRY
     <key>PATH</key>
     <string>$NODE_BIN:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
     <key>HOME</key>
@@ -364,8 +372,6 @@ STIGNORE_BLOCK
     <string>1</string>
     <key>COVE_CLAUDE_BIN</key>
     <string>$CLAUDE_BIN</string>
-    <key>COVE_BRIEF_WEB_BASE</key>
-    <string>http://127.0.0.1:3200</string>
     <key>COVE_BRIEF_TIMEZONE</key>
     <string>America/Los_Angeles</string>
     <key>COVE_BRIEF_REQUIRE_SOURCE_CHECKPOINT</key>
@@ -398,7 +404,10 @@ EOF
     "$LANE_DATA_DIR" \
     "$NODE_REAL" \
     "$JOB_RUNNER" \
-    "$CODEX_BIN"
+    "$CODEX_BIN" \
+    "$NOTIFICATION_APP_EXECUTABLE" \
+    "$COVE_BRIEF_WEB_BASE" \
+    "$COVE_DB_PATH"
   "$NODE_REAL" "$LANE_PLIST_RENDERER" \
     "$REPO_DIR/scripts/launchd/com.cove.meeting-drain.plist" \
     "$MINI_MEETING_DRAIN_PLIST" \
@@ -408,7 +417,10 @@ EOF
     "$LANE_DATA_DIR" \
     "$NODE_REAL" \
     "$JOB_RUNNER" \
-    "$CODEX_BIN"
+    "$CODEX_BIN" \
+    "$NOTIFICATION_APP_EXECUTABLE" \
+    "$COVE_BRIEF_WEB_BASE" \
+    "$COVE_DB_PATH"
   "$NODE_REAL" "$LANE_PLIST_RENDERER" \
     "$REPO_DIR/scripts/launchd/com.cove.progress.plist" \
     "$MINI_PROGRESS_PLIST" \
@@ -418,7 +430,10 @@ EOF
     "$LANE_DATA_DIR" \
     "$NODE_REAL" \
     "$JOB_RUNNER" \
-    "$CODEX_BIN"
+    "$CODEX_BIN" \
+    "$NOTIFICATION_APP_EXECUTABLE" \
+    "$COVE_BRIEF_WEB_BASE" \
+    "$COVE_DB_PATH"
   retire_legacy_agent morning-brief
   retire_legacy_agent meeting-watch
   retire_legacy_agent meeting-drain
@@ -581,7 +596,7 @@ fi
 render_lane_plist() {
   "$NODE_REAL" "$LANE_PLIST_RENDERER" \
     "$1" "$2" "$REPO_DIR" "$HOME" "$ATLAS_ROOT" "$LANE_DATA_DIR" "$NODE_REAL" \
-    "$JOB_RUNNER" "$CODEX_BIN" "$NOTIFICATION_APP_EXECUTABLE"
+    "$JOB_RUNNER" "$CODEX_BIN" "$NOTIFICATION_APP_EXECUTABLE" "$COVE_BRIEF_WEB_BASE" "$COVE_DB_PATH"
 }
 if [ "$INSTALL_MEETING_LANE" = "1" ]; then
   render_lane_plist \
@@ -647,7 +662,7 @@ REMINDERS_PLIST="$LA_DIR/com.cove.reminders.plist"
 TRIAGE_PLIST="$LA_DIR/com.cove.email-triage.plist"
 WORKER_PLIST="$LA_DIR/com.cove.claude-worker.plist"
 
-# --- Server: next start on localhost:3200 ---
+# --- Server: next start on the selected loopback endpoint ---
 cat > "$SERVER_PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -662,9 +677,9 @@ cat > "$SERVER_PLIST" <<EOF
     <string>$NEXT_BIN</string>
     <string>start</string>
     <string>-H</string>
-    <string>127.0.0.1</string>
+    <string>$WEB_HOST</string>
     <string>-p</string>
-    <string>3200</string>
+    <string>$WEB_PORT</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -676,6 +691,7 @@ cat > "$SERVER_PLIST" <<EOF
   <string>$LOG_DIR/cove.error.log</string>
   <key>EnvironmentVariables</key>
   <dict>
+$RUNTIME_PLIST_ENTRY
     <key>PATH</key>
     <string>$NODE_BIN:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
     <key>NODE_ENV</key>
@@ -733,6 +749,7 @@ cat > "$WORKER_PLIST" <<EOF
   <string>$LOG_DIR/cove-claude-worker.error.log</string>
   <key>EnvironmentVariables</key>
   <dict>
+$RUNTIME_PLIST_ENTRY
     <key>PATH</key>
     <string>$NODE_BIN:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
     <key>HOME</key>
@@ -746,8 +763,6 @@ $NOTIFICATION_PLIST_ENTRY
     <string>$CLAUDE_BIN</string>
     <key>COVE_BUDDY_DEEPLINKS</key>
     <string>$BUDDY_DEEPLINKS</string>
-    <key>COVE_BRIEF_WEB_BASE</key>
-    <string>http://127.0.0.1:3200</string>
     <key>COVE_JOB_RUNNER</key>
     <string>$JOB_RUNNER</string>
 $CODEX_PLIST_ENTRY
@@ -792,6 +807,7 @@ cat > "$BACKUP_PLIST" <<EOF
   <string>$LOG_DIR/cove-backup.log</string>
   <key>EnvironmentVariables</key>
   <dict>
+$RUNTIME_PLIST_ENTRY
     <key>COVE_NODE_PATH</key>
     <string>$NODE_REAL</string>
   </dict>
@@ -827,6 +843,7 @@ cat > "$JOBS_PLIST" <<EOF
   <string>$LOG_DIR/cove-jobs.log</string>
   <key>EnvironmentVariables</key>
   <dict>
+$RUNTIME_PLIST_ENTRY
     <key>PATH</key>
     <string>$NODE_BIN:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
     <key>HOME</key>
@@ -869,6 +886,7 @@ cat > "$REMINDERS_PLIST" <<EOF
   <string>$LOG_DIR/cove-reminders.log</string>
   <key>EnvironmentVariables</key>
   <dict>
+$RUNTIME_PLIST_ENTRY
     <key>PATH</key>
     <string>$NODE_BIN:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
 $NOTIFICATION_PLIST_ENTRY
@@ -883,7 +901,7 @@ EOF
 # triage_times may hold any number of "HH:MM" entries; we emit one calendar dict
 # per entry. No Weekday keys go in the plist: the runner's weekday guard (driven
 # by the config's weekdays_only flag) owns weekend skipping.
-EMAIL_CONFIG="$REPO_DIR/data/cove-workspace.json"
+EMAIL_CONFIG="$LANE_DATA_DIR/cove-workspace.json"
 if [ -f "$EMAIL_CONFIG" ]; then
   TRIAGE_CAL_XML="$(node -e '
     const fs = require("fs");
@@ -926,6 +944,7 @@ $TRIAGE_CAL_XML
   <string>$LOG_DIR/cove-email-triage.log</string>
   <key>EnvironmentVariables</key>
   <dict>
+$RUNTIME_PLIST_ENTRY
     <key>PATH</key>
     <string>$NODE_BIN:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
     <key>HOME</key>
@@ -1073,7 +1092,7 @@ fi
 echo "Starting Cove..."
 UP=""
 for _ in $(seq 1 20); do
-  CODE="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:3200/tasks" 2>/dev/null || true)"
+  CODE="$(curl -s -o /dev/null -w '%{http_code}' "$COVE_BRIEF_WEB_BASE/tasks" 2>/dev/null || true)"
   case "$CODE" in
     200|307|308) UP="yes"; break ;;
   esac
@@ -1092,23 +1111,20 @@ if [ -n "$UP" ]; then
     sleep 1
   done
   if [ -z "$WORKER_UP" ]; then
-    echo "Warning: Cove web started, but the Claude worker has not written a fresh heartbeat yet." >&2
+    echo "Cove setup is incomplete: the worker has not written a fresh heartbeat." >&2
     echo "See: $LOG_DIR/cove-claude-worker.error.log" >&2
     echo "Retry the worker: launchctl kickstart -k gui/$UID_NUM/com.cove.claude-worker" >&2
+    exit 1
   fi
   echo "Creating the first Cove database backup..."
   "$TSX_BIN" "$REPO_DIR/scripts/cove-jobs.ts" enqueue-backup --run
-  echo "Cove is running at http://localhost:3200 and will start automatically on login."
+  echo "Cove is running at $COVE_BRIEF_WEB_BASE and will start automatically on login."
   echo "Server logs: $LOG_DIR/cove.log"
   echo "Daily database backups: $REPO_DIR/data/backups"
   echo "Reliability jobs: bounded scheduler supervised by com.cove.jobs"
   echo "Attention sweep: shadow mode at 11:30 and 16:00"
   echo "Claude worker: supervised by com.cove.claude-worker"
-  if [ -n "$WORKER_UP" ]; then
-    echo "Claude worker status: ok"
-  else
-    echo "Claude worker status: not started"
-  fi
+  echo "Claude worker status: ok"
   if [ "$INSTALL_MEETING_LANE" = "1" ]; then
     echo "Meeting watcher: weekdays every 15 minutes, 08:00-18:00 local, plus login catch-up"
     echo "Meeting analysis drain: every 15 minutes, always on"
@@ -1126,11 +1142,11 @@ if [ -n "$UP" ]; then
   else
     echo "Weekly voice review: skipped because $VOICE_REVIEW_OWNER owns this lane"
   fi
-  echo "Morning Brief: on-open backfill/post-settlement; --mini optionally adds a 7:30 always-on lane"
+  echo "Morning Brief: 08:00 weekdays in the brief timezone, after the prior day closes; missed runs catch up while this Mac is awake"
   echo "Day-plan batch execution remains off until COVE_CLAUDE_EXECUTION_ENABLED=1 and an allowlisted workspace config are explicitly added."
   echo "Task controls use your selected agent: Auto works the task; Planning prepares a plan. Codex retains on-request approvals. Sending, publishing, or purchasing still requires your approval."
 else
-  echo "Cove did not respond on http://localhost:3200 within 20 seconds." >&2
+  echo "Cove did not respond on $COVE_BRIEF_WEB_BASE within 20 seconds." >&2
   echo "See the log for why: $LOG_DIR/cove.error.log" >&2
   echo "Most common cause: Node is installed via nvm/fnm/Volta and launchd can't use it." >&2
   echo "Fix: install Node with Homebrew (brew install node), then re-run: bash scripts/install-cove-local.sh" >&2

@@ -389,7 +389,7 @@ test('buddy data CLI emits one machine-readable receipt after a mocked mutation'
       : new Response(JSON.stringify([{ id: 't1', title: 'Gym' }]), { status: 200 });
   };
   const code = await runBuddyDataCommand(
-    parseBuddyDataArgs(['update', 'tasks', '--id', 't1', '--json', '{"position":5}']),
+    parseBuddyDataArgs(['update', 'tasks', '--id', 't1', '--json', '{"position":5,"_expected":{"updatedAt":"2026-09-15T16:00:00Z"}}']),
     { fetch: fetchMock, appUrl: 'http://127.0.0.1:3200', write: (line) => lines.push(line) },
   );
   assert.equal(code, 0);
@@ -453,7 +453,7 @@ test('confirmed delete keeps its receipt when post-delete verification throws', 
 test('buddy data CLI does not claim a zero-row update succeeded', async () => {
   let call = 0;
   await assert.rejects(runBuddyDataCommand(
-    parseBuddyDataArgs(['update', 'tasks', '--id', 'missing', '--json', '{"title":"Nope"}']),
+    parseBuddyDataArgs(['update', 'tasks', '--id', 'missing', '--json', '{"title":"Nope","_expected":{"updatedAt":"2026-09-15T16:00:00Z","title":"Old"}}']),
     { fetch: async () => ++call === 1
       ? new Response('{"csrfToken":"token"}', { status: 200 })
       : new Response('[]', { status: 200 }) },

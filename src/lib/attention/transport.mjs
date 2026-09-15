@@ -10,11 +10,17 @@ import {
 } from "../intake/notification-transport.mjs";
 import { coveConfigPath, coveEnv } from "../env-runtime.mjs";
 
-function reminderConfig(repoDir) {
+export function attentionReminderConfigPath({ dataDir, repoDir = process.cwd(), env = process.env } = {}) {
+  return coveEnv("REMINDER_CONFIG_PATH", env) ?? coveConfigPath(
+    dataDir ?? coveEnv("DATA_DIR", env) ?? path.join(repoDir, "data"),
+    "reminders.json",
+  );
+}
+
+function reminderConfig(input) {
   try {
     return JSON.parse(readFileSync(
-      coveEnv("REMINDER_CONFIG_PATH") ??
-        coveConfigPath(path.join(repoDir, "data"), "reminders.json"),
+      attentionReminderConfigPath(input),
       "utf8",
     ));
   } catch {
@@ -37,7 +43,7 @@ function telegramToken() {
 export function createAttentionTransport(input = {}) {
   const repoDir = input.repoDir ?? process.cwd();
   const execute = input.execFileSyncImpl ?? execFileSync;
-  const config = input.config ?? reminderConfig(repoDir);
+  const config = input.config ?? reminderConfig({ ...input, repoDir });
   const token = input.telegramToken ?? telegramToken();
   return {
     banner(message, subtitle = "Needs your attention", openUrl) {

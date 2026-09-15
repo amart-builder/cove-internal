@@ -335,12 +335,6 @@ test('a resumed context overflow compacts into a fresh session and retries once'
       commands.push(command);
       run += 1;
       if (run === 1) {
-        onEvent({
-          kind: 'data-result',
-          changes: [{ table: 'tasks', action: 'update', id: 'initial-write', summary: 'Initial write' }],
-          sessions: [{ sessionId: 'initial-session', dir: '/tmp/initial', title: 'Initial session' }],
-          errors: [],
-        });
         return {
           kind: 'done', resultText: 'context window exceeded', sessionId: 'old-head', costUsd: 0.01,
           isError: true, errorSubtype: 'context_length_exceeded',

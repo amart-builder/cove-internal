@@ -18,6 +18,8 @@ export type TaskSessionPromptSnapshot = {
   definitionOfDone?: string;
   whyToday?: string;
   project?: string;
+  /** Canonical project directory chosen by the server, never inferred from prose. */
+  projectDirectory?: string;
   dueAt?: string;
   brief?: string;
 };

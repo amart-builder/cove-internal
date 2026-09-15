@@ -4,7 +4,11 @@ export type AttentionTransport = {
   textConfigured: boolean;
 };
 
+export function attentionReminderConfigPath(input?: {dataDir?: string; repoDir?: string; env?: NodeJS.ProcessEnv}): string;
+
 export function createAttentionTransport(input?: {
+  dataDir?: string;
+  env?: NodeJS.ProcessEnv;
   repoDir?: string;
   execFileSyncImpl?: (
     executable: string,

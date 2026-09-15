@@ -151,6 +151,42 @@ function bannerCapFor(kind, floorDelivered, refKind, deadlineReminder = false) {
   return ATTENTION_LIMITS.bannersPerDay - 3;
 }
 
+// Reserve known meeting reminders before optional work spends today's slots.
+// This reads the last observed calendar even during a refresh/outage: unknown
+// availability is not evidence that a previously known meeting was cancelled.
+function upcomingMeetingSlots(db, now) {
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE name='cove_follow_through_state' AND type='table'").get()) return 0;
+  const row = db.prepare("SELECT value FROM cove_follow_through_state WHERE key='calendar'").get();
+  let calendar;
+  try { calendar = JSON.parse(row?.value ?? '{}'); } catch { return 0; }
+  if (calendar.status === 'not_connected' || !Array.isArray(calendar.events)) return 0;
+  const { start, end } = localDayBounds(now);
+  const completed = new Set();
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE name='cove_follow_through_notices' AND type='table'").get()) {
+    for (const notice of db.prepare("SELECT ref_id,due_at FROM cove_follow_through_notices WHERE ref_kind='meeting' AND stage='meeting' AND status IN ('sending','delivered','uncertain','acknowledged','missed','failed') AND julianday(due_at)>=julianday(?) AND julianday(due_at)<julianday(?)").all(start,end)) {
+      completed.add(`${notice.ref_id}:${Date.parse(notice.due_at)}`);
+    }
+  }
+  const reserved = new Set();
+  let clock;
+  try { clock = new Intl.DateTimeFormat('en-US', { timeZone: calendar.timezone, hour: 'numeric', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }); }
+  catch { clock = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }); }
+  for (const event of calendar.events) {
+    if (!event?.id || typeof event.start !== 'string' || !event.start.includes('T') || event.status === 'cancelled' || event.attendees?.some(a => a.self && a.responseStatus === 'declined')) continue;
+    const at = Date.parse(event.start);
+    const key = `${event.id}:${at}`;
+    if (!Number.isFinite(at) || at <= +now || at < Date.parse(start) || at >= Date.parse(end) || completed.has(key)) continue;
+    // Reserve when the 15-minute reminder window intersects delivery hours.
+    // An 18:05 meeting can alert at 17:50; an 08:00 meeting has no eligible
+    // pre-start minute after quiet hours end.
+    const parts = Object.fromEntries(clock.formatToParts(new Date(at)).map(part => [part.type, part.value]));
+    const startMinute = Number(parts.hour) * 60 + Number(parts.minute) + Number(parts.second) / 60;
+    if (startMinute <= 8 * 60 || startMinute >= 18 * 60 + 15) continue;
+    reserved.add(key);
+  }
+  return Math.min(ATTENTION_LIMITS.bannersPerDay, reserved.size);
+}
+
 function boundedLevel(requestedLevel, maximumLevel) {
   if (!(requestedLevel in LEVEL_RANK) || !(maximumLevel in LEVEL_RANK)) {
     throw new Error("attention_level_invalid");
@@ -214,6 +250,15 @@ export function allocateAttention(db, input) {
       "SELECT 1 FROM cove_attention_ledger WHERE kind='floor_nudge' AND level IN ('text','banner') AND delivered_at >= ? AND delivered_at < ? LIMIT 1",
     ).get(start, end));
 
+    const reservedMeetings = input.refKind === "meeting" || input.kind === "urgent_email"
+      ? 0 : upcomingMeetingSlots(db, now);
+    const bannerCap = Math.min(
+      bannerCapFor(input.kind, floorDelivered, input.refKind, input.deadlineReminder === true),
+      ATTENTION_LIMITS.bannersPerDay - reservedMeetings,
+    );
+    const bannerSuppression = reservedMeetings > 0 && usage.banners >= ATTENTION_LIMITS.bannersPerDay - reservedMeetings
+      ? "reserved_upcoming_meetings" : "daily_banner_cap";
+
     if (finalLevel === "text") {
       const modelTextBlocked = input.kind !== "floor_nudge" &&
         usage.modelTexts >= ATTENTION_LIMITS.modelTextsPerDay;
@@ -221,7 +266,7 @@ export function allocateAttention(db, input) {
       // than its reserved slot no matter how many items come due.
       const floorTextBlocked = input.kind === "floor_nudge" &&
         usage.floorTexts >= ATTENTION_LIMITS.floorTextsPerDay;
-      const bannerBlocked = usage.banners >= bannerCapFor(input.kind, floorDelivered, input.refKind, input.deadlineReminder === true);
+      const bannerBlocked = usage.banners >= bannerCap;
       if (
         usage.texts >= ATTENTION_LIMITS.textsPerDay ||
         bannerBlocked ||
@@ -229,7 +274,7 @@ export function allocateAttention(db, input) {
         floorTextBlocked
       ) {
         const suppressedReason = bannerBlocked
-          ? "daily_banner_cap"
+          ? bannerSuppression
           : modelTextBlocked
             ? "reserved_floor_text_slot"
             : floorTextBlocked
@@ -254,14 +299,14 @@ export function allocateAttention(db, input) {
       }
     }
 
-    if (finalLevel === "banner" && usage.banners >= bannerCapFor(input.kind, floorDelivered, input.refKind, input.deadlineReminder === true)) {
+    if (finalLevel === "banner" && usage.banners >= bannerCap) {
       appendSuppression(suppressionRows, db, {
         kind: input.kind,
         refKind: input.refKind,
         refId: input.refId,
         level: "suppressed",
         reason: input.reason,
-        suppressedReason: "daily_banner_cap",
+        suppressedReason: bannerSuppression,
         createdAt,
       });
       return { row: null, suppressionRows, cooldown, finalLevel: "suppressed" };

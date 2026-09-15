@@ -6,8 +6,8 @@
  * This script only acquires notes and uses the shared meeting extractor.
  */
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { readFileSync, mkdirSync, writeFileSync, linkSync, unlinkSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,7 +31,8 @@ require("tsx/cjs");
 const { recordEvent, resolveEvent } = require("../src/lib/intake/inbox.ts");
 const { createGoogleWorkspaceGateway } = require("../src/lib/workspace/google/gateway.ts");
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const dataDir = coveEnv("DATA_DIR")?.trim() || path.join(repoDir, "data");
+const { resolveEmailRuntimePaths } = require("../src/lib/email/runtime-paths.ts");
+const { dataDir, dbPath } = resolveEmailRuntimePaths({ repoDir });
 const intakeScript = path.join(repoDir, "scripts", "cove-intake.mjs");
 
 function arg(name) {
@@ -121,28 +122,28 @@ async function runIntake(text, sourceId) {
   if (stderr) process.stderr.write(stderr);
 }
 
-async function processItem(item, notes, index) {
+async function processItem(item, notes, index, options = {}) {
   const sourceId = stableSourceId(
     `${notes.occurrenceId}\0${index}\0${item.owner}\0${item.title}\0${item.detail}`,
   );
   const text = meetingFollowUpText(item, notes.title);
-  if (isOperatorOwned(item.owner)) {
-    await runIntake(text, sourceId);
+  if ((options.isOwned ?? isOperatorOwned)(item.owner)) {
+    await (options.runIntake ?? runIntake)(text, sourceId);
     return "task";
   }
-  const receipt = await recordEvent(
+  const receipt = await (options.recordEvent ?? recordEvent)(
     {
       source: "meeting",
       sourceId,
       rawText: text,
     },
-    { dataDir },
+    { dataDir: options.dataDir ?? dataDir },
   );
   const state = inboundAckState(receipt);
   if (state === "failed") {
     throw new Error("Meeting follow-up could not be captured.");
   }
-  await writeWaitingCommitment(
+  await (options.writeWaitingCommitment ?? writeWaitingCommitment)(
     item,
     {
       sourceId,
@@ -151,9 +152,10 @@ async function processItem(item, notes, index) {
         coveEnv("BRIEF_WEB_BASE") ?? "http://127.0.0.1:3200"
       ).replace(/\/$/, ""),
     },
+    { dbPath: options.dbPath ?? (options.dataDir ? path.join(options.dataDir, "cove.db") : dbPath) },
   );
   if (state === "db") {
-    await resolveEvent(receipt.event.id, { state: "triaged" });
+    await (options.resolveEvent ?? resolveEvent)(receipt.event.id, { state: "triaged" });
   }
   return "waiting_on";
 }
@@ -200,20 +202,47 @@ export function captureSummaryLine(taskCount, waitingCount, bundledCount) {
   return `Captured ${taskCount} operator follow-up${taskCount === 1 ? "" : "s"} and ${waiting}.`;
 }
 
-const isMainModule = process.argv[1] &&
-  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+function validatedExtraction(value) {
+  if (!Array.isArray(value) || value.some(item => !item || typeof item !== "object" ||
+    typeof item.owner !== "string" || !item.owner.trim() ||
+    typeof item.title !== "string" || !item.title.trim() || typeof item.detail !== "string" ||
+    (item.due_at !== undefined && (typeof item.due_at !== "string" || !Number.isFinite(Date.parse(item.due_at)))))) {
+    throw new Error("Meeting extraction is invalid. No follow-ups were captured.");
+  }
+  return value;
+}
 
-if (isMainModule) {
-  const notes = await loadNotes();
-  notes.title = notes.title.replace(/\s*-\s*\d{4}\/\d{2}\/\d{2}.*$/, "").trim();
-  const items = await extractMeetingFollowUps(notes.text, { repoDir });
-  const plan = planFollowUpCaptures(items, notes);
+async function savedMeetingExtraction(notes, options) {
+  const inputHash = createHash("sha256").update(`${notes.occurrenceId}\0${notes.text}`).digest("hex");
+  const directory = path.join(options.dataDir ?? dataDir, "meeting-extractions");
+  const file = path.join(directory, `${inputHash}.json`);
+  const readSaved = () => {
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    if (saved.version !== 1 || saved.inputHash !== inputHash) throw new Error("Saved meeting extraction does not match the input.");
+    return validatedExtraction(saved.items);
+  };
+  try { return readSaved(); } catch (error) { if (error.code !== "ENOENT") throw error; }
+  const items = validatedExtraction(await (options.extractFollowUps ?? extractMeetingFollowUps)(notes.text, { repoDir }));
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporary, JSON.stringify({ version: 1, inputHash, items }), { mode: 0o600 });
+    // Publish the complete snapshot once. Concurrent callers use the winner's
+    // extraction, so generated wording cannot mint different effect IDs.
+    try { linkSync(temporary, file); } catch (error) { if (error.code !== "EEXIST") throw error; }
+  } finally { unlinkSync(temporary); }
+  return readSaved();
+}
+
+export async function captureMeetingFollowUps(notes, options = {}) {
+  const items = await savedMeetingExtraction(notes, options);
+  const plan = planFollowUpCaptures(items, notes, { isOwned: options.isOwned ?? isOperatorOwned });
   const failures = [];
   let taskCount = 0;
   let waitingCount = 0;
   if (plan.bundle) {
     try {
-      await runIntake(plan.bundle.text, plan.bundle.sourceId);
+      await (options.runIntake ?? runIntake)(plan.bundle.text, plan.bundle.sourceId);
       taskCount += 1;
     } catch (error) {
       failures.push(error);
@@ -222,7 +251,7 @@ if (isMainModule) {
   }
   for (const { item, index } of plan.perItem) {
     try {
-      const result = await processItem(item, notes, index);
+      const result = await processItem(item, notes, index, options);
       if (result === "task") taskCount += 1;
       else waitingCount += 1;
     } catch (error) {
@@ -240,7 +269,14 @@ if (isMainModule) {
     !notes.acquisition.task_id &&
     (notes.acquisition.state === "pending" || notes.acquisition.state === "failed")
   ) {
-    await resolveEvent(notes.acquisition.id, { state: "dismissed" });
+    await (options.resolveEvent ?? resolveEvent)(notes.acquisition.id, { state: "dismissed" });
   }
-  console.log(captureSummaryLine(taskCount, waitingCount, plan.bundledCount));
+  return captureSummaryLine(taskCount, waitingCount, plan.bundledCount);
+}
+
+const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMainModule) {
+  const notes = await loadNotes();
+  notes.title = notes.title.replace(/\s*-\s*\d{4}\/\d{2}\/\d{2}.*$/, "").trim();
+  console.log(await captureMeetingFollowUps(notes));
 }

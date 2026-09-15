@@ -264,6 +264,16 @@ function FocusCard({
         <h3 className="line-clamp-3 text-[15.5px] font-medium leading-[1.42] tracking-[-0.004em] text-white/95">
           {view.title}
         </h3>
+        {view.item.commitment === 'pencil' && (
+          <p className="mt-2 text-xs opacity-70">Proposed, awaiting your acceptance</p>
+        )}
+        {view.item.planningState && view.item.planningState !== 'ready' && (
+          <p className="mt-2 text-xs opacity-70">
+            {view.item.planningState === 'resolved'
+              ? 'Source closed or changed. Review before starting.'
+              : view.item.planningState}
+          </p>
+        )}
         <p
           className="mt-auto truncate pt-3.5 text-xs leading-[1.4] text-white/60"
           aria-hidden={preview ? undefined : true}
@@ -271,7 +281,7 @@ function FocusCard({
           {preview ?? '\u00a0'}
         </p>
       </article>
-      <CompletionButton title={view.title} busy={busy} inverted onComplete={onComplete} />
+      <CompletionButton title={view.title} busy={busy || view.item.commitment === 'pencil' || view.item.planningState === 'resolved'} inverted onComplete={onComplete} />
       <KeyboardDragHandle
         title={view.title}
         disabled={busy}
@@ -343,8 +353,18 @@ function AlsoTodayCard({
         <h3 className="line-clamp-2 min-w-0 pr-6 text-[13.5px] font-medium leading-[1.4] tracking-[-0.004em] text-foreground/80 dark:text-foreground/90">
           {view.title}
         </h3>
+        {view.item.commitment === 'pencil' && (
+          <p className="mt-2 text-xs opacity-70">Proposed, awaiting your acceptance</p>
+        )}
+        {view.item.planningState && view.item.planningState !== 'ready' && (
+          <p className="mt-2 text-xs opacity-70">
+            {view.item.planningState === 'resolved'
+              ? 'Source closed or changed. Review before starting.'
+              : view.item.planningState}
+          </p>
+        )}
       </article>
-      <CompletionButton title={view.title} busy={busy} onComplete={onComplete} />
+      <CompletionButton title={view.title} busy={busy || view.item.commitment === 'pencil' || view.item.planningState === 'resolved'} onComplete={onComplete} />
       <KeyboardDragHandle
         title={view.title}
         disabled={busy}
@@ -601,8 +621,7 @@ export default function ArrivalPlanGrid({
 
     if (overId === NOT_TODAY_ZONE_ID) {
       const nextFocusCount = startedInFocus && focusCount > 1
-        ? (focusCount - 1) as 1 | 2
-        : focusCount;
+        ? ((focusCount - 1) as 1 | 2) : focusCount;
       if (nextFocusCount !== focusCount) await onFocusCountChange(nextFocusCount);
       try {
         await onRemove(
@@ -718,8 +737,8 @@ export default function ArrivalPlanGrid({
               id="arrival-initial-priorities-title"
               className="mb-[18px] text-[10.5px] font-semibold uppercase tracking-[0.24em] text-muted-foreground"
             >
-              Initial priorities
-            </h2>
+            Initial priorities
+          </h2>
             <ArrivalDropBucket
               id={INITIAL_PRIORITY_ZONE_ID}
               label="Initial priorities"
@@ -751,8 +770,8 @@ export default function ArrivalPlanGrid({
                 id="arrival-also-today-title"
                 className="mb-[18px] text-[10.5px] font-semibold uppercase tracking-[0.24em] text-muted-foreground"
               >
-                Also today
-              </h2>
+            Also today
+          </h2>
             <ArrivalDropBucket
               id={ALSO_TODAY_ZONE_ID}
               label="Also today"
@@ -773,8 +792,8 @@ export default function ArrivalPlanGrid({
                 ))}
                 {alsoTodayViews.length === 0 && (
                   <li className="flex min-h-24 items-center px-2 text-[13px] leading-relaxed text-muted-foreground">
-                    Drop tasks here to keep them in Today without making them an initial priority.
-                  </li>
+                  Drop tasks here to keep them in Today without making them an initial priority.
+                </li>
                 )}
               </ol>
             </ArrivalDropBucket>
@@ -807,8 +826,8 @@ export default function ArrivalPlanGrid({
             ))}
             {boardTasks.length === 0 && (
               <li className="flex min-h-24 items-center text-[13px] leading-relaxed text-muted-foreground">
-                No other open tasks are ready to plan.
-              </li>
+                  No other open tasks are ready to plan.
+                </li>
             )}
             {hiddenTaskCount > 0 && (
               <li className="h-full">

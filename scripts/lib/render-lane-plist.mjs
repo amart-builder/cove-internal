@@ -18,6 +18,8 @@ export function renderLanePlist({
   jobRunner = "codex-sol-high",
   codexPath = "",
   notificationApp = "",
+  webBase = "http://127.0.0.1:3200",
+  dbPath = path.join(dataDir, "cove.db"),
 }) {
   const template = fs.readFileSync(source, "utf8");
   const templateRepo = template.match(
@@ -31,15 +33,18 @@ export function renderLanePlist({
   const templateAtlas = path.resolve(templateRepo, "../../..");
   const templateHome = path.dirname(templateAtlas);
   const templateData = path.join(templateRepo, "data");
+  const xml = value => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
   const rendered = template
-    .replaceAll(templateData, dataDir)
-    .replaceAll(templateRepo, repoDir)
-    .replaceAll(templateAtlas, atlasRoot)
-    .replaceAll(templateHome, homeDir)
-    .replaceAll(NODE_PLACEHOLDER, nodePath)
-    .replaceAll(JOB_RUNNER_PLACEHOLDER, jobRunner)
-    .replaceAll(CODEX_PLACEHOLDER, codexPath)
-    .replaceAll(NOTIFICATION_APP_PLACEHOLDER, notificationApp);
+    .replaceAll(templateData, xml(dataDir))
+    .replaceAll(templateRepo, xml(repoDir))
+    .replaceAll(templateAtlas, xml(atlasRoot))
+    .replaceAll(templateHome, xml(homeDir))
+    .replaceAll(NODE_PLACEHOLDER, xml(nodePath))
+    .replaceAll(JOB_RUNNER_PLACEHOLDER, xml(jobRunner))
+    .replaceAll(CODEX_PLACEHOLDER, xml(codexPath))
+    .replaceAll(NOTIFICATION_APP_PLACEHOLDER, xml(notificationApp))
+    .replaceAll("__COVE_BRIEF_WEB_BASE__", xml(webBase))
+    .replaceAll("__COVE_DB_PATH__", xml(dbPath));
 
   fs.writeFileSync(destination, rendered, { mode: 0o600 });
   return rendered;
@@ -62,11 +67,13 @@ if (invokedUrl === moduleUrl) {
     jobRunner,
     codexPath,
     notificationApp,
+    webBase,
+    dbPath,
   ] =
     process.argv.slice(2);
   if (!source || !destination || !repoDir || !homeDir || !atlasRoot || !dataDir || !nodePath) {
     throw new Error(
-      "Usage: render-lane-plist.mjs <source> <destination> <repo> <home> <atlas> <data> <node> [job-runner] [codex] [notification-app]",
+      "Usage: render-lane-plist.mjs <source> <destination> <repo> <home> <atlas> <data> <node> [job-runner] [codex] [notification-app] [web-base] [db-path]",
     );
   }
   renderLanePlist({
@@ -80,5 +87,7 @@ if (invokedUrl === moduleUrl) {
     jobRunner,
     codexPath,
     notificationApp,
+    webBase,
+    dbPath,
   });
 }

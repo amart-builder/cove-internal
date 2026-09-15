@@ -1,0 +1,200 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import {
+  chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync,
+  readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync,
+} from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { openLocalDatabase } from "../src/lib/local/database.ts";
+import { loadCoveRuntimePaths } from "../scripts/lib/cove-runtime-paths.mjs";
+
+const sourceRoot = path.resolve(import.meta.dirname, "..");
+
+function fixture(t) {
+  const root = mkdtempSync(path.join(os.tmpdir(), "cove-install-recovery-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(path.join(root, "scripts/lib"), { recursive: true });
+  mkdirSync(path.join(root, "home"));
+  symlinkSync(path.join(sourceRoot, "node_modules"), path.join(root, "node_modules"));
+  symlinkSync(path.join(sourceRoot, "src"), path.join(root, "src"));
+  for (const name of [
+    "cove-backup.sh", "cove-restore-backup.sh", "cove-verify-sqlite.mjs", "cove-jobs.ts",
+    "lib/load-local-env.mjs", "lib/cove-runtime-paths.mjs",
+  ]) copyFileSync(path.join(sourceRoot, "scripts", name), path.join(root, "scripts", name));
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
+    !/^(?:COVE_|FORGE_|NEXT_PUBLIC_COVE_|NEXT_PUBLIC_FORGE_)/.test(key)));
+  Object.assign(env, {
+    HOME: path.join(root, "home"),
+    PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin:/usr/sbin:/sbin`,
+    COVE_NODE_PATH: process.execPath,
+  });
+  return { root, env };
+}
+
+function taskDatabase(file, title) {
+  const db = openLocalDatabase(file);
+  db.prepare("INSERT INTO task_columns (id,name,position,is_default,created_at,updated_at) VALUES ('col','Today',0,1,'now','now')").run();
+  db.prepare("INSERT INTO tasks (id,column_id,title,status,tags,project,position,source_type) VALUES ('task','col',?,'open','[]','Cove',0,'manual')").run(title);
+  db.close();
+}
+
+function titleAt(file) {
+  const db = openLocalDatabase(file);
+  try { return db.prepare("SELECT title FROM tasks WHERE id='task'").pluck().get(); }
+  finally { db.close(); }
+}
+
+for (const { configKind, relative } of ["DB_PATH", "DATA_DIR"].flatMap(configKind =>
+  [false, true].map(relative => ({ configKind, relative })))) {
+  test(`backup and restore use ${relative ? "relative " : ""}${configKind} saved only in .env.local${relative ? " from a foreign cwd" : ""}`, (t) => {
+    const { root, env } = fixture(t);
+    const privateDir = path.join(root, "private data");
+    const selected = path.join(privateDir, "cove.db");
+    const decoy = path.join(root, "data/cove.db");
+    const backups = path.join(root, "recovery snapshots");
+    taskDatabase(selected, "Selected original");
+    taskDatabase(decoy, "Unrelated default");
+    const configPath = value => relative ? path.relative(root, value) : value;
+    writeFileSync(path.join(root, ".env.local"),
+      `COVE_${configKind}="${configPath(configKind === "DB_PATH" ? selected : privateDir)}"\nCOVE_BACKUP_DIR="${configPath(backups)}"\n`);
+    const cwd = relative ? path.join(root, "home") : root;
+
+    const backup = spawnSync("/bin/bash", [path.join(root, "scripts/cove-backup.sh")], {
+      cwd, env, encoding: "utf8",
+    });
+    assert.equal(backup.status, 0, `${backup.stdout}\n${backup.stderr}`);
+    const snapshots = readdirSync(backups).filter(name => name.endsWith(".db"));
+    assert.equal(snapshots.length, 1);
+    const snapshot = path.join(backups, snapshots[0]);
+    assert.equal(titleAt(snapshot), "Selected original");
+    assert.equal(titleAt(decoy), "Unrelated default");
+    const changed = openLocalDatabase(selected);
+    changed.prepare("UPDATE tasks SET title='Changed after snapshot' WHERE id='task'").run();
+    changed.close();
+
+    const restore = spawnSync("/bin/bash", [path.join(root, "scripts/cove-restore-backup.sh"), "--yes", snapshot], {
+      cwd, env, encoding: "utf8",
+    });
+    assert.equal(restore.status, 0, `${restore.stdout}\n${restore.stderr}`);
+    assert.equal(titleAt(selected), "Selected original");
+    assert.equal(titleAt(decoy), "Unrelated default");
+    const preserved = readdirSync(path.join(backups, "recovery")).find(name => name.endsWith(".db"));
+    assert.ok(preserved, "restore preserves the actual replaced database");
+    assert.equal(titleAt(path.join(backups, "recovery", preserved)), "Changed after snapshot");
+  });
+}
+
+test("missing configured database fails backup without creating or backing up the default database", (t) => {
+  const { root, env } = fixture(t);
+  writeFileSync(path.join(root, ".env.local"), `COVE_DB_PATH=${path.join(root, "missing/cove.db")}\n`);
+  const result = spawnSync("/bin/bash", [path.join(root, "scripts/cove-backup.sh")], {
+    cwd: root, env, encoding: "utf8",
+  });
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stderr, /no backup was created/);
+  assert.equal(existsSync(path.join(root, "data/cove.db")), false);
+});
+
+test("runtime path resolution preserves explicit settings and canonical/legacy database precedence", (t) => {
+  const { root } = fixture(t);
+  const privateDir = path.join(root, "private");
+  mkdirSync(privateDir);
+  writeFileSync(path.join(root, ".env.local"), `COVE_DATA_DIR=${privateDir}\n`);
+  const legacy = path.join(privateDir, "forge.db");
+  const canonical = path.join(privateDir, "cove.db");
+  writeFileSync(legacy, "legacy fixture");
+  assert.equal(loadCoveRuntimePaths(root, {}).dbPath, legacy);
+  writeFileSync(canonical, "canonical fixture");
+  assert.equal(loadCoveRuntimePaths(root, {}).dbPath, canonical);
+  const explicit = path.join(root, "override.db");
+  assert.equal(loadCoveRuntimePaths(root, { COVE_DB_PATH: explicit }).dbPath, explicit);
+  // Check parity with the app without modifying the caller's environment.
+  const check = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e",
+    `import { defaultLocalDatabasePath } from ${JSON.stringify(path.join(sourceRoot, "src/lib/local/database.ts"))}; process.stdout.write(defaultLocalDatabasePath(${JSON.stringify(root)}));`,
+  ], { cwd: sourceRoot, env: { PATH: process.env.PATH, COVE_DATA_DIR: privateDir }, encoding: "utf8" });
+  assert.equal(check.status, 0, check.stderr);
+  assert.equal(check.stdout, canonical);
+});
+
+test("installer readiness fails when the new worker heartbeat is missing", (t) => {
+  const { root, env } = fixture(t);
+  const installer = readFileSync(path.join(sourceRoot, "scripts/install-cove-local.sh"), "utf8");
+  const start = installer.indexOf("# Confirm the server actually came up.");
+  assert.ok(start > 0);
+  const backupStub = path.join(root, "backup-stub");
+  writeFileSync(backupStub, '#!/bin/sh\nprintf "called" > "$COVE_TEST_BACKUP"\n');
+  chmodSync(backupStub, 0o700);
+  const runner = path.join(root, "readiness.sh");
+  writeFileSync(runner, `#!/bin/bash
+set -euo pipefail
+curl() { printf '200'; }
+stat() { printf '%s' "$COVE_TEST_HEARTBEAT"; }
+sleep() { :; }
+LANE_DATA_DIR="$COVE_TEST_ROOT"
+COVE_BRIEF_WEB_BASE="http://127.0.0.1:4317"
+WORKER_START_EPOCH=100
+LOG_DIR="$COVE_TEST_ROOT"
+REPO_DIR="$COVE_TEST_ROOT"
+TSX_BIN="$COVE_TEST_ROOT/backup-stub"
+UID_NUM=999
+INSTALL_MEETING_LANE=1
+INSTALL_PROGRESS_LANE=1
+INSTALL_VOICE_REVIEW_LANE=1
+${installer.slice(start)}`);
+  const backupReceipt = path.join(root, "backup-called");
+  const missing = spawnSync("/bin/bash", [runner], { encoding: "utf8", env: {
+    ...env, COVE_TEST_ROOT: root, COVE_TEST_HEARTBEAT: "0", COVE_TEST_BACKUP: backupReceipt,
+  } });
+  assert.equal(missing.status, 1, `${missing.stdout}\n${missing.stderr}`);
+  assert.match(missing.stderr, /setup is incomplete/);
+  assert.doesNotMatch(missing.stdout, /Cove is running at/);
+  assert.equal(existsSync(backupReceipt), false);
+
+  const healthy = spawnSync("/bin/bash", [runner], { encoding: "utf8", env: {
+    ...env, COVE_TEST_ROOT: root, COVE_TEST_HEARTBEAT: "101", COVE_TEST_BACKUP: backupReceipt,
+  } });
+  assert.equal(healthy.status, 0, `${healthy.stdout}\n${healthy.stderr}`);
+  assert.equal(readFileSync(backupReceipt, "utf8"), "called");
+  assert.match(healthy.stdout, /Claude worker status: ok/);
+});
+
+test("installer schedules email from the resolved private data root", (t) => {
+  const { root, env } = fixture(t);
+  const privateDir = path.join(root, "private");
+  mkdirSync(privateDir);
+  mkdirSync(path.join(root, "data"));
+  writeFileSync(path.join(privateDir, "cove-workspace.json"), JSON.stringify({ triage_times: ["06:30", "16:45"] }));
+  writeFileSync(path.join(root, "data/cove-workspace.json"), JSON.stringify({ triage_times: ["09:00"] }));
+  const installer = readFileSync(path.join(sourceRoot, "scripts/install-cove-local.sh"), "utf8");
+  const start = installer.indexOf('EMAIL_CONFIG=');
+  const end = installer.indexOf('# (Re)load all agents', start);
+  assert.ok(start > 0 && end > start);
+  const runtimeBlock = /xml_escape\(\) \{[\s\S]*?\n\nmkdir -p/.exec(installer)?.[0].replace(/\n\nmkdir -p$/, "");
+  assert.ok(runtimeBlock, "execute the actual installer runtime environment renderer");
+  const runner = path.join(root, "email-render.sh");
+  writeFileSync(runner, `#!/bin/bash
+set -euo pipefail
+REPO_DIR="$COVE_TEST_ROOT"
+LANE_DATA_DIR="$COVE_TEST_ROOT/private"
+TRIAGE_PLIST="$COVE_TEST_ROOT/triage.plist"
+LOG_DIR="$COVE_TEST_ROOT"
+NODE_BIN="$(dirname "$COVE_NODE_PATH")"
+JOB_RUNNER=claude
+CODEX_PLIST_ENTRY=""
+NOTIFICATION_PLIST_ENTRY=""
+COVE_DATA_DIR="$LANE_DATA_DIR"
+COVE_DB_PATH="$LANE_DATA_DIR/cove.db"
+COVE_BRIEF_WEB_BASE="http://127.0.0.1:4317"
+${runtimeBlock}
+${installer.slice(start, end)}`);
+  const result = spawnSync("/bin/bash", [runner], {
+    env: { ...env, COVE_TEST_ROOT: root }, encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const plist = readFileSync(path.join(root, "triage.plist"), "utf8");
+  assert.match(plist, /<integer>6<\/integer><key>Minute<\/key><integer>30<\/integer>/);
+  assert.match(plist, /<integer>16<\/integer><key>Minute<\/key><integer>45<\/integer>/);
+  assert.doesNotMatch(plist, /<key>Hour<\/key><integer>9<\/integer>/);
+});

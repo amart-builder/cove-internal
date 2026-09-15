@@ -1,3 +1,4 @@
+import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -51,18 +52,20 @@ function validateState(value: unknown): void {
  * process is still writing and must be reconciled, never silently re-imported.
  */
 export function transactQuietCurrent<S, T>(
-  database: string,
+  database: string | Database.Database,
   file: string,
   empty: () => S,
-  operation: (state: S) => T,
+  operation: (state: S, db: Database.Database) => T,
 ): T {
-  const db = openLocalDatabase(database);
+  const owned = typeof database === "string";
+  const db = owned ? openLocalDatabase(database) : database;
   try {
     return db.transaction(() => {
       // Use the filename, not the absolute path, so database restores can move.
       const key = path.basename(file);
       const row = db.prepare("SELECT state_json, legacy_sha256 FROM cove_quiet_current WHERE store_key = ?")
-        .get(key) as { state_json: string; legacy_sha256: string | null } | undefined;
+        .get(key) as
+          | { state_json: string; legacy_sha256: string | null } | undefined;
       const bytes = legacyBytes(file);
       const hash = fingerprint(bytes);
       // A database-only restore needs no legacy file. If one is present, it
@@ -81,7 +84,7 @@ export function transactQuietCurrent<S, T>(
           if (!readFileSync(backup).equals(bytes)) throw new Error("Quiet Current migration backup does not match the source.");
         }
       }
-      const result = operation(state);
+      const result = operation(state, db);
       const serialized = JSON.stringify(state);
       // Catch mixed-version writers during the operation as well as on entry.
       if (fingerprint(legacyBytes(file)) !== hash) throw new Error("Quiet Current's legacy file changed during migration. Stop older Cove processes and retry.");
@@ -94,6 +97,6 @@ export function transactQuietCurrent<S, T>(
       return result;
     }).immediate();
   } finally {
-    db.close();
+    if (owned) db.close();
   }
 }

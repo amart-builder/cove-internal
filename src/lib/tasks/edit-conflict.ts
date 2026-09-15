@@ -6,7 +6,7 @@ export const TASK_EDIT_CONFLICT = 'This task changed while you were editing. You
  * No revision timestamp can safely distinguish unrelated field changes. */
 export function taskEditMatches(row: Record<string, unknown>, expected: unknown): boolean {
   if (!expected || typeof expected !== 'object' || Array.isArray(expected)) throw new Error('Invalid task edit guard.');
-  const columns: Record<string,string> = { title:'title', description:'description', origin:'origin', priority:'priority', dueDate:'due_at', columnId:'column_id', tags:'tags' };
+  const columns: Record<string,string> = { title:'title', description:'description', origin:'origin', priority:'priority', dueDate:'due_at', columnId:'column_id', tags:'tags', updatedAt:'updated_at' };
   for (const [key,value] of Object.entries(expected)) {
     if (!Object.hasOwn(columns,key)) throw new Error('Invalid task edit guard field.');
     let current=row[columns[key]];

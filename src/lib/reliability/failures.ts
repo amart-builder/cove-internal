@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import { openLocalDatabase } from "../local/database";
 import { jobFailureDetail } from "./job-failure-copy";
 import { reconcileRecoveredFailures } from "./recoveries";
+import { textDeliveryUncertain } from "../intake/notification-transport.mjs";
 
 export type FailureInboxItem = {
   id: string;
@@ -30,6 +31,19 @@ type FailureRow = {
   occurred_at: string;
   dismissed_at: string | null;
 };
+
+function reminderFailureMessage(delivery: { title?: string; channel?: string; error?: string }): string {
+  const subject = delivery.title ? `Reminder: “${delivery.title}”.` : "A reminder needs your attention.";
+  if (delivery.channel === "native") {
+    return `${subject} Cove could not confirm the Mac notification. You can review the reminder in Cove.`;
+  }
+  if (textDeliveryUncertain(delivery.error ?? "")) {
+    const app = delivery.channel === "telegram" ? "Telegram" : delivery.channel === "imessage" ? "Messages" : "your messaging app";
+    return `${subject} Cove could not confirm whether the text was sent. Check ${app} before sending it again. Your task is still saved in Cove.`;
+  }
+  const connectionFailed = /^ssh: connect to host [^\n]+ port \d+:/im.test(delivery.error ?? "");
+  return `${subject} ${connectionFailed ? "Cove could not connect to the Mac that sends your texts, so this text was not sent." : "Cove could not send the text reminder."} Your task is still saved in Cove.`;
+}
 
 function decodeFailure(row: FailureRow): FailureInboxItem {
   let details: unknown = {};
@@ -55,7 +69,7 @@ function decodeFailure(row: FailureRow): FailureInboxItem {
       : row.source === "meeting-analysis-degraded"
         ? "A meeting review stopped before the deeper analysis finished. Any work already extracted is preserved."
       : delivery
-        ? `${delivery.channel === "native" ? "Mac" : "Text"} reminder ${/\b(?:ETIMEDOUT|timeout)\b|timed? out/i.test(delivery.error ?? "") ? "delivery could not be confirmed" : "delivery failed"}${delivery.title ? ` for “${delivery.title}”` : ""}. Check the item in Cove. ${delivery.channel === "imessage" ? "The Mini connection and Messages must be available for text delivery. " : ""}Check the item before requesting another reminder.`
+        ? reminderFailureMessage(delivery)
       : row.message,
     details,
     occurredAt: row.occurred_at,

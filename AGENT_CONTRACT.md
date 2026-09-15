@@ -62,7 +62,7 @@ Only add a time to `due_at` when the person supplied a real clock time. For date
 
 ## Decision history
 
-Cove records focus, acceptance, refinement, dismissal, decay, handoff, completion, and undo events in `data/quiet-current.json`. This file is local, gitignored, bounded, and intended to become correctable preference summaries rather than invisible model folklore.
+Cove records focus, acceptance, refinement, dismissal, decay, handoff, completion, and undo events in the local SQLite database. The legacy `data/quiet-current.json` is imported once; it is not the current decision history. Recovery must preserve the import fingerprint and must never overwrite current database decisions with an older JSON file. The bounded local history is intended to become correctable preference summaries rather than invisible model folklore.
 
 If Cove surfaces a rollback error after reopening a proposal, pencil and ink may both remain visible until the person resolves the mismatch. Treat that pair as one fail-visible item: do not duplicate it, re-propose it, or infer that either side won.
 

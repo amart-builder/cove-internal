@@ -240,7 +240,7 @@ export function deliverAttentionNudge(input: {
   if (!current) throw new AttentionDeliveryRejected("no longer open");
 
   const shadow = input.shadow ?? readAttentionShadowSetting(input.dataDir);
-  const transport = input.transport ?? createAttentionTransport({ repoDir: input.repoDir });
+  const transport = input.transport ?? createAttentionTransport({ repoDir: input.repoDir, dataDir: input.dataDir, env: input.env });
   const surface = input.surface ?? surfaceAttentionSuggestion;
   const surfaceSuppression = input.surfaceSuppression ?? surfaceAttentionSuppression;
   const maximumLevel = input.allowText !== false && current.direct && transport.textConfigured

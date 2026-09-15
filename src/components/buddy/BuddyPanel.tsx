@@ -15,7 +15,7 @@ import { useBuddy, useBuddyStream } from './BuddyProvider';
 
 export default function BuddyPanel() {
   const {
-    open, setOpen, turns, send, resetConversation, sessionInfo, getCsrfToken,
+    open, setOpen, turns, send, resetConversation, sessionInfo, getCsrfToken, busy,
   } = useBuddy();
   const { streamingTurn, thinking } = useBuddyStream();
   const [draft, setDraft] = useState('');
@@ -24,6 +24,7 @@ export default function BuddyPanel() {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const nearBottomRef = useRef(true);
   const wasOpenRef = useRef(false);
+  const submittingRef = useRef(false);
   const streamingTurnId = streamingTurn?.id;
   const historyWithoutStreaming = useMemo(
     () => streamingTurnId ? turns.filter((turn) => turn.id !== streamingTurnId) : turns,
@@ -41,6 +42,7 @@ export default function BuddyPanel() {
 
   useEffect(() => {
     if (!open) return;
+    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.preventDefault();
@@ -49,7 +51,13 @@ export default function BuddyPanel() {
     };
     document.addEventListener('keydown', onKeyDown, { capture: true });
     window.requestAnimationFrame(() => textareaRef.current?.focus());
-    return () => document.removeEventListener('keydown', onKeyDown, { capture: true });
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, { capture: true });
+      window.requestAnimationFrame(() => {
+        if (returnFocus?.isConnected && !returnFocus.closest('[inert]')) returnFocus.focus();
+        else document.querySelector<HTMLElement>('button[data-buddy-surface]')?.focus();
+      });
+    };
   }, [open, setOpen]);
 
   useEffect(() => {
@@ -63,32 +71,39 @@ export default function BuddyPanel() {
   }, [visibleTurns.length, streamingTurn?.assistant_text, thinking, open]);
 
   async function submitText(text: string) {
-    if (!text.trim() || streamingTurn) return;
+    if (!text.trim() || busy || streamingTurn || submittingRef.current) return false;
+    submittingRef.current = true;
     setError(undefined);
     try {
-      await send(text);
+      return Boolean(await send(text));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Buddy couldn't send that.");
+      return false;
+    } finally {
+      submittingRef.current = false;
     }
   }
 
-  function sendDraft() {
+  async function sendDraft() {
     const text = draft.trim();
     if (!text) return;
-    setDraft('');
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
-    void submitText(text);
+    // A startup failure has no saved turn to retry. Keep the actual prompt
+    // until a turn exists, and never erase newer typing after an async send.
+    if (await submitText(text)) {
+      setDraft(current => current.trim() === text ? '' : current);
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    }
   }
 
   function onSubmit(event: FormEvent) {
     event.preventDefault();
-    sendDraft();
+    void sendDraft();
   }
 
   function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
-      sendDraft();
+      void sendDraft();
     }
   }
 
@@ -105,10 +120,11 @@ export default function BuddyPanel() {
   return (
     // Buddy must stay above ritual layers per owner decision.
     <section
+      data-buddy-surface
       aria-label="Buddy chat"
       aria-hidden={!open}
       inert={!open}
-      className={`fixed bottom-[5.5rem] right-4 z-[150] flex max-h-[calc(100dvh-7.5rem)] w-[26rem] max-w-[calc(100vw-2rem)] origin-bottom-right flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl transition-[opacity,transform] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transform-none ${
+      className={`fixed bottom-[5.5rem] right-4 z-[170] flex max-h-[calc(100dvh-7.5rem)] w-[26rem] max-w-[calc(100vw-2rem)] origin-bottom-right flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl transition-[opacity,transform] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transform-none ${
         open
           ? 'scale-100 translate-y-0 opacity-100 duration-200'
           : 'pointer-events-none scale-[0.96] translate-y-2 opacity-0 duration-150'
@@ -124,7 +140,7 @@ export default function BuddyPanel() {
             type="button"
             aria-label="Start a new Buddy conversation"
             title="New conversation"
-            disabled={Boolean(streamingTurn)}
+            disabled={busy || Boolean(streamingTurn)}
             className="grid size-8 shrink-0 place-items-center rounded-lg text-lg text-muted-foreground transition-transform duration-150 ease-out hover:bg-muted hover:text-foreground active:scale-[0.97] motion-reduce:transform-none disabled:opacity-40"
             onClick={() => void reset()}
           >
@@ -191,9 +207,9 @@ export default function BuddyPanel() {
             value={draft}
             maxLength={4000}
             rows={2}
-            disabled={Boolean(streamingTurn)}
+            disabled={busy || Boolean(streamingTurn)}
             className="max-h-[7.5rem] min-h-11 min-w-0 flex-1 resize-none overflow-y-auto rounded-xl border bg-background px-3 py-2 text-sm leading-5 text-foreground outline-none focus:ring-2 focus:ring-accent-blue/40 disabled:opacity-60"
-            placeholder={streamingTurn ? 'Buddy is working…' : 'Ask Buddy…'}
+            placeholder={busy || streamingTurn ? 'Buddy is working…' : 'Ask Buddy…'}
             onKeyDown={onComposerKeyDown}
             onChange={(event) => {
               setDraft(event.target.value);
@@ -204,7 +220,7 @@ export default function BuddyPanel() {
           <button
             type="submit"
             aria-label="Send to Buddy"
-            disabled={!draft.trim() || Boolean(streamingTurn)}
+            disabled={!draft.trim() || busy || Boolean(streamingTurn)}
             className="min-h-11 min-w-16 rounded-xl border px-3 text-sm font-semibold text-foreground transition-[color,background-color,transform] duration-150 ease-out hover:bg-muted active:scale-[0.97] motion-reduce:transform-none disabled:text-muted-foreground disabled:opacity-50"
           >
             Send

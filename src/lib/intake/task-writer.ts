@@ -6,6 +6,8 @@
  * actual REST write, and degrades to a safe fallback task when triage fails.
  */
 import path from "node:path";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { ensureCoveAutonomySettings } from "../autonomy/settings";
 import type { InboundEvent, Task } from "../data/types";
 import { localDateInTimezone } from "../day-plan/brief";
@@ -14,7 +16,7 @@ import { taskColumnKeyForName, type TaskColumnKey } from "../tasks/columns";
 import { inboundOrigin, originDate } from "../tasks/origin";
 import type { TriageOutput } from "../triage/protocol";
 import { coveEnv } from "../env";
-import { defaultLocalDatabasePath, localDatabasePath } from "../local/database";
+import { localDatabasePath } from "../local/database";
 import { getRuntimeMode } from "../runtime/mode";
 
 export type InboundTaskWriterOptions = {
@@ -55,12 +57,19 @@ function shouldWriteProject(
 export function assertWebBaseMatchesDatabase(input: {
   webBaseUrl?: string;
   dbPath?: string;
+  repoDir?: string;
 } = {}): void {
   if (input.webBaseUrl || coveEnv("BRIEF_WEB_BASE")) return;
   const dbPath = path.resolve(input.dbPath ?? localDatabasePath());
-  if (dbPath === path.resolve(defaultLocalDatabasePath())) return;
+  // This comparison must ignore DATA_DIR: a configured scratch directory is
+  // precisely what must not inherit the live server's default HTTP endpoint.
+  const repoDir = input.repoDir ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+  const canonical = path.join(repoDir, "data", "cove.db");
+  const legacy = path.join(repoDir, "data", "forge.db");
+  const installedDefault = existsSync(canonical) || !existsSync(legacy) ? canonical : legacy;
+  if (dbPath === path.resolve(installedDefault)) return;
   throw new Error(
-    "inbound_web_base_required. COVE_DB_PATH points at a non-default database, " +
+    "inbound_web_base_required. The selected database or data directory is not the default install, " +
       "so set BRIEF_WEB_BASE to the matching server before creating tasks.",
   );
 }
@@ -236,7 +245,7 @@ export async function updateTaskThroughCoveRest(
   id: string,
   patch: Partial<Task>,
   options: InboundTaskWriterOptions = {},
-  guard: { expectedTag?: string } = {},
+  guard: { expectedTag?: string; expectedTask?: Pick<Task, "description" | "tags" | "updated_at"> } = {},
 ): Promise<Task | undefined> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const baseUrl = webBase(options);
@@ -247,7 +256,7 @@ export async function updateTaskThroughCoveRest(
       guard.expectedTag
         ? `&tags=cs.${encodeURIComponent(`{${guard.expectedTag}}`)}`
         : ""
-    }`,
+    }${guard.expectedTask ? "&status=eq.open" : ""}`,
     {
       method: "PATCH",
       headers: {
@@ -255,7 +264,14 @@ export async function updateTaskThroughCoveRest(
         "X-Cove-CSRF": token,
         "X-Cove-Task-Write": "automation",
       },
-      body: JSON.stringify(patch),
+      body: JSON.stringify({
+        ...patch,
+        ...(guard.expectedTask ? { _expected: {
+          description: guard.expectedTask.description,
+          tags: guard.expectedTask.tags,
+          ...(guard.expectedTask.updated_at ? { updatedAt: guard.expectedTask.updated_at } : {}),
+        } } : {}),
+      }),
       signal: AbortSignal.timeout(timeoutMs),
       cache: "no-store",
     },

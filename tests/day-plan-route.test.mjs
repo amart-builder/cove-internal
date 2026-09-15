@@ -395,26 +395,23 @@ test('settlement truncates oversized day dumps without blocking the mutation and
   );
 });
 
-test('settlement accepts all ten plan tasks and rejects an eleventh', () => {
-  const tenIds = Array.from({ length: 10 }, (_, index) => `task-${index + 1}`);
-  const parsed = parseDayPlanPostBody({
-    action: 'settlement_commit',
-    planId: 'plan-a',
-    mutationId: 'settlement:ten',
-    expectedVersion: 1,
-    completedHumanTaskIds: tenIds,
-  });
-  assert.deepEqual(parsed.input.completedHumanTaskIds, tenIds);
-  assert.throws(
-    () => parseDayPlanPostBody({
-      action: 'settlement_commit',
-      planId: 'plan-a',
-      mutationId: 'settlement:eleven',
-      expectedVersion: 1,
-      completedHumanTaskIds: [...tenIds, 'task-11'],
-    }),
-    /too many values/,
-  );
+test('settlement accepts completed work beyond the initial ten arrival candidates', () => {
+  for (const count of [10, 11, 25, 150]) {
+    const ids = Array.from({ length: count }, (_, index) => `task-${index + 1}`);
+    const parsed = parseDayPlanPostBody({
+      action: 'settlement_commit', planId: 'plan-a',
+      mutationId: `settlement:${count}`, expectedVersion: 1,
+      completedHumanTaskIds: ids,
+    });
+    assert.deepEqual(parsed.input.completedHumanTaskIds, ids);
+  }
+  for (const invalid of ['task-a', [42], [''], ['x'.repeat(201)]]) {
+    assert.throws(() => parseDayPlanPostBody({
+      action: 'settlement_commit', planId: 'plan-a',
+      mutationId: 'settlement:invalid', expectedVersion: 1,
+      completedHumanTaskIds: invalid,
+    }), /completedHumanTaskIds/);
+  }
 });
 
 test('day-plan route rejects Carry for recurring rhythm task cards', (t) => {
@@ -824,6 +821,8 @@ test('settlement opens with last-known state on a REST hiccup, then reconciles o
   const previousStore = globalRef.__coveDayPlanStore;
   const previousFetch = globalRef.fetch;
   const previousAccess = process.env.COVE_DAY_PLAN_ACCESS_MODE;
+  const previousDataDir = process.env.COVE_DATA_DIR;
+  process.env.COVE_DATA_DIR = dir;
   const previousWebUrl = process.env.COVE_BRIEF_WEB_BASE;
   globalRef.__coveDayPlanStore = store;
   process.env.COVE_DAY_PLAN_ACCESS_MODE = 'loopback';
@@ -836,10 +835,20 @@ test('settlement opens with last-known state on a REST hiccup, then reconciles o
     else process.env.COVE_DAY_PLAN_ACCESS_MODE = previousAccess;
     if (previousWebUrl === undefined) delete process.env.COVE_BRIEF_WEB_BASE;
     else process.env.COVE_BRIEF_WEB_BASE = previousWebUrl;
+    if (previousDataDir === undefined) delete process.env.COVE_DATA_DIR;
+    else process.env.COVE_DATA_DIR = previousDataDir;
     store.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
+  const board = openLocalDatabase(path.join(dir, 'cove.db'));
+  board.exec(`
+    INSERT INTO task_columns (id, name, position) VALUES
+      ('col-today', 'Must happen today', 0), ('col-done', 'Done', 1);
+    INSERT INTO tasks (id, title, column_id, status, position)
+      VALUES ('task-a', 'Finish the proposal', 'col-today', 'open', 0);
+  `);
+  board.close();
   let plan = store.ensureDayPlan({
     localDate: '2026-07-10',
     timezone: 'America/Los_Angeles',
@@ -867,6 +876,21 @@ test('settlement opens with last-known state on a REST hiccup, then reconciles o
     action: 'start_day',
   }).plan;
   assert.equal(plan.items[0].decision, 'accepted');
+  // Completed items remain in history while new work takes their active seats.
+  for (let index = 0; index < 11; index += 1) {
+    plan = store.mutateDayPlan({
+      planId: plan.id, mutationId: `complete:${index}`,
+      expectedVersion: plan.version, action: 'item_complete',
+      itemId: plan.items.at(-1).id,
+    }).plan;
+    plan = store.mutateDayPlan({
+      planId: plan.id, mutationId: `add:${index}`,
+      expectedVersion: plan.version, action: 'item_add',
+      title: `Additional work ${index}`, outcome: `Finish work ${index}`,
+      why: 'Added during the day', owner: 'me',
+    }).plan;
+  }
+  assert.equal(plan.items.length, 12);
 
   const internalCalls = [];
   let restAvailable = false;
@@ -874,13 +898,10 @@ test('settlement opens with last-known state on a REST hiccup, then reconciles o
     internalCalls.push(String(url));
     if (!restAvailable) return new Response('temporary failure', { status: 503 });
     if (String(url).includes('/api/cove-rest/tasks')) {
-      return new Response(JSON.stringify([{
-        id: 'task-a',
-        title: 'Finish the proposal',
-        status: 'done',
-        column_id: 'done-column',
+      return new Response(JSON.stringify(plan.items.map(item => ({
+        id: item.taskId, status: 'done', column_id: 'done-column',
         updated_at: '2026-07-10T23:00:00.000Z',
-      }]), { status: 200 });
+      }))), { status: 200 });
     }
     if (String(url).includes('/api/cove-rest/task_columns')) {
       return new Response(JSON.stringify([{ id: 'done-column', name: 'Done' }]), { status: 200 });
@@ -910,8 +931,8 @@ test('settlement opens with last-known state on a REST hiccup, then reconciles o
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.plan.state, 'settling');
-  assert.equal(body.plan.items[0].decision, 'accepted');
-  assert.equal(body.plan.items[0].workedToday, false);
+  assert.equal(body.plan.items.at(-1).decision, 'accepted');
+  assert.equal(body.plan.items.at(-1).workedToday, false);
   assert.equal(internalCalls.some((url) => url.includes('/api/cove-rest/tasks')), true);
   assert.equal(internalCalls.some((url) => url.includes('/api/cove-rest/task_columns')), true);
 
@@ -935,7 +956,29 @@ test('settlement opens with last-known state on a REST hiccup, then reconciles o
   assert.equal(reopened.status, 200);
   const reopenedBody = await reopened.json();
   assert.equal(reopenedBody.plan.state, 'settling');
-  assert.equal(reopenedBody.plan.items[0].decision, 'completed');
+  assert.equal(reopenedBody.plan.items.filter(item => item.decision === 'completed').length, 12);
+  const completedHumanTaskIds = reopenedBody.plan.items.map(item => item.taskId);
+  const commit = {
+    action: 'settlement_commit', planId: plan.id,
+    mutationId: 'settlement:many:commit', expectedVersion: reopenedBody.plan.version,
+    completedHumanTaskIds, nextDayNote: 'Think through a partner ramp plan tomorrow.',
+  };
+  const invalid = await loopbackPost({ ...commit,
+    mutationId: 'settlement:foreign-task',
+    completedHumanTaskIds: [...completedHumanTaskIds, 'not-in-this-plan'],
+  });
+  assert.equal(invalid.status, 400);
+  assert.match((await invalid.json()).error, /Completed work must belong to this day plan/);
+  assert.equal(store.getPlan(plan.id).state, 'settling');
+  const committed = await loopbackPost(commit);
+  assert.equal(committed.status, 200);
+  const saved = await committed.json();
+  assert.equal(saved.plan.state, 'settled');
+  assert.deepEqual(saved.snapshot.body.completedHumanTaskIds, completedHumanTaskIds);
+  assert.equal(store.getPlan(plan.id).nextDayNote, commit.nextDayNote);
+  const replay = await loopbackPost(commit);
+  assert.equal(replay.status, 200);
+  assert.equal((await replay.json()).replayed, true);
 });
 
 test('non-loopback day-plan access requires the separate remote session secret', () => {

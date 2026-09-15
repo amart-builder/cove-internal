@@ -187,7 +187,7 @@ export async function runAttentionSweep(options = {}) {
   const now = options.now instanceof Date ? options.now : new Date(options.now ?? Date.now());
   const db = new Database(dbPath, { fileMustExist: true });
   db.pragma("busy_timeout = 5000");
-  const transport = options.transport ?? createAttentionTransport({ repoDir });
+  const transport = options.transport ?? createAttentionTransport({ repoDir, dataDir });
   const surface = options.surface ?? surfaceAttentionSuggestion;
   const surfaceSuppression = options.surfaceSuppression ?? surfaceAttentionSuppression;
   try {

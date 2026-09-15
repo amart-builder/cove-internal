@@ -4,13 +4,6 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-DB="${COVE_DB_PATH:-$REPO_DIR/data/cove.db}"
-
-if [ ! -f "$DB" ]; then
-  echo "No database at $DB yet; nothing to back up."
-  exit 0
-fi
-
 TSX_LOADER="$REPO_DIR/node_modules/tsx/dist/loader.mjs"
 NODE_REAL="${COVE_NODE_PATH:-}"
 if [ -z "$NODE_REAL" ]; then
@@ -21,6 +14,7 @@ if [ -z "$NODE_REAL" ] || [ ! -f "$TSX_LOADER" ]; then
   exit 1
 fi
 
-exec env COVE_DB_PATH="$DB" \
-  "$NODE_REAL" --import "$TSX_LOADER" \
+# The jobs entry point loads .env.local before resolving paths. Do not inject
+# a default DB_PATH here: it would override the person's saved database path.
+exec "$NODE_REAL" --import "$TSX_LOADER" \
   "$REPO_DIR/scripts/cove-jobs.ts" enqueue-backup --run "$@"

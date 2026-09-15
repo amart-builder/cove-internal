@@ -201,6 +201,33 @@ export function claimMessageIngestion(input: {
   }
 }
 
+/** Persist the first validated extraction before side effects and reuse it on
+ * retries. A lost claimant cannot replace the next claimant's snapshot. */
+export function messageIngestionExtraction(input: {
+  messageId: string;
+  leaseToken: string;
+  extraction?: unknown[];
+  dbPath?: string;
+}): unknown {
+  const db = openLocalDatabase(input.dbPath);
+  try {
+    return db.transaction(() => {
+      const current = rowForMessage(db, input.messageId);
+      if (current.status !== "processing" || current.lease_token !== input.leaseToken) {
+        throw new Error("Message ingestion lease is no longer owned.");
+      }
+      const saved = db.prepare("SELECT followups_json FROM cove_message_ingestion WHERE message_id = ?")
+        .get(input.messageId) as { followups_json: string | null };
+      if (saved.followups_json !== null) return JSON.parse(saved.followups_json) as unknown;
+      if (input.extraction === undefined) return undefined;
+      const serialized = JSON.stringify(input.extraction);
+      db.prepare("UPDATE cove_message_ingestion SET followups_json = ? WHERE message_id = ? AND lease_token = ? AND followups_json IS NULL")
+        .run(serialized, input.messageId, input.leaseToken);
+      return JSON.parse(serialized) as unknown;
+    }).immediate();
+  } finally { db.close(); }
+}
+
 export function completeMessageIngestion(input: {
   messageId: string;
   leaseToken: string;

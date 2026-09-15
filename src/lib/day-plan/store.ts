@@ -1,3 +1,14 @@
+import { sourceRecord, sourceVersion, activeResponsibilitySource } from "../responsibility/store";
+import {
+  collectPlanningContext,
+  rememberCalendarOccurrences,
+} from "../chief-of-staff/daily-planning";
+import {
+  acceptPlanningProposal,
+  persistDecisionLinks,
+  resolvePlanningItems,
+  projectPlanningBrief,
+} from "./planning";
 /**
  * Durable state machine for Cove's daily ritual.
  *
@@ -17,13 +28,16 @@ import { isDeepStrictEqual } from "node:util";
 import type Database from "better-sqlite3";
 import { resolveProjectDirectory } from "../atlas-projects";
 import { normalizeBuddyReceipts } from "../buddy/receipts";
+import { morningBriefModelConfig } from "../claude-execution/brief-commands";
 import { hasPlanExecutionResultSubstance } from "../claude-execution/commands";
 import { coveEnv } from "../env";
 import { openSqliteDatabase } from "../local/database";
 import { getRuntimeMode } from "../runtime/mode";
 import { operatorTimezone } from "../operator";
+import { recordFailureInDatabase } from "../reliability/failures";
 import { recordReceiptInDatabase } from "../reliability/receipts";
 import { taskColumnKeyForName } from "../tasks/columns";
+import { syncRecurringOccurrenceForTask } from "../tasks/recurrence";
 import { originDate, originQuote } from "../tasks/origin";
 import { DEFAULT_TASK_SETTINGS, readTaskSettings } from "../tasks/settings";
 import {
@@ -611,7 +625,8 @@ const DAY_PLAN_MIGRATIONS: readonly LocalMigration[] = [
     name: "day-plan-execution-columns",
     up: (db) => {
       const executionRunColumns = new Set(
-        (db.pragma("table_info(day_plan_execution_runs)") as Array<{ name: string }>)
+        (db.pragma("table_info(day_plan_execution_runs)") as Array<{ name: string;
+          }>)
           .map((column) => column.name),
       );
       for (const [column, definition] of [
@@ -628,7 +643,8 @@ const DAY_PLAN_MIGRATIONS: readonly LocalMigration[] = [
         }
       }
       const executionConfigColumns = new Set(
-        (db.pragma("table_info(day_plan_execution_configs)") as Array<{ name: string }>)
+        (db.pragma("table_info(day_plan_execution_configs)") as Array<{ name: string;
+          }>)
           .map((column) => column.name),
       );
       if (!executionConfigColumns.has("authorization_hash")) {
@@ -729,7 +745,8 @@ const DAY_PLAN_MIGRATIONS: readonly LocalMigration[] = [
     name: "day-plan-late-columns",
     up: (db) => {
       const taskMutationColumns = new Set(
-        (db.pragma("table_info(day_plan_task_mutations)") as Array<{ name: string }>)
+        (db.pragma("table_info(day_plan_task_mutations)") as Array<{ name: string;
+          }>)
           .map((column) => column.name),
       );
       if (!taskMutationColumns.has("sequence")) {
@@ -757,7 +774,8 @@ const DAY_PLAN_MIGRATIONS: readonly LocalMigration[] = [
     up: (db) => {
       const dayPlanColumns = db.pragma(
         "table_info(day_plans)",
-      ) as Array<{ name: string }>;
+      ) as Array<{ name: string;
+      }>;
       const canonicalDayPlanColumns = [
         "id", "local_date", "timezone", "open_slot", "plan_state",
         "arrival_state", "settlement_state", "version", "last_mutation_id",
@@ -940,6 +958,59 @@ const DAY_PLAN_MIGRATIONS: readonly LocalMigration[] = [
       `);
     },
   },
+  {
+    version: 108,
+    name: "bounded-planning-retry",
+    up: (db) =>
+      db.exec(`CREATE TABLE IF NOT EXISTS day_plan_planning_retries (
+      parent_id TEXT PRIMARY KEY, child_id TEXT UNIQUE NOT NULL, created_at TEXT NOT NULL
+    )`),
+  },
+  {
+    version: 109,
+    name: "block-unguarded-assistant-task-mutations",
+    foreignKeysOff: true,
+    up: (db) => {
+      // The old browser queue did not save the source version it was approved
+      // against. Preserve its work for review instead of replaying stale writes.
+      db.exec(`
+        ALTER TABLE day_plan_task_mutations RENAME TO day_plan_task_mutations_legacy_queue;
+        CREATE TABLE day_plan_task_mutations (
+          id TEXT PRIMARY KEY, day_plan_id TEXT NOT NULL,
+          assistant_turn_id TEXT NOT NULL, task_id TEXT NOT NULL,
+          action TEXT NOT NULL CHECK (action IN ('create','update','complete')),
+          sequence INTEGER NOT NULL, payload_json TEXT NOT NULL,
+          state TEXT NOT NULL CHECK (state IN ('pending','applied','blocked')),
+          created_at TEXT NOT NULL, applied_at TEXT,
+          UNIQUE (assistant_turn_id, task_id, action),
+          FOREIGN KEY (day_plan_id) REFERENCES day_plans(id),
+          FOREIGN KEY (assistant_turn_id) REFERENCES day_plan_assistant_turns(id)
+        );
+        INSERT INTO day_plan_task_mutations
+          SELECT id, day_plan_id, assistant_turn_id, task_id, action, sequence,
+                 payload_json, CASE state WHEN 'pending' THEN 'blocked' ELSE state END,
+                 created_at, applied_at
+          FROM day_plan_task_mutations_legacy_queue;
+        DROP TABLE day_plan_task_mutations_legacy_queue;
+        CREATE INDEX day_plan_task_mutations_pending ON day_plan_task_mutations(state, created_at, id);
+        CREATE TABLE IF NOT EXISTS cove_failure_inbox (
+          id TEXT PRIMARY KEY, source TEXT NOT NULL, source_id TEXT NOT NULL,
+          message TEXT NOT NULL, details_json TEXT NOT NULL DEFAULT '{}',
+          occurred_at TEXT NOT NULL, dismissed_at TEXT, created_at TEXT NOT NULL,
+          UNIQUE (source, source_id)
+        );
+        CREATE INDEX IF NOT EXISTS cove_failure_inbox_open_idx
+          ON cove_failure_inbox(dismissed_at, occurred_at DESC);
+      `);
+      const blocked = db.prepare("SELECT id, task_id, day_plan_id, action FROM day_plan_task_mutations WHERE state = 'blocked'")
+        .all() as Array<{id: string; task_id: string; day_plan_id: string; action: string}>;
+      for (const row of blocked) recordFailureInDatabase(db, {
+        source: "day-plan-task-mutation", sourceId: row.id,
+        message: "An earlier Buddy task change needs review. Open the task and ask Buddy to apply the change again if it is still needed.",
+        details: { taskId: row.task_id, dayPlanId: row.day_plan_id, action: row.action, reason: "missing_original_source_version" },
+      });
+    },
+  },
 ];
 
 export { DayPlanInvalidTransition, DayPlanNotFound, DayPlanVersionConflict };
@@ -1078,7 +1149,8 @@ function taskMutationFromRow(row: TaskMutationRow): DayPlanTaskMutation {
     assistantTurnId: row.assistant_turn_id,
     taskId: row.task_id,
     action: row.action,
-    ...parseJson<Omit<DayPlanTaskMutation, "id" | "dayPlanId" | "assistantTurnId" | "taskId" | "action" | "state" | "createdAt" | "appliedAt">>(row.payload_json, "task mutation payload"),
+    ...parseJson<Omit<DayPlanTaskMutation,
+        | "id" | "dayPlanId" | "assistantTurnId" | "taskId" | "action" | "state" | "createdAt" | "appliedAt">>(row.payload_json, "task mutation payload"),
     state: row.state,
     createdAt: row.created_at,
     appliedAt: row.applied_at ?? undefined,
@@ -1188,7 +1260,7 @@ function requireItem(plan: DayPlan, itemId?: string): DayPlanItem {
 }
 
 function requireArrivalEditing(plan: DayPlan): void {
-  if (plan.state !== "proposed" || plan.arrivalState !== "opened") {
+  if (!["proposed", "active"].includes(plan.state) || plan.arrivalState !== "opened") {
     throw new DayPlanInvalidTransition("Arrival items can change only while arrival is open.");
   }
 }
@@ -1223,9 +1295,10 @@ function activatePlanWithoutKickoff(
   const accepted = [...plan.items]
     .filter(
       (item) =>
-        item.decision === "accepted" ||
+        item.commitment !== "pencil" &&
+        (item.decision === "accepted" ||
         item.decision === "preselected" ||
-        (includePending && item.decision === "pending"),
+        (includePending && item.decision === "pending")),
     )
     .sort((left, right) => left.position - right.position);
   for (const item of accepted) {
@@ -1299,7 +1372,8 @@ export type DayClosureFacts = {
 export function createDayPlanStore(options: {
   dbPath: string;
   now?: Clock;
-  executionEnvironment?: CoveExecutionEnvironment | (() => CoveExecutionEnvironment);
+  executionEnvironment?:
+    | CoveExecutionEnvironment | (() => CoveExecutionEnvironment);
   resolveProjectDirectory?: (hint: string) => string | null;
   focusCount?: number | (() => number);
 }) {
@@ -1308,12 +1382,12 @@ export function createDayPlanStore(options: {
   const executionEnvironment = () =>
     typeof options.executionEnvironment === "function"
       ? options.executionEnvironment()
-      : options.executionEnvironment ?? loadCoveExecutionEnvironment();
+      : (options.executionEnvironment ?? loadCoveExecutionEnvironment());
   const projectDirectoryResolver = options.resolveProjectDirectory ?? resolveProjectDirectory;
   const configuredFocusCount = () => {
     const value = typeof options.focusCount === "function"
       ? options.focusCount()
-      : options.focusCount ?? 3;
+      : (options.focusCount ?? 3);
     return Math.max(1, Math.min(3, value));
   };
   db.pragma("foreign_keys = ON");
@@ -1376,6 +1450,7 @@ export function createDayPlanStore(options: {
   `);
 
   function immediate<T>(work: () => T): T {
+    if (db.inTransaction) return db.transaction(work)();
     db.exec("BEGIN IMMEDIATE");
     try {
       const result = work();
@@ -1466,7 +1541,8 @@ export function createDayPlanStore(options: {
   // a stale one before trusting either answer.
   function dayClosureFacts(): DayClosureFacts {
     const open = selectOpenPlan.get() as DayPlanRow | undefined;
-    const newest = selectNewestPlanDate.get() as { local_date: string } | undefined;
+    const newest = selectNewestPlanDate.get() as
+      | { local_date: string } | undefined;
     return {
       openLocalDate: open?.local_date ?? null,
       latestLocalDate: newest?.local_date ?? null,
@@ -1554,7 +1630,8 @@ export function createDayPlanStore(options: {
     planId: string,
     itemId: string,
   ): DayPlanExecutionConfig | undefined {
-    const row = selectExecutionConfig.get(planId, itemId) as ExecutionConfigRow | undefined;
+    const row = selectExecutionConfig.get(planId, itemId) as
+      | ExecutionConfigRow | undefined;
     return row ? executionConfigFromRow(row) : undefined;
   }
 
@@ -1585,7 +1662,8 @@ export function createDayPlanStore(options: {
       ? projectDirectoryResolver(item.project)
       : null;
     if (projectPath) return projectPath;
-    return item.title.trim() ? projectDirectoryResolver(item.title) ?? undefined : undefined;
+    return item.title.trim() ? (projectDirectoryResolver(item.title) ?? undefined)
+      : undefined;
   }
 
   function latestProgressContext(
@@ -1643,7 +1721,8 @@ export function createDayPlanStore(options: {
          AND authorization_hash = ?
          AND status NOT IN ('failed','interrupted','cancelled')
        ORDER BY attempt DESC LIMIT 1`,
-    ).get(planId, itemId, briefHash, mode, authorizationHash) as ExecutionRunRow | undefined;
+    ).get(planId, itemId, briefHash, mode, authorizationHash) as
+      | ExecutionRunRow | undefined;
     return row ? executionRunFromRow(row) : undefined;
   }
 
@@ -1682,7 +1761,8 @@ export function createDayPlanStore(options: {
       input.plan.id,
       input.item.id,
       input.config.authorizationHash,
-    ) as { maximum_attempt: number };
+    ) as { maximum_attempt: number;
+    };
     const run: DayPlanExecutionRun = {
       id: randomUUID(),
       dayPlanId: input.plan.id,
@@ -1790,7 +1870,8 @@ export function createDayPlanStore(options: {
          AND status IN ('queued','starting','running')`,
     );
     for (const item of plan.items) {
-      const rows = selectLiveItemRuns.all(plan.id, item.id) as Array<{ id: string }>;
+      const rows = selectLiveItemRuns.all(plan.id, item.id) as Array<{ id: string;
+      }>;
       for (const row of rows) requestExecutionRunCancellation(row.id, changedAt);
     }
   }
@@ -1927,7 +2008,8 @@ export function createDayPlanStore(options: {
   function kickoffItem(input: KickoffDayPlanItemInput): KickoffDayPlanItemResult {
     return immediate(() => {
       const replay = selectExecutionMutation.get(input.mutationId) as
-        | { mutation_kind: string; day_plan_id: string; item_id: string; result_id: string | null }
+        | { mutation_kind: string; day_plan_id: string; item_id: string; result_id: string | null;
+          }
         | undefined;
       if (replay) {
         if (replay.mutation_kind !== "kickoff") {
@@ -1998,6 +2080,70 @@ export function createDayPlanStore(options: {
     });
   }
 
+  function completeItemSource(item: DayPlanItem, changedAt: string): void {
+    acceptPlanningProposal(db, item, new Date(changedAt));
+    if (item.planningRef?.kind === "commitment") {
+      db.prepare(
+        "UPDATE commitments SET status='done',updated_at=? WHERE id=? AND status='open'",
+      ).run(changedAt, item.planningRef.id);
+      const source = sourceRecord(db, "commitment", item.planningRef.id);
+      if (!source || source.status !== "done")
+        throw new DayPlanInvalidTransition("This commitment is no longer available to complete.");
+      item.completionSourceVersion = sourceVersion(source);
+    }
+    const taskBacked = item.sourceRefs.some(
+      (source) => source.sourceType === "task" && source.recordId === item.taskId,
+    );
+    if (taskBacked) {
+      const task = managedTask(item.taskId);
+      if (!task || task.status === "archived") throw new DayPlanInvalidTransition("The board task no longer exists.");
+      if (task.status !== "done") {
+        if (
+          task.column_id &&
+          typeof task.position === "number" &&
+          Number.isFinite(task.position)
+        ) {
+          item.preCompletionBoardPlacement = {
+            columnId: task.column_id,
+            position: task.position,
+            status: task.status,
+          };
+        } else {
+          delete item.preCompletionBoardPlacement;
+        }
+        const doneColumn = (db.prepare(
+          "SELECT id, name FROM task_columns ORDER BY position ASC",
+        ).all() as Array<{ id: string; name: string }>).find(
+          (column) => taskColumnKeyForName(column.name) === "done",
+        );
+        if (!doneColumn) {
+          throw new DayPlanInvalidTransition("Cove needs a Done list to complete this task.");
+        }
+        const nextPosition = db.prepare(
+          "SELECT COALESCE(MAX(position), -1) + 1 AS position FROM tasks WHERE column_id = ? AND status = 'done'",
+        ).pluck().get(doneColumn.id) as number;
+        db.prepare(
+          `UPDATE tasks
+           SET column_id = ?, status = 'done', position = ?, updated_at = ?
+           WHERE id = ?`,
+        ).run(doneColumn.id, nextPosition, changedAt, task.id);
+        if (task.recurring_template_id) syncRecurringOccurrenceForTask(db,task.id,"done",changedAt);
+      }
+      item.completionSourceVersion = sourceVersion(sourceRecord(db, "task", task.id)!);
+    }
+  }
+
+  function updateItemResponsibility(item: DayPlanItem, changedAt: string): void {
+    const ref=item.planningRef;
+    if (!ref) return;
+    const source=sourceRecord(db,ref.kind,ref.id);
+    if (!source) throw new DayPlanInvalidTransition("The source for this item no longer exists.");
+    const changed=db.prepare("UPDATE cove_responsibilities SET next_action=?,source_version=?,revision=revision+1,updated_at=? WHERE ref_kind=? AND ref_id=? AND revision=?")
+      .run(item.title,sourceVersion(source),changedAt,ref.kind,ref.id,ref.revision);
+    if (changed.changes!==1) throw new DayPlanInvalidTransition("This item's responsibility changed. Refresh before editing.");
+    ref.revision+=1;
+  }
+
   function applyValidatedAssistantPatch(input: {
     plan: DayPlan;
     proposal: DayPlanAssistantProposal;
@@ -2022,6 +2168,22 @@ export function createDayPlanStore(options: {
       ? `You asked Buddy during Morning Arrival on ${arrivalDate}: "${userWords}"`
       : `Buddy added this while replanning your day in Morning Arrival on ${arrivalDate}.`;
     const before = clonePlan(plan);
+    for (const operation of proposal.operations) {
+      if (operation.operation !== "edit_item" && operation.operation !== "complete_item") continue;
+      const item = plan.items.find(candidate=>candidate.id===operation.itemId)!;
+      const ref = item.planningRef;
+      if (ref) {
+        const source=sourceRecord(db,ref.kind,ref.id);
+        const responsibility=db.prepare("SELECT revision,source_version FROM cove_responsibilities WHERE ref_kind=? AND ref_id=?").get(ref.kind,ref.id) as {revision:number;source_version:string}|undefined;
+        if (!source || !responsibility || item.planningStale || responsibility.revision!==ref.revision || responsibility.source_version!==sourceVersion(source))
+          throw new DayPlanInvalidTransition("This source changed. Review a fresh replan before applying it.");
+      } else {
+        const task=managedTask(item.taskId);
+        const source=item.sourceRefs.find(ref=>ref.sourceType==="task" && ref.recordId===item.taskId);
+        if (task && source && task.updated_at && task.updated_at!==source.sourceUpdatedAt)
+          throw new DayPlanInvalidTransition("This task changed. Review a fresh replan before applying it.");
+      }
+    }
     const createdItemIds: string[] = [];
     let createdIndex = 0;
     applyAssistantProposal(plan, proposal, {
@@ -2037,11 +2199,6 @@ export function createDayPlanStore(options: {
       item.outcome,
       item.definitionOfDone ? `Done means: ${item.definitionOfDone}` : undefined,
     ].filter(Boolean).join("\n\n");
-    const taskMutations: Array<{
-      taskId: string;
-      action: DayPlanTaskMutation["action"];
-      payload: Record<string, unknown>;
-    }> = [];
     let createdOperationIndex = 0;
     for (const operation of proposal.operations) {
       if (operation.operation === "edit_item") {
@@ -2052,11 +2209,19 @@ export function createDayPlanStore(options: {
           payload.description = descriptionFor(item);
         }
         if (Object.keys(payload).length > 0) {
-          taskMutations.push({ taskId: item.taskId, action: "update", payload });
+          if (!item.planningRef || item.planningRef.kind === "task") {
+            const task=managedTask(item.taskId);
+            if (!task || task.status === "archived") throw new DayPlanInvalidTransition("The board task no longer exists.");
+            const fields=Object.keys(payload);
+            db.prepare(`UPDATE tasks SET ${fields.map(field=>`${field}=?`).join(",")},updated_at=? WHERE id=?`).run(...fields.map(field=>payload[field]),finishedAt,item.taskId);
+          }
+          updateItemResponsibility(item,finishedAt);
+          if (!item.planningRef || item.planningRef.kind === "task") item.sourceRefs = item.sourceRefs.map(ref=>ref.sourceType==="task" && ref.recordId===item.taskId ? {...ref,sourceUpdatedAt:finishedAt,refreshedAt:finishedAt} : ref);
         }
       } else if (operation.operation === "complete_item") {
         const item = plan.items.find((candidate) => candidate.id === operation.itemId)!;
-        taskMutations.push({ taskId: item.taskId, action: "complete", payload: {} });
+        item.preCompletionPlanPosition = before.items.find(prior=>prior.id===item.id)?.position;
+        completeItemSource(item,finishedAt);
       } else if (operation.operation === "create_item") {
         const itemId = createdItemIds[createdOperationIndex++];
         const item = plan.items.find((candidate) => candidate.id === itemId)!;
@@ -2078,23 +2243,6 @@ export function createDayPlanStore(options: {
           supports: ["commitment", "priority"],
         }, ...item.sourceRefs];
       }
-    }
-    const insertTaskMutation = db.prepare(
-      `INSERT INTO day_plan_task_mutations
-        (id, day_plan_id, assistant_turn_id, task_id, action, sequence, payload_json, state, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-    );
-    for (const [sequence, mutation] of taskMutations.entries()) {
-      insertTaskMutation.run(
-        randomUUID(),
-        plan.id,
-        assistantTurnId,
-        mutation.taskId,
-        mutation.action,
-        sequence,
-        JSON.stringify(mutation.payload),
-        finishedAt,
-      );
     }
     for (const item of plan.items) invalidateQueuedRunsForItem(plan, item, finishedAt);
     const eventId = `assistant:${assistantTurnId}`;
@@ -2135,7 +2283,8 @@ export function createDayPlanStore(options: {
         const row = db.prepare(
           `SELECT state, finished_at, receipts_json, user_text
            FROM buddy_turns WHERE id = ?`,
-        ).get(proof.turnId) as {
+        ).get(proof.turnId) as
+          | {
           state: string;
           finished_at: string | null;
           receipts_json: string | null;
@@ -2282,7 +2431,7 @@ export function createDayPlanStore(options: {
                 ? "brief_changed"
                 : !exactAuthorization
                   ? "authorization_changed"
-                  : readiness?.codes[0] ?? "not_ready";
+                  : (readiness?.codes[0] ?? "not_ready");
           db.prepare(
             `UPDATE day_plan_execution_runs
              SET status = 'cancelled', error_code = ?, finished_at = ?, updated_at = ?
@@ -2326,18 +2475,22 @@ export function createDayPlanStore(options: {
 
   function heartbeatExecutionRun(runId: string, childPid: number): boolean {
     const heartbeatAt = now().toISOString();
-    return db.prepare(
+    return (
+      db.prepare(
       `UPDATE day_plan_execution_runs
        SET heartbeat_at = ?, updated_at = ?
        WHERE id = ? AND pid = ? AND status IN ('starting','running')`,
-    ).run(heartbeatAt, heartbeatAt, runId, childPid).changes === 1;
+    ).run(heartbeatAt, heartbeatAt, runId, childPid).changes === 1
+    );
   }
 
   function setExecutionRunLogPath(runId: string, logPath: string): boolean {
-    return db.prepare(
+    return (
+      db.prepare(
       `UPDATE day_plan_execution_runs SET log_path = ?
        WHERE id = ? AND status IN ('starting','running')`,
-    ).run(logPath.slice(0, 4096), runId).changes === 1;
+    ).run(logPath.slice(0, 4096), runId).changes === 1
+    );
   }
 
   function finishExecutionRun(input: {
@@ -2348,7 +2501,8 @@ export function createDayPlanStore(options: {
     resultSummary?: DayPlanExecutionResultSummary;
   }): DayPlanExecutionRun {
     return immediate(() => {
-      const row = selectExecutionRun.get(input.runId) as ExecutionRunRow | undefined;
+      const row = selectExecutionRun.get(input.runId) as
+        | ExecutionRunRow | undefined;
       if (!row) throw new DayPlanInvalidTransition("Execution run not found.");
       if (!["starting", "running", "cancelling"].includes(row.status)) {
         return executionRunFromRow(row);
@@ -2389,7 +2543,7 @@ export function createDayPlanStore(options: {
         input.exitCode ?? null,
         row.status === "cancelling"
           ? "user_cancelled"
-          : errorCode?.slice(0, 120) ?? null,
+          : (errorCode?.slice(0, 120) ?? null),
         resultSummary ? JSON.stringify(resultSummary) : null,
         input.runId,
       );
@@ -2571,7 +2725,7 @@ export function createDayPlanStore(options: {
              SELECT 1 FROM day_plan_brief_actions actions
              WHERE actions.artifact_id = day_plan_briefs.id AND actions.state = 'staged'
            )
-         ORDER BY created_at DESC, id DESC
+         ORDER BY created_at DESC, rowid DESC
          LIMIT 1`,
       )
       .get(targetLocalDate, versions.promptVersion, versions.schemaVersion) as
@@ -2612,6 +2766,33 @@ export function createDayPlanStore(options: {
         createdAt,
       );
       return { brief: getMorningBrief(id)!, created: true };
+    });
+  }
+
+  function requeueStalePlanning(id: string) {
+    return immediate(() => {
+      const artifact = getMorningBrief(id);
+      if (
+        !artifact ||
+        artifact.status !== "failed" ||
+        db
+          .prepare(
+            "SELECT 1 FROM day_plan_planning_retries WHERE parent_id=? OR child_id=?",
+          )
+          .get(id, id)
+      )
+        return undefined;
+      const queued = enqueueMorningBrief(artifact.targetLocalDate, {
+        modelAlias: artifact.modelAlias,
+        effort: artifact.effort,
+        budgetUsd: artifact.budgetUsd,
+      });
+      db.prepare("INSERT INTO day_plan_planning_retries VALUES(?,?,?)").run(
+        id,
+        queued.brief.id,
+        now().toISOString(),
+      );
+      return queued.brief;
     });
   }
 
@@ -2729,6 +2910,191 @@ export function createDayPlanStore(options: {
     });
   }
 
+  function planningContext(
+    localDate: string,
+    events: import("../workspace/contracts").CalendarEvent[] = [],
+    observation?: import("../workspace/contracts").CalendarObservation,
+  ) {
+    return immediate(() => {
+      const calendarIds = rememberCalendarOccurrences(db, events, now());
+      return collectPlanningContext(
+        db,
+        getPlanForDate(localDate) ?? null,
+        now(),
+        observation ? { observation, calendarIds } : undefined,
+      );
+    });
+  }
+
+  function completeDailyPlanning(
+    id: string,
+    brief: import("./brief").MorningBrief,
+    writer: string,
+  ) {
+    return immediate(() => {
+      const artifact = getMorningBrief(id);
+      if (!artifact || artifact.status !== "running" || !brief.dailyDecision)
+        return undefined;
+      const plan = getPlanForDate(artifact.targetLocalDate) ?? null;
+      let candidates: RecommendationCandidate[] | undefined;
+      const untouched =
+        !plan ||
+        (plan.state === "proposed" &&
+          !plan.arrivalInteractedAt &&
+          plan.items.every((i) => i.decision === "preselected"));
+      // Opening Arrival and refreshing source projections change plan.version
+      // without changing intent. Human edits stamp arrivalInteractedAt; source
+      // and responsibility versions are separately validated before any write.
+      const applies = untouched && brief.dailyDecision.basePlanId === (plan?.id ?? null);
+      const linkedCandidates = persistDecisionLinks(
+        db,
+        brief.dailyDecision,
+        now(),
+        { applyExisting: applies },
+      );
+      if (applies) candidates = linkedCandidates;
+      const result = completeMorningBrief(
+        id,
+        JSON.stringify({
+          ...brief,
+          writer,
+          planningCandidates: candidates,
+          proposalCandidates: linkedCandidates.filter(
+            (item) => item.commitment === "pencil",
+          ),
+        }),
+      );
+      if (plan && candidates) {
+        const before = structuredClone(plan);
+        plan.items = candidates.map((candidate, position) => ({
+          ...candidate,
+          id: candidate.candidateId,
+          position,
+          decision: "preselected" as const,
+        }));
+        plan.briefId = id;
+        plan.version += 1;
+        plan.updatedAt = now().toISOString();
+        persistPlan(plan);
+        appendEvent({
+          id: `planning:${id}`,
+          planId: plan.id,
+          eventType: "brief_attach",
+          expectedVersion: before.version,
+          resultVersion: plan.version,
+          before,
+          after: plan,
+          createdAt: plan.updatedAt,
+        });
+      } else if (plan && result && latestEligibleMorningBrief(plan.localDate)?.id === id) {
+        // Written prose is a saved document. Attaching it never authorizes
+        // replacing choices made while the recommendation was being written.
+        forceAttachMorningBrief(plan.localDate, id);
+      }
+      return result;
+    });
+  }
+
+  function planningSelection(artifact: MorningBriefArtifact | undefined):
+    | Array<{
+        candidate: RecommendationCandidate;
+        brief?: import("./types").DayPlanItemBriefAnnotation;
+      }>
+    | undefined {
+    if (!artifact?.briefJson) return undefined;
+    const raw = JSON.parse(artifact.briefJson);
+    if (!raw.dailyDecision || !Array.isArray(raw.planningCandidates))
+      return undefined;
+    return raw.planningCandidates
+      .filter((candidate: RecommendationCandidate) => {
+        const ref = candidate.planningRef;
+        if (!ref) return false;
+        const source = sourceRecord(db, ref.kind, ref.id);
+        return source && activeResponsibilitySource(source);
+      })
+      .map((candidate: RecommendationCandidate) => ({ candidate }));
+  }
+
+  function projectedPlan(plan: DayPlan) {
+    return resolvePlanningItems(db, plan);
+  }
+
+  function planningReadBundle() {
+    return immediate(() => {
+      const model = getReadModel();
+      if (!model.currentPlan) return { model };
+      const plan = resolvePlanningItems(db, model.currentPlan);
+      if (!isDeepStrictEqual(plan.items, model.currentPlan.items)) {
+        const before = model.currentPlan;
+        plan.version += 1;
+        plan.updatedAt = now().toISOString();
+        persistPlan(plan);
+        appendEvent({
+          id: `source-refresh:${plan.id}:${plan.version}`,
+          planId: plan.id,
+          eventType: "source_reconcile",
+          expectedVersion: before.version,
+          resultVersion: plan.version,
+          before,
+          after: plan,
+          createdAt: plan.updatedAt,
+        });
+        // One bounded regeneration per newly observed source revision. Queue
+        // deduplication coalesces concurrent changes; failures remain visible.
+        if (plan.items.some((i) => i.planningStale))
+          enqueueMorningBrief(plan.localDate, morningBriefModelConfig());
+      }
+      const latest = latestEligibleMorningBrief(plan.localDate);
+      // Repair older successful daily briefs that were saved but never attached
+      // after a concurrent human edit. Only the document changes, never items.
+      if (latest && latest.id !== plan.briefId && morningBriefFromArtifact(latest)?.dailyDecision &&
+          forceAttachMorningBrief(plan.localDate, latest.id)) plan.briefId = latest.id;
+      const artifact = plan.briefId ? getMorningBrief(plan.briefId) : undefined;
+      const brief = projectPlanningBrief(db, plan, artifact);
+      const recommendationsAccepted = latest && db.prepare(
+        "SELECT 1 FROM day_plan_events WHERE day_plan_id=? AND event_type='plan_revision_accept' AND json_extract(after_json,'$.briefId')=? LIMIT 1",
+      ).get(plan.id, latest.id);
+      const latestHasUnappliedRecommendations = latest?.briefJson && !recommendationsAccepted
+        ? !Array.isArray(JSON.parse(latest.briefJson).planningCandidates)
+        : false;
+      if (latest && (latest.id !== plan.briefId || latestHasUnappliedRecommendations)) {
+        const proposal = morningBriefFromArtifact(latest)?.dailyDecision;
+        if (proposal) {
+          brief.proposalId = latest.id;
+          brief.proposedActions = proposal.actions.map((a) => ({
+            title: a.nextAction,
+            reason: a.rationale,
+          }));
+          const proposedItems = JSON.parse(latest.briefJson!)
+            .proposalCandidates as RecommendationCandidate[] | undefined;
+          if (proposedItems?.length) {
+            const watches = projectPlanningBrief(
+              db,
+              {
+                ...plan,
+                items: proposedItems.map((candidate, position) => ({
+                  ...candidate,
+                  id: candidate.candidateId,
+                  position,
+                  decision: "pending" as const,
+                })),
+              },
+              undefined,
+            ).watchItems;
+            brief.watchItems = [...brief.watchItems, ...watches].filter(
+              (watch, index, all) =>
+                all.findIndex((other) => other.recordId === watch.recordId) ===
+                index,
+            );
+          }
+          brief.statusNote =
+            "Your current choices are preserved. A new recommendation is ready to review.";
+        }
+      }
+      return { model: { ...model, currentPlan: plan }, brief };
+    });
+  }
+
   function completeMorningBrief(
     id: string,
     briefJson: string,
@@ -2832,9 +3198,11 @@ export function createDayPlanStore(options: {
       tags = (task.tags ?? "").split(",");
     }
     const normalized = tags.map((tag) => tag.trim().toLowerCase());
-    return normalized.includes("jarvis-held") ||
+    return (
+      normalized.includes("jarvis-held") ||
       normalized.includes("email-current") ||
-      normalized.includes("recurring");
+      normalized.includes("recurring")
+    );
   }
 
   const SNAPSHOT_TITLE_LIMIT = 240;
@@ -2886,10 +3254,11 @@ export function createDayPlanStore(options: {
   }
 
   function managedDueLocalDate(value: string | null): boolean {
-    return value === null || (
+    return (
+      value === null || (
       /^\d{4}-\d{2}-\d{2}$/.test(value) &&
       value >= "2024-01-01" &&
-      value <= "2036-12-31"
+      value <= "2036-12-31")
     );
   }
 
@@ -2917,7 +3286,8 @@ export function createDayPlanStore(options: {
       return { activated: false, applied: 0, skippedConflict: 0, skippedOfflimits: 0 };
     }
     return immediate(() => {
-      const targetPlanRow = selectDatePlan.get(targetLocalDate) as DayPlanRow | undefined;
+      const targetPlanRow = selectDatePlan.get(targetLocalDate) as
+        | DayPlanRow | undefined;
       const openPlanRow = selectOpenPlan.get() as DayPlanRow | undefined;
       const timezone = targetPlanRow?.timezone ?? openPlanRow?.timezone ?? operatorTimezone();
       if (localDateInTimezone(activationNow.toISOString(), timezone) !== targetLocalDate) {
@@ -3273,7 +3643,8 @@ export function createDayPlanStore(options: {
   // envelope. Returns whether a row was written.
   function importMorningBrief(
     artifact: MorningBriefArtifact,
-  ): { imported: boolean; adopted: boolean; briefId?: string } {
+  ): { imported: boolean; adopted: boolean; briefId?: string;
+  } {
     if (artifact.status !== "succeeded" || !artifact.briefJson || !artifact.inputHash) {
       return { imported: false, adopted: false };
     }
@@ -3510,7 +3881,8 @@ export function createDayPlanStore(options: {
 
   function ensureDayPlan(input: EnsureDayPlanInput): EnsureDayPlanResult {
     return immediate(() => {
-      const existingEvent = selectEvent.get(input.mutationId) as EventRow | undefined;
+      const existingEvent = selectEvent.get(input.mutationId) as
+        | EventRow | undefined;
       if (existingEvent) {
         // A prior ensure with this id may have either returned/created a plan or
         // late-attached a brief; both replay as an untouched return.
@@ -3592,7 +3964,13 @@ export function createDayPlanStore(options: {
       try {
         briefArtifact = latestEligibleMorningBrief(input.localDate);
         briefContent = morningBriefFromArtifact(briefArtifact);
-        selection = overlayBriefOnCandidates(input.candidates, briefContent);
+        if (briefContent?.dailyDecision && !planningSelection(briefArtifact)) {
+          briefArtifact = undefined;
+          briefContent = undefined;
+        }
+        selection =
+          planningSelection(briefArtifact) ??
+          overlayBriefOnCandidates(input.candidates, briefContent);
       } catch {
         briefArtifact = undefined;
         briefContent = undefined;
@@ -3750,6 +4128,8 @@ export function createDayPlanStore(options: {
         briefArtifact = undefined;
         briefContent = undefined;
       }
+      if (briefContent?.dailyDecision && !planningSelection(briefArtifact))
+        return undefined;
       const attachesBrief = Boolean(
         briefArtifact &&
         briefContent &&
@@ -3758,8 +4138,13 @@ export function createDayPlanStore(options: {
       const healsItems = existing.items.length === 0 && input.candidates.length > 0;
       if (!healsItems && !attachesBrief) return undefined;
 
-      const items: DayPlanItem[] = input.candidates.length > 0
-        ? overlayBriefOnCandidates(input.candidates, briefContent)
+      const planned = planningSelection(briefArtifact);
+      const items: DayPlanItem[] =
+        planned || input.candidates.length > 0
+        ? (
+              planned ??
+              overlayBriefOnCandidates(input.candidates, briefContent)
+            )
             .map(({ candidate, brief }, position) => ({
               ...structuredClone(candidate),
               id: candidate.candidateId,
@@ -3809,22 +4194,17 @@ export function createDayPlanStore(options: {
     ).run(at, planId);
   }
 
-  // The one deliberate override of the no-hot-swap rule, and only because the
-  // user asked for it out loud by tapping "Generate your brief". A brief that
-  // finishes after he has already touched the arrival can never attach on its
-  // own, which used to leave that button a permanent no-op: the brief existed,
-  // it was paid for, and there was no way to see it.
-  //
-  // It attaches the artifact and nothing else. Items keep their decisions and
-  // the version does not move, so his in-flight work is untouched and his next
-  // mutation cannot 409 because of this. He gets the narrative; he does not get
-  // his choices rewritten underneath him.
+  // Attach saved prose independently from recommendation adoption. This is
+  // used by an explicit Generate request and a late successful daily decision.
+  // Items and version stay unchanged so concurrent human edits retain authority.
   function forceAttachMorningBrief(localDate: string, briefId: string): boolean {
     return immediate(() => {
       const plan = getPlanForDate(localDate);
       if (!plan || plan.briefId === briefId) return false;
       if (plan.state === "settled" || plan.state === "abandoned") return false;
-      if (!morningBriefFromArtifact(getMorningBrief(briefId))) return false;
+      const artifact = getMorningBrief(briefId);
+      const newBrief = morningBriefFromArtifact(artifact);
+      if (!newBrief || artifact?.targetLocalDate !== localDate) return false;
       const changed = db
         .prepare("UPDATE day_plans SET brief_id = ?, updated_at = ? WHERE id = ?")
         .run(briefId, now().toISOString(), plan.id).changes;
@@ -3868,7 +4248,8 @@ export function createDayPlanStore(options: {
 
   function mutateDayPlan(input: DayPlanMutationInput): DayPlanMutationResult {
     return immediate(() => {
-      const existingEvent = selectEvent.get(input.mutationId) as EventRow | undefined;
+      const existingEvent = selectEvent.get(input.mutationId) as
+        | EventRow | undefined;
       if (existingEvent) {
         if (
           existingEvent.day_plan_id !== input.planId ||
@@ -3961,7 +4342,7 @@ export function createDayPlanStore(options: {
           );
           plan.arrivalState = "skipped";
           plan.snoozedUntil = undefined;
-          activatePlanWithoutKickoff(plan, input.mutationId, changedAt, true);
+          if (plan.state === "proposed") activatePlanWithoutKickoff(plan, input.mutationId, changedAt, true);
           break;
         case "arrival_bypass":
           requireState(
@@ -3971,7 +4352,7 @@ export function createDayPlanStore(options: {
           );
           plan.arrivalState = "bypassed";
           plan.snoozedUntil = undefined;
-          if (!isWeekendAutoSettleMutation(input.mutationId)) {
+          if (plan.state === "proposed" && !isWeekendAutoSettleMutation(input.mutationId)) {
             activatePlanWithoutKickoff(plan, input.mutationId, changedAt, true);
           }
           break;
@@ -3993,13 +4374,15 @@ export function createDayPlanStore(options: {
                 "Arrival cannot reopen from an invalid settlement state.",
               );
             }
-            quiesceExecutionRunsForPlanItems(plan, changedAt);
-            plan.state = "proposed";
-            plan.settlementState = "not_due";
-            plan.recommendedFirstItemId = undefined;
-            plan.recommendedFirstTaskId = undefined;
-            plan.confirmedAt = undefined;
-            for (const item of plan.items) item.settlementDecision = undefined;
+            if (plan.state === "settling") {
+              quiesceExecutionRunsForPlanItems(plan, changedAt);
+              plan.state = "proposed";
+              plan.settlementState = "not_due";
+              plan.recommendedFirstItemId = undefined;
+              plan.recommendedFirstTaskId = undefined;
+              plan.confirmedAt = undefined;
+              for (const item of plan.items) item.settlementDecision = undefined;
+            }
           }
           plan.arrivalState = "opened";
           plan.snoozedUntil = undefined;
@@ -4012,6 +4395,7 @@ export function createDayPlanStore(options: {
             ["pending", "preselected"],
             "Only a proposed item can be accepted.",
           );
+          acceptPlanningProposal(db, item, new Date(changedAt));
           item.decision = "accepted";
           break;
         }
@@ -4031,7 +4415,24 @@ export function createDayPlanStore(options: {
           if (input.outcome !== undefined && !outcome) {
             throw new DayPlanInvalidTransition("Item outcome cannot be empty.");
           }
-          if (title) item.title = title;
+          if (title) {
+            item.title = title;
+            if (item.planningRef) {
+              const changed = db
+                .prepare(
+                  "UPDATE cove_responsibilities SET next_action=?,revision=revision+1,updated_at=? WHERE ref_kind=? AND ref_id=? AND revision=?",
+                )
+                .run(
+                  title,
+                  changedAt,
+                  item.planningRef.kind,
+                  item.planningRef.id,
+                  item.planningRef.revision,
+                ).changes;
+              if (!changed) throw new DayPlanVersionConflict(getPlan(plan.id)!);
+              item.planningRef.revision += 1;
+            }
+          }
           if (outcome) item.outcome = outcome;
           if (input.definitionOfDone !== undefined) {
             item.definitionOfDone = cleanOptional(input.definitionOfDone);
@@ -4114,7 +4515,7 @@ export function createDayPlanStore(options: {
             const dueAt = task!.due_at ?? task!.due_date ?? undefined;
             const itemId = existing?.id ?? randomUUID();
             const hydrated: DayPlanItem = {
-              ...(existing ?? {} as DayPlanItem),
+              ...(existing ?? ({} as DayPlanItem)),
               id: itemId,
               candidateId: existing?.candidateId ?? itemId,
               taskId,
@@ -4230,44 +4631,7 @@ export function createDayPlanStore(options: {
             "Only a Today item can be completed.",
           );
           item.preCompletionPlanPosition = item.position;
-          const taskBacked = item.sourceRefs.some(
-            (source) => source.sourceType === "task" && source.recordId === item.taskId,
-          );
-          if (taskBacked) {
-            const task = managedTask(item.taskId);
-            if (!task) throw new DayPlanInvalidTransition("The board task no longer exists.");
-            if (task.status !== "done") {
-              if (
-                task.column_id &&
-                typeof task.position === "number" &&
-                Number.isFinite(task.position)
-              ) {
-                item.preCompletionBoardPlacement = {
-                  columnId: task.column_id,
-                  position: task.position,
-                  status: task.status,
-                };
-              } else {
-                delete item.preCompletionBoardPlacement;
-              }
-              const doneColumn = (db.prepare(
-                "SELECT id, name FROM task_columns ORDER BY position ASC",
-              ).all() as Array<{ id: string; name: string }>).find(
-                (column) => taskColumnKeyForName(column.name) === "done",
-              );
-              if (!doneColumn) {
-                throw new DayPlanInvalidTransition("Cove needs a Done list to complete this task.");
-              }
-              const nextPosition = db.prepare(
-                "SELECT COALESCE(MAX(position), -1) + 1 AS position FROM tasks WHERE column_id = ? AND status = 'done'",
-              ).pluck().get(doneColumn.id) as number;
-              db.prepare(
-                `UPDATE tasks
-                 SET column_id = ?, status = 'done', position = ?, updated_at = ?
-                 WHERE id = ?`,
-              ).run(doneColumn.id, nextPosition, changedAt, task.id);
-            }
-          }
+          completeItemSource(item, changedAt);
           item.decision = "completed";
           delete item.settlementDecision;
           plan.items = [
@@ -4287,16 +4651,52 @@ export function createDayPlanStore(options: {
             ["completed"],
             "Only a completed Today item can be reopened.",
           );
+          // Older completions lack a source digest. Only a matching audit event
+          // and unchanged terminal timestamp/location can authorize their write.
+          const legacyCompletionAt = () => {
+            const events = db.prepare(
+              "SELECT before_json,after_json,created_at FROM day_plan_events WHERE day_plan_id=? AND event_type IN ('item_complete','assistant_patch') ORDER BY result_version DESC",
+            ).all(plan.id) as Array<{ before_json: string; after_json: string; created_at: string }>;
+            for (const event of events) {
+              try {
+                const before = JSON.parse(event.before_json);
+                const after = JSON.parse(event.after_json);
+                const prior = (before.plan ?? before).items?.find((candidate: DayPlanItem) => candidate.id === item.id);
+                const completed = (after.plan ?? after).items?.find((candidate: DayPlanItem) => candidate.id === item.id);
+                if (prior && prior.decision !== "completed" && completed?.decision === "completed" &&
+                    completed.taskId === item.taskId && completed.planningRef?.id === item.planningRef?.id &&
+                    Number.isFinite(Date.parse(event.created_at)))
+                  return event.created_at;
+              } catch { /* Unreadable legacy evidence cannot authorize a source write. */ }
+            }
+            return undefined;
+          };
+          if (item.planningRef?.kind === "commitment") {
+            const source = sourceRecord(db, "commitment", item.planningRef.id);
+            if (item.completionSourceVersion) {
+              if (!source || sourceVersion(source) !== item.completionSourceVersion)
+                throw new DayPlanInvalidTransition("This commitment changed after completion. Review it before reopening.");
+            } else if (!source || (source.status !== "open" &&
+                !(source.status === "done" && source.updated_at === legacyCompletionAt()))) {
+              throw new DayPlanInvalidTransition("Cove cannot verify this older completion. Review and reopen the original commitment, then retry here.");
+            }
+            if (source!.status !== "open")
+              db.prepare("UPDATE commitments SET status='open',updated_at=? WHERE id=?").run(changedAt,item.planningRef.id);
+            delete item.completionSourceVersion;
+          }
           const taskBacked = item.sourceRefs.some(
             (source) => source.sourceType === "task" && source.recordId === item.taskId,
           );
           if (taskBacked) {
             const task = managedTask(item.taskId);
             if (!task) throw new DayPlanInvalidTransition("The board task no longer exists.");
+            const source = sourceRecord(db, "task", task.id);
+            if (item.completionSourceVersion && (!source || sourceVersion(source) !== item.completionSourceVersion))
+              throw new DayPlanInvalidTransition("This task changed after completion. Review it before reopening.");
             const placement = item.preCompletionBoardPlacement;
             const recordedColumn = placement
-              ? db.prepare("SELECT id FROM task_columns WHERE id = ?")
-                  .get(placement.columnId) as { id: string } | undefined
+              ? (db.prepare("SELECT id, name FROM task_columns WHERE id = ?")
+                  .get(placement.columnId) as { id: string; name: string } | undefined)
               : undefined;
             const todayColumn = recordedColumn ?? (db.prepare(
               "SELECT id, name FROM task_columns ORDER BY position ASC",
@@ -4306,37 +4706,51 @@ export function createDayPlanStore(options: {
             if (!todayColumn) {
               throw new DayPlanInvalidTransition("Cove needs a Today list to reopen this task.");
             }
-            const nextPosition = recordedColumn && placement
-              ? placement.position
-              : db.prepare(
-                  "SELECT COALESCE(MAX(position), -1) + 1 AS position FROM tasks WHERE column_id = ? AND status = 'open'",
-                ).pluck().get(todayColumn.id) as number;
-            if (recordedColumn && placement) {
-              const occupied = db.prepare(
-                `SELECT 1 FROM tasks
-                 WHERE column_id = ? AND id <> ? AND position = ? AND status IS ?
-                 LIMIT 1`,
-              ).get(recordedColumn.id, task.id, placement.position, placement.status);
-              if (occupied) {
-                db.prepare(
-                  `UPDATE tasks
-                   SET position = position + 1
-                   WHERE column_id = ? AND id <> ? AND position >= ? AND status IS ?`,
-                ).run(recordedColumn.id, task.id, placement.position, placement.status);
-              }
+            const alreadyReopened = !item.completionSourceVersion && source?.status === "open" &&
+              !source.archived_at && task.column_id === todayColumn.id;
+            if (!item.completionSourceVersion && !alreadyReopened) {
+              const sourceColumn = db.prepare("SELECT name FROM task_columns WHERE id=?").pluck().get(task.column_id ?? "") as string | undefined;
+              if (!source || source.status !== "done" || source.archived_at ||
+                  !sourceColumn || taskColumnKeyForName(sourceColumn) !== "done" ||
+                  source.updated_at !== legacyCompletionAt())
+                throw new DayPlanInvalidTransition(`Cove cannot verify this older completion. Review and reopen it in All Work, return it to the ${todayColumn.name} list, then retry here.`);
             }
-            db.prepare(
-              `UPDATE tasks
-               SET column_id = ?, status = ?, position = ?, archived_at = NULL,
-                   archived_from_status = NULL, updated_at = ?
-               WHERE id = ?`,
-            ).run(
-              todayColumn.id,
-              recordedColumn && placement ? placement.status : "open",
-              nextPosition,
-              changedAt,
-              task.id,
-            );
+            // If the operator already restored a legacy task, update only the
+            // plan item. Preserve their newer task fields and board ordering.
+            if (!alreadyReopened) {
+              const nextPosition = recordedColumn && placement
+                ? placement.position
+                : (db.prepare(
+                    "SELECT COALESCE(MAX(position), -1) + 1 AS position FROM tasks WHERE column_id = ? AND status = 'open'",
+                  ).pluck().get(todayColumn.id) as number);
+              if (recordedColumn && placement) {
+                const occupied = db.prepare(
+                  `SELECT 1 FROM tasks
+                   WHERE column_id = ? AND id <> ? AND position = ? AND status IS ?
+                   LIMIT 1`,
+                ).get(recordedColumn.id, task.id, placement.position, placement.status);
+                if (occupied) {
+                  db.prepare(
+                    `UPDATE tasks
+                     SET position = position + 1
+                     WHERE column_id = ? AND id <> ? AND position >= ? AND status IS ?`,
+                  ).run(recordedColumn.id, task.id, placement.position, placement.status);
+                }
+              }
+              db.prepare(
+                `UPDATE tasks
+                 SET column_id = ?, status = ?, position = ?, archived_at = NULL,
+                     archived_from_status = NULL, updated_at = ?
+                 WHERE id = ?`,
+              ).run(
+                todayColumn.id,
+                recordedColumn && placement ? placement.status : "open",
+                nextPosition,
+                changedAt,
+                task.id,
+              );
+              if (task.recurring_template_id) syncRecurringOccurrenceForTask(db,task.id,recordedColumn && placement ? placement.status : "open",changedAt);
+            }
           }
           item.decision = "accepted";
           const preCompletionPlanPosition = item.preCompletionPlanPosition;
@@ -4358,6 +4772,7 @@ export function createDayPlanStore(options: {
             });
             plan.items = ordered;
           }
+          delete item.completionSourceVersion;
           delete item.preCompletionPlanPosition;
           delete item.preCompletionBoardPlacement;
           delete item.settlementDecision;
@@ -4391,7 +4806,57 @@ export function createDayPlanStore(options: {
           plan.items = ordered;
           break;
         }
+        case "plan_revision_accept": {
+          requirePlanOrdering(plan);
+          const artifact = input.briefId
+            ? getMorningBrief(input.briefId)
+            : undefined;
+          const proposed = morningBriefFromArtifact(artifact)?.dailyDecision;
+          if (
+            !artifact ||
+            artifact.targetLocalDate !== plan.localDate ||
+            !proposed
+          )
+            throw new DayPlanInvalidTransition(
+              "That proposed revision is unavailable.",
+            );
+          const candidates = persistDecisionLinks(
+            db,
+            proposed,
+            new Date(changedAt),
+          );
+          const completed = plan.items.filter(
+            (item) => item.decision === "completed",
+          );
+          const wasActive = plan.state === "active";
+          plan.items = [
+            ...candidates.map((candidate, position) => ({
+              ...candidate,
+              id: candidate.candidateId,
+              position,
+              decision: wasActive
+                ? ("accepted" as const)
+                : ("preselected" as const),
+            })),
+            ...completed,
+          ];
+          if (wasActive)
+            plan.items.forEach((item) =>
+              acceptPlanningProposal(db, item, new Date(changedAt)),
+            );
+          plan.items.forEach((item, position) => {
+            item.position = position;
+          });
+          plan.briefId = artifact.id;
+          break;
+        }
         case "start_day": {
+          // Reopening an active day's brief is a review, not new authorization
+          // to accept pending work or restart agent runs.
+          if (plan.state === "active" && plan.arrivalState === "opened") {
+            plan.arrivalState = "confirmed";
+            break;
+          }
           if (plan.state !== "proposed" || plan.arrivalState !== "opened") {
             throw new DayPlanInvalidTransition("Start My Day requires an open proposed arrival.");
           }
@@ -4405,6 +4870,9 @@ export function createDayPlanStore(options: {
               "Start My Day requires one accepted focus.",
             );
           }
+          plan.items
+            .filter((i) => ["preselected", "accepted"].includes(i.decision))
+            .forEach((i) => acceptPlanningProposal(db, i, new Date(changedAt)));
           activatePlanWithoutKickoff(plan, input.mutationId, changedAt, false);
           const focus = focusBandItems(plan.items, configuredFocusCount());
           plan.arrivalState = "confirmed";
@@ -4548,7 +5016,12 @@ export function createDayPlanStore(options: {
                 plan.state === "proposed" &&
                 plan.arrivalState === "snoozed"
               ) {
-                activatePlanWithoutKickoff(plan, input.mutationId, changedAt, true);
+              plan.items
+                .filter((i) => ["preselected", "accepted"].includes(i.decision))
+                .forEach((i) =>
+                  acceptPlanningProposal(db, i, new Date(changedAt)),
+                );
+              activatePlanWithoutKickoff(plan, input.mutationId, changedAt, true);
               }
               settlementOrigin = plan.state === "active" ? "active" : "proposed";
               plan.state = "settling";
@@ -4876,11 +5349,13 @@ export function createDayPlanStore(options: {
 
   function acknowledgeTaskMutation(mutationId: string): DayPlanTaskMutationResult {
     return immediate(() => {
-      const row = selectTaskMutation.get(mutationId) as TaskMutationRow | undefined;
+      const row = selectTaskMutation.get(mutationId) as
+        | TaskMutationRow | undefined;
       if (!row) throw new DayPlanInvalidTransition("Day-plan task mutation not found.");
       if (row.state === "applied") {
         return { mutation: taskMutationFromRow(row), replayed: true };
       }
+      if (row.state === "blocked") throw new DayPlanInvalidTransition("This earlier task change needs review before it can be applied.");
       const appliedAt = now().toISOString();
       db.prepare(
         "UPDATE day_plan_task_mutations SET state = 'applied', applied_at = ? WHERE id = ? AND state = 'pending'",
@@ -4894,7 +5369,8 @@ export function createDayPlanStore(options: {
 
   function getReadModel(): DayPlanReadModel {
     const open = selectOpenPlan.get() as DayPlanRow | undefined;
-    const latestSnapshot = selectLatestSnapshot.get() as SnapshotRow | undefined;
+    const latestSnapshot = selectLatestSnapshot.get() as
+      | SnapshotRow | undefined;
     return {
       currentPlan: open ? planFromRow(open) : undefined,
       latestSnapshot: latestSnapshot ? snapshotFromRow(latestSnapshot) : undefined,
@@ -4970,6 +5446,10 @@ export function createDayPlanStore(options: {
   }
 
   return {
+    planningReadBundle,
+    planningContext,
+    completeDailyPlanning,
+    projectedPlan,
     initialize,
     ensureDayPlan,
     markArrivalInteraction,
@@ -5025,6 +5505,7 @@ export function createDayPlanStore(options: {
     latestEligibleMorningBrief,
     recentBriefDurationsSeconds,
     enqueueMorningBrief,
+    requeueStalePlanning,
     claimNextMorningBrief,
     recordMorningBriefInputs,
     completeMorningBrief,

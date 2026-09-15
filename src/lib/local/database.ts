@@ -18,10 +18,11 @@ export function localDatabasePath(): string {
 
 /** The database Cove opens when COVE_DB_PATH is not set. */
 export function defaultLocalDatabasePath(repoDir = process.cwd()): string {
-  const canonical = path.join(repoDir, "data", "cove.db");
+  const dataDir = coveEnv("DATA_DIR") ?? path.join(repoDir, "data");
+  const canonical = path.join(dataDir, "cove.db");
   // Pre-rename installs may still own data/forge.db. This fallback exists only
   // to migrate that one store forward; new features and docs use cove.db.
-  const legacy = path.join(repoDir, "data", "forge.db");
+  const legacy = path.join(dataDir, "forge.db");
   return existsSync(canonical) || !existsSync(legacy) ? canonical : legacy;
 }
 

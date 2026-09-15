@@ -1,3 +1,4 @@
+import { readStoredDailyDecision } from "../chief-of-staff/daily-planning";
 /**
  * Morning Brief artifact contract and deterministic validation.
  *
@@ -31,8 +32,9 @@ import type {
 // public brief projections while tolerating it as ignored legacy data.
 // 17 / schema 6: rank up to eight existing tasks, with the first three as focus.
 // 18 / schema 7: a grounded concrete recommendation may create a real Today task.
-export const MORNING_BRIEF_PROMPT_VERSION = 18;
-export const MORNING_BRIEF_SCHEMA_VERSION = 7;
+// 20: restore full narrative alongside the shared planning decision.
+export const MORNING_BRIEF_PROMPT_VERSION = 21;
+export const MORNING_BRIEF_SCHEMA_VERSION = 8;
 
 export type MorningBriefStatus = "queued" | "running" | "succeeded" | "failed";
 
@@ -45,6 +47,7 @@ export type MorningBriefTaskCandidate = {
 };
 
 export type MorningBriefWatchItem = {
+  recordId?: string;
   label: string;
   evidence: string;
   lastSeenState: string;
@@ -80,6 +83,7 @@ export type MorningBriefBoardAction =
     });
 
 export type MorningBrief = {
+  dailyDecision?: import("../chief-of-staff/daily-planning").DailyDecision;
   // The day's single decisive move, as one plain sentence. Optional because
   // artifacts written before schema 3 have only the flat narrative.
   headline?: string;
@@ -217,7 +221,8 @@ export type MorningBriefGenerationEnvelope = {
   targetLocalDate: string;
   targetTimezone: string;
   sections: ReadonlyArray<{ id: string; label: string; text: string }>;
-  sourceFreshness: ReadonlyArray<{ id: string; freshness: BriefSourceFreshness }>;
+  sourceFreshness: ReadonlyArray<{ id: string; freshness: BriefSourceFreshness;
+  }>;
   promptVersion: number;
   schemaVersion: number;
   modelAlias: string;
@@ -330,6 +335,9 @@ export function stripMorningBriefDateClaim(
     ...brief,
     narrativeParagraphs,
     lensNarrative: [headline, ...narrativeParagraphs].filter(Boolean).join("\n\n"),
+    ...(brief.dailyDecision?.narrativeParagraphs ? {
+      dailyDecision: { ...brief.dailyDecision, narrativeParagraphs },
+    } : {}),
   };
   // A headline that was nothing but a date claim is now empty, and spreading
   // brief would otherwise quietly keep the original.
@@ -1035,7 +1043,8 @@ export type ArrivalCandidateSelection = {
 // applies before a fresh candidate pool is built.
 export function overlayBriefOnCandidates(
   pool: readonly RecommendationCandidate[],
-  brief: (Pick<MorningBrief, "existingTaskCandidates"> &
+  brief:
+    | (Pick<MorningBrief, "existingTaskCandidates"> &
     Partial<Pick<MorningBrief, "boardActions">>) | undefined,
   maximum = brief
     ? Math.min(8, Math.max(
@@ -1170,7 +1179,7 @@ export function morningBriefRetryAt(code?: string): string | undefined {
 export function morningBriefFailureDetail(code: string): string {
   if (code === "runner_budget_exceeded") return "Cove reached its writing allowance before it could start your brief. Your plan is still here.";
   if (code === "runner_input_too_large") return "Cove could not fit the supplied context into this request. Your plan is still here.";
-  if (code.startsWith("required_source_missing:")) return "Cove is missing required profile or goals information. Your plan is still here.";
+  if (code.startsWith("required_source_missing:")) return "Cove could not load all the information needed to write your brief. Your plan is still here. Try again.";
   if (code.includes("unavailable")) return "Cove could not reach your selected writer. Check that Codex or Claude is signed in.";
   if (code.includes("timeout")) return "Your brief writer ran out of time. Your plan is still here, and you can try again.";
   if (code.includes("output_too_large")) return "Your writer returned more data than Cove could safely process. Your plan is still here.";
@@ -1211,8 +1220,10 @@ export function selectMorningBriefGeneration(
       if (artifact.status !== "running") return false;
       if (!options.runningStaleAfterMs) return true;
       const startedAt = Date.parse(artifact.startedAt ?? artifact.createdAt);
-      return Number.isFinite(startedAt) &&
-        now.getTime() - startedAt <= options.runningStaleAfterMs;
+      return (
+        Number.isFinite(startedAt) &&
+        now.getTime() - startedAt <= options.runningStaleAfterMs
+      );
     })
     .sort((left, right) =>
       (right.startedAt ?? right.createdAt).localeCompare(left.startedAt ?? left.createdAt),
@@ -1304,7 +1315,9 @@ function storedString(value: unknown): value is string {
 }
 
 function storedStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+  return (
+    Array.isArray(value) && value.every((entry) => typeof entry === "string")
+  );
 }
 
 function storedOwner(value: unknown): value is DayPlanOwner {
@@ -1465,6 +1478,12 @@ export function morningBriefFromArtifact(
       lensNarrative: parsed.lensNarrative,
       existingTaskCandidates: candidates,
       watchItems,
+      ...(parsed.dailyDecision
+        ? {
+            dailyDecision:
+              readStoredDailyDecision(parsed.dailyDecision),
+          }
+        : {}),
       boardActions,
       ...(parsed.validationNotes ? { validationNotes: parsed.validationNotes } : {}),
     };
@@ -1530,6 +1549,10 @@ export function settlementReconciliationComplete(
 // ---------------------------------------------------------------------------
 
 export type PublicMorningBrief = {
+  planVersion?: number;
+  statusNote?: string;
+  proposalId?: string;
+  proposedActions?: Array<{ title: string; reason: string }>;
   id: string;
   targetLocalDate: string;
   generatedAt: string;

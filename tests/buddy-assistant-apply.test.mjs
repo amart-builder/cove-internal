@@ -42,6 +42,9 @@ function setupAssistantApply(t) {
       ('col-ns', 'Not Started', 0),
       ('col-today', 'Must happen today', 10),
       ('col-done', 'Done', 20);
+    INSERT INTO tasks(id,column_id,title,description,priority,position,status,created_at,updated_at) VALUES
+      ('task-a','col-today','Task a','Original outcome a','high',0,'open','2026-07-15T15:00:00.000Z','2026-07-15T15:00:00.000Z'),
+      ('task-b','col-today','Task b','Original outcome b','medium',1,'open','2026-07-15T15:00:00.000Z','2026-07-15T15:00:00.000Z');
   `);
   boardDb.close();
   const store = createDayPlanStore({
@@ -209,7 +212,7 @@ test('assistant apply creates, completes, updates, and reprioritizes task-backed
   );
   assert.equal(result.plan.items.find((item) => item.id === completedItem.id).decision, 'completed');
   const mutations = store.listPendingTaskMutations();
-  assert.deepEqual(mutations.map((mutation) => mutation.action), ['complete', 'update']);
+  assert.deepEqual(mutations, []);
   assert.equal(result.createdItemIds.length, 2);
   const verify = new Database(path.join(root, 'cove.db'), { readonly: true });
   const createdTasks = verify.prepare(
@@ -668,17 +671,10 @@ test('assistant create_item records the deterministic plan item in inbound_event
     },
   ));
   assert.equal(editResponse.status, 200);
-  const [mutation] = store.listPendingTaskMutations();
-  assert.equal(mutation.action, 'update');
-  assert.equal(mutation.taskId, createdId);
-  assert.equal(tasks.has(mutation.taskId), true);
-  Object.assign(tasks.get(mutation.taskId), {
-    title: mutation.title,
-    description: mutation.description,
-  });
-  store.acknowledgeTaskMutation(mutation.id);
-  assert.equal(tasks.get(createdId).title, 'Prepare the revised client kickoff');
   assert.deepEqual(store.listPendingTaskMutations(), []);
+  const editedDb = new Database(path.join(root,'cove.db'), {readonly:true});
+  assert.equal(editedDb.prepare('SELECT title FROM tasks WHERE id=?').pluck().get(createdId), 'Prepare the revised client kickoff');
+  editedDb.close();
 
   const editedBody = await editResponse.json();
   const completeResponse = await POST(new NextRequest(
@@ -701,13 +697,10 @@ test('assistant create_item records the deterministic plan item in inbound_event
     },
   ));
   assert.equal(completeResponse.status, 200);
-  const [completeMutation] = store.listPendingTaskMutations();
-  assert.equal(completeMutation.action, 'complete');
-  assert.equal(tasks.has(completeMutation.taskId), true);
-  tasks.get(completeMutation.taskId).status = 'done';
-  store.acknowledgeTaskMutation(completeMutation.id);
-  assert.equal(tasks.get(createdId).status, 'done');
   assert.deepEqual(store.listPendingTaskMutations(), []);
+  const completedDb = new Database(path.join(root,'cove.db'), {readonly:true});
+  assert.equal(completedDb.prepare('SELECT status FROM tasks WHERE id=?').pluck().get(createdId), 'done');
+  completedDb.close();
 });
 
 test('assistant apply dismisses captured events when the plan write loses a race', async (t) => {

@@ -3,8 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { coveEnv } from "../src/lib/env";
-import { resolveEmailRuntimePaths } from "../src/lib/email/runtime-paths";
+import { loadCoveRuntimePaths } from "./lib/cove-runtime-paths.mjs";
 import { signatureHtmlToText } from "../src/lib/email/draft-format";
 import { loadSignature } from "../src/lib/email/signature";
 import { createSqliteBackup, sqliteBackupPath, verifySqliteBackup } from "../src/lib/reliability/backup";
@@ -44,12 +43,7 @@ function voiceGuide(): string {
 
 function paths(): { dataDir: string; dbPath: string; backupDir: string } {
   const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  const { dataDir, dbPath } = resolveEmailRuntimePaths({ repoDir });
-  return {
-    dataDir,
-    dbPath,
-    backupDir: coveEnv("BACKUP_DIR") ?? path.join(path.dirname(dbPath), "backups"),
-  };
+  return loadCoveRuntimePaths(repoDir);
 }
 
 function schedulerWithHandlers(dbPath: string, backupDir: string, dataDir: string, backupOnly = false): JobScheduler {
@@ -146,8 +140,8 @@ async function main(): Promise<number> {
   const command = process.argv[2];
   const { dataDir, dbPath, backupDir } = paths();
   if (command === "enqueue-backup" && !existsSync(dbPath)) {
-    process.stdout.write(`No database at ${dbPath} yet; nothing to back up.\n`);
-    return 0;
+    process.stderr.write(`No database at ${dbPath}; no backup was created. Confirm the configured database path.\n`);
+    return 1;
   }
   if (command !== "enqueue-backup" && command !== "run") {
     process.stderr.write(

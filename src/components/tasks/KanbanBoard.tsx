@@ -107,6 +107,7 @@ interface KanbanBoardContentProps {
   tasksData: TaskData[];
   loading: boolean;
   error?: string;
+  refreshError?: string;
   onRetry: () => Promise<void>;
   onSeed?: () => Promise<void>;
   onCreateTask: (input: CreateTaskInput) => Promise<void>;
@@ -255,21 +256,32 @@ function SupabaseKanbanBoard() {
   const [tasks, setTasks] = useState<TaskData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
+  const [refreshError, setRefreshError] = useState<string>();
+  const loadedRef = useRef(false);
+  const refreshSequence = useRef(0);
 
   const reload = useCallback(async () => {
-    setLoading(true);
+    const sequence = ++refreshSequence.current;
+    // Background refresh must keep the board and its unsaved editors mounted.
+    if (!loadedRef.current) setLoading(true);
     setError(undefined);
+    setRefreshError(undefined);
     try {
       const [nextColumns, nextTasks] = await Promise.all([
         listTaskColumns(),
         listTasks(),
       ]);
+      if (sequence !== refreshSequence.current) return;
       setColumns(nextColumns.map(normalizeSupabaseColumn));
       setTasks(nextTasks.map(normalizeSupabaseTask));
+      loadedRef.current = true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (sequence !== refreshSequence.current) return;
+      const message = err instanceof Error ? err.message : String(err);
+      if (loadedRef.current) setRefreshError(message);
+      else setError(message);
     } finally {
-      setLoading(false);
+      if (sequence === refreshSequence.current) setLoading(false);
     }
   }, []);
 
@@ -307,6 +319,7 @@ function SupabaseKanbanBoard() {
       tasksData={tasks}
       loading={loading}
       error={error}
+      refreshError={refreshError}
       onRetry={reload}
       onSeed={!loading && !error ? ensureDefaultColumns : undefined}
       onCreateTask={async (input) => {
@@ -420,6 +433,7 @@ function KanbanBoardContent({
   tasksData,
   loading,
   error,
+  refreshError,
   onRetry,
   onSeed,
   onCreateTask,
@@ -1049,6 +1063,13 @@ function KanbanBoardContent({
           )}
         </div>
       </header>
+
+      {refreshError && (
+        <div role="alert" className="mx-5 mt-3 rounded-xl border border-accent-red/30 bg-accent-red/5 px-4 py-3 text-xs text-accent-red">
+          Could not refresh All Work. Your current view and edits are still here. {refreshError}{' '}
+          <button type="button" className="underline" onClick={() => void onRetry()}>Retry</button>
+        </div>
+      )}
 
       {operationError && (
         <div role="alert" className="mx-5 mt-3 flex items-center gap-3 rounded-xl border border-accent-red/30 bg-accent-red/5 px-4 py-3 text-xs text-accent-red">

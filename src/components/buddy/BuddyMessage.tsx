@@ -130,6 +130,7 @@ export default function BuddyMessage({ turn, thinking, hostname, deepLinksEnable
   getCsrfToken?: () => Promise<string>;
 }) {
   const isConfirmedDelete = /^CONFIRM_DELETE\b/.test(turn.user_text);
+  const partialOverflow = turn.state === 'failed' && turn.error_code === 'context_overflow_after_changes';
   const needsClaudeSignIn = turn.provider !== 'codex' && turn.state === 'failed' && isClaudeNotSignedIn(turn.assistant_text);
   const needsCodexSignIn = turn.provider === 'codex' && turn.state === 'failed' && /sign in|login|authentication|unauthorized/i.test(turn.assistant_text);
   return (
@@ -166,7 +167,12 @@ export default function BuddyMessage({ turn, thinking, hostname, deepLinksEnable
         ) : (
           <p className="text-muted-foreground">Buddy was interrupted.</p>
         )}
-        {turn.state === 'failed' && (
+        {partialOverflow && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Review the saved changes below, then ask Buddy for the remaining work.
+          </p>
+        )}
+        {turn.state === 'failed' && !partialOverflow && (
           <button
             type="button"
             className="mt-2 text-xs font-semibold text-accent-blue transition-transform duration-150 ease-out hover:underline hover:underline-offset-2 active:scale-[0.97] motion-reduce:transform-none"

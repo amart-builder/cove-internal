@@ -32,7 +32,7 @@ flowchart LR
 | Domain | Primary code | Durable state |
 | --- | --- | --- |
 | Tasks and Quiet Current | `src/components/tasks`, `src/lib/day-plan`, `src/lib/quiet-current` | tasks, day plans, ritual decisions |
-| Morning Brief | `src/lib/day-plan/brief*`, `src/lib/claude-execution/worker.ts` | immutable brief artifacts and exact input manifests |
+| Daily planning and brief | `src/lib/chief-of-staff/daily-planning.ts`, `src/lib/day-plan/planning.ts`, `src/lib/claude-execution/worker.ts` | one model decision, linked proposals/checks, atomic plan and brief projection |
 | Email | `src/lib/email`, `scripts/cove-email-runner.ts` | thread ledger, Gmail operation outbox, receipts |
 | Meetings and progress | `src/lib/intake`, meeting and progress scripts | tasks, digests, relays, heartbeats |
 | Reliability | `src/lib/reliability`, `src/lib/health` | jobs, receipts, failures, backups, readiness |

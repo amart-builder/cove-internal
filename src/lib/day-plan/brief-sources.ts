@@ -190,6 +190,8 @@ function staleThresholdHours(id: string, fallback: number): number {
 
 export type CollectedBriefSources = {
   sources: BriefSourceInput[];
+  calendarEvents?: import("../workspace/contracts").CalendarEvent[];
+  calendarObservation?: import("../workspace/contracts").CalendarObservation;
   // Open task ids seen in the snapshot; generation-time validation drops brief
   // candidates that reference anything else.
   knownTaskIds: Set<string>;
@@ -1184,7 +1186,7 @@ function commitmentRow(value: unknown): Commitment | undefined {
     counterparty: optionalString(row.counterparty),
     contact_id: optionalString(row.contact_id),
     source_kind: ["brain_dump", "manual", "chat", "detector", "brief"].includes(String(row.source_kind))
-      ? row.source_kind as Commitment["source_kind"]
+      ? (row.source_kind as Commitment["source_kind"])
       : "manual",
     source_quote: optionalString(row.source_quote),
     source_ref: optionalString(row.source_ref),
@@ -1201,7 +1203,7 @@ function commitmentRow(value: unknown): Commitment | undefined {
 
 function commitmentDate(commitment: Commitment): number {
   const values = [commitment.due_at, commitment.review_at]
-    .map((value) => value ? Date.parse(value) : Number.NaN)
+    .map((value) => (value ? Date.parse(value) : Number.NaN))
     .filter(Number.isFinite);
   // Undated items still sort behind dated ones, but MAX_SAFE_INTEGER instead of
   // Infinity keeps the subtraction finite so the recency tiebreaker below runs.
@@ -1250,7 +1252,9 @@ function recentEvidenceTimestamp(
   nowEpoch: number,
 ): boolean {
   const timestamp = typeof evidence?.[key] === "string" ? Date.parse(evidence[key]) : Number.NaN;
-  return Number.isFinite(timestamp) && timestamp <= nowEpoch && timestamp >= nowEpoch - 36 * 60 * 60 * 1000;
+  return (
+    Number.isFinite(timestamp) && timestamp <= nowEpoch && timestamp >= nowEpoch - 36 * 60 * 60 * 1000
+  );
 }
 
 async function commitmentsSource(input: {
@@ -1307,8 +1311,10 @@ async function commitmentsSource(input: {
       commitments
         .filter((commitment) => {
           const evidence = evidenceById.get(commitment.id);
-          return evidence?.updated_by === "day_dump" &&
-            recentEvidenceTimestamp(evidence, "updated_at", nowEpoch);
+          return (
+            evidence?.updated_by === "day_dump" &&
+            recentEvidenceTimestamp(evidence, "updated_at", nowEpoch)
+          );
         })
         .map((commitment) => commitment.id),
     );
@@ -1407,9 +1413,9 @@ async function commitmentsSource(input: {
         : ["None recorded. Overnight execution is not yet live."]),
     ].join("\n");
     const newestUpdate = commitments.reduce(
-      (newest, item) => item.updated_at > newest ? item.updated_at : newest,
+      (newest, item) => (item.updated_at > newest ? item.updated_at : newest),
       resolvedFromNotes.reduce(
-        (newest, item) => item.updatedAt > newest ? item.updatedAt : newest,
+        (newest, item) => (item.updatedAt > newest ? item.updatedAt : newest),
         "",
       ),
     );
@@ -1563,10 +1569,12 @@ export async function emailQueueSource(input: {
         const sender = compactLine(item.senderName || item.senderEmail, 80) || "Unknown sender";
         const subject = JSON.stringify(compactLine(item.subject, 120) || "(no subject)");
         const ask = compactLine(item.recommendedAction || item.summary, 140) || "none stated";
-        return `- [${compactLine(item.status, 30)}] p${item.priority ?? "?"} ${JSON.stringify(sender)} ${subject}` +
+        return (
+          `- [${compactLine(item.status, 30)}] p${item.priority ?? "?"} ${JSON.stringify(sender)} ${subject}` +
           ` | ask: ${JSON.stringify(ask)}` +
           ` | draft: ${draftByItemId.get(item.id) ?? "none"}` +
-          ` | age: ${inboundAge(item.receivedAt, input.now)}`;
+          ` | age: ${inboundAge(item.receivedAt, input.now)}`
+        );
       }),
     ].join("\n");
     const newestReceivedAt = items.reduce(
@@ -1898,12 +1906,15 @@ type CalendarEvent = {
   summary?: string;
   start?: { date?: string; dateTime?: string };
   end?: { date?: string; dateTime?: string };
-  attendees?: Array<{ email?: string; self?: boolean; responseStatus?: string }>;
+  attendees?: Array<{ email?: string; self?: boolean; responseStatus?: string;
+  }>;
   hangoutLink?: string;
   conferenceData?: unknown;
 };
 
 type CalendarSourceResult = {
+  observation?: import("../workspace/contracts").CalendarObservation;
+  rawEvents?: import("../workspace/contracts").CalendarEvent[];
   source: BriefSourceInput;
   events: CalendarEvent[];
 };
@@ -2040,7 +2051,7 @@ async function calendarSource(
       timeZone: targetTimezone,
       maxResults: 250,
     });
-    const formatted: CalendarEvent[] = events.map((event) => ({
+    const formatted: CalendarEvent[] = events.filter((event) => event.status !== "cancelled").map((event) => ({
       summary: event.summary,
       start: /^\d{4}-\d{2}-\d{2}$/.test(event.start)
         ? { date: event.start }
@@ -2055,13 +2066,27 @@ async function calendarSource(
       })),
       hangoutLink: event.meetingUrl || undefined,
     }));
+    const content = formatCalendarEvents(formatted, targetTimezone, targetLocalDate);
     return {
+      observation: {
+        calendarId: "primary",
+        timeMin: startBounds.timeMin,
+        timeMax: endBounds.timeMin,
+        timeZone: targetTimezone,
+        observedAt: now.toISOString(),
+        complete: events.every((event) => event.status === "cancelled" ||
+          (Number.isFinite(Date.parse(event.start)) && Number.isFinite(Date.parse(event.end)))),
+      },
       source: {
         ...source,
-        content: formatCalendarEvents(formatted, targetTimezone, targetLocalDate),
+        // The gateway bounds the event count and rejects partial pages. Keep
+        // every compact agenda line so an omitted event has a clear meaning.
+        maxChars: Math.max(source.maxChars, content.length),
+        content,
         asOf: now.toISOString(),
       },
       events: formatted,
+      rawEvents: events,
     };
   } catch (error) {
     return {
@@ -2125,7 +2150,7 @@ async function pipelineFollowUpsSource(input: {
         const deal = deals.find((candidate) => candidate.contact_id === matches[0].id);
         if (!deal) continue;
         attendeeLines.push(
-          `- ${deal.name}: ${PIPELINE_STAGE_LABELS[deal.stage]}; next=${compactLine(deal.next_action, 300) || "not set"}; follow_up=${deal.next_follow_up_at ?? "not set"}`,
+          `- ${deal.name}: ${PIPELINE_STAGE_LABELS[deal.stage]}; next=${compactLine(deal.next_action, 300) || "not set"}; follow_up=${deal.next_follow_up_at ?? "not set"}; record_updated=${deal.updated_at}`,
         );
       }
     }
@@ -2135,7 +2160,7 @@ async function pipelineFollowUpsSource(input: {
         `${label}:`,
         ...(rows.length
           ? rows.map((deal) =>
-              `- ${deal.name}: ${PIPELINE_STAGE_LABELS[deal.stage]}; next=${compactLine(deal.next_action, 300) || "not set"}; follow_up=${deal.next_follow_up_at ?? "not set"}`
+              `- ${deal.name}: ${PIPELINE_STAGE_LABELS[deal.stage]}; next=${compactLine(deal.next_action, 300) || "not set"}; follow_up=${deal.next_follow_up_at ?? "not set"}; record_updated=${deal.updated_at}`
             )
           : ["- None."]),
       ];
@@ -2143,6 +2168,7 @@ async function pipelineFollowUpsSource(input: {
     return {
       ...source,
       content: [
+        "Pipeline dates are follow-up bookkeeping, not live calendar bookings. Compare record_updated with the current calendar observation before using a meeting date.",
         ...category("Overdue", "overdue"),
         "",
         ...category("Due today", "today"),
@@ -2608,13 +2634,15 @@ export async function collectMorningBriefSources(
         const rightDate = right.due_at ? localDateFor(right.due_at, targetTimezone) : undefined;
         const leftDueNow = leftDate && leftDate <= targetLocalDate ? 0 : 1;
         const rightDueNow = rightDate && rightDate <= targetLocalDate ? 0 : 1;
-        return leftDueNow - rightDueNow ||
+        return (
+          leftDueNow - rightDueNow ||
           (leftDueNow === 0 && rightDueNow === 0
             ? (leftDate ?? "").localeCompare(rightDate ?? "")
             : 0) ||
           (priorityRank.get(left.priority ?? "medium") ?? 1) -
             (priorityRank.get(right.priority ?? "medium") ?? 1) ||
-          (right.updated_at ?? "").localeCompare(left.updated_at ?? "");
+          (right.updated_at ?? "").localeCompare(left.updated_at ?? "")
+        );
       });
     for (const row of orderedOpenRows) {
       if (!row.id || row.status !== "open") continue;
@@ -2738,5 +2766,8 @@ export async function collectMorningBriefSources(
   sources.push(await crmPromise);
   sources.push(await memoryPromise);
 
-  return { sources, knownTaskIds, taskUpdatedAtById, recurringTaskIds };
+  return { sources, knownTaskIds, taskUpdatedAtById, recurringTaskIds,
+    calendarEvents: (await calendarPromise).rawEvents,
+    calendarObservation: (await calendarPromise).observation,
+  };
 }

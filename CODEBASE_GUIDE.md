@@ -87,6 +87,12 @@ JSON.
 | Issues | `src/app/failures/page.tsx` | `src/components/reliability/FailureInbox.tsx` | `src/lib/reliability/failures.ts` |
 | Guide | `src/app/guide/page.tsx` | Page-local presentation | User education only |
 
+Notification sheets attach the visible notification, exact task ID and saved task
+origin to Buddy separately from the underlying page context. The attachment is
+cleared when the sheet closes. Buddy stays above the sheet; its controls and
+the sheet share keyboard navigation. Stored origin text is displayed as task
+context, not treated as an instruction or proof of an explicit user request.
+
 `TodayView.tsx` is the browser coordinator for tasks, Quiet Current, recurring
 work, the day ritual, and task sessions. Keep durable rules in `src/lib/` and
 keep pure display decisions in presentation modules. Do not move persistence
@@ -117,6 +123,7 @@ Treat request bodies, query strings, headers, and stored model text as untrusted
 | `/api/email/automation` | User-confirmed email card actions | `src/lib/email/automation.ts` |
 | `/api/recurrence` | Recurring template confirmation and lifecycle | `src/lib/tasks/recurrence.ts` |
 | `/api/failures` | Visible failure inbox | `src/lib/reliability/failures.ts` |
+| `/api/planning-questions` | Read pending decisions and save explicit answers with revision checks | `src/lib/chief-of-staff/questions.ts` |
 | `/api/responsibilities` | Local review queue, proposed day capacity, draft artifacts and versioned acknowledgement | `src/lib/responsibility/` |
 | `/api/notifications` | Read full notification context; request a native-only reminder in one hour with CSRF protection | `src/lib/notifications/` |
 | `/api/follow-through` | Native reminder coverage, source freshness, acknowledgement and one-hour snooze | `src/lib/attention/follow-through.mjs` |
@@ -145,7 +152,8 @@ token. A trusted Host header is DNS-rebinding defense, not user authentication.
 | `presentation.ts` | Pure read-model and UI decisions. Prefer adding testable display rules here. |
 | `brief.ts` | Brief artifact schema, validation, hashing, storage shape, and public types. |
 | `brief-sources.ts` | Collects, normalizes, labels, and bounds every brief source. |
-| `brief-view.ts` | Rehydrates model-selected task IDs against current deterministic candidates. |
+| `planning.ts` | Atomic source links, proposed preparation, explicit acceptance, and revision-consistent brief projection. |
+| `brief-view.ts` | Compatibility projection for older brief artifacts. |
 | `brief-triggers.ts`, `brief-gate.ts` | Dedupe and eligibility decisions for generation. |
 | `brief-relay.ts` | Historical cross-machine transport plus import compatibility. Single-Mac operation does not need a relay. |
 | `assistant-patch.ts` | Validates the limited replan operation vocabulary. |
@@ -161,20 +169,46 @@ to a newer plan.
 
 Morning Brief flow:
 
-1. `brief-sources.ts` collects required and optional evidence with explicit
-   freshness and size limits.
-2. `brief.ts` builds a canonical input envelope and hash.
-3. `src/lib/claude-execution/brief-commands.ts` and
-   `prompts/chief-of-staff.md` build the model request.
-4. `worker.ts` runs a bounded model subprocess. Provider-specific tool and
-   configuration limits are documented in `SECURITY_AND_INTEGRATIONS.md`.
-5. Deterministic validators check the entire nested response and evidence refs.
-6. An immutable artifact is stored.
-7. `brief-view.ts` rehydrates selected task IDs against the live board before
-   the store overlays rationale onto the plan.
+1. `brief-sources.ts` supplies evidence bounded per source. The brief worker
+   has no second aggregate character cap that could erase required closeout
+   evidence. Technical model input/output boundaries remain enforced. The chief's
+   `daily-planning.ts` adds current responsibilities, accepted focus, calendar
+   occurrences, pending questions and recorded answers. A successful calendar
+   fetch also supplies its exact scope, window, observation time and completeness.
+   Compact calendar records preserve every fetched schedule reference without
+   invitation bodies. Fresh observations replace cached events for that planning
+   pass, without deleting or cancelling stored events. A complete fresh calendar
+   governs the schedule ahead of older pipeline meeting dates. Incomplete or
+   unavailable coverage cannot establish absence.
+2. `chief-of-staff/driver.ts` owns the planning call, using the reserved morning
+   lane. `planning-contract.ts` supplies the guiding questions. The brief worker
+   transports this decision instead of independently ranking or creating tasks.
+3. `completeDailyPlanning` validates source versions in a transaction and stores
+   the decision, linked proposals/checks, and plan revision together. An untouched
+   provisional plan may be replaced. Human edits leave a reviewable revision.
+4. `planningReadBundle` resolves current linked actions for the plan, separately
+   from the saved Morning Brief. Arrival always displays the complete saved
+   headline and narrative, including after priority edits, completion or reload.
+   Task titles and rationales must never substitute for the written brief.
+   Without a readable artifact, Arrival shows writing/retry status, not task prose.
+   Source changes still invalidate executable plan assumptions and queue a new
+   recommendation; they do not erase the saved document. A rejected stale
+   generation receives at most one automatic retry.
+5. New inferred work stays in Quiet Current. Start my day explicitly accepts
+   selected proposals; skipping Arrival does not. Acceptance through either
+   surface preserves the responsibility identity and its check.
 
-A brief may rank and explain. It is not evidence that a task exists or is done.
-If generation fails, Morning Arrival must remain usable.
+`chief-of-staff/questions.ts` stores material questions and source-backed answers.
+The question form is available in Arrival, closeout and the matching task editor.
+Buddy's `planning-question` CLI command uses the same answer transaction. Ambiguous
+answers remain open with the earlier reply visible. Parking a question preserves
+its underlying responsibility. No answer automatically becomes a standing policy.
+
+`attention/follow-through.mjs` checks stored event-linked preparations without a
+model. It refreshes known occurrences, respects reminder policy, and reports stale
+calendar coverage. It does not discover preparation that was never recorded.
+A notification attempt is not preparation completion. The current plan remains
+usable if generation fails; model judgment quality requires outcome evaluation.
 
 ### Local database and migrations
 
@@ -355,6 +389,14 @@ launches use desktop-visible history with `--ignore-user-config`, explicit
 on-request approvals, and the existing Planning/Auto sandbox limits. Completed
 sessions open `codex://threads/{id}`; older isolated sessions retain their stored
 recovery command. Task briefs are sent in full from the authoritative database.
+New Cove-native Codex tasks start in their own output directory, independently
+of native app project labels. Saved Codex projects can share a directory, and
+`codex exec` cannot select their project identity. Cove includes the task's
+explicit project and canonical workspace path in its prompt; Auto grants that
+workspace with `--add-dir`, while Planning stays read-only. The actual launch
+directory is persisted for resume. Existing sessions keep their original
+workspace. Routing uses the persisted task project and an exact folder match;
+it never selects a workspace from task-title text or a partial project match.
 `attention/follow-through.mjs` owns deterministic meeting/deadline checks,
 source freshness, durable delivery claims and snooze. The existing minute
 reminder worker invokes it for saved-agent installs.

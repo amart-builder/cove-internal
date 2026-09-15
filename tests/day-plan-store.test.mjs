@@ -1130,14 +1130,6 @@ test('active completion and undo restore the exact plan decisions and positions'
     ['task-a', 'task-d', 'task-c', 'task-e'],
   );
 
-  const restoreDb = new Database(file);
-  restoreDb.prepare(
-    `UPDATE tasks
-     SET column_id = 'col-today', status = 'open', position = 1,
-         updated_at = '2026-07-10T16:10:00.000Z'
-     WHERE id = 'task-b'`,
-  ).run();
-  restoreDb.close();
   plan = mutate(store, plan, 'item_reopen', { itemId: completedItem.id }).plan;
   plan = reorderPlanToItemIds(store, plan, before.map((item) => item.id));
 
@@ -1408,22 +1400,24 @@ test('settled Today items cannot be reordered', (t) => {
   );
 });
 
-test('Morning Arrival reopens an active day and Start My Day activates it again', (t) => {
+test('Morning Arrival reviews an active day without resetting its confirmation', (t) => {
   const { store } = isolatedStore(t);
   let plan = ensure(store).plan;
   plan = mutate(store, plan, 'arrival_open').plan;
   plan = mutate(store, plan, 'start_day').plan;
   const versionBeforeReopen = plan.version;
+  const confirmedAt = plan.confirmedAt;
+  const firstItemId = plan.recommendedFirstItemId;
 
   const reopened = mutate(store, plan, 'arrival_reopen');
   plan = reopened.plan;
-  assert.equal(plan.state, 'proposed');
+  assert.equal(plan.state, 'active');
   assert.equal(plan.arrivalState, 'opened');
   assert.equal(plan.settlementState, 'not_due');
   assert.equal(plan.version, versionBeforeReopen + 1);
-  assert.equal(plan.recommendedFirstItemId, undefined);
-  assert.equal(plan.recommendedFirstTaskId, undefined);
-  assert.equal(plan.confirmedAt, undefined);
+  assert.equal(plan.recommendedFirstItemId, firstItemId);
+  assert.equal(plan.recommendedFirstTaskId, 'task-a');
+  assert.equal(plan.confirmedAt, confirmedAt);
   const reopenEvent = store.listEvents(plan.id).find(
     (event) => event.id === plan.lastMutationId,
   );
@@ -1942,8 +1936,8 @@ test('brief board actions stage once, activate atomically, preserve human edits,
   assert.equal(store.activateBriefBoardActions('2026-07-10').activated, false);
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM cove_receipts WHERE source = 'morning-brief-management'").get().count, 1);
   db.close();
-  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 18);
-  assert.equal(MORNING_BRIEF_SCHEMA_VERSION, 7);
+  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 21);
+  assert.equal(MORNING_BRIEF_SCHEMA_VERSION, 8);
 });
 
 test('grounded brief task creation writes one real Today task and deduplicates live titles', (t) => {
@@ -2440,4 +2434,36 @@ test('brief task creation treats a title finished two days ago as a conflict', (
   // A finished task blocks the duplicate but never becomes a Today pick.
   assert.deepEqual(store.morningBriefCreatedTaskPicks(completed.id), []);
   db.close();
+});
+
+test('mid-day brief review and bypass preserve completed, pending and confirmed choices', (t) => {
+  const { store, file } = isolatedStore(t);
+  const backing = new Database(file);
+  backing.prepare("INSERT INTO tasks(id,title,description,priority,tags,status,column_id,position,created_at,updated_at) VALUES('task-a','Task task-a','Finish task-a','high','[]','open','col-today',0,'2026-07-10T15:00:00.000Z','2026-07-10T15:00:00.000Z')").run();
+  backing.close();
+  let plan = ensure(store).plan;
+  plan = mutate(store, plan, 'arrival_open').plan;
+  plan = mutate(store, plan, 'start_day').plan;
+  plan = mutate(store, plan, 'item_complete', { itemId: plan.items[0].id }).plan;
+  // Historical/current plan can retain unaccepted work beyond its focus band.
+  const pending = plan.items.find(item => item.decision === 'accepted');
+  pending.decision = 'pending';
+  const db = new Database(file);
+  db.prepare('UPDATE day_plans SET items_json=? WHERE id=?').run(JSON.stringify(plan.items), plan.id);
+  db.close();
+  const before = structuredClone(plan);
+  plan = mutate(store, plan, 'arrival_reopen').plan;
+  assert.equal(plan.state, 'active');
+  assert.equal(plan.confirmedAt, before.confirmedAt);
+  assert.equal(plan.recommendedFirstItemId, before.recommendedFirstItemId);
+  assert.deepEqual(plan.items, before.items);
+  plan = mutate(store, plan, 'arrival_bypass').plan;
+  assert.equal(plan.state, 'active');
+  assert.equal(plan.confirmedAt, before.confirmedAt);
+  assert.deepEqual(plan.items, before.items);
+  plan = mutate(store, plan, 'arrival_reopen').plan;
+  const result = mutate(store, plan, 'start_day');
+  assert.equal(result.plan.arrivalState, 'confirmed');
+  assert.deepEqual(result.plan.items, before.items);
+  assert.equal((result.executionRuns ?? []).length, 0);
 });

@@ -114,3 +114,11 @@ export function recordDecision(input: {
 }): Promise<unknown> {
   return quietCurrentRequest({ action: "event", ...input });
 }
+
+
+export function acceptSuggestion(id: string, input: {source: "explicit_accept" | "focus"; expectedUpdatedAt?: string}): Promise<{suggestion: WorkSuggestion; taskId: string; acceptanceId: string}> {
+  return quietCurrentRequest({action:"accept",id,...input});
+}
+export function undoSuggestionAcceptance(id: string, acceptanceId: string): Promise<WorkSuggestion> {
+  return quietCurrentRequest({action:"undo_accept",id,acceptanceId});
+}

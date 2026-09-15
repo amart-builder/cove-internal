@@ -1,5 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadLocalEnv } from "./lib/load-local-env.mjs";
 import { classifyEmail, type EmailClassification } from "../src/lib/email/classifier";
 import { parseFromHeader } from "../src/lib/email/from-header";
 import {
@@ -365,6 +366,7 @@ export async function runEmailTriage(options: RunnerOptions = {}): Promise<Email
 }
 
 async function main(): Promise<void> {
+  loadLocalEnv(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."));
   const result = await runEmailTriage();
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }

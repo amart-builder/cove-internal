@@ -12,10 +12,10 @@ import {createAttentionTransport} from '../src/lib/attention/transport.mjs';
 import {scheduleNotificationReminder,drainNotificationReminders} from '../src/lib/notifications/reminders.mjs';
 function fixture(t){
  const db=new Database(':memory:');
- db.exec(`CREATE TABLE tasks(id TEXT PRIMARY KEY,title TEXT,description TEXT,status TEXT,due_at TEXT,archived_at TEXT,source_type TEXT);
+ db.exec(`CREATE TABLE tasks(id TEXT PRIMARY KEY,title TEXT,description TEXT,status TEXT,due_at TEXT,archived_at TEXT,source_type TEXT,origin TEXT);
  CREATE TABLE cove_attention_ledger(id TEXT,ref_kind TEXT,ref_id TEXT,reason TEXT,created_at TEXT);
  CREATE TABLE cove_follow_through_notices(id TEXT,ref_kind TEXT,ref_id TEXT,title TEXT,due_at TEXT,stage TEXT,updated_at TEXT);
- INSERT INTO tasks VALUES('task-a','Prepare the review','Keep the original notes.','open','2026-09-10T15:00:00-07:00',NULL,'chat');`);
+ INSERT INTO tasks VALUES('task-a','Prepare the review','Keep the original notes.','open','2026-09-10T15:00:00-07:00',NULL,'chat','Meeting notes assigned this follow-up.');`);
  const dir=mkdtempSync(path.join(os.tmpdir(),'cove-notice-test-'));t.after(()=>{db.close();rmSync(dir,{recursive:true,force:true});});
  return {db,dir};
 }
@@ -112,3 +112,12 @@ for (const replaceDuringRestore of [false,true]) {
   assert.equal(db.prepare('SELECT due_at FROM tasks').get().due_at,'2026-09-10T15:00:00-07:00');
  });
 }
+
+test('scheduled reminder copy does not invent who requested the task', t => {
+ const {db}=fixture(t);
+ const context=readNotificationContext(db,{taskId:'task-a',notice:'reminder'});
+ assert.match(context.reason,/scheduled reminder/i);
+ assert.doesNotMatch(context.reason,/you asked/i);
+ assert.equal(context.task.id,'task-a');
+ assert.equal(context.task.origin,'Meeting notes assigned this follow-up.');
+});

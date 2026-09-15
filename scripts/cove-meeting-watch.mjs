@@ -137,7 +137,7 @@ export function loadMeetingConfig(file = DEFAULT_CONFIG_PATH) {
   return loadMeetingDetectionConfig(file);
 }
 
-function loadEmailConfig(file = DEFAULT_EMAIL_CONFIG_PATH) {
+export function loadEmailConfig(file = DEFAULT_EMAIL_CONFIG_PATH) {
   const parsed = objectValue(readJson(file));
   if (
     parsed?.provider !== "google-api" ||
@@ -148,9 +148,9 @@ function loadEmailConfig(file = DEFAULT_EMAIL_CONFIG_PATH) {
   }
   return {
     accountEmail: parsed.account_email.trim(),
-    coveUrl: typeof parsed.cove_url === "string" && parsed.cove_url.trim()
+    coveUrl: coveEnvTrimmed("BRIEF_WEB_BASE") ?? (typeof parsed.cove_url === "string" && parsed.cove_url.trim()
       ? parsed.cove_url.trim().replace(/\/$/, "")
-      : "http://127.0.0.1:3200",
+      : "http://127.0.0.1:3200"),
   };
 }
 

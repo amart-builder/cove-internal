@@ -500,8 +500,10 @@ function ContactDetailPanel({
   const [tier, setTier] = useState(contact.tier ?? 'C');
   const [tagsStr, setTagsStr] = useState(contact.tags.join(', '));
   const [saveError, setSaveError] = useState<string>();
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<EditableContactField, string>>>({});
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const latestSaveRequestId = useRef(0);
+  const latestRequestByField = useRef<Partial<Record<EditableContactField, number>>>({});
   const dirtyVersionByField = useRef<Record<EditableContactField, number>>({
     notes: 0,
     location: 0,
@@ -537,11 +539,12 @@ function ContactDetailPanel({
 
   async function saveField(field: EditableContactField, patch: Partial<Contact>) {
     const requestId = ++latestSaveRequestId.current;
+    latestRequestByField.current[field] = requestId;
     const dirtyVersionAtStart = dirtyVersionByField.current[field];
     clearSavedStatusTimer();
     saveStatusField.current = field;
     try {
-      setSaveError(undefined);
+      setFieldErrors(current => ({ ...current, [field]: undefined }));
       setSaveStatus('saving');
       await onSaveContact(patch);
       if (requestId !== latestSaveRequestId.current) return;
@@ -558,10 +561,13 @@ function ContactDetailPanel({
         savedStatusTimer.current = undefined;
       }, 3000);
     } catch (err) {
-      if (requestId !== latestSaveRequestId.current) return;
-      saveStatusField.current = undefined;
-      setSaveStatus('idle');
-      setSaveError(err instanceof Error ? err.message : String(err));
+      // A successful location save cannot hide an independent failed note save.
+      if (requestId !== latestRequestByField.current[field]) return;
+      if (requestId === latestSaveRequestId.current) {
+        saveStatusField.current = undefined;
+        setSaveStatus('idle');
+      }
+      setFieldErrors(current => ({ ...current, [field]: err instanceof Error ? err.message : String(err) }));
     }
   }
 
@@ -627,7 +633,7 @@ function ContactDetailPanel({
               {contact.name}
             </h2>
             <span className="text-[12px] font-medium text-muted-foreground" role="status" aria-live="polite">
-              {saveStatus === 'idle' ? '' : saveStatus === 'saving' ? 'Saving...' : 'Saved'}
+              {Object.values(fieldErrors).some(Boolean) ? 'Some changes not saved' : saveStatus === 'idle' ? '' : saveStatus === 'saving' ? 'Saving...' : 'Saved'}
             </span>
           </div>
           <p className="mt-0.5 text-[13.5px] leading-[1.55] text-muted-foreground">
@@ -678,6 +684,11 @@ function ContactDetailPanel({
           {saveError}
         </div>
       )}
+      {Object.entries(fieldErrors).filter(([, message]) => message).map(([field, message]) => (
+        <p key={field} role="alert" className="border-b bg-accent-red/5 px-5 py-2 text-[12px] text-accent-red">
+          Could not save {field.replace(/([A-Z])/g, ' $1').toLowerCase()}: {message}. Your text is still here; edit this field and leave it to retry.
+        </p>
+      ))}
 
       <div className="space-y-4 px-5 py-4">
         <div>

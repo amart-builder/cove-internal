@@ -257,15 +257,14 @@ test("installer local env lookup works in an empty process environment", async (
   assert.equal(lookup("COVE_CHIEF_OF_STAFF"), "");
 });
 
-test("installer creates the optional env file safely and treats a slow worker as a warning", () => {
+test("installer creates the optional env file safely and requires a healthy worker", () => {
   const installer = readFileSync(path.join(ROOT, "scripts", "install-cove-local.sh"), "utf8");
   assert.match(installer, /install -m 600 \/dev\/null "\$REPO_DIR\/\.env\.local"/);
   assert.match(installer, /WORKER_HEARTBEAT_EPOCH/);
   assert.match(installer, /for _ in \$\(seq 1 30\)/);
-  assert.match(installer, /Warning: Cove web started/);
+  assert.match(installer, /Cove setup is incomplete: the worker has not written a fresh heartbeat/);
   assert.match(installer, /Claude worker status: ok/);
-  assert.match(installer, /Claude worker status: not started/);
-  assert.doesNotMatch(installer, /Claude worker did not become healthy[\s\S]{0,200}exit 1/);
+  assert.doesNotMatch(installer, /Claude worker status: not started/);
   assert.match(installer, /com\.cove\.chief-of-staff-drain\.plist/);
   assert.match(installer, /com\.cove\.chief-of-staff-sweep\.plist/);
   assert.match(installer, /com\.cove\.chief-of-staff-nightly\.plist/);

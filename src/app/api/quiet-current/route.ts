@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  acceptWorkSuggestion,
+  undoWorkSuggestionAcceptance,
   createWorkSuggestion,
   getQuietCurrentCsrfToken,
   getQuietCurrentSnapshot,
@@ -98,6 +100,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (action === "accept") {
+      const id = stringValue(body.id, "id", { required: true, max: 200 })!;
+      if (body.source !== "explicit_accept" && body.source !== "focus") throw new Error("Unknown acceptance action.");
+      return NextResponse.json(acceptWorkSuggestion(id, {source:body.source, expectedUpdatedAt:stringValue(body.expectedUpdatedAt,"expectedUpdatedAt",{max:80})}));
+    }
+    if (action === "undo_accept") {
+      return NextResponse.json(undoWorkSuggestionAcceptance(
+        stringValue(body.id,"id",{required:true,max:200})!,
+        stringValue(body.acceptanceId,"acceptanceId",{required:true,max:200})!,
+      ));
+    }
     if (action === "suggest") {
       const kind = (stringValue(body.kind, "kind", { max: 40 }) ??
         "create_task") as SuggestionKind;

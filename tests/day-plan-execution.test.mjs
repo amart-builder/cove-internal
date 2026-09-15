@@ -562,7 +562,7 @@ test('cloud kickoff uses the first three positions without owner-based backfill'
   );
 });
 
-test('reopening arrival quiesces queued and running agent work before a fresh restart', (t) => {
+test('reopening an active arrival preserves queued and running work without replay', (t) => {
   const { store, plan: original } = setup(t);
   let plan = original;
   for (const item of plan.items) {
@@ -584,54 +584,19 @@ test('reopening arrival quiesces queued and running agent work before a fresh re
   assert.equal(queued.status, 'queued');
 
   plan = mutate(store, plan, 'arrival_reopen');
-  assert.equal(plan.state, 'proposed');
-  assert.equal(store.getExecutionRun(queued.id).status, 'cancelled');
-  assert.equal(store.getExecutionRun(queued.id).errorCode, 'user_cancelled');
-  assert.equal(store.getExecutionRun(running.id).status, 'cancelling');
-  assert.equal(store.heartbeatExecutionRun(running.id, 222), false);
-  const restarted = store.mutateDayPlan({
+  assert.equal(plan.state, 'active');
+  assert.equal(store.getExecutionRun(queued.id).status, 'queued');
+  assert.equal(store.getExecutionRun(running.id).status, 'running');
+  assert.equal(store.heartbeatExecutionRun(running.id, 222), true);
+  const reviewed = store.mutateDayPlan({
     planId: plan.id,
     expectedVersion: plan.version,
-    mutationId: 'start-day:while-one-cancels',
+    mutationId: 'confirm-reviewed-day',
     action: 'start_day',
   });
-  plan = restarted.plan;
-  assert.equal(restarted.executionRuns.length, 1);
-  assert.equal(restarted.executionRuns[0].itemId, queued.itemId);
-  assert.equal(restarted.executionRuns[0].attempt, 2);
-  assert.deepEqual(restarted.kickoffSkips.map(({ itemId, reason, status }) => ({ itemId, reason, status })), [{
-    itemId: running.itemId,
-    reason: 'already_live',
-    status: 'cancelling',
-  }]);
-  assert.equal(
-    store.listExecutionRuns(plan.id).filter((run) =>
-      run.itemId === running.itemId &&
-      ['queued', 'starting', 'running', 'cancelling'].includes(run.status)
-    ).length,
-    1,
-  );
-  assert.equal(store.finishExecutionRun({ runId: running.id }).status, 'cancelled');
-
-  const replacement = store.kickoffItem({
-    planId: plan.id,
-    itemId: running.itemId,
-    expectedVersion: plan.version,
-    mutationId: 'kickoff:after-reopen-cancelled',
-  });
-  plan = replacement.plan;
-  assert.equal(replacement.run.status, 'queued');
-  assert.equal(replacement.run.attempt, 2);
-  assert.notEqual(replacement.run.id, running.id);
-
-  const liveStatuses = new Set(['queued', 'starting', 'running', 'cancelling']);
-  const allRuns = store.listExecutionRuns(plan.id);
-  for (const item of plan.items) {
-    assert.equal(
-      allRuns.filter((run) => run.itemId === item.id && liveStatuses.has(run.status)).length,
-      1,
-    );
-  }
+  assert.equal(reviewed.plan.arrivalState, 'confirmed');
+  assert.equal((reviewed.executionRuns ?? []).length, 0);
+  assert.equal(store.listExecutionRuns(plan.id).length, 2);
 });
 
 test('autonomous readiness requires enablement, allowlisted clean Git, DoD, opt-in, and budget', (t) => {

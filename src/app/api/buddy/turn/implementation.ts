@@ -154,6 +154,11 @@ export function attachBuddyRun(input: {
           throw error;
         }
       }
+      // Confirmed effects survive overflow. Repeating the original request can
+      // duplicate work, so let the person continue from the saved receipts.
+      if (authoritativeChanges.length > 0 || authoritativeSessions.length > 0) {
+        return { ...initial, resultText: "Buddy completed some changes before the conversation filled up. Review the saved changes, then ask for the remaining work.", errorSubtype: "context_overflow_after_changes" };
+      }
       input.send({ kind: "compacting" });
       streamedText = "";
       authoritativeChanges.length = 0;

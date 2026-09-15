@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolveBriefFileSourcePolicy } from "../day-plan/brief-sources";
+import { planningQuestions } from "./questions";
 import { phoneReminderSnapshot } from "../apple-reminders/queue.mjs";
 import { responsibilityDesk, type Responsibility } from "../responsibility/store";
 import type Database from "better-sqlite3";
@@ -86,10 +89,58 @@ function safeJson(value: unknown, maximum: number): string {
 
 function boundedSection(title: string, content: string[], maximum: number): string {
   const header = `## ${title}\n`;
-  const body = content.length > 0 ? content.join("\n") : "none";
-  if (header.length + body.length <= maximum) return `${header}${body}`;
-  const marker = "\n[section truncated]";
-  return `${header}${body.slice(0, Math.max(0, maximum - header.length - marker.length))}${marker}`;
+  const records = content.flatMap((line) => line.split("\n"));
+  const selected: string[] = [];
+  let remaining = maximum - header.length - 160;
+  for (const record of records) {
+    if (record.length + 1 > remaining) continue;
+    selected.push(record);
+    remaining -= record.length + 1;
+  }
+  return `${header}${selected.join("\n") || "none"}\nCoverage: included ${selected.length}/${records.length} records; omitted ${records.length - selected.length}.`;
+}
+function operatorContext(dataDir: string): string[] {
+  const policy = resolveBriefFileSourcePolicy({ dataDir });
+  return Object.entries(policy)
+    .filter(([id]) => id === "goals" || id === "operator_profile")
+    .map(([id, source]) => {
+      try {
+        const content = readFileSync(source.path, "utf8");
+        return `${id} as of ${statSync(source.path).mtime.toISOString()}: ${content.slice(0, 1400)}${content.length > 1400 ? " [source truncated]" : ""}`;
+      } catch {
+        return `${id}: unavailable`;
+      }
+    });
+}
+function acceptedFocus(db: Database.Database, today: string): string[] {
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE name='day_plans'").get())
+    return ["No day plan is stored."];
+  const row = db
+    .prepare(
+      "SELECT id,version,plan_state,items_json FROM day_plans WHERE local_date=?",
+    )
+    .get(today) as
+    | { id: string; version: number; plan_state: string; items_json: string }
+    | undefined;
+  if (!row) return ["No current selection."];
+  return [
+    `Plan ${row.id}, revision ${row.version}, state ${row.plan_state}`,
+    ...(
+      JSON.parse(row.items_json) as Array<{
+        taskId: string;
+        title: string;
+        decision: string;
+        position: number;
+      }>
+    ).map((item) =>
+      JSON.stringify({
+        id: item.taskId,
+        title: item.title,
+        decision: item.decision,
+        position: item.position,
+      }),
+    ),
+  ];
 }
 
 const RECENTLY_CREATED_HOURS = 48;
@@ -197,7 +248,7 @@ async function calendarSection(input: {
     });
     return events.length > 0
       ? events.map((event) =>
-          `- ${stripStoredText(event.start, 50)} to ${stripStoredText(event.end, 50)} | ${stripStoredText(event.summary, 500) || "untitled"} | attendees ${event.attendees.map((attendee) => stripStoredText(attendee.email, 200)).join(", ") || "none"}`
+            `- id ${stripStoredText(event.id, 200)} | ${stripStoredText(event.start, 50)} to ${stripStoredText(event.end, 50)} | ${stripStoredText(event.summary, 500) || "untitled"} | attendees ${event.attendees.map((attendee) => stripStoredText(attendee.email, 200)).join(", ") || "none"}`
         )
       : ["No calendar events today or tomorrow."];
   } catch {
@@ -413,7 +464,7 @@ export async function buildChiefOfStaffSnapshot(input: {
       minute: "2-digit",
       timeZoneName: "short",
     }).format(now);
-    const desk=responsibilityDesk(db,now,8000);
+    const desk=responsibilityDesk(db,now, 5700);
     input.onResponsibilities?.(desk.seen);
     const sections = [
       boundedSection("Wake", [
@@ -426,42 +477,75 @@ export async function buildChiefOfStaffSnapshot(input: {
         ...(input.wake.note ? [`Note: ${stripStoredText(input.wake.note, 1200)}`] : []),
         `Payload: ${safeJson(input.wake.payload, 1200)}`,
       ], 1_600),
-      boundedSection("Phone reminder delivery", phoneReminderSnapshot(input.dataDir), 2200),
-      boundedSection("Rejected actions from previous wake", previousRejections(db, input.jobId), 1_800),
-      boundedSection("Responsibilities", [desk.text], 8300),
-      boundedSection("Open tasks", taskSection(db, now), 1000),
+      boundedSection(
+        "Current goals and operator context",
+        operatorContext(input.dataDir),
+        3000,
+      ),
+      boundedSection(
+        "Accepted focus and current plan",
+        acceptedFocus(db, today),
+        1900,
+      ),
+      boundedSection(
+        "Pending questions",
+        planningQuestions(db, now).map((q) => JSON.stringify(q)),
+        1700,
+      ),
+      boundedSection("Phone reminder delivery", phoneReminderSnapshot(input.dataDir),
+        1000,
+      ),
+      boundedSection("Rejected actions from previous wake", previousRejections(db, input.jobId),
+        800,
+      ),
+      boundedSection("Responsibilities", [desk.text], 6000),
+      boundedSection("Open tasks", taskSection(db, now), 700),
       ...(salesPipelineEnabled(input.env) ? [
         boundedSection("Pipeline", pipelineSection({
           dbPath: input.dbPath,
           today,
           lastWakeAt: input.session.lastWakeAt,
-        }), 2_600),
+        }),
+              1_400,
+            ),
       ] : []),
       boundedSection("Calendar today and tomorrow", await calendarSection({
         dataDir: input.dataDir,
         today,
         timezone,
         calendar: input.calendar,
-      }), 1_800),
-      boundedSection("Receipts since last wake", receiptSection(db, input.session.lastWakeAt), 1_600),
-      boundedSection("Quiet Current", quietCurrentSection(input.dataDir), 1_600),
+      }),
+        1_600,
+      ),
+      boundedSection("Receipts since last wake", receiptSection(db, input.session.lastWakeAt),
+        1000,
+      ),
+      boundedSection("Quiet Current", quietCurrentSection(input.dataDir), 1000),
       boundedSection("Attention budget", attentionSection({
         db,
         dataDir: input.dataDir,
         lastWakeAt: input.session.lastWakeAt,
         now,
-      }), 1_800),
+      }),
+        1_600,
+      ),
       boundedSection("Wake-specific context", reasonContext({
         reason: input.wake.reason,
         payload: input.wake.payload,
         dbPath: input.dbPath,
         now,
-      }), 1_800),
-      boundedSection("Recent chief-of-staff journal", readChiefOfStaffJournalLines(input.dataDir, 30), 1_500),
+      }),
+        1_600,
+      ),
+      boundedSection("Recent chief-of-staff journal", readChiefOfStaffJournalLines(input.dataDir, 10),
+        450,
+      ),
     ];
     const finalLine = "Reply with one JSON object matching the schema. Nothing else.";
     const body = sections.join("\n\n");
-    return `${body.slice(0, SNAPSHOT_MAX_CHARS - finalLine.length - 2)}\n\n${finalLine}`;
+    if (body.length + finalLine.length + 2 > SNAPSHOT_MAX_CHARS)
+      throw new Error("Snapshot section budgets exceed the envelope.");
+    return `${body}\n\n${finalLine}`;
   } finally {
     db.close();
   }

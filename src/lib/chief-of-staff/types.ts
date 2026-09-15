@@ -71,6 +71,7 @@ const ACTION_TEXT_LIMITS: Record<string, number> = {
 };
 
 export const CHIEF_OF_STAFF_ACTION_FIELDS: Record<string, readonly string[]> = {
+  replan_day: [],
   task_create: ["title", "details", "due_at", "remind_at", "priority", "project", "status"],
   task_update: ["expected_version", "task_id", "title", "details", "due_at", "remind_at", "priority", "status"],
   plan_update: ["ref_kind", "ref_id", "expected_version", "expected_revision", "next_action", "owner", "plan_state", "next_check_at", "planned_for", "estimate_minutes", "blocker", "goal", "completion_criterion"],
@@ -86,9 +87,7 @@ export const CHIEF_OF_STAFF_ACTION_FIELDS: Record<string, readonly string[]> = {
 };
 
 export function scrubModelText(value: string, maximum: number): string {
-  const scrubbed = value.split(/\r?\n/).map((line) =>
-    SECRET_LOOKING_TEXT.test(line) ? "[redacted]" : line
-  ).join("\n");
+  const scrubbed = value.split(/\r?\n/).map((line) => (SECRET_LOOKING_TEXT.test(line) ? "[redacted]" : line)).join("\n");
   return scrubbed.slice(0, Math.max(0, maximum));
 }
 
@@ -145,7 +144,7 @@ export function validateChiefOfStaffOutput(value: unknown): ChiefOfStaffOutput {
       "kind",
       "why",
       ...(typeof action.kind === "string"
-        ? CHIEF_OF_STAFF_ACTION_FIELDS[action.kind] ?? []
+        ? (CHIEF_OF_STAFF_ACTION_FIELDS[action.kind] ?? [])
         : []),
     ]);
     for (const [field, fieldValue] of Object.entries(action)) {
@@ -182,7 +181,7 @@ export function validateChiefOfStaffOutput(value: unknown): ChiefOfStaffOutput {
   if (actions.filter((action) => action.kind === "notify").length > 4) {
     throw new Error("actions may contain at most 4 notify items.");
   }
-  if (actions.filter(action => action.kind === "prepare").length > 1) throw new Error("A wake may prepare at most one draft.");
+  if (actions.filter((action) => action.kind === "prepare").length > 1) throw new Error("A wake may prepare at most one draft.");
   return { journal, watching, actions };
 }
 

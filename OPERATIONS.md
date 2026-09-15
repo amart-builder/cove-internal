@@ -2,7 +2,7 @@
 
 ## Install and start
 
-Follow `SETUP.md`. The installer renders absolute Node paths into LaunchAgents, creates a private empty `.env.local` when needed, starts the localhost app and background lanes, and reports a slow worker heartbeat as a warning with a retry command.
+Follow `SETUP.md`. The installer renders absolute Node paths into LaunchAgents, creates a private empty `.env.local` when needed, and starts the localhost app and background lanes. A missing fresh worker heartbeat fails installation with diagnostics and a retry command. A responding website alone does not prove the worker is healthy.
 
 The supported app URL is `http://127.0.0.1:3200` (or `http://localhost:3200`). Logs live in `~/Library/Logs/` with `cove` in the filename.
 

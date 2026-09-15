@@ -500,7 +500,7 @@ test('task sessions fall back to Cove outputs when no Atlas project resolves', a
   assert.equal((await response.json()).runs[0].resumeCommand, run.resumeCommand);
 });
 
-test('task sessions resolve a project from the title and launch from that workspace', (t) => {
+test('task sessions keep title-only project mentions in their own output folder', (t) => {
   const projectDir = '/Users/example/Atlas/Projects/newsletter';
   const hints = [];
   const { manager, spawnCalls } = fixture(t, {
@@ -519,17 +519,9 @@ test('task sessions resolve a project from the title and launch from that worksp
     },
   });
 
-  assert.deepEqual(hints, ['Finish newsletter issues 2 and 3']);
-  assert.equal(run.workspacePath, projectDir);
-  assert.equal(spawnCalls[0].options.cwd, projectDir);
-  assert.match(
-    run.resumeCommand,
-    new RegExp(`^cd '${projectDir}' && claude --resume '${run.claudeSessionId}' --permission-mode plan --safe-mode`),
-  );
-  assert.match(run.resumeCommand, /--tools 'Glob,Grep,Read,Skill,WebFetch,WebSearch'/);
-  assert.match(run.resumeCommand, /--strict-mcp-config/);
-  assert.match(run.resumeCommand, /--no-chrome$/);
-  assert.notEqual(run.outputDir, run.workspacePath);
+  assert.deepEqual(hints, []);
+  assert.equal(run.workspacePath, undefined);
+  assert.equal(spawnCalls[0].options.cwd, run.outputDir);
 });
 
 test('task session run payload omits resumeCommand without a Claude session id', async (t) => {
@@ -1757,4 +1749,31 @@ test('single-provider setup rejects an unconnected override before spawning', t 
   writeFileSync(path.join(f.dir, 'agent-settings.json'), JSON.stringify({ version: 1, provider: 'claude', model: 'claude-fable-5-1', effort: 'low' }));
   assert.throws(() => f.manager.launch({ taskId: 'unconnected', provider: 'codex', owner: 'together', promptSnapshot: SNAPSHOT }), /Connect and verify codex/);
   assert.equal(f.spawnCalls.length, 0);
+});
+
+test('task sessions preserve the persisted explicit project over a stale browser project', (t) => {
+  const hints=[];
+  const {manager,spawnCalls,dbPath}=fixture(t,{resolveProjectDirectory:hint=>{hints.push(hint);return `/work/${hint}`;}});
+  const db=new Database(dbPath);
+  db.prepare("INSERT INTO tasks(id,title,project,status,created_at,updated_at) VALUES('assigned','Prepare proposals','catalyst','open',?,?)").run(new Date().toISOString(),new Date().toISOString());db.close();
+  const run=manager.launch({taskId:'assigned',owner:'together',mode:'planning',promptSnapshot:{...SNAPSHOT,project:'Radius EHR'}});
+  assert.deepEqual(hints,['catalyst']);
+  assert.equal(run.promptSnapshot.project,'catalyst');
+  assert.equal(run.workspacePath,'/work/catalyst');
+  assert.equal(spawnCalls[0].options.cwd,'/work/catalyst');
+});
+test('task sessions do not turn partial project matches into a workspace', (t) => {
+  const {manager,spawnCalls,dbPath}=fixture(t,{resolveProjectDirectory:()=>'/work/atlas-system'});
+  const db=new Database(dbPath);db.prepare("INSERT INTO tasks(id,title,project,status,created_at,updated_at) VALUES('ambiguous','Draft a plan','Atlas','open',?,?)").run(new Date().toISOString(),new Date().toISOString());db.close();
+  const run=manager.launch({taskId:'ambiguous',owner:'together',mode:'planning',promptSnapshot:{...SNAPSHOT,project:'Atlas'}});
+  assert.equal(run.workspacePath,undefined);
+  assert.equal(spawnCalls[0].options.cwd,run.outputDir);
+});
+test('persisted unassigned work ignores stale project snapshots and title hints', (t) => {
+  const {manager,spawnCalls,dbPath}=fixture(t,{resolveProjectDirectory:()=>{throw new Error('No project should be inferred');}});
+  const db=new Database(dbPath);db.prepare("INSERT INTO tasks(id,title,project,status,created_at,updated_at) VALUES('unassigned','Review Radius EHR notes','','open',?,?)").run(new Date().toISOString(),new Date().toISOString());db.close();
+  const run=manager.launch({taskId:'unassigned',owner:'together',mode:'planning',promptSnapshot:{...SNAPSHOT,title:'Review Radius EHR notes',project:'Radius EHR'}});
+  assert.equal(run.promptSnapshot.project,undefined);
+  assert.equal(run.workspacePath,undefined);
+  assert.equal(spawnCalls[0].options.cwd,run.outputDir);
 });

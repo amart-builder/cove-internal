@@ -8,7 +8,8 @@ set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 LOG="$HOME/Library/Logs/cove-email-triage.log"
-CONFIG="$REPO_DIR/data/cove-workspace.json"
+RUNTIME_DATA_DIR="$(node "$REPO_DIR/scripts/lib/cove-runtime-paths.mjs" "$REPO_DIR" dataDir)" || exit 1
+CONFIG="$RUNTIME_DATA_DIR/cove-workspace.json"
 
 ts() { date "+%Y-%m-%d %H:%M:%S"; }
 

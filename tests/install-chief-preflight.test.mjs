@@ -17,7 +17,9 @@ function preflight(t, { enabled = true, codex = true, claude = true, provider, m
   for (const folder of ['scripts/lib', 'src/lib', 'node_modules/.bin', 'data', 'home']) {
     mkdirSync(path.join(root, folder), { recursive: true });
   }
-  copyFileSync(new URL('../scripts/lib/load-local-env.mjs', import.meta.url), path.join(root, 'scripts/lib/load-local-env.mjs'));
+  for (const name of ['load-local-env.mjs', 'cove-runtime-paths.mjs', 'cove-install-runtime.mjs']) {
+    copyFileSync(new URL(`../scripts/lib/${name}`, import.meta.url), path.join(root, 'scripts/lib', name));
+  }
   for (const name of ['agent-settings.mjs', 'operator-runtime.mjs', 'env-runtime.mjs']) copyFileSync(new URL(`../src/lib/${name}`, import.meta.url), path.join(root, 'src/lib', name));
   symlinkSync('/usr/bin/true', path.join(root, 'node_modules/.bin/next'));
   symlinkSync('/usr/bin/true', path.join(root, 'node_modules/.bin/tsx'));

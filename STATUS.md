@@ -24,6 +24,151 @@
 
 ---
 
+## 2026-09-15 GPT-6 and Fable 5.1 release review (LIVE, LOCAL)
+
+- Reviewed the current product contract, shipped screens, runtime authority,
+  background work, installer and persisted notification history. Coverage is
+  explicit: 334 production files fully read, 11 sampled, 21 unclaimed. This is
+  evidence-based release review, not a claim that every line is bugless.
+- Repaired full-brief preservation and refresh races, overlapping plan review,
+  responsive Today layout, closeout/completion/Undo consistency, stale worker
+  edits, retry recovery, CRM autosave errors, Codex planning context isolation,
+  notification meeting reservation and transport wording, and selected runtime
+  paths/installer endpoint pairing. Independent GPT and Fable reviews clear.
+- Exact final6 sanitized candidate: 612 software/example files. Verification:
+  1,598 passing tests, zero failures, one opt-in skip, TypeScript, zero-warning
+  lint, production build; dependency audit zero known advisories.
+- Activated build UDBGxv8FkFPaBro01mcWj. Live reload displays all eight paragraphs
+  of the latest saved brief. Current day, chosen item decisions/order and active
+  state preserved. Online backup and DB integrity passed; worker heartbeat fresh.
+  The final UI-only update left the running brief worker uninterrupted.
+- Recovery: data/build-backups/20260915-gary-review-brief-refresh/ and earlier
+  full-review backup data/build-backups/20260915-gary-review/.
+- Notification audit found nine meeting alerts starved by the daily allowance;
+  upcoming known meetings now reserve slots within the existing six-alert cap.
+  The matching unconfirmed-text alert was an SSH connect timeout before Messages
+  could send. Fresh read-only connection test failed too; that phone route is
+  still unavailable. No test text or email was sent and no route was changed.
+- Gary disposition: supervised setup/upgrade using the exact sanitized archive.
+  Follow GARY-ACCEPTANCE.md on his Mac; inspect an existing install first. Native
+  provider grouping, account access, first real brief and notification display
+  are not certified by source tests. Source remains uncommitted with prior work
+  preserved; GitHub main was not updated.
+- Reports, manifest/hash, client archive and next-session handoff:
+  data/review-artifacts/gary-release-20260915/. QA processes stopped. Next owner:
+  Alex with setup agent, for Gary's actual-device acceptance gates.
+
+## 2026-09-15 Full brief survives priority edits (LIVE, LOCAL)
+
+- Alex requires the full written brief on Morning Arrival. Fixed the projection
+  that replaced saved prose with task titles and "Added from Not today" after
+  the five-priority update. Original headline and every paragraph now persist
+  through edits, reordering, completion and reload. Current plan remains separate.
+- Missing/corrupt artifacts show loading or retry status, never task fallback
+  prose. A later deferred/failed attempt cannot suppress an existing full brief.
+- Regression reproduced the five-priority failure before the fix. Independent
+  fresh-context review clear. Isolated checks passed TypeScript, zero-warning
+  lint, 1,477 enabled tests (one opt-in skip) and production build. A missing
+  example fixture in the isolated copy was restored and its 11-test suite passed.
+- Activated `uZN24mafyJwtTDC_7UU3f` with checked online backup and prior build
+  recovery. Restarted only local web. Live API preserves all seven original
+  paragraphs and all five accepted priorities. DB integrity passed; browser
+  confirms the full narrative is present after reload.
+- Evidence: `data/review-artifacts/full-brief-20260915/acceptance.md`. Recovery:
+  `data/build-backups/20260915-full-brief/`. Source remains uncommitted alongside
+  preserved prior work. No new model generation or task mutation in this repair.
+- Next: ordinary use exercises the updated display; Gary's deeper system review
+  remains a separate task. Session lock released at completion.
+
+## 2026-09-15 Calendar authority and unnecessary questions (LIVE, LOCAL)
+
+- Fresh calendar observations now carry exact connected scope, window, timestamp
+  and completeness into daily planning. Current bookings govern scheduled time
+  ahead of older pipeline notes. Missing bookings do not imply cancellation or
+  a new date. Partial/stale/failed checks retain explicit uncertainty.
+- Compact current calendar records preserve all fetched events and exclude stale
+  cached occurrences for this pass without deleting history. Full agenda and
+  working-view provenance survive assembly. Pipeline rows include record age.
+- Shared planning guidance checks supplied sources before asking Alex and does
+  not ask him to reconcile a stale pipeline date against a complete current
+  schedule. Prompt version 21. Independent review clear after a provenance fix.
+- Full isolated verification passed 1,475 tests, zero failed, one opt-in skip,
+  TypeScript, zero-warning lint and production build. A real-model synthetic
+  conflict test asked no unnecessary question and made no cancellation/date guess.
+- Activated `R9ib8LajzPuJBJBSCtXFn` with checked DB backup and idle-state check;
+  existing web and brief worker restarted. Health routes, DB integrity and
+  heartbeat passed. Alex's saved “it was moved” answer remains intact; the
+  reported question is absent from pending questions. His page was not refreshed.
+- Automatic review blocked an extra private-data model test. It was replaced
+  with wholly synthetic validation. No private-data workaround was executed.
+  The next ordinary brief remains the live-calendar judgment check.
+- Recovery: `data/build-backups/20260915-calendar-conflict/`. Evidence:
+  `data/review-artifacts/calendar-conflict-20260915/acceptance.md`.
+  Prior dirty work preserved; source uncommitted and unpushed. Lock released
+  at completion. Jarvis handoff is queued locally because its hub is unreachable.
+  No live task, pipeline record or calendar event was changed.
+
+## 2026-09-15 Full Morning Brief restored (LIVE, LOCAL)
+
+- Fixed the September 14 and 15 generation failures: the worker's extra 62k
+  aggregate input cap erased the required saved closeout. Source-specific and
+  technical model boundaries remain; required evidence now reaches the writer.
+- Restored the full narrative in the shared daily planning output. Arrival shows
+  all its paragraphs while the ordered selection matches. Changed human choices
+  or source state suppress obsolete prose. Date correction and normalized
+  proposal owners preserve the same narrative through storage and projection.
+- Failure and retry are visible even when the API supplies fallback task content.
+  Missing-source errors no longer incorrectly blame profile/goals setup.
+- Independent fresh-context review cleared the fix after two edge-case repairs.
+  All 1,472 enabled tests passed (one opt-in skip), with old version/message
+  assertions updated and affected suites rerun. Typecheck, zero-warning lint,
+  production build and whitespace checks passed in an isolated copy.
+- Activated build `B_ONDES9z7WaJWgbSIqj7` with installed settings, checked online
+  DB backup, idle check and existing web/worker restarts. Health routes returned
+  200; DB quick_check passed and heartbeat refreshed.
+- Clicked the repaired retry control in Alex's existing Chrome page. Live brief
+  `afa4b453-6a10-4f44-8383-e90b209ce7e0` succeeded at 10:30:17 Pacific. Eight full
+  paragraphs appeared automatically in Morning Arrival and layout was inspected.
+  Today remains proposed. No question was answered or task/day accepted.
+- Recovery: `data/build-backups/20260915-brief-fix/`. Evidence and a documented
+  cleanup of twelve synthetic test-usage receipts:
+  `data/review-artifacts/brief-fix-20260915/acceptance.md`.
+- Source remains uncommitted alongside prior work. No push or external message.
+  Jarvis handoff is queued locally because its hub was unreachable; STATUS and
+  the acceptance report are the confirmed handoff sources.
+  Next: ordinary use verifies the quality of the new daily narrative; today's
+  live generation and render are proved. Session lock released at completion.
+
+## 2026-09-11 Shared question-guided daily planning (LIVE, LOCAL)
+
+- Implemented Alex's approved bounded architecture. One versioned planning decision
+  drives the brief, Arrival and accepted Today actions. The seven guiding questions
+  inform model judgment without adding a fixed priority ranking.
+- Inferred preparation stays a proposal until acceptance. Linked responsibilities
+  preserve source identity and real checks through acceptance, rescheduling and
+  cancellation. Due preparation checks have a model-independent fallback.
+- Human edits survive delayed output; proposed revisions need explicit acceptance.
+  Stale source writes retry once with fresh context. Pending questions have durable
+  answer, park, expiry and revision handling in Arrival, closeout, task editing
+  and Buddy's data interface. Context is bounded by section with coverage disclosed.
+- Independent storage and integration reviews cleared the final changes. All 1,466
+  enabled test cases passed, one opt-in skip, TypeScript, zero-warning lint and the
+  installed-environment production build passed. Two test fixture failures caused
+  by a global test-data override were corrected by rerunning those files without it.
+- Synthetic browser acceptance proved brief/Arrival/Today agreement, explicit
+  proposal acceptance, correct first-focus refresh and question-answer persistence.
+- Build `dZkIxP4iei4oIFg4cX_7i` activated after idle and backup checks. Existing local
+  web and worker restarted; three routes returned 200, DB integrity passed and
+  worker heartbeat refreshed. Existing model settings and prior dirty work preserved.
+- Recovery: `data/build-backups/20260911-daily-planning/`. Evidence and exact scope:
+  `data/review-artifacts/daily-planning-20260911/acceptance.md`.
+- Jarvis handoff is queued locally because its hub was unreachable. STATUS and
+  the acceptance report are the confirmed handoff sources; the session lock is released.
+- Source remains uncommitted. No live task was accepted or completed, no new model
+  generation was manually triggered, and nothing was published or sent. Temporary
+  test processes stopped. Next: the next ordinary brief and subsequent use establish
+  judgment quality; the implementation checks prove consistency and persistence.
+
 ## 2026-09-11 Morning Brief at 08:00 after closeout (LIVE, LOCAL)
 
 - Alex requested: close the previous day in advance and the brief runs at 08:00;
@@ -47,9 +192,52 @@
   rows; removed only those exact rows after saving a recovery copy. All subsequent
   verification was isolated. No task, closeout or message was submitted by this task.
 - Recovery: `data/build-backups/20260911-brief-schedule/`. Evidence:
-  `data/review-artifacts/brief-schedule-20260911/`. Source committed for the authorized GitHub push;
+  `data/review-artifacts/brief-schedule-20260911/`. Source pushed as `383c80e` to the existing private development branch;
   prior Buddy/closeout changes preserved. Next: ordinary weekday use verifies
   the real-clock run. Mac must be awake; otherwise generation catches up on wake.
+
+## 2026-09-10 Closeout completed-task limit (LIVE, LOCAL)
+
+- Fixed the reported `completedHumanTaskIds has too many values` error. The
+  September 10 plan had 11 completed items; the route incorrectly reused the
+  ten-candidate Arrival cap for accumulated completed history.
+- Removed that cap from submission parsing and canonical completion reconciliation.
+  Per-ID validation, plan membership and the 32 KiB request bound remain enforced.
+- Regression proves completion history can grow past ten, REST recovery updates
+  all completions, the note saves, foreign tasks are rejected and replay is safe.
+  Independent fresh-context review clear. Isolated verification passed: 1,437
+  tests, zero failures, one opt-in skip, TypeScript, zero-warning lint and build.
+- Activated build `a-PJv0Rb7AUqG5k8ZYuoS` with installed settings and checked backup.
+  Initial macOS bootstrap failed and rollback restored the old app; the supported
+  kickstart restart then succeeded. Live read-only checks and a nonexistent-plan
+  validation probe proved 11 IDs pass parsing and oversized requests still fail.
+- Original browser form and full note remain intact. No day was submitted and
+  no task was changed. Next: Alex clicks Close the day again without refreshing.
+  Recovery: `data/build-backups/20260910-closeout-limit/`. Evidence:
+  `data/review-artifacts/closeout-limit-20260910/`. Source remains uncommitted;
+  existing unrelated local changes are preserved.
+
+## 2026-09-10 Buddy access from reminders (LIVE, LOCAL)
+
+- Buddy stays above notification sheets. An Ask Buddy about this button opens
+  the chat with the exact task, notification explanation and saved origin
+  attached separately from page context. Closing the sheet clears that attachment.
+- The reminder now shows Where this task came from when origin exists. Generic
+  scheduled reminders no longer claim Alex personally requested them.
+- Notification and Buddy controls share keyboard navigation; Escape closes
+  Buddy first and closing chat restores focus. Independent review cleared the
+  final changes. Desktop and phone synthetic browser checks proved context,
+  cleanup and keyboard behavior without model calls or task mutations.
+- Final isolated verification passed: 1,437 tests passed, zero failed, one
+  opt-in live test skipped, TypeScript, zero-warning lint and production build.
+  A subsequent build preserved the installed public environment configuration.
+- Live build VQjLVlFTLnLJW7a2znpVw activated after a checked backup and idle check.
+  Web health and read-only live notification/Buddy checks passed. Phone runtime,
+  environment and Apple Reminders service preserved. Recovery:
+  data/build-backups/20260910-buddy-reminder/. Evidence:
+  data/review-artifacts/buddy-reminder-20260910/.
+- No task data was changed and no model response was tested. Source remains
+  uncommitted. Next: Alex refreshes Cove to use the updated reminder screen.
 
 ## 2026-09-10 Charge emails stay in review, without extra alerts
 

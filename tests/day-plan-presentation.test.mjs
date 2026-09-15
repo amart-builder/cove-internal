@@ -102,11 +102,11 @@ test('an all-Claude plan still yields one deterministic handoff-preparation focu
   const items = [item('first', 'claude'), item('second', 'claude')];
   assert.equal(selectRecommendedHumanFocus(items)?.id, 'first');
   assert.equal(
-    ownerDescription('claude'),
+    ownerDescription('claude', 'supabase'),
     'Starts a full Claude session in auto-edits mode when you start your day.',
   );
   assert.equal(
-    ownerDescription('together'),
+    ownerDescription('together', 'supabase'),
     'Starts the same task in plan mode when you start your day.',
   );
 });
@@ -639,4 +639,25 @@ test('the shelf overflow count reflects the filtered list, not held one-offs', (
     shelf.map((task) => task._id),
     ['rhythm-a', 'rhythm-b', 'rhythm-c', 'rhythm-d', 'email'],
   );
+});
+
+
+test('full saved brief stays visible while a later attempt waits or fails', () => {
+  for (const generationState of ['queued', 'running', 'deferred', 'failed', 'succeeded']) {
+    const result = morningBriefArrivalPresentation({ headline: 'The full brief', paragraphs: ['First complete paragraph.', 'Second complete paragraph.'], hasBriefContent: true, briefAttached: true, briefWriting: false, generationState });
+    assert.equal(result.leadHeadline, 'The full brief');
+    assert.deepEqual(result.body, ['First complete paragraph.', 'Second complete paragraph.']);
+    assert.equal(result.failed, false);
+    assert.equal(result.stalled, false);
+  }
+});
+
+test('missing or unreadable brief never displays task fallback text', () => {
+  for (const generationState of ['queued', 'running', 'deferred', 'failed', 'succeeded']) {
+    for (const briefAttached of [true, false]) {
+      const result = morningBriefArrivalPresentation({ headline: 'Current task', paragraphs: ['Added from Not today.'], hasBriefContent: false, briefAttached, briefWriting: generationState === 'running', generationState });
+      assert.deepEqual(result.body, []);
+      assert.doesNotMatch(result.leadHeadline ?? '', /Current task|Added from Not today/);
+    }
+  }
 });

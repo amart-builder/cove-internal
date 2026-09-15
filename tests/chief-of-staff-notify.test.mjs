@@ -729,9 +729,9 @@ test("attention budget preserves suppressions ahead of bounded reminder detail",
   for (let index = 0; index < 3; index += 1) {
     assert.match(section, new RegExp(`suppressed-ref-${index}`));
   }
-  for (let index = 0; index < 8; index += 1) {
-    assert.match(section, new RegExp(`task reminder-${index}`));
-  }
+  assert.match(section, /task reminder-0/);
+  assert.match(section, /Coverage: included \d+\/\d+ records; omitted \d+\./);
+  assert.ok(section.length <= 1600);
   assert.doesNotMatch(section, /\[section truncated\]/);
 });
 

@@ -1,5 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveEmailRuntimePaths } from "../src/lib/email/runtime-paths";
+import { loadLocalEnv } from "./lib/load-local-env.mjs";
 import { createGoogleWorkspaceGateway } from "../src/lib/workspace/google/gateway";
 
 function header(
@@ -21,7 +23,9 @@ function authoredText(text: string): string {
 
 async function main(): Promise<void> {
   const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  const gateway = createGoogleWorkspaceGateway({ dataDir: path.join(repoDir, "data") });
+  loadLocalEnv(repoDir);
+  const { dataDir } = resolveEmailRuntimePaths({ repoDir });
+  const gateway = createGoogleWorkspaceGateway({ dataDir });
   const page = await gateway.mail.listMessages({
     query: "in:sent newer_than:90d",
     maxResults: 60,

@@ -1,4 +1,5 @@
 'use client';
+import PlanningQuestion from './arrival/PlanningQuestion';
 
 import { useEffect, useRef, useState } from 'react';
 import { getRuntimeMode } from '@/lib/runtime/mode';
@@ -52,6 +53,7 @@ type UpdateTaskInput = TaskEditGuard & {
 
 interface TaskDetailProps {
   taskId: string;
+  returnFocusId?: string;
   task: TaskData;
   columns: ColumnData[];
   onClose: () => void;
@@ -77,6 +79,7 @@ function formatTimestamp(epoch: number): string {
 
 export default function TaskDetail({
   taskId,
+  returnFocusId,
   task,
   columns,
   onClose,
@@ -89,7 +92,7 @@ export default function TaskDetail({
   sessionError,
   onLaunchSession,
 }: TaskDetailProps) {
-  const [returnFocus] = useState<HTMLElement | null>(() => typeof document === 'undefined' ? null : document.activeElement as HTMLElement);
+  const [returnFocus] = useState<HTMLElement | null>(() => typeof document === 'undefined' ? null : (returnFocusId ? document.getElementById(returnFocusId) : null) ?? document.activeElement as HTMLElement);
   const baselineRef = useRef(taskEditorDraft(task));
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? '');
@@ -362,6 +365,8 @@ export default function TaskDetail({
             )}
           </section>
         )}
+
+        {localMode && <PlanningQuestion key={task._id} taskId={task._id} />}
 
         {actionError && (
           <p role="alert" className="mt-4 text-xs text-accent-red">

@@ -119,7 +119,7 @@ export function currentCoveReadiness(input: {
         state: writerState,
         lastSuccessAt: latestBrief?.finished_at ?? null,
         label: writer === "codex"
-          ? "GPT-5.6 Sol"
+          ? latestBrief?.model_alias ?? "Codex"
           : writer === "claude"
             ? latestBrief?.model_alias ?? "Claude"
             : "Brief writer",

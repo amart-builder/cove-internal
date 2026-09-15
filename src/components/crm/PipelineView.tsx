@@ -562,9 +562,11 @@ function DealDetailPanel({
   const [notes, setNotes] = useState(deal.notes);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [saveError, setSaveError] = useState<string>();
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<EditableDealField, string>>>({});
   const saveTimer = useRef<number | undefined>(undefined);
   const reconcileTimers = useRef<Set<number>>(new Set());
   const requestId = useRef(0);
+  const latestRequestByField = useRef<Partial<Record<EditableDealField, number>>>({});
   const lastStoredDrafts = useRef({
     monthlyValue: deal.monthly_value?.toString() ?? '',
     discoveryPrice: deal.discovery_price?.toString() ?? '',
@@ -632,9 +634,11 @@ function DealDetailPanel({
 
   async function saveField(field: EditableDealField, value: PipelineDealPatch[EditableDealField]) {
     const id = ++requestId.current;
+    latestRequestByField.current[field] = id;
     if (saveTimer.current !== undefined) window.clearTimeout(saveTimer.current);
     setSaveStatus('saving');
     setSaveError(undefined);
+    setFieldErrors(current => ({ ...current, [field]: undefined }));
     try {
       const saved = await upsertDeal({ contactId: deal.contact_id, patch: { [field]: value } });
       if (id !== requestId.current) return;
@@ -642,9 +646,9 @@ function DealDetailPanel({
       setSaveStatus('saved');
       saveTimer.current = window.setTimeout(() => setSaveStatus('idle'), 3_000);
     } catch (error) {
-      if (id !== requestId.current) return;
-      setSaveStatus('idle');
-      setSaveError(error instanceof Error ? error.message : String(error));
+      if (id !== latestRequestByField.current[field]) return;
+      if (id === requestId.current) setSaveStatus('idle');
+      setFieldErrors(current => ({ ...current, [field]: error instanceof Error ? error.message : String(error) }));
     }
   }
 
@@ -676,7 +680,7 @@ function DealDetailPanel({
             <div className="flex items-center gap-2">
               <h2 className={`truncate ${SECTION_TITLE_CLASS}`}>{deal.name}</h2>
               <span role="status" aria-live="polite" className="text-[11.5px] text-muted-foreground">
-                {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : ''}
+                {Object.values(fieldErrors).some(Boolean) ? 'Some changes not saved' : saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : ''}
               </span>
             </div>
             <p className="mt-1 truncate text-[13px] text-muted-foreground">{deal.company || 'No company'}</p>
@@ -700,6 +704,11 @@ function DealDetailPanel({
       </div>
 
       {saveError && <div className="border-b bg-accent-red/5 px-5 py-2 text-[12px] text-accent-red">{saveError}</div>}
+      {Object.entries(fieldErrors).filter(([, message]) => message).map(([field, message]) => (
+        <p key={field} role="alert" className="border-b bg-accent-red/5 px-5 py-2 text-[12px] text-accent-red">
+          Could not save {field.replace(/([A-Z])/g, ' $1').toLowerCase()}: {message}. Your text is still here; edit this field and leave it to retry.
+        </p>
+      ))}
 
       <div className="space-y-5 p-7">
         <div className="grid grid-cols-2 gap-4">

@@ -66,7 +66,7 @@ export default function ArrivalStepBrief({
           </div>
         )}
 
-        {briefWriting && (
+        {briefWriting && !briefAttached && (
           <div className="mt-7">
             <BriefProgress
               startedAt={briefGeneration?.startedAt}
@@ -82,7 +82,7 @@ export default function ArrivalStepBrief({
           </p>
         )}
 
-        {briefGeneration?.state === 'deferred' && (
+        {!briefAttached && briefGeneration?.state === 'deferred' && (
           <p role="status" className="mt-6 text-sm leading-relaxed text-muted-foreground">
             Cove will try again automatically{briefGeneration.retryAt ? ` after ${new Date(briefGeneration.retryAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : ''}. You can continue to Today.
           </p>
@@ -98,7 +98,9 @@ export default function ArrivalStepBrief({
             // second request before the first has said anything.
             disabled={forcingBrief}
           >
-            {forcingBrief ? 'Starting…' : 'Generate your brief'}
+            {briefAttached
+              ? forcingBrief ? 'Loading…' : 'Retry loading your brief'
+              : forcingBrief ? 'Starting…' : failed ? 'Try writing my brief again' : 'Generate your brief'}
           </button>
         )}
 

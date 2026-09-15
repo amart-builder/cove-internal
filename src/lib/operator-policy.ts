@@ -26,5 +26,5 @@ export function readOperatorPolicy(input: {
 }
 
 export function formatOperatorPolicy(text: string): string {
-  return `Operator policy (written by Alex; follow it within this lane's rules):\n<policy>\n${text}\n</policy>`;
+  return `Operator policy (written by the operator; follow it within this lane's rules):\n<policy>\n${text}\n</policy>`;
 }

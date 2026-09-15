@@ -3,8 +3,18 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-DB="${COVE_DB_PATH:-$REPO_DIR/data/cove.db}"
-BACKUP_DIR="${COVE_BACKUP_DIR:-$REPO_DIR/data/backups}"
+NODE_REAL="${COVE_NODE_PATH:-$(command -v node 2>/dev/null || true)}"
+if [ -z "$NODE_REAL" ] || [ ! -x "$NODE_REAL" ]; then
+  echo "Could not find Node. Set COVE_NODE_PATH or restore Node before recovering Cove." >&2
+  exit 1
+fi
+PATH_RESOLVER="$REPO_DIR/scripts/lib/cove-runtime-paths.mjs"
+DB="$("$NODE_REAL" "$PATH_RESOLVER" "$REPO_DIR" dbPath)"
+BACKUP_DIR="$("$NODE_REAL" "$PATH_RESOLVER" "$REPO_DIR" backupDir)"
+if [ -z "$DB" ] || [ -z "$BACKUP_DIR" ]; then
+  echo "Could not resolve Cove's database and recovery paths. No files were changed." >&2
+  exit 1
+fi
 ASSUME_YES=0
 
 if [ "${1:-}" = "--yes" ]; then
@@ -38,7 +48,7 @@ if database_is_open; then
   exit 1
 fi
 
-"$(command -v node)" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$BACKUP"
+"$NODE_REAL" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$BACKUP"
 
 if [ "$ASSUME_YES" != "1" ]; then
   if [ ! -t 0 ]; then
@@ -58,7 +68,7 @@ TEMP="$DB.restore.$$"
 trap 'rm -f "$TEMP"' EXIT
 cp "$BACKUP" "$TEMP"
 chmod 600 "$TEMP"
-"$(command -v node)" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$TEMP"
+"$NODE_REAL" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$TEMP"
 
 STAMP="$(date +%Y%m%d-%H%M%S)-$$"
 if [ -f "$DB" ]; then

@@ -14,6 +14,7 @@ import { getRuntimeMode } from "../src/lib/runtime/mode";
 import { parseBuddyKnowledgeArgs, runBuddyKnowledge, type BuddyKnowledgeCommand } from "../src/lib/buddy/knowledge";
 import type { WorkspaceGateway } from "../src/lib/workspace";
 import { buddyDataPaths } from "../src/lib/buddy/environment";
+import { taskEditMatches } from "../src/lib/tasks/edit-conflict";
 
 export const COVE_BUDDY_REPO_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -23,7 +24,7 @@ export const COVE_BUDDY_TABLES = [
   ...COVE_REST_TABLES,
   ...COVE_CRM_COMPAT_TABLES,
 ] as const;
-type Table = typeof COVE_BUDDY_TABLES[number];
+type Table = (typeof COVE_BUDDY_TABLES)[number];
 type Action = "query" | "insert" | "update" | "delete";
 
 type TableCommand = {
@@ -51,7 +52,8 @@ type IntakeCommand = {
   action: "intake";
   input: CoveIntakeInput;
 };
-type RecurrenceCommand = {
+type RecurrenceCommand =
+  | {
   action: "recurrence-confirm";
   taskId: string;
   cadence?: string;
@@ -61,6 +63,7 @@ type RecurrenceCommand = {
   operation: "pause" | "resume" | "stop";
 };
 export type BuddyDataCommand =
+  | { action: 'planning-question'; json?: Record<string, unknown> }
   | BuddyKnowledgeCommand
   | { action: "agent-status" }
   | { action: "agent-primary"; provider: "claude" | "codex" }
@@ -89,6 +92,11 @@ function option(
 }
 
 export function parseBuddyDataArgs(args: string[]): BuddyDataCommand {
+  if (args[0] === 'planning-question')
+    return {
+      action: 'planning-question',
+      ...(args[1] === 'answer' ? { json: JSON.parse(option(args, '--json') ?? '{}') } : {}),
+    };
   const knowledge = parseBuddyKnowledgeArgs(args);
   if (knowledge) return knowledge;
   if (args[0] === "agent") {
@@ -286,10 +294,39 @@ export async function runBuddyDataCommand(
   const request = options.fetch ?? fetch;
   const write = options.write ?? ((line) => process.stdout.write(`${line}\n`));
   const appUrl = (options.appUrl ?? coveEnv("BUDDY_APP_URL") ?? "http://127.0.0.1:3200").replace(/\/$/, "");
+  if (command.action === 'planning-question') {
+    const state = await responseJson(
+      await request(`${appUrl}/api/planning-questions`, { cache: 'no-store' }),
+    );
+    if (!command.json) {
+      write(JSON.stringify(state));
+      return 0;
+    }
+    const token = (state as { csrfToken?: string }).csrfToken;
+    if (!token) fail('Cove request token is unavailable');
+    write(
+      JSON.stringify(
+        await responseJson(
+          await request(`${appUrl}/api/planning-questions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Cove-CSRF': token,
+            },
+            body: JSON.stringify({
+              ...command.json,
+              source: 'buddy-explicit-answer',
+            }),
+          }),
+        ),
+      ),
+    );
+    return 0;
+  }
   if (command.action === "knowledge") {
     const { dataDir, dbPath } = buddyDataPaths(COVE_BUDDY_REPO_DIR, options);
     write(JSON.stringify(await runBuddyKnowledge(command, { appUrl, dataDir, dbPath, workspaceGateway: options.workspaceGateway,
-      requestJson: async url => responseJson(await request(url, { cache: "no-store" })) })));
+      requestJson: async (url) => responseJson(await request(url, { cache: "no-store" })) })));
     return 0;
   }
   if (command.action === "agent-status" || command.action === "agent-primary") {
@@ -429,8 +466,8 @@ export async function runBuddyDataCommand(
       fail("spawn-session response is invalid");
     }
     const resolvedDir = typeof (created as Record<string, unknown>).dir === "string"
-      ? (created as Record<string, unknown>).dir as string
-      : command.dir;
+      ? ((created as Record<string, unknown>).dir as string)
+        : command.dir;
     if (!resolvedDir) fail("spawn-session response is missing the resolved directory");
     write(`SESSION ${JSON.stringify({
       sessionId: (created as Record<string, unknown>).sessionId,
@@ -480,6 +517,21 @@ export async function runBuddyDataCommand(
     return 0;
   }
   const tableCommand = command as TableCommand;
+  if (tableCommand.action === "update" && tableCommand.table === "tasks") {
+    const expected = tableCommand.json?._expected;
+    const guidance = "Task update requires _expected.updatedAt from the latest full task read (updated_at), plus the original title/description for either field being edited. Read the latest task, preserve the intended change, and retry with those expected values. Do not fetch a new timestamp and reuse a stale replacement.";
+    if (!expected || typeof expected !== "object" || Array.isArray(expected) ||
+        typeof (expected as Record<string, unknown>).updatedAt !== "string" ||
+        !(expected as Record<string, string>).updatedAt.trim()) fail(guidance);
+    for (const field of ["title", "description"]) {
+      if (Object.hasOwn(tableCommand.json!, field) && !Object.hasOwn(expected, field)) fail(guidance);
+    }
+    // Validate supported keys and values without fetching or replacing the
+    // caller's read snapshot. The database compares it atomically at write time.
+    try {
+      for (const [key, value] of Object.entries(expected)) taskEditMatches({}, { [key]: value });
+    } catch { fail(guidance); }
+  }
   const base = `${appUrl}/api/cove-rest/${tableCommand.table}`;
   if (tableCommand.action === "query") {
     const params = filterParams(tableCommand.filters);
@@ -548,6 +600,9 @@ export async function runBuddyDataCommand(
         ? { body: JSON.stringify(tableCommand.json) }
         : {}),
   });
+  if (response.status === 409 && tableCommand.action === "update" && tableCommand.table === "tasks") {
+    fail("HTTP 409: This task changed after your read. Read the latest full task and rebuild the same intended change while preserving intervening edits. Retry with _expected.updatedAt and original title/description values from that read; do not reuse a stale replacement with a fresh timestamp.");
+  }
   const data = await responseJson(response);
   if ((tableCommand.action === "insert" || tableCommand.action === "update") &&
     (!Array.isArray(data) || data.length === 0)) {
@@ -586,7 +641,8 @@ export async function runBuddyDataCommand(
 
 export async function main(
   args = process.argv.slice(2),
-  options: Parameters<typeof runBuddyDataCommand>[1] & { writeError?: (line: string) => void } = {},
+  options: Parameters<typeof runBuddyDataCommand>[1] & { writeError?: (line: string) => void;
+  } = {},
 ): Promise<number> {
   try {
     return await runBuddyDataCommand(parseBuddyDataArgs(args), options);

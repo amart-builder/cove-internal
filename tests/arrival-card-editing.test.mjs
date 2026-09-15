@@ -55,6 +55,7 @@ test('every task editor shows and edits the reason the task was added', () => {
   const sheet = readFileSync(componentPath('arrival', 'TaskSheet.tsx'), 'utf8');
   const today = readFileSync(componentPath('TodayView.tsx'), 'utf8');
   const board = readFileSync(componentPath('KanbanBoard.tsx'), 'utf8');
+  const suggestionStore = readFileSync(path.join(process.cwd(), 'src/lib/quiet-current/store.ts'), 'utf8');
 
   assert.match(fields, /Reason this task was added/);
   assert.match(fields, /taskEditorPatch\(/);
@@ -68,9 +69,9 @@ test('every task editor shows and edits the reason the task was added', () => {
   assert.match(board, /origin: patch\.origin,/);
   for (const site of [
     /You typed this into the Today capture box on/,
-    /A Quiet Current suggestion you accepted on/,
     /Buddy added this while replanning your day in Morning Arrival on/,
   ]) assert.match(today, site);
+  assert.match(suggestionStore, /Accepted Quiet Current suggestion\. Source: \$\{suggestion\.source\}\. Evidence: \$\{suggestion\.reason\}/);
   assert.match(board, /You added this by hand on the All Work board on/);
 });
 

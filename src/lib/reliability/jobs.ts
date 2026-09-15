@@ -283,7 +283,7 @@ export class JobScheduler {
           `UPDATE cove_jobs
            SET status = ?, run_after = ?, lease_until = NULL, lease_token = NULL,
                finished_at = ?, last_error = ?
-           WHERE id = ? AND status = 'leased' AND lease_token = ?`,
+           WHERE id = ? AND status = 'leased' AND lease_token = ? AND lease_until <= ?`,
         ).run(
           nextStatus,
           runAfter,
@@ -291,6 +291,7 @@ export class JobScheduler {
           message,
           row.id,
           row.lease_token,
+          now.toISOString(),
         );
         if (result.changes !== 1) continue;
         if (nextStatus === "dead") {

@@ -309,7 +309,7 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
         existing: Set<string>,
         column: string,
         fallback = "NULL",
-      ) => existing.has(column) ? `"${column}"` : fallback;
+      ) => (existing.has(column) ? `"${column}"` : fallback);
 
       const taskColumns = columns(db, "tasks");
       const canonicalColumn = (name: string) => TASK_COLUMNS.find((candidate) =>
@@ -964,7 +964,7 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
           try {
             const parsed = row.source_payload ? JSON.parse(row.source_payload) : {};
             return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-              ? parsed as Record<string, unknown>
+              ? (parsed as Record<string, unknown>)
               : {};
           } catch {
             return {};
@@ -1634,6 +1634,65 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
     name: "commitment-responsibility",
     up: (db) => { db.exec(RESPONSIBILITY_SCHEMA); },
   },
+  {
+    version: 32,
+    name: "linked-daily-planning",
+    up: (db) => {
+      db.exec(
+        `ALTER TABLE cove_responsibilities RENAME TO cove_responsibilities_old;`,
+      );
+      const previous = (
+        db
+          .prepare(
+            "SELECT sql FROM sqlite_schema WHERE name='cove_responsibilities_old'",
+          )
+          .get() as { sql: string }
+      ).sql;
+      db.exec(
+        previous
+          .replace('"cove_responsibilities_old"', "cove_responsibilities")
+          .replace(
+            "'task','commitment'",
+            "'task','commitment','suggestion','calendar'",
+          ),
+      );
+      db.exec(`INSERT INTO cove_responsibilities SELECT * FROM cove_responsibilities_old;
+        DROP TABLE cove_responsibilities_old;
+        CREATE INDEX cove_responsibilities_check ON cove_responsibilities(state,next_check_at);
+        CREATE TABLE cove_calendar_occurrences (
+          id TEXT PRIMARY KEY, provider TEXT NOT NULL, calendar_id TEXT NOT NULL,
+          event_id TEXT NOT NULL, occurrence_id TEXT NOT NULL, title TEXT NOT NULL,
+          start_at TEXT NOT NULL, end_at TEXT NOT NULL, status TEXT NOT NULL,
+          source_json TEXT NOT NULL, updated_at TEXT NOT NULL, observed_at TEXT NOT NULL,
+          UNIQUE(provider,calendar_id,event_id,occurrence_id)
+        );
+        CREATE TABLE cove_planning_questions (
+          id TEXT PRIMARY KEY, outcome_key TEXT NOT NULL, decision_key TEXT NOT NULL,
+          question TEXT NOT NULL, ref_kind TEXT NOT NULL, ref_id TEXT NOT NULL,
+          state TEXT NOT NULL CHECK(state IN ('open','answered','parked','expired','superseded')),
+          answer TEXT, answer_source TEXT, next_check_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+          revision INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+          UNIQUE(outcome_key,decision_key)
+        );`);
+    },
+  },
+  {
+    version: 33,
+    name: "preparation-source-links",
+    up: (db) =>
+      db.exec(`ALTER TABLE cove_responsibilities ADD COLUMN parent_kind TEXT;
+      ALTER TABLE cove_responsibilities ADD COLUMN parent_id TEXT;
+      ALTER TABLE cove_responsibilities ADD COLUMN parent_version TEXT;`),
+  },
+  {
+    version: 34,
+    name: "durable-meeting-followup-extraction",
+    up: (db) => {
+      if (!columns(db, "cove_message_ingestion").has("followups_json")) {
+        db.exec("ALTER TABLE cove_message_ingestion ADD COLUMN followups_json TEXT");
+      }
+    },
+  },
 ];
 
 function migrationTableExists(db: Database.Database, name: string): boolean {
@@ -1749,7 +1808,8 @@ export function localSchemaFingerprint(db: Database.Database): string {
      FROM sqlite_schema
      WHERE name NOT LIKE 'sqlite_%'
      ORDER BY type, name`,
-  ).all() as { type: string; name: string; tbl_name: string; sql: string | null }[];
+  ).all() as { type: string; name: string; tbl_name: string; sql: string | null;
+  }[];
   const snapshot = objects.map((object) => {
     if (object.type === "table") {
       const indexes = (db.prepare(
@@ -1777,7 +1837,8 @@ export function localSchemaFingerprint(db: Database.Database): string {
           partial: index.partial,
           columns: (db.prepare(
             `PRAGMA index_xinfo("${index.name}")`,
-          ).all() as Array<{ name: string | null; seqno: number }>)
+          ).all() as Array<{ name: string | null; seqno: number;
+            }>)
             .sort((left, right) =>
               (left.name ?? "").localeCompare(right.name ?? "") ||
               left.seqno - right.seqno

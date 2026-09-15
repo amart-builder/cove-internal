@@ -309,6 +309,12 @@ test('a populated pre-migration database reaches the same schema as a fresh inst
       ).get(),
       { id: 'mutation-1', sequence: 7 },
     );
+    assert.equal(upgraded.prepare("SELECT state FROM day_plan_task_mutations WHERE id='mutation-1'").pluck().get(), 'blocked');
+    assert.equal(upgraded.prepare("SELECT COUNT(*) FROM day_plan_task_mutations WHERE state='pending'").pluck().get(), 0);
+    const failure = upgraded.prepare("SELECT message,details_json FROM cove_failure_inbox WHERE source='day-plan-task-mutation' AND source_id='mutation-1'").get();
+    assert.match(failure.message, /needs review/);
+    assert.equal(JSON.parse(failure.details_json).taskId, 'task-1');
+
     assert.equal(
       upgraded.prepare(
         `SELECT dflt_value
@@ -331,6 +337,8 @@ test('a populated pre-migration database reaches the same schema as a fresh inst
         { version: 105, name: 'day-plan-weekend-auto-settle-receipts' },
         { version: 106, name: 'day-plan-brief-board-actions' },
         { version: 107, name: 'day-plan-brief-board-actions-skipped-late' },
+        { version: 108, name: 'bounded-planning-retry' },
+        { version: 109, name: 'block-unguarded-assistant-task-mutations' },
         { version: 200, name: 'buddy-baseline' },
         { version: 201, name: 'buddy-required-columns' },
         { version: 202, name: 'buddy-indexes' },

@@ -223,7 +223,7 @@ test("a broken text channel produces one fallback banner, not one every tick", (
   const banners = readFileSync(calls, "utf8");
   // The fallback banner is a real interruption, so it must start a cooldown
   // instead of firing again on the next sixty-second tick.
-  assert.equal(banners.match(/I couldn't deliver your text reminder:/g)?.length, 1);
+  assert.equal(banners.match(/The text reminder could not be sent\./g)?.length, 1);
   const check = new Database(dbPath, { readonly: true });
   assert.equal(check.prepare(
     `SELECT level FROM cove_attention_ledger

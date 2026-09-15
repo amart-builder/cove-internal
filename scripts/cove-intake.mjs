@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadLocalEnv } from "./lib/load-local-env.mjs";
 
 const require = createRequire(import.meta.url);
 require("tsx/cjs");
@@ -53,6 +54,7 @@ export function parseCoveIntakeArgs(args) {
 
 export async function main(args = process.argv.slice(2)) {
   try {
+    loadLocalEnv(repoDir);
     const result = await runCoveIntake(parseCoveIntakeArgs(args), {
       repoDir,
     });

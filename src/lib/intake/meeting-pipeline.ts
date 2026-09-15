@@ -7,6 +7,7 @@
  * renew or fail the claim visibly so a retry cannot double-create the meeting.
  */
 import { createHash } from "node:crypto";
+import { coveEnv } from "../env";
 import {
   createCRMBackend,
   type CRMBackend,
@@ -21,11 +22,13 @@ import {
   meetingFollowUpText,
 } from "./meeting-followups.mjs";
 import { recordEvent, resolveEvent } from "./inbox";
+import { assertWebBaseMatchesDatabase } from "./task-writer";
 import { runCoveIntake } from "./run";
 import {
   claimMessageIngestion,
   completeMessageIngestion,
   failMessageIngestion,
+  messageIngestionExtraction,
   renewMessageIngestionLease,
   type IngestionDoor,
 } from "./message-ingestion";
@@ -138,13 +141,23 @@ export async function writeWaitingCommitment(
   options: {
     fetchImpl?: typeof fetch;
     fetchTimeoutMs?: number;
+    dbPath?: string;
   } = {},
 ): Promise<string> {
+  // Resolve the implicit endpoint once: the guard and every request must
+  // refer to the same server when an installed runtime selects another port.
+  const implicitDefault = context.baseUrl.replace(/\/$/, "") === "http://127.0.0.1:3200";
+  const baseUrl = (implicitDefault ? coveEnv("BRIEF_WEB_BASE") ?? context.baseUrl : context.baseUrl)
+    .trim().replace(/\/$/, "");
+  assertWebBaseMatchesDatabase({
+    dbPath: options.dbPath,
+    webBaseUrl: baseUrl === "http://127.0.0.1:3200" ? undefined : baseUrl,
+  });
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.fetchTimeoutMs ?? 10_000;
   const id = deterministicUuid(`meeting-waiting:${context.sourceId}`);
   const lookup = await fetchImpl(
-    `${context.baseUrl}/api/cove-rest/commitments?select=id,contact_id&id=eq.${encodeURIComponent(id)}&limit=1`,
+    `${baseUrl}/api/cove-rest/commitments?select=id,contact_id&id=eq.${encodeURIComponent(id)}&limit=1`,
     { signal: AbortSignal.timeout(timeoutMs), cache: "no-store" },
   );
   if (!lookup.ok) {
@@ -159,9 +172,9 @@ export async function writeWaitingCommitment(
     : undefined;
   if (existing) {
     if (context.contactId && !existing.contact_id) {
-      const token = await csrfToken(fetchImpl, context.baseUrl, timeoutMs);
+      const token = await csrfToken(fetchImpl, baseUrl, timeoutMs);
       const updated = await fetchImpl(
-        `${context.baseUrl}/api/cove-rest/commitments?id=eq.${encodeURIComponent(id)}`,
+        `${baseUrl}/api/cove-rest/commitments?id=eq.${encodeURIComponent(id)}`,
         {
           method: "PATCH",
           headers: {
@@ -181,9 +194,9 @@ export async function writeWaitingCommitment(
     }
     return id;
   }
-  const token = await csrfToken(fetchImpl, context.baseUrl, timeoutMs);
+  const token = await csrfToken(fetchImpl, baseUrl, timeoutMs);
   const response = await fetchImpl(
-    `${context.baseUrl}/api/cove-rest/commitments`,
+    `${baseUrl}/api/cove-rest/commitments`,
     {
       method: "POST",
       headers: {
@@ -217,7 +230,7 @@ export async function writeWaitingCommitment(
   if (!response.ok) {
     const body = await response.text();
     const retry = await fetchImpl(
-      `${context.baseUrl}/api/cove-rest/commitments?select=id&id=eq.${encodeURIComponent(id)}&limit=1`,
+      `${baseUrl}/api/cove-rest/commitments?select=id&id=eq.${encodeURIComponent(id)}&limit=1`,
       { signal: AbortSignal.timeout(timeoutMs), cache: "no-store" },
     );
     if (retry.ok && ((await retry.json() as unknown[])?.length ?? 0) > 0) {
@@ -299,6 +312,7 @@ async function acknowledgeMeetingItem(
     {
       fetchImpl: options.fetchImpl,
       fetchTimeoutMs: options.fetchTimeoutMs,
+      dbPath: options.dbPath,
     },
   );
   if (state === "db") {
@@ -320,6 +334,17 @@ function meetingItemKey(item: MeetingFollowUp): string {
     .map((value) => value.normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase())
     .join("\u0000");
   return createHash("sha256").update(content).digest("hex").slice(0, 24);
+}
+
+function validatedFollowUps(value: unknown): MeetingFollowUp[] {
+  if (!Array.isArray(value) || value.some((item) =>
+    !item || typeof item !== "object" || Array.isArray(item) ||
+    typeof item.owner !== "string" || !item.owner.trim() ||
+    typeof item.title !== "string" || !item.title.trim() ||
+    typeof item.detail !== "string" ||
+    (item.due_at !== undefined && (typeof item.due_at !== "string" || !Number.isFinite(Date.parse(item.due_at))))
+  )) throw new Error("Meeting parser or saved extraction returned an invalid result.");
+  return value as MeetingFollowUp[];
 }
 
 function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
@@ -380,13 +405,13 @@ export async function processMeetingNotesEmail(
   leaseHeartbeat.unref();
   try {
     await options.afterClaim?.();
-    const items = await (options.extractFollowUps ?? extractMeetingFollowUps)(
-      email.body,
-      { repoDir: options.repoDir },
-    );
-    if (!Array.isArray(items)) {
-      throw new Error("Meeting parser returned an invalid result.");
-    }
+    const extractionInput = { messageId: email.messageId, leaseToken: claim.leaseToken, dbPath: options.dbPath };
+    const savedExtraction = messageIngestionExtraction(extractionInput);
+    const items = validatedFollowUps(savedExtraction === undefined
+      ? messageIngestionExtraction({ ...extractionInput, extraction: validatedFollowUps(
+        await (options.extractFollowUps ?? extractMeetingFollowUps)(email.body, { repoDir: options.repoDir }),
+      ) })
+      : savedExtraction);
     const summary = { ...emptySummary, parsedItems: items.length };
     const contactIds = new Map<string, string | null>();
     const uniquePeople = new Map<string, string>();

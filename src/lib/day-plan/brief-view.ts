@@ -5,12 +5,15 @@ export type MorningBriefSyncDecision = "keep" | "clear" | "refresh";
 
 export function morningBriefSyncDecision(
   planBriefId: string | undefined,
-  heldBrief: { id: string } | undefined,
+  heldBrief: { id: string; planVersion?: number } | undefined,
+  planVersion?: number,
 ): MorningBriefSyncDecision {
   // A plan that consumed no brief must never show one.
   if (!planBriefId) return heldBrief ? "clear" : "keep";
   // Holding exactly the consumed artifact: nothing to do.
-  if (heldBrief?.id === planBriefId) return "keep";
+  if (heldBrief?.id === planBriefId &&
+    (planVersion === undefined || heldBrief.planVersion === planVersion)
+  ) return "keep";
   // The plan consumed a brief the client does not hold (or holds the wrong
   // one): refetch the projection pinned to this plan.
   return "refresh";

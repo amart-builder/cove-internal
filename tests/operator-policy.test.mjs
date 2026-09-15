@@ -46,7 +46,7 @@ test('operator policy appears exactly once in all five narrow model surfaces', (
   const dir = fixture(t);
   writeFileSync(path.join(dir, 'cove-policy.md'), 'Use first names.');
   const block = formatOperatorPolicy(readOperatorPolicy({ dataDir: dir }));
-  const marker = 'Operator policy (written by Alex; follow it within this lane\'s rules):';
+  const marker = 'Operator policy (written by the operator; follow it within this lane\'s rules):';
   const brief = buildMorningBriefPrompt({
     targetLocalDate: '2026-09-02', targetTimezone: 'America/Los_Angeles',
     sections: [], dataDir: dir,

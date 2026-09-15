@@ -112,3 +112,11 @@ export function nativeNotificationCommand(
     args: nativeNotificationArgs(message, { title, subtitle, sound }),
   };
 }
+
+/** An SSH connection failure occurs before the remote Messages command runs.
+ * A generic command timeout can happen after handoff and remains uncertain. */
+export function textDeliveryUncertain(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/^ssh: connect to host [^\n]+ port \d+:[^\n]*(?:timed out|refused|unreachable)/im.test(message)) return false;
+  return /\b(?:ETIMEDOUT|timeout)\b|timed? out/i.test(message);
+}

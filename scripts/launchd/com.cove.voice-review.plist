@@ -17,6 +17,10 @@
   <string>/Users/operator/Atlas/Projects/astack/cove</string>
   <key>EnvironmentVariables</key>
   <dict>
+    <key>COVE_BRIEF_WEB_BASE</key>
+    <string>__COVE_BRIEF_WEB_BASE__</string>
+    <key>COVE_DB_PATH</key>
+    <string>__COVE_DB_PATH__</string>
     <key>HOME</key>
     <string>/Users/operator</string>
     <key>PATH</key>

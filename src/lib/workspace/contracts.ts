@@ -23,6 +23,9 @@ export type MailListPage = {
 };
 
 export type CalendarEvent = {
+  provider?: string;
+  calendarId?: string;
+  originalStart?: string;
   id: string;
   status: string;
   summary: string;
@@ -63,12 +66,12 @@ export interface RestrictedMailGateway {
   }): Promise<Uint8Array>;
   listDrafts(input?: {
     pageToken?: string;
-    maxResults?: number;
-  }): Promise<{
+    maxResults?: number }): Promise<{
     drafts: Array<{ id: string; messageId: string; threadId: string }>;
     nextPageToken?: string;
   }>;
-  ensureCoveLabel(input: { name: string }): Promise<{ id: string; name: string }>;
+  ensureCoveLabel(input: { name: string;
+  }): Promise<{ id: string; name: string }>;
   modifyThreadLabels(input: {
     threadId: string;
     addNames?: string[];
@@ -90,6 +93,16 @@ export interface RestrictedMailGateway {
     idempotencyKey: string;
   }): Promise<{ id: string; messageId: string }>;
 }
+
+/** Evidence for a successfully retrieved, bounded calendar window. */
+export type CalendarObservation = {
+  calendarId: string;
+  timeMin: string;
+  timeMax: string;
+  timeZone: string;
+  observedAt: string;
+  complete: boolean;
+};
 
 export interface ReadonlyCalendarGateway {
   listEvents(input: {

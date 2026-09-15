@@ -26,7 +26,7 @@ CREATE TABLE cove_preparations (
  created_at TEXT NOT NULL
 );`;
 
-export type RefKind = "task" | "commitment";
+export type RefKind = "task" | "commitment" | "suggestion" | "calendar";
 type Source = {
   id: string;
   title: string;
@@ -48,6 +48,9 @@ type Source = {
   counterparty?: string;
 };
 export type Responsibility = {
+  parent_kind?: RefKind | null;
+  parent_id?: string | null;
+  parent_version?: string | null;
   ref_kind: RefKind;
   ref_id: string;
   original_due_at: string | null;
@@ -81,6 +84,82 @@ export function sourceRecord(
   kind: RefKind,
   id: string,
 ): Source | undefined {
+  if (kind === "calendar") {
+    const row = db
+      .prepare("SELECT * FROM cove_calendar_occurrences WHERE id=?")
+      .get(id) as
+      | {
+          id: string;
+          title: string;
+          status: string;
+          start_at: string;
+          updated_at: string;
+          observed_at: string;
+          source_json: string;
+        }
+      | undefined;
+    return row
+      ? {
+          id: row.id,
+          title: row.title,
+          status: row.status === "cancelled" ? "cancelled" : "open",
+          due_at: row.start_at,
+          updated_at: row.updated_at,
+          created_at: row.updated_at,
+          description: row.source_json,
+        }
+      : undefined;
+  }
+  if (kind === "suggestion") {
+    const rows = db
+      .prepare("SELECT state_json FROM cove_quiet_current")
+      .all() as { state_json: string }[];
+    for (const row of rows) {
+      const suggestion = (
+        JSON.parse(row.state_json).suggestions as Array<{
+          id: string;
+          title: string;
+          description: string;
+          state: string;
+          createdAt: string;
+          updatedAt: string;
+          expiresAt: string;
+          reviewMaterial?: string;
+        }>
+      ).find((s) => s.id === id);
+      if (suggestion) {
+        let linkedState = "open";
+        let linkVersion = "";
+        if (suggestion.reviewMaterial) {
+          try {
+            const origin = JSON.parse(suggestion.reviewMaterial).source;
+            if (origin && origin.kind !== "suggestion") {
+              const linked = sourceRecord(db, origin.kind, origin.id);
+              linkVersion = linked ? sourceVersion(linked) : "missing";
+              if (!linked || !activeResponsibilitySource(linked))
+                linkedState = "cancelled";
+              else if (linkVersion !== origin.version) linkedState = "open";
+            }
+          } catch {
+            linkedState = "changed";
+          }
+        }
+        return {
+          id,
+          title: suggestion.title,
+          description: suggestion.description,
+          status: ["proposed", "refined", "deferred"].includes(suggestion.state)
+            ? linkedState
+            : suggestion.state,
+          due_at: null,
+          created_at: suggestion.createdAt,
+          updated_at: suggestion.updatedAt,
+          details: linkVersion,
+        };
+      }
+    }
+    return undefined;
+  }
   if (kind !== "task" && kind !== "commitment")
     throw new Error("Unknown responsibility source.");
   return db
@@ -91,10 +170,14 @@ export function sourceRecord(
 }
 export function sourceVersion(source: Source): string {
   // Short, namespaced digest survives model secret scrubbing while protecting
-  // every source field, including same-timestamp edits and completion.
-  return `v:${createHash("sha256").update(JSON.stringify(source)).digest("hex").slice(0, 24)}`;
+  // semantic source fields, including same-timestamp edits and completion.
+  // Viewing work or delivering a reminder does not change the work to review.
+  const semantic = Object.fromEntries(Object.entries(source).filter(([key]) =>
+    !["engaged_at", "notified_at", "nudged_at"].includes(key),
+  ));
+  return `v:${createHash("sha256").update(JSON.stringify(semantic)).digest("hex").slice(0, 24)}`;
 }
-function active(source: Source) {
+export function activeResponsibilitySource(source: Source) {
   return (
     source.status === "open" && !source.archived_at && source.kind !== "idea"
   );
@@ -177,7 +260,7 @@ export function reconcileResponsibilities(
             waiting ? source.counterparty || "waiting" : "you",
             waiting
               ? "Check for the expected response."
-              : "Clarify the next step and a realistic work time.",
+              : source.title,
             defaultCheck(source, now),
             now.toISOString(),
             now.toISOString(),
@@ -188,7 +271,7 @@ export function reconcileResponsibilities(
           prior.state === "resolved"
         ) {
           db.prepare(
-            `UPDATE cove_responsibilities SET source_version=?, state=CASE WHEN state='resolved' THEN 'ready' ELSE state END,
+            `UPDATE cove_responsibilities SET source_version=?, state='blocked',
        next_check_at=?, last_reviewed_at=NULL, revision=revision+1, updated_at=? WHERE ref_kind=? AND ref_id=?`,
           ).run(version, now.toISOString(), now.toISOString(), kind, source.id);
           event(
@@ -209,7 +292,37 @@ export function reconcileResponsibilities(
       .all() as Array<{ ref_kind: RefKind; ref_id: string }>;
     for (const ref of open) {
       const source = sourceRecord(db, ref.ref_kind, ref.ref_id);
-      if (source && active(source)) continue;
+      if (source && activeResponsibilitySource(source)) {
+        const prior = db
+          .prepare(
+            "SELECT * FROM cove_responsibilities WHERE ref_kind=? AND ref_id=?",
+          )
+          .get(ref.ref_kind, ref.ref_id) as Responsibility;
+        const parent =
+          prior.parent_kind && prior.parent_id
+            ? sourceRecord(db, prior.parent_kind, prior.parent_id)
+            : undefined;
+        const parentChanged = Boolean(
+          prior.parent_kind &&
+          ((parent ? sourceVersion(parent) : "missing") !== prior.parent_version),
+        );
+        if (
+          prior.source_version !== sourceVersion(source) ||
+          parentChanged
+        )
+          db.prepare(
+            "UPDATE cove_responsibilities SET source_version=?,state=?,next_check_at=?,last_reviewed_at=NULL,revision=revision+1,updated_at=?,parent_version=? WHERE ref_kind=? AND ref_id=?",
+          ).run(
+            sourceVersion(source),
+            parentChanged || prior.source_version !== sourceVersion(source) ? "blocked" : prior.state,
+            now.toISOString(),
+            now.toISOString(),
+            prior.parent_kind ? (parent ? sourceVersion(parent) : "missing") : null,
+            ref.ref_kind,
+            ref.ref_id,
+          );
+        continue;
+      }
       db.prepare(
         "UPDATE cove_responsibilities SET state='resolved',revision=revision+1,updated_at=? WHERE ref_kind=? AND ref_id=?",
       ).run(now.toISOString(), ref.ref_kind, ref.ref_id);
@@ -233,7 +346,7 @@ export function listResponsibilities(db: Database.Database): Responsibility[] {
     .all() as Responsibility[];
   return rows.flatMap((row) => {
     const source = sourceRecord(db, row.ref_kind, row.ref_id);
-    if (!source || !active(source)) return [];
+    if (!source || !activeResponsibilitySource(source)) return [];
     return [
       {
         ...row,
@@ -324,6 +437,13 @@ export function responsibilityDesk(
       source_ref: text(row.source_ref, 120),
       source_quote: text(row.source_quote, 180),
       needs_confirmation: row.needs_confirmation,
+      parent: row.parent_kind
+        ? {
+            kind: row.parent_kind,
+            id: row.parent_id,
+            version: row.parent_version,
+          }
+        : undefined,
     });
     if (line.length + 1 > remaining) continue;
     lines.push(line);
@@ -346,7 +466,7 @@ export function assertSourceVersion(
   expected: unknown,
 ): Source {
   const source = sourceRecord(db, kind, id);
-  if (!source || !active(source))
+  if (!source || !activeResponsibilitySource(source))
     throw new Error("The source is no longer open. Read the current record.");
   if (typeof expected !== "string" || expected !== sourceVersion(source))
     throw new Error(
@@ -450,7 +570,7 @@ export function acknowledgeResponsibility(
   now = new Date(),
 ): boolean {
   const source = sourceRecord(db, kind, id);
-  if (!source || !active(source)) return false;
+  if (!source || !activeResponsibilitySource(source)) return false;
   return (
     db
       .prepare(

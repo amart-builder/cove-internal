@@ -113,7 +113,8 @@ test("groundwork invocation passes only read tools plus the timeout and intake b
       task({ id: "task-2", created_at: "2026-07-28T17:00:00.000Z" }),
     ],
     getTask: async () => current,
-    updateTask: async (id, patch, expectedTag) => {
+    updateTask: async (id, patch, expectedTag, expectedTask) => {
+      assert.deepEqual(expectedTask, current);
       patches.push({ id, patch, expectedTag });
       assert.equal(current.tags.includes(expectedTag), true);
       current = { ...current, ...patch };
@@ -309,7 +310,8 @@ test("a failed pass retries once, then becomes visibly failed", async (t) => {
     runClaude: async () => {
       throw new Error("temporary research failure");
     },
-    updateTask: async (_id, patch, expectedTag) => {
+    updateTask: async (_id, patch, expectedTag, expectedTask) => {
+      assert.deepEqual(expectedTask, current);
       assert.equal(current.tags.includes(expectedTag), true);
       current = { ...current, ...patch };
       updates.push({ patch, expectedTag });
@@ -429,7 +431,8 @@ test("claim write failures consume the durable two-attempt budget", async (t) =>
     }),
     listQueuedTasks: async () => [queued],
     getTask: async () => queued,
-    updateTask: async () => {
+    updateTask: async (_id, _patch, _tag, expectedTask) => {
+      assert.deepEqual(expectedTask, queued);
       patchCalls += 1;
       throw new Error("board write unavailable");
     },
@@ -645,4 +648,103 @@ test("standalone groundwork dry-run still requires worker enablement", () => {
   );
   assert.equal(result.status, 3);
   assert.equal(result.stderr, "");
+});
+
+
+test("groundwork helper sends caller field snapshots even without a timestamp", async () => {
+  for (const updated_at of ["2026-07-28T16:00:00.000Z", undefined]) {
+    const original = task({ updated_at });
+    let requests = 0;
+    const result = await updateTaskThroughCoveRest(original.id, {
+      description: "Generated result", tags: ["jarvis-held"],
+    }, {
+      webBaseUrl: "http://cove.test",
+      fetchImpl: async (url, init = {}) => {
+        if (new URL(url).pathname === "/api/day-plan") return Response.json({ csrfToken: "test-token" });
+        requests += 1;
+        const query = new URL(url).searchParams;
+        assert.equal(query.get("status"), "eq.open");
+        assert.equal(query.get("tags"), "cs.{groundwork-running}");
+        assert.equal(init.method, "PATCH");
+        assert.deepEqual(JSON.parse(init.body)._expected, {
+          description: original.description, tags: original.tags,
+          ...(updated_at ? { updatedAt: updated_at } : {}),
+        });
+        return Response.json([{ ...original, description: "Generated result", tags: ["jarvis-held"] }]);
+      },
+    }, { expectedTag: "groundwork-running", expectedTask: original });
+    assert.equal(requests, 1, "helper must not silently replace the caller snapshot with a new read");
+    assert.equal(result.description, "Generated result");
+  }
+});
+
+test("groundwork default helper rejects edits between final read and write without losing notes or tags", async (t) => {
+  for (const change of ["description", "tags", "status"]) {
+    await t.test(change, async (t) => {
+      const dir = fixture(t);
+      const previousPath = process.env.COVE_DB_PATH;
+      const previousDb = globalThis.__coveDb;
+      process.env.COVE_DB_PATH = path.join(dir, "cove.db");
+      delete globalThis.__coveDb;
+      t.after(() => {
+        globalThis.__coveDb?.close();
+        delete globalThis.__coveDb;
+        if (previousDb !== undefined) globalThis.__coveDb = previousDb;
+        if (previousPath === undefined) delete process.env.COVE_DB_PATH;
+        else process.env.COVE_DB_PATH = previousPath;
+      });
+      const original = task({ column_id: null });
+      assert.equal(handleLocalRest("tasks", "POST", new URLSearchParams(), JSON.stringify(original)).status, 201);
+      const read = () => {
+        const response = handleLocalRest("tasks", "GET", new URLSearchParams({ id: "eq.task-1" }));
+        assert.equal(response.status, 200);
+        return structuredClone(response.body[0]);
+      };
+      let lastRead;
+      let patchCount = 0;
+      let conflictCount = 0;
+      let modelCalls = 0;
+      const result = await runOneGroundwork({
+        dataDir: dir, repoDir: dir, webBaseUrl: "http://cove.test",
+        readSettings: () => ({ level: "groundwork", first_groundwork_at: null, checkin_answered: false, checkin_presented_count: 0 }),
+        listQueuedTasks: async () => [read()],
+        getTask: async () => (lastRead = read()),
+        runClaude: async () => { modelCalls += 1; return "Generated research"; },
+        markFirstSuccess: () => assert.fail("a rejected result is not success"),
+        log: () => undefined,
+        fetchImpl: async (url, init = {}) => {
+          const parsed = new URL(url);
+          if (parsed.pathname === "/api/day-plan") return Response.json({ csrfToken: "test-token" });
+          assert.equal(init.method, "PATCH");
+          const body = JSON.parse(init.body);
+          assert.deepEqual(body._expected, {
+            description: lastRead.description, tags: lastRead.tags, updatedAt: lastRead.updated_at,
+          }, "every worker write forwards the exact prior read");
+          patchCount += 1;
+          if (patchCount === 2) {
+            // Deliberately retain updated_at: field comparisons must also reject timestamp ties.
+            const db = globalThis.__coveDb;
+            if (change === "description") db.prepare("UPDATE tasks SET description=? WHERE id=?").run("New user notes", original.id);
+            if (change === "tags") db.prepare("UPDATE tasks SET tags=? WHERE id=?").run(JSON.stringify([...lastRead.tags, "user-added"]), original.id);
+            if (change === "status") db.prepare("UPDATE tasks SET status='done' WHERE id=?").run(original.id);
+          }
+          const response = handleLocalRest("tasks", "PATCH", parsed.searchParams, init.body);
+          if (patchCount === 2) {
+            assert.equal(response.status, 409);
+            conflictCount += 1;
+          }
+          return Response.json(response.body, { status: response.status });
+        },
+      });
+      assert.equal(modelCalls, 1);
+      assert.equal(conflictCount, 1);
+      assert.equal(result.outcome, change === "status" ? "stale" : "retry");
+      const saved = read();
+      assert.equal(saved.description, change === "description" ? "New user notes" : original.description);
+      if (change === "tags") assert.ok(saved.tags.includes("user-added"));
+      if (change === "status") assert.equal(saved.status, "done");
+      assert.equal(saved.tags.includes("jarvis-held"), false);
+      assert.equal(saved.description.includes("Generated research"), false);
+    });
+  }
 });

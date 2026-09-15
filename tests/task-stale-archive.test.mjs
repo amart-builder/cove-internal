@@ -13,7 +13,10 @@ import {
 } from '../src/lib/tasks/stale.ts';
 import { writeTaskSettings } from '../src/lib/tasks/settings.ts';
 import {
+  acceptWorkSuggestion,
+  createWorkSuggestion,
   getQuietCurrentSnapshot,
+  setQuietCurrentNowForTests,
   setQuietCurrentStorePathForTests,
 } from '../src/lib/quiet-current/store.ts';
 
@@ -226,12 +229,43 @@ test('every active task consumer either uses the shared hidden-by-default REST p
   assert.match(brief, /fetchRows\(fetchImpl, baseUrl, "tasks"/);
   assert.match(brief, /row\.status !== "open"/);
   assert.match(today, /task\.status !== 'archived'/);
-  assert.match(today, /suggestion\.kind === 'stale_task'[\s\S]*source === 'explicit_accept'[\s\S]*updateTask\(targetTask\._id, \{\}\)/);
+  assert.match(today, /await acceptSuggestion\(suggestion\.id, \{/);
   assert.match(buddy, /api\/cove-rest/);
   assert.match(reminders, /status = 'open'/);
   assert.match(detail, /!localMode && !window\.confirm\(/);
   assert.match(detail, /localMode && task\.proposedRecurrenceCadence/);
   assert.match(recentlyDeleted, /confirm\(`Permanently delete/);
+});
+
+test('atomic suggestion acceptance records origin and keeps stale work without reviving archived tasks', (t) => {
+  const { dir, db } = fixture(t);
+  const now = new Date('2026-09-15T16:00:00.000Z');
+  const priorDataDir = process.env.COVE_DATA_DIR;
+  process.env.COVE_DATA_DIR = dir;
+  setQuietCurrentNowForTests(now);
+  t.after(() => {
+    setQuietCurrentNowForTests();
+    if (priorDataDir === undefined) delete process.env.COVE_DATA_DIR;
+    else process.env.COVE_DATA_DIR = priorDataDir;
+  });
+  insertTask(db, { id: 'stale-keep', title: 'Preserve this work', column: 'Not Started', updatedAt: '2026-08-01T12:00:00.000Z' });
+  const original = db.prepare("SELECT * FROM tasks WHERE id='stale-keep'").get();
+  const stale = createWorkSuggestion({ kind: 'stale_task', title: 'Still want this?', reason: 'No recent activity', source: 'stale-watchdog', targetTaskId: 'stale-keep' });
+  const accepted = acceptWorkSuggestion(stale.id, { source: 'explicit_accept', expectedUpdatedAt: stale.updatedAt });
+  const kept = db.prepare("SELECT * FROM tasks WHERE id='stale-keep'").get();
+  assert.deepEqual(kept, { ...original, engaged_at: now.toISOString() });
+  setQuietCurrentNowForTests(new Date(+now + 60_000));
+  assert.equal(acceptWorkSuggestion(stale.id, { source: 'explicit_accept' }).acceptanceId, accepted.acceptanceId);
+  assert.deepEqual(db.prepare("SELECT * FROM tasks WHERE id='stale-keep'").get(), kept);
+
+  insertTask(db, { id: 'archived-keep', title: 'Archived work', column: 'Not Started', status: 'archived', archivedAt: now.toISOString(), updatedAt: now.toISOString() });
+  const archived = createWorkSuggestion({ kind: 'stale_task', title: 'Old check', reason: 'Old source', source: 'stale-watchdog', targetTaskId: 'archived-keep' });
+  assert.throws(() => acceptWorkSuggestion(archived.id, { source: 'explicit_accept' }), /no longer available/);
+  assert.equal(db.prepare("SELECT status FROM tasks WHERE id='archived-keep'").pluck().get(), 'archived');
+
+  const proposal = createWorkSuggestion({ title: 'Prepare the call', reason: 'Meeting tomorrow', source: 'calendar' });
+  const created = acceptWorkSuggestion(proposal.id, { source: 'explicit_accept' });
+  assert.equal(db.prepare('SELECT origin FROM tasks WHERE id=?').pluck().get(created.taskId), 'Accepted Quiet Current suggestion. Source: calendar. Evidence: Meeting tomorrow');
 });
 
 test('local Drop stamps archive time and legacy undated rows use updated time for display and purge', (t) => {

@@ -40,13 +40,15 @@ import {
   nativeNotificationCommand,
   remoteIMessageArgs,
   REMOTE_IMESSAGE_TIMEOUT_MS,
+  textDeliveryUncertain,
 } from "../src/lib/intake/notification-transport.mjs";
 import {
   allocateAttention,
   finalizeAttentionDelivery,
   hasAttentionLedger,
 } from "../src/lib/attention/ledger.mjs";
-import { coveConfigPath, coveEnv } from "../src/lib/env-runtime.mjs";
+import { coveEnv } from "../src/lib/env-runtime.mjs";
+import { attentionReminderConfigPath } from "../src/lib/attention/transport.mjs";
 import { operatorTimezone } from "../src/lib/operator-runtime.mjs";
 
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -73,8 +75,7 @@ function loadReminderConfig() {
   let raw;
   try {
     raw = readFileSync(
-      coveEnv("REMINDER_CONFIG_PATH") ??
-        coveConfigPath(path.join(repoDir, "data"), "reminders.json"),
+      attentionReminderConfigPath({ repoDir }),
       "utf8",
     );
   } catch {
@@ -121,14 +122,16 @@ function notifyAttentionBanner(message, subtitle = "Needs your attention", openU
   execFileSync(command.executable, command.args);
 }
 
-function notifyTextFailure(taskTitle, uncertain = false) {
-  const message = uncertain
-    ? `I couldn't confirm delivery of your text reminder: ${taskTitle}. Check it here in Cove.`
-    : `I couldn't deliver your text reminder: ${taskTitle}. Check it here in Cove.`;
+function notifyTextFailure(input, uncertain = false) {
+  const title = input.bannerTitle ?? input.title;
+  const reminder = input.kind === "floor"
+    ? `${title}. Open Today to choose the next step.`
+    : `Here's your reminder: ${title}.`;
+  const message = `${reminder} ${uncertain ? "Text delivery is unconfirmed." : "The text reminder could not be sent."}`;
   const command = nativeNotificationCommand(message, {
     title: "Cove",
-    subtitle: uncertain ? "Reminder delivery unconfirmed" : "Reminder delivery failed",
-    openUrl: "http://127.0.0.1:3200/failures",
+    subtitle: "Your reminder",
+    openUrl: notificationUrl({ taskId: input.taskId ?? (input.kind === "task" ? input.id : undefined), reminder: true }),
     sound: "Glass",
   }, nativeNotificationDependencies);
   execFileSync(command.executable, command.args);
@@ -318,6 +321,9 @@ function stillOpen(db, refKind, refId) {
 }
 
 async function runDeterministicFloor(db, config, token, now = new Date()) {
+  // Basic Mode opts out of unsolicited follow-through. Explicit task alarms
+  // and one-hour reminders have their own user-controlled delivery paths.
+  if (coveEnv("FOLLOW_THROUGH") === "0") return;
   if (!hasAttentionLedger(db) || now.getHours() < 12) return;
   const today = localDateKey(now);
   const tasks = db.prepare(
@@ -511,8 +517,8 @@ function recordDeliveryFailure(db, input) {
 }
 
 /**
- * Returns "text" when the phone got it, "fallback_banner" when only the screen
- * did, "uncertain" when a timed-out send has no confirmed fallback, and "none"
+ * Returns "text" when the configured transport accepted it, "fallback_banner"
+ * when macOS accepted the reminder, "uncertain" when a timed-out send has no confirmed fallback, and "none"
  * for a known failure of both paths. Callers must record a successful fallback as
  * a real delivery: a suppressed row starts no cooldown, so an every-minute lane
  * would retry a broken channel forever and banner on each pass.
@@ -542,7 +548,8 @@ function deliverTextReminder(db, config, token, input) {
       );
     }
     try {
-      notifyTextFailure(input.bannerTitle ?? input.title, /\b(?:ETIMEDOUT|timeout)\b|timed? out/i.test(failure));
+      if (input.nativeDelivered) return "fallback_banner";
+      notifyTextFailure(input, textDeliveryUncertain(failure));
       return "fallback_banner";
     } catch (fallbackError) {
       console.error(
@@ -550,7 +557,7 @@ function deliverTextReminder(db, config, token, input) {
         errorMessage(fallbackError),
       );
     }
-    return /\b(?:ETIMEDOUT|timeout)\b|timed? out/i.test(failure) ? "uncertain" : "none";
+    return textDeliveryUncertain(failure) ? "uncertain" : "none";
   }
 }
 
@@ -613,6 +620,8 @@ function fireScheduledReminders(db, config, token) {
         deliverTextReminder(db, config, token, {
           kind: "scheduled",
           id: entry.id ?? name,
+          taskId: entry.task_id,
+          nativeDelivered: nativeFailure === null,
           title,
           message: directAuthor
             ? `Cove reminder: ${title}`
@@ -804,7 +813,6 @@ async function main() {
     notify:task=>notifyNative(sanitizedNonDirectText(plainAttentionText(task.title), "your requested reminder"),task.id),
     onFailure:failure=>recordNativeOnlyFailure(db,{kind:"notification-repeat",...failure}),
   }); } catch (error) { console.error("Requested reminder check failed:", errorMessage(error)); }
-  await runDeterministicFloor(db, config, token, now);
   // Only explicit new agent settings activate the additional native checks.
   // Existing installs keep their reminder behavior until their setup is changed.
   try {
@@ -825,6 +833,9 @@ async function main() {
   } catch (error) {
     console.error("Follow-through check failed; explicit reminders will continue:", errorMessage(error));
   }
+
+  // Refresh known meetings before the optional floor spends shared capacity.
+  await runDeterministicFloor(db, config, token, now);
 
   const due = db
     .prepare(
@@ -886,6 +897,7 @@ async function main() {
       deliverTextReminder(db, config, token, {
         kind: "task",
         id: task.id,
+        nativeDelivered: Boolean(task.remind_native) && nativeFailure === null,
         title,
         bannerTitle: provenance.direct
           ? title

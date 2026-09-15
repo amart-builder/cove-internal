@@ -5,8 +5,9 @@ import { morningBriefFailureMessage } from '../src/lib/claude-execution/worker.t
 test('morning brief failures keep internal error codes out of the user-facing message', () => {
   const message = morningBriefFailureMessage('required_source_missing:goals');
 
-  assert.match(message, /required setup information is missing/i);
-  assert.match(message, /profile and goals/i);
+  assert.match(message, /could not load all the information/i);
+  assert.doesNotMatch(message, /profile and goals/i);
+  assert.match(message, /try again/i);
   assert.doesNotMatch(message, /required_source_missing|goals:/i);
 });
 

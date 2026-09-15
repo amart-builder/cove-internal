@@ -65,6 +65,7 @@ export type GroundworkWorkerOptions = InboundTaskWriterOptions & {
     id: string,
     patch: Partial<Task>,
     expectedTag: string,
+    expectedTask: Task,
   ) => Promise<Task | undefined>;
   runClaude?: (prompt: string, command: GroundworkCommand) => Promise<string>;
   markFirstSuccess?: (now: Date) => void;
@@ -534,8 +535,8 @@ export async function runOneGroundwork(
     };
   }
   const updateTask = options.updateTask ??
-    ((id: string, patch: Partial<Task>, expectedTag: string) =>
-      updateTaskThroughCoveRest(id, patch, options, { expectedTag }));
+    ((id: string, patch: Partial<Task>, expectedTag: string, expectedTask: Task) =>
+      updateTaskThroughCoveRest(id, patch, options, { expectedTag, expectedTask }));
   const expectedTag = task.tags.includes(RUNNING_TAG)
     ? RUNNING_TAG
     : GROUNDWORK_TAG;
@@ -563,7 +564,7 @@ export async function runOneGroundwork(
             new Set([GROUNDWORK_TAG, RUNNING_TAG, ATTEMPTED_TAG]),
             [FAILED_TAG],
           ),
-        }, expectedTag);
+        }, expectedTag, currentTask);
       } catch (error) {
         return {
           processed: true,
@@ -608,7 +609,7 @@ export async function runOneGroundwork(
           new Set([GROUNDWORK_TAG]),
           [RUNNING_TAG],
         ),
-      }, expectedTag);
+      }, expectedTag, currentTask);
     } catch (error) {
       (options.log ?? console.error)("Groundwork claim write failed.", error);
       return {
@@ -663,7 +664,7 @@ export async function runOneGroundwork(
                 new Set([RUNNING_TAG]),
                 [GROUNDWORK_TAG, ATTEMPTED_TAG],
               ),
-        }, RUNNING_TAG);
+        }, RUNNING_TAG, latest);
         if (!transitioned) {
           return {
             processed: true,
@@ -727,7 +728,7 @@ export async function runOneGroundwork(
           ]),
           [HELD_TAG],
         ),
-      }, RUNNING_TAG);
+      }, RUNNING_TAG, latest);
       if (!attached) {
         return {
           processed: true,

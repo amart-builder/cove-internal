@@ -30,6 +30,8 @@ import {
 import type { Task as RestTask, TaskColumn as RestTaskColumn } from '@/lib/data/types';
 import {
   getQuietCurrent,
+  acceptSuggestion,
+  undoSuggestionAcceptance,
   recordDecision,
   reopenSuggestion,
   resolveSuggestion,
@@ -56,6 +58,7 @@ import {
 import {
   canStartDayPlanSettlement,
   combineSurfaceErrors,
+  currentDayPlanItems,
   firstContinuingItem,
   focusBandItems,
   formatArrivalDueDate,
@@ -77,6 +80,8 @@ import MorningArrival, {
   type MorningArrivalItem,
 } from './MorningArrival';
 import DaySettlement from './DaySettlement';
+import useCloseoutDraft from './useCloseoutDraft';
+import QuietCurrentInbox from './QuietCurrentInbox';
 import DayRitualLayer, { DayRitualContentSwap } from './DayRitualLayer';
 import { OpenInClaudeCode, RunStatusChip } from './ClaudeRunIndicators';
 import ExecutionConfigPanel from './ExecutionConfigPanel';
@@ -109,7 +114,9 @@ import {
 import CoveReadinessStrip from './CoveReadinessStrip';
 import ClaudeDeskStrip from './ClaudeDeskStrip';
 import FollowThrough from '../reliability/FollowThrough';
+import PlanningFollowUp from './arrival/PlanningFollowUp';
 import TodayRiverStageV2, {
+  TODAY_CLOSED_MESSAGE,
   type SecondCurrentItemV2,
   type TodayRiverStageV2MotionHandle,
   type TodayRiverTaskV2,
@@ -160,6 +167,7 @@ interface TodayExperienceProps {
   loading: boolean;
   error?: string;
   retry: () => Promise<void>;
+  hasLoadedTask: (taskId: string) => boolean;
   createTask: (input: CreateTaskInput) => Promise<string>;
   updateTask: (id: string, patch: UpdateTaskInput) => Promise<TaskData>;
   deleteTask: (id: string) => Promise<void>;
@@ -167,6 +175,7 @@ interface TodayExperienceProps {
 
 type UndoAction = {
   message: string;
+  completionPlanId?: string;
   run: () => Promise<void>;
 };
 
@@ -582,6 +591,7 @@ function RestTodayView() {
       loading={loading}
       error={error}
       retry={reload}
+      hasLoadedTask={(taskId) => tasksRef.current.some(task => task._id === taskId)}
       createTask={async (input) => {
         beginMutation();
         let forceRefresh = false;
@@ -712,6 +722,7 @@ function TodayExperience({
   loading,
   error,
   retry,
+  hasLoadedTask,
   createTask,
   updateTask,
   deleteTask,
@@ -727,7 +738,6 @@ function TodayExperience({
   const [rhythmTemplates, setRhythmTemplates] = useState<RecurringTemplate[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(true);
   const [surfaceError, setSurfaceError] = useState<string>();
-  const [settlementNote, setSettlementNote] = useState('');
   const [now, setNow] = useState(() => new Date());
   const [focusCount, setFocusCount] = useState<1 | 2 | 3>(1);
   const [focusCountBusy, setFocusCountBusy] = useState(false);
@@ -757,6 +767,7 @@ function TodayExperience({
   const [notificationQuery, setNotificationQuery] = useState<string | null>(null);
   const notificationLinkConsumed = useRef(false);
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
+  const [suggestionDetailTaskId, setSuggestionDetailTaskId] = useState<string | null>(null);
   useTaskLink('today', tasks, setDetailTaskId);
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
   const [undo, setUndo] = useState<UndoAction | null>(null);
@@ -888,8 +899,11 @@ function TodayExperience({
     candidatesReady: candidateEvidence?.freshness === 'current',
     onBriefPicksChange,
   });
+  const { note: settlementNote, setNote: setSettlementNote, clearSavedDraft: clearCloseoutDraft, error: closeoutDraftError } = useCloseoutDraft(dayRitual.plan?.id);
   const dayRitualPlanRef = useRef(dayRitual.plan);
   dayRitualPlanRef.current = dayRitual.plan;
+  const completionUndoDisabled = Boolean(undo?.completionPlanId &&
+    (dayRitual.plan?.id !== undo.completionPlanId || dayRitual.plan.state === 'settled'));
   const ritualView: OverlayRitualView | undefined =
     dayRitual.view === 'arrival' ||
     dayRitual.view === 'settlement'
@@ -913,11 +927,11 @@ function TodayExperience({
 
   const today2PlanEntries = useMemo(() => {
     const taskById = new Map(openTasks.map((task) => [task._id, task]));
-    return [...(dayRitual.plan?.items ?? [])]
+    return currentDayPlanItems(dayRitual.plan)
       .filter((item) => item.decision === 'accepted' && taskById.has(item.taskId))
       .sort((left, right) => left.position - right.position)
       .map((item) => ({ item, task: taskById.get(item.taskId)! }));
-  }, [dayRitual.plan?.items, openTasks]);
+  }, [dayRitual.plan, openTasks]);
   const today2FocusTasks = useMemo(
     () => today2PlanEntries.slice(0, focusCount).map((entry) => entry.task),
     [focusCount, today2PlanEntries],
@@ -1192,13 +1206,14 @@ function TodayExperience({
     setSurfaceError(undefined);
     try {
       const taskId = await dayRitual.startDay();
+      await retry();
       if (taskId) focusTask(taskId, 'start_my_day');
     } catch (nextError) {
       setSurfaceError(
         nextError instanceof Error ? nextError.message : "Cove couldn't start the planned day.",
       );
     }
-  }, [dayRitual, focusTask]);
+  }, [dayRitual, focusTask, retry]);
 
   const reconcileDayPlanActions = useCallback(async (
     reconciliations = dayRitual.pendingReconciliations,
@@ -1313,8 +1328,8 @@ function TodayExperience({
     setSurfaceError(undefined);
     try {
       const result = await dayRitual.commitSettlement(completedHumanTaskIds, settlementNote);
+      clearCloseoutDraft(currentPlan.id, settlementNote);
       await retry();
-      setSettlementNote('');
       const reconciliations = result.pendingReconciliations ?? [];
       await reconcileDayPlanActions(reconciliations);
       const excludedTaskIds = new Set(
@@ -1336,7 +1351,7 @@ function TodayExperience({
           : "Cove couldn't finish reconciling the closed day.",
       );
     }
-  }, [candidateEvidence?.freshness, dayRitual, notStartedColumn, reconcileDayPlanActions, retry, settlementNote]);
+  }, [candidateEvidence?.freshness, clearCloseoutDraft, dayRitual, notStartedColumn, reconcileDayPlanActions, retry, settlementNote]);
 
   useEffect(() => {
     if (
@@ -1479,7 +1494,7 @@ function TodayExperience({
   }
 
   async function runUndo() {
-    if (!undo || undoRunningRef.current) return;
+    if (!undo || completionUndoDisabled || undoRunningRef.current) return;
     undoRunningRef.current = true;
     const action = undo;
     setUndo(null);
@@ -1496,127 +1511,36 @@ function TodayExperience({
     suggestion: WorkSuggestion,
     source: 'explicit_accept' | 'began_work',
   ) {
-    if (!todayColumn) return;
     setSurfaceError(undefined);
-    let resolvedTaskId: string | undefined;
-    const targetTask = suggestion.targetTaskId
-      ? tasks.find((task) => task._id === suggestion.targetTaskId)
-      : undefined;
-    if (
-      (
-        suggestion.kind === 'returned_work' ||
-        suggestion.kind === 'observed_progress' ||
-        suggestion.kind === 'stale_task'
-      ) &&
-      !targetTask
-    ) {
-      setSurfaceError('The task this suggestion refers to no longer exists.');
-      return;
-    }
-    const targetBefore = targetTask
-      ? {
-          columnId: targetTask.columnId,
-          // Returned work is still Jarvis-held until the human accepts it. Keep
-          // that ownership marker explicit so compensation and Undo restore the
-          // handoff even if a stale client snapshot omitted the tag.
-          tags:
-            suggestion.kind === 'returned_work'
-              ? withTag([...targetTask.tags], JARVIS_HELD_TAG)
-              : [...targetTask.tags],
-          status: targetTask.status,
-          position: targetTask.position,
-        }
-      : undefined;
-
-    async function rollBackTaskMutation() {
-      if (targetTask && targetBefore) {
-        await updateTask(targetTask._id, targetBefore);
-      } else if (resolvedTaskId) {
-        await deleteTask(resolvedTaskId);
-      }
-    }
-
     try {
-      if (targetTask && suggestion.kind === 'returned_work') {
-        resolvedTaskId = targetTask._id;
-        await updateTask(targetTask._id, {
-          tags: withoutTag(targetTask.tags, JARVIS_HELD_TAG),
-        });
-        focusTask(targetTask._id, 'returned_work');
-      } else if (targetTask && suggestion.kind === 'observed_progress') {
-        resolvedTaskId = targetTask._id;
-        if (source === 'explicit_accept') {
-          await updateTask(targetTask._id, { status: 'done' });
-        }
-        focusTask(targetTask._id, 'observed_progress');
-      } else if (targetTask && suggestion.kind === 'stale_task') {
-        resolvedTaskId = targetTask._id;
-        if (source === 'explicit_accept') {
-          await updateTask(targetTask._id, {});
-        }
-        focusTask(targetTask._id, 'stale_task');
-      } else {
-        resolvedTaskId = await createTask({
-          columnId: todayColumn._id,
-          title: suggestion.title,
-          description: suggestion.description,
-          priority: suggestion.priority,
-          dueDate: suggestion.dueDate,
-          tags: [],
-          origin: `A Quiet Current suggestion you accepted on ${originDate(new Date())}. Source: ${originQuote(suggestion.source, 120)}. Evidence: ${originQuote(suggestion.reason)}`,
-        });
-        focusTask(resolvedTaskId, source);
-      }
-
-      try {
-        await resolveSuggestion(suggestion.id, {
-          state: 'accepted',
-          resolvedTaskId,
-          source,
-        });
-      } catch (resolutionError) {
-        try {
-          await rollBackTaskMutation();
-        } catch {
-          throw new Error(
-            "Cove couldn't accept that proposal or fully restore the task. Open All Work to check the task before trying again.",
-          );
-        } finally {
-          setFocusedTaskId(commitments[0]?._id ?? null);
-          await loadSuggestions();
-        }
-        throw resolutionError;
-      }
-
+      const accepted = await acceptSuggestion(suggestion.id, {
+        source: source === 'began_work' ? 'focus' : 'explicit_accept',
+        expectedUpdatedAt: suggestion.updatedAt,
+      });
+      await retry();
       await loadSuggestions();
+      if (source === 'began_work') {
+        if (hasLoadedTask(accepted.taskId)) {
+          setSuggestionDetailTaskId(accepted.taskId);
+          setDetailTaskId(accepted.taskId);
+        } else {
+          setSurfaceError('The task was saved to All Work, but its details could not load. Refresh All Work to open it.');
+        }
+      }
       showUndo({
-        message:
-          suggestion.kind === 'returned_work'
-            ? 'Review moved to your current'
-            : suggestion.kind === 'observed_progress'
-              ? source === 'explicit_accept'
-                ? 'Marked task done'
-                : 'Opened task'
-              : suggestion.kind === 'stale_task'
-                ? 'Kept task'
-              : 'Added to your current',
+        message: suggestion.kind === 'observed_progress' && source === 'explicit_accept'
+          ? 'Marked task done' : suggestion.kind === 'create_task' ? 'Added to All Work' : 'Suggestion reviewed',
         run: async () => {
-          await reopenSuggestion(
-            suggestion.id,
-            suggestion.state === 'refined' ? 'refined' : 'proposed',
-          );
-          try {
-            await rollBackTaskMutation();
-          } catch (rollbackError) {
-            await loadSuggestions();
-            throw rollbackError;
-          }
+          await undoSuggestionAcceptance(suggestion.id, accepted.acceptanceId);
+          await retry();
           await loadSuggestions();
           setUndo(null);
         },
       });
+      return true;
     } catch (nextError) {
       setSurfaceError(proposalCommitError(nextError));
+      return false;
     }
   }
 
@@ -1650,8 +1574,10 @@ function TodayExperience({
           setUndo(null);
         },
       });
+      return true;
     } catch {
       setSurfaceError("Cove couldn't finish setting that aside. Refresh the current to confirm it, then try again.");
+      return false;
     }
   }
 
@@ -1674,8 +1600,10 @@ function TodayExperience({
           setUndo(null);
         },
       });
+      return true;
     } catch {
       setSurfaceError("Cove couldn't finish dismissing that suggestion. Refresh the current to confirm it, then try again.");
+      return false;
     }
   }
 
@@ -1748,11 +1676,15 @@ function TodayExperience({
       const completed = completionItemId
         ? await dayRitual.completeItem(completionItemId, task.title)
         : undefined;
-      await updateTask(task._id, {
-        columnId: doneColumn._id,
-        status: 'done',
-        position: tasks.filter((candidate) => candidate.columnId === doneColumn._id).length,
-      });
+      if (completionItemId) {
+        await retry();
+      } else {
+        await updateTask(task._id, {
+          columnId: doneColumn._id,
+          status: 'done',
+          position: tasks.filter((candidate) => candidate.columnId === doneColumn._id).length,
+        });
+      }
       await recordDecision({
         eventType: 'task_complete',
         entityId: task._id,
@@ -1773,16 +1705,21 @@ function TodayExperience({
       else removeLocalValue(FOCUS_KEY);
       const completionUndo: UndoAction = {
         message: 'Completed',
+        completionPlanId: completionItemId ? completed?.plan.id : undefined,
         run: async () => {
           const restore = async () => {
             const reopened = completionItemId
               ? await dayRitual.reopenItem(completionItemId, task.title)
               : undefined;
-            await updateTask(task._id, {
-              columnId: task.columnId,
-              status: task.status ?? 'open',
-              position: task.position,
-            });
+            if (completionItemId) {
+              await retry();
+            } else {
+              await updateTask(task._id, {
+                columnId: task.columnId,
+                status: task.status ?? 'open',
+                position: task.position,
+              });
+            }
             await recordDecision({
               eventType: 'task_undo',
               entityId: task._id,
@@ -2049,7 +1986,7 @@ function TodayExperience({
     () => arrivalPlanItems.map((item) => {
       const sourceTask = tasksById.get(item.taskId);
       const fullDescription = sourceTask?.description || item.outcome;
-      const title = sourceTask?.title || item.title;
+      const title = item.planningRef ? item.title : sourceTask?.title || item.title;
       const due = sourceTask?.dueAt ?? sourceTask?.dueDate ?? item.dueAt;
       return {
         item,
@@ -2236,12 +2173,14 @@ function TodayExperience({
         ? taskSessions.error
         : dayRitual.executionError,
     surfaceError,
+    closeoutDraftError,
   );
   const today2Tasks = useMemo<TodayRiverTaskV2[]>(
     () => today2PlanEntries.map(({ item, task }) => ({
       id: task._id,
       itemId: item.id,
-      title: task.title,
+      title: item.planningRef ? item.title : task.title,
+      planningState: item.planningState,
       description: task.description || item.outcome,
       project: item.project,
       dueLabel: item.dueAt ? formatArrivalDueDate(item.dueAt) : undefined,
@@ -2395,7 +2334,25 @@ function TodayExperience({
       {TODAY_RIVER_STAGE_V2 ? (
         <TodayRiverStageV2
           ref={today2MotionRef}
-          headerSupplement={localMode ? <FollowThrough compact /> : undefined}
+          headerSupplement={localMode ? <>
+            <FollowThrough compact />
+            <QuietCurrentInbox
+              suggestions={suggestions.filter(suggestion => suggestion.state === 'proposed' || suggestion.state === 'refined')}
+              loading={suggestionsLoading}
+              error={visibleSurfaceError ?? undefined}
+              onRetry={loadSuggestions}
+              onAccept={commitSuggestion}
+              onDefer={deferSuggestion}
+              onDismiss={dismissSuggestion}
+              onRefine={async (suggestion, title, description) => {
+                await resolveSuggestion(suggestion.id, { state: 'refined', title, description, source: 'human_refinement' });
+                await loadSuggestions();
+              }}
+            />
+            {dayRitual.plan && (dayRitual.morningBrief?.proposalId || dayRitual.morningBrief?.statusNote) && (
+              <PlanningFollowUp plan={dayRitual.plan} brief={dayRitual.morningBrief} />
+            )}
+          </> : undefined}
           model={{
             timeLabel,
             timeIso: now.toISOString(),
@@ -2421,6 +2378,7 @@ function TodayExperience({
             morningArrivalDisabled: Boolean(morningArrivalUnavailableReason),
             morningArrivalTitle: morningArrivalUnavailableReason,
             closeDayDisabled,
+            dayClosed: dayRitual.plan?.state === 'settled',
             weekendGate: !dayRitual.plan && dayRitual.weekendGate
               ? {
                   weekday: dayRitual.weekendGate.weekday,
@@ -3104,8 +3062,8 @@ function TodayExperience({
             }
           }}
         >
-          <span>{undo.message}</span>
-          <button type="button" onClick={() => void runUndo()}>Undo</button>
+          <span>{completionUndoDisabled ? TODAY_CLOSED_MESSAGE : undo.message}</span>
+          <button type="button" disabled={completionUndoDisabled} title={completionUndoDisabled ? TODAY_CLOSED_MESSAGE : undefined} onClick={() => void runUndo()}>Undo</button>
           {!undoPaused && <span className="quiet-undo-timer" aria-hidden="true" />}
         </div>
       )}
@@ -3179,10 +3137,11 @@ function TodayExperience({
       {detailTask && (
         <TaskDetail
           taskId={detailTask._id}
+          returnFocusId={suggestionDetailTaskId === detailTask._id ? "quiet-current-review-trigger" : undefined}
           task={detailTask}
           columns={columns}
-          onClose={() => setDetailTaskId(null)}
-          onDeleted={() => setDetailTaskId(null)}
+          onClose={() => { setDetailTaskId(null); setSuggestionDetailTaskId(null); }}
+          onDeleted={() => { setDetailTaskId(null); setSuggestionDetailTaskId(null); }}
           onSaveTask={saveDetail}
           onDeleteTask={deleteDetail}
           onConfirmRecurrence={localMode
@@ -3245,7 +3204,7 @@ function TodayExperience({
                   : 'Using the latest verified task evidence'}
                 busy={dayRitual.busy || focusCountBusy}
                 completingTaskId={completingTaskId}
-                error={combineSurfaceErrors(dayRitual.error, surfaceError)}
+                error={combineSurfaceErrors(dayRitual.error, surfaceError, closeoutDraftError)}
                 titleId={RITUAL_TITLE_IDS.arrival}
                 descriptionId={RITUAL_DESCRIPTION_IDS.arrival}
                 escapeRef={arrivalEscapeRef}
@@ -3292,7 +3251,7 @@ function TodayExperience({
                 proposedTomorrowTitle={proposedTomorrow?.title}
                 savingItemIds={dayRitual.savingItemIds}
                 closing={dayRitual.busy}
-                error={combineSurfaceErrors(dayRitual.error, surfaceError)}
+                error={combineSurfaceErrors(dayRitual.error, surfaceError, closeoutDraftError)}
                 note={settlementNote}
                 canDefer={Boolean(notStartedColumn)}
                 titleId={RITUAL_TITLE_IDS.settlement}

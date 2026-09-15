@@ -10,6 +10,7 @@ The sales pipeline is owner-only and stays off unless both `COVE_SALES_PIPELINE=
 | --- | --- | --- |
 | `COVE_DATA_DIR` | Private runtime data | `<repo>/data` |
 | `COVE_DB_PATH` | SQLite database override | `<data>/cove.db` |
+| `COVE_BRIEF_WEB_BASE` | Explicit HTTP loopback origin for the selected local database and server | installer saves `http://127.0.0.1:3200` |
 | `COVE_CLAUDE_BIN` | Claude CLI path | discovered from PATH |
 | `COVE_CODEX_BIN` | Codex CLI path for background model jobs | discovered from PATH |
 | `COVE_CLAUDE_WORKER_ENABLED` | Enable supervised background execution | installer-managed |
@@ -19,6 +20,19 @@ The sales pipeline is owner-only and stays off unless both `COVE_SALES_PIPELINE=
 | `COVE_VOICE_FINGERPRINT_PATH` | Measured writing fingerprint appended to the email voice guide | unset |
 | `COVE_VOICE_REVIEW` | Enable the Sunday draft-outcome review when set to `1` | off |
 | `COVE_VOICE_JUDGE` | Measure each generated draft against the fingerprint when set to `1` | off |
+
+A non-default data directory or database requires an explicit matching
+`COVE_BRIEF_WEB_BASE` before task-writing CLI or background lanes can run. The
+installer preserves a configured loopback origin (including its port), uses it
+for the server, and saves the resolved database paths and origin in `.env.local`
+for restart and direct CLI consistency. It also renders that pairing into all
+installed lanes. A standalone scratch database without an explicit web base
+still fails closed. `COVE_BRIEF_WEB_BASE` takes precedence over the meeting
+watcher's older `cove-workspace.json` `cove_url`; on upgrade the installer adopts that older explicit loopback value
+when the shared setting is absent. That file value is a fallback
+only when no explicit environment origin is configured. Non-loopback origins,
+HTTPS, paths, credentials, queries and fragments are rejected by the local
+installer because its server binds only a local HTTP endpoint.
 
 Saved `agent-settings.json` selects the provider, exact model and effort for
 standard model jobs and takes precedence over environment-based model selection.

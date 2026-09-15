@@ -1,3 +1,5 @@
+import type Database from "better-sqlite3";
+import { assertSuggestionSourceCurrent, relinkSuggestionResponsibility } from "../responsibility/suggestion-links";
 /**
  * Durable pencil layer for inferred work and returned agent results.
  *
@@ -6,6 +8,9 @@
  * read/change/write operation across browser and background processes.
  */
 import { randomUUID } from "node:crypto";
+import { sourceRecord, sourceVersion } from "../responsibility/store";
+import { taskColumnKeyForName } from "../tasks/columns";
+import { syncRecurringOccurrenceForTask } from "../tasks/recurrence";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { coveDataDir } from "../operator";
@@ -64,7 +69,7 @@ export type DecisionEvent = {
   createdAt: string;
 };
 
-type QuietCurrentStore = {
+export type QuietCurrentStore = {
   version: 1;
   suggestions: WorkSuggestion[];
   decisionEvents: DecisionEvent[];
@@ -160,13 +165,13 @@ function quietDatabaseInDirectory(directory: string): string {
   return existsSync(canonical) || !existsSync(legacy) ? canonical : legacy;
 }
 
-function withStore<T>(dataDir: string | undefined, operation: (store: QuietCurrentStore) => T): T {
+function withStore<T>(dataDir: string | undefined, operation: (store: QuietCurrentStore, db: Database.Database) => T): T {
   const file = storePath(dataDir);
   const database = testStorePath
     ? `${testStorePath}.sqlite`
-    : coveEnv("DB_PATH") ?? (dataDir || coveEnv("DATA_DIR")
+    : (coveEnv("DB_PATH") ?? (dataDir || coveEnv("DATA_DIR")
       ? quietDatabaseInDirectory(coveDataDir(dataDir))
-      : localDatabasePath());
+      : localDatabasePath()));
   return transactQuietCurrent(database, file, emptyStore, operation);
 }
 
@@ -382,7 +387,7 @@ export function resolveWorkSuggestion(
     source?: string;
   },
 ): WorkSuggestion {
-  return withStore(undefined, (store) => {
+  return withStore(undefined, (store, db) => {
     refreshSuggestionLifecycle(store);
     const suggestion = store.suggestions.find((item) => item.id === id);
     if (!suggestion) throw new Error("Suggestion not found.");
@@ -390,6 +395,7 @@ export function resolveWorkSuggestion(
       throw new Error(`Suggestion is already ${suggestion.state}.`);
     }
 
+    if (input.state === "accepted") assertSuggestionSourceCurrent(db, suggestion);
     const before = { ...suggestion };
     const previousState = suggestion.state;
     if (input.title !== undefined) suggestion.title = input.title.trim();
@@ -415,6 +421,13 @@ export function resolveWorkSuggestion(
       suggestion.deferredReturnState = undefined;
     }
 
+    if (input.state === "accepted" && input.resolvedTaskId)
+      relinkSuggestionResponsibility(
+        db,
+        suggestion.id,
+        input.resolvedTaskId,
+        nowDate(),
+      );
     appendEvent(store, {
       eventType: {
         refined: "suggestion_refine",
@@ -436,7 +449,7 @@ export function reopenWorkSuggestion(
   id: string,
   state: "proposed" | "refined" = "proposed",
 ): WorkSuggestion {
-  return withStore(undefined, (store) => {
+  return withStore(undefined, (store, db) => {
     const suggestion = store.suggestions.find((item) => item.id === id);
     if (!suggestion) throw new Error("Suggestion not found.");
     if (suggestion.state === state) return suggestion;
@@ -446,6 +459,8 @@ export function reopenWorkSuggestion(
 
     const before = { ...suggestion };
     const previousState = suggestion.state;
+    if (suggestion.state === "accepted" && suggestion.resolvedTaskId)
+      restoreSuggestionResponsibility(db, suggestion.id, suggestion.resolvedTaskId, nowDate());
     suggestion.state = state;
     suggestion.dismissReason = undefined;
     suggestion.resolvedTaskId = undefined;
@@ -476,5 +491,92 @@ export function recordDecisionEvent(
     refreshSuggestionLifecycle(store);
     const event = appendEvent(store, input);
     return event;
+  });
+}
+
+
+function restoreSuggestionResponsibility(db: Database.Database, suggestionId: string, taskId: string, now: Date): void {
+  const prior = db.prepare("SELECT 1 FROM cove_responsibilities WHERE ref_kind='suggestion' AND ref_id=?").get(suggestionId);
+  if (prior) return;
+  db.prepare("UPDATE cove_responsibilities SET ref_kind='suggestion',ref_id=?,owner='Cove (proposal check)',revision=revision+1,updated_at=? WHERE ref_kind='task' AND ref_id=?")
+    .run(suggestionId, now.toISOString(), taskId);
+}
+
+type AcceptedTask = Record<string, unknown> & {id: string; status: string; title: string};
+export type SuggestionAcceptance = { suggestion: WorkSuggestion; taskId: string; acceptanceId: string };
+
+/** Task change, proposal decision and responsibility ownership commit together. */
+export function acceptWorkSuggestion(id: string, input: { source: "explicit_accept" | "focus"; expectedUpdatedAt?: string }): SuggestionAcceptance {
+  return withStore(undefined, (store, db) => {
+    refreshSuggestionLifecycle(store);
+    const suggestion = store.suggestions.find(s => s.id === id);
+    if (!suggestion) throw new Error("Suggestion not found.");
+    if (suggestion.kind === "attention_nudge") throw new Error("Attention notices should be marked seen, not accepted as tasks.");
+    if (suggestion.state === "accepted") {
+      const prior = [...store.decisionEvents].reverse().find(e => e.entityId === id && e.eventType === "suggestion_accept_atomic");
+      if (prior && suggestion.resolvedTaskId) return {suggestion, taskId:suggestion.resolvedTaskId, acceptanceId:prior.id};
+      throw new Error("Suggestion was already accepted. Refresh before continuing.");
+    }
+    if (!["proposed", "refined"].includes(suggestion.state) || (input.expectedUpdatedAt && input.expectedUpdatedAt !== suggestion.updatedAt))
+      throw new Error("This suggestion changed. Refresh before accepting.");
+    assertSuggestionSourceCurrent(db,suggestion);
+    const now = nowDate(); const stamp = now.toISOString();
+    const before = structuredClone(suggestion);
+    const targetsTask = ["returned_work", "observed_progress", "stale_task"].includes(suggestion.kind);
+    const taskId = targetsTask ? suggestion.targetTaskId : randomUUID();
+    if (!taskId) throw new Error("This suggestion has no task reference.");
+    const taskBefore = db.prepare("SELECT * FROM tasks WHERE id=?").get(taskId) as AcceptedTask | undefined;
+    if (targetsTask && (!taskBefore || taskBefore.status === "archived")) throw new Error("This task is no longer available.");
+    if (!targetsTask && taskBefore) throw new Error("The accepted task already exists. Refresh before continuing.");
+    if (!targetsTask) {
+      const today = (db.prepare("SELECT id,name FROM task_columns ORDER BY position").all() as {id:string;name:string}[]).find(c=>taskColumnKeyForName(c.name)==="today");
+      if (!today) throw new Error("Cove needs a Today list before accepting work.");
+      db.prepare("INSERT INTO tasks(id,column_id,title,description,priority,due_at,due_date,tags,project,status,source_type,remind_native,remind_text,created_at,updated_at,origin) VALUES(?,?,?,?,?,?,?,'[]','Cove','open','manual',1,0,?,?,?)")
+        .run(taskId,today.id,suggestion.title,suggestion.description,suggestion.priority,suggestion.dueDate??null,suggestion.dueDate??null,stamp,stamp,`Accepted Quiet Current suggestion. Source: ${suggestion.source}. Evidence: ${suggestion.reason}`);
+    } else if (suggestion.kind === "returned_work") {
+      const tags = JSON.parse(String(taskBefore!.tags ?? "[]"));
+      db.prepare("UPDATE tasks SET tags=?,updated_at=?,engaged_at=? WHERE id=?").run(JSON.stringify(tags.filter((tag:string)=>tag!=="jarvis-held")),stamp,stamp,taskId);
+    } else if (suggestion.kind === "observed_progress" && input.source === "explicit_accept") {
+      const doneColumn = (db.prepare("SELECT id,name FROM task_columns ORDER BY position").all() as Array<{id:string;name:string}>).find(c=>taskColumnKeyForName(c.name)==="done");
+      if (!doneColumn) throw new Error("Cove needs a Done list to complete this task.");
+      const position = db.prepare("SELECT COALESCE(MAX(position),-1)+1 FROM tasks WHERE column_id=? AND status='done'").pluck().get(doneColumn.id) as number;
+      db.prepare("UPDATE tasks SET status='done',column_id=?,position=?,updated_at=?,engaged_at=? WHERE id=?").run(doneColumn.id,position,stamp,stamp,taskId);
+      syncRecurringOccurrenceForTask(db,taskId,"done",stamp);
+    } else {
+      db.prepare("UPDATE tasks SET engaged_at=? WHERE id=?").run(stamp,taskId);
+    }
+    if (!targetsTask) relinkSuggestionResponsibility(db,id,taskId,now);
+    const taskAfter = db.prepare("SELECT * FROM tasks WHERE id=?").get(taskId) as AcceptedTask;
+    suggestion.state="accepted"; suggestion.resolvedTaskId=taskId; suggestion.updatedAt=stamp;
+    const event=appendEvent(store,{eventType:"suggestion_accept_atomic",entityId:id,before:{suggestion:before,task:taskBefore??null},after:{suggestion:structuredClone(suggestion),task:taskAfter,created:!targetsTask},source:input.source});
+    return {suggestion,taskId,acceptanceId:event.id};
+  });
+}
+
+/** Undo restores only the task version changed by this exact acceptance. */
+export function undoWorkSuggestionAcceptance(id: string, acceptanceId: string): WorkSuggestion {
+  return withStore(undefined,(store,db)=>{
+    const suggestion=store.suggestions.find(s=>s.id===id);
+    const event=store.decisionEvents.find(e=>e.id===acceptanceId && e.entityId===id && e.eventType==="suggestion_accept_atomic");
+    if (!suggestion || !event || suggestion.state!=="accepted") throw new Error("This acceptance is no longer available to undo.");
+    const before=event.before as {suggestion:WorkSuggestion;task:AcceptedTask|null};
+    const after=event.after as {task:AcceptedTask;created:boolean};
+    if (suggestion.resolvedTaskId!==after.task.id) throw new Error("This suggestion changed. Refresh before undoing.");
+    const current=sourceRecord(db,"task",after.task.id);
+    if (!current || sourceVersion(current)!==sourceVersion(after.task as unknown as NonNullable<ReturnType<typeof sourceRecord>>))
+      throw new Error("This task changed after acceptance. Review it before undoing.");
+    const stamp=nowDate().toISOString();
+    if (after.created) {
+      restoreSuggestionResponsibility(db,id,after.task.id,nowDate());
+      db.prepare("UPDATE tasks SET archived_from_status=status,status='archived',archived_at=?,updated_at=? WHERE id=?").run(stamp,stamp,after.task.id);
+    } else if (before.task) {
+      db.prepare("UPDATE tasks SET status=?,column_id=?,position=?,tags=?,updated_at=? WHERE id=?").run(before.task.status,before.task.column_id??null,before.task.position??0,before.task.tags??"[]",stamp,after.task.id);
+      syncRecurringOccurrenceForTask(db,after.task.id,before.task.status,stamp);
+    }
+    const prior=structuredClone(suggestion);
+    Object.assign(suggestion,before.suggestion,{updatedAt:stamp});
+    delete suggestion.resolvedTaskId;
+    appendEvent(store,{eventType:"suggestion_undo_atomic",entityId:id,before:prior,after:structuredClone(suggestion),source:"human"});
+    return suggestion;
   });
 }

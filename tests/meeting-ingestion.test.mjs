@@ -307,7 +307,7 @@ test("reordered retry parsing keeps stable item ids and cannot duplicate writes"
     options,
   );
   assert.equal(retried.status, "processed");
-  assert.equal(extraction, 2);
+  assert.equal(extraction, 1);
   assert.equal(new Set(idsByTitle.get(alpha.title)).size, 1);
   assert.equal(new Set(idsByTitle.get(beta.title)).size, 1);
   assert.equal(durableWrites.size, 2);

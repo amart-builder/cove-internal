@@ -23,11 +23,7 @@ import type {
   DayPlan,
 } from "@/lib/day-plan/types";
 import { isClaudeWorkerAvailable } from "@/lib/claude-execution/trigger";
-import {
-  morningBriefFromArtifact,
-  stripMorningBriefDateClaim,
-  publicMorningBrief,
-  selectMorningBriefGeneration,
+import { selectMorningBriefGeneration,
 } from "@/lib/day-plan/brief";
 import {
   maybeQueueMorningBrief,
@@ -82,6 +78,7 @@ const ACTIONS = new Set<DayPlanMutationAction>([
   "item_reopen",
   "item_owner",
   "item_reorder",
+  'plan_revision_accept',
   "start_day",
   "settlement_offer",
   "settlement_skip",
@@ -115,7 +112,8 @@ export function assertRecurringCarryAllowed(
   try {
     const task = db.prepare(
       "SELECT tags, recurring_template_id FROM tasks WHERE id = ?",
-    ).get(taskId) as {
+    ).get(taskId) as
+      | {
       tags: string | null;
       recurring_template_id: string | null;
     } | undefined;
@@ -228,10 +226,10 @@ function isoValue(
 function stringArray(
   value: unknown,
   name: string,
-  options: { maxItems: number; maxLength: number } = { maxItems: 20, maxLength: 200 },
+  options: { maxItems?: number; maxLength: number } = { maxItems: 20, maxLength: 200 },
 ): string[] {
   if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > options.maxItems) {
+  if (!Array.isArray(value) || (options.maxItems !== undefined && value.length > options.maxItems)) {
     throw new Error(`${name} has too many values.`);
   }
   return value.map((item, index) =>
@@ -543,6 +541,7 @@ export function parseDayPlanPostBody(value: unknown): ParsedPost {
     action: action as DayPlanMutationAction,
     input: {
       action: action as DayPlanMutationAction,
+      briefId: stringValue(body.briefId, 'briefId', { max: 200 }),
       planId: stringValue(body.planId, "planId", { required: true, max: 200 })!,
       mutationId: mutationIdValue(body.mutationId),
       expectedVersion: expectedVersion as number,
@@ -564,7 +563,9 @@ export function parseDayPlanPostBody(value: unknown): ParsedPost {
       completedHumanTaskIds: stringArray(
         body.completedHumanTaskIds,
         "completedHumanTaskIds",
-        { maxItems: 10, maxLength: 200 },
+        // Completed history grows as active seats are reused during the day.
+        // The request byte limit bounds input; the store checks plan membership.
+        { maxLength: 200 },
       ),
       nextDayNote: nextDayNoteValue(body.nextDayNote),
     },
@@ -576,36 +577,12 @@ function publicPlan(
   plan: DayPlan,
   accessMode: DayPlanAccessMode | undefined,
 ): DayPlan {
-  return publicDayPlan(store.withSettlementEvidence(plan), accessMode);
+  return publicDayPlan(store.projectedPlan(store.withSettlementEvidence(plan)), accessMode);
 }
 
 // The consumed Morning Brief, projected for the read model. Content is only
 // exposed on loopback requests and only for the artifact this plan actually
 // consumed, so an arrival can never hot-swap to a different brief mid-day.
-function readModelMorningBrief(
-  store: DayPlanStore,
-  plan: { briefId?: string; localDate: string; timezone: string } | undefined,
-) {
-  try {
-    const accessMode = currentDayPlanAccessMode();
-    if (accessMode !== "loopback") return undefined;
-    if (!plan?.briefId) return undefined;
-    const artifact = store.getMorningBrief(plan.briefId);
-    if (!artifact) return undefined;
-    const brief = morningBriefFromArtifact(artifact);
-    if (!brief) return undefined;
-    const dated = stripMorningBriefDateClaim(brief, plan.localDate, plan.timezone);
-    return publicMorningBrief(
-      artifact,
-      dated.brief,
-      accessMode,
-      store.morningBriefManagementSummary(artifact.id),
-    );
-  } catch {
-    return undefined;
-  }
-}
-
 // The brief generation/availability state for the plan's target date.
 // Loopback-only, gated exactly like brief content: a remote session must not
 // learn whether a brief exists or is being written. Fail-open: any error yields
@@ -681,8 +658,8 @@ async function completedPlanTaskIds(
   const doneColumnIds = new Set(
     columnRows.flatMap((value) => {
       const row = value && typeof value === "object" && !Array.isArray(value)
-        ? value as Record<string, unknown>
-        : undefined;
+        ? (value as Record<string, unknown>)
+          : undefined;
       return row && typeof row.id === "string" &&
         typeof row.name === "string" && taskColumnKeyForName(row.name) === "done"
         ? [row.id]
@@ -692,8 +669,8 @@ async function completedPlanTaskIds(
   const completedIds = new Set(
     taskRows.flatMap((value) => {
       const row = value && typeof value === "object" && !Array.isArray(value)
-        ? value as Record<string, unknown>
-        : undefined;
+        ? (value as Record<string, unknown>)
+          : undefined;
       return row && typeof row.id === "string" &&
         (row.status === "done" ||
           (typeof row.column_id === "string" && doneColumnIds.has(row.column_id)))
@@ -734,7 +711,8 @@ export function includeBriefCreatedEnsureCandidates(
          WHERE tasks.id = ?`,
       );
       const rows = picks.flatMap((pick, pickIndex) => {
-        const row = selectTask.get(pick.taskId) as {
+        const row = selectTask.get(pick.taskId) as
+          | {
           id: string;
           title: string;
           description: string | null;
@@ -781,10 +759,10 @@ export function includeBriefCreatedEnsureCandidates(
           dueAt: row.due_at ?? row.due_date,
           position: Number.isFinite(row.position) ? row.position! : pickIndex,
           column: columnKey === "today"
-            ? "today" as const
-            : columnKey === "in-progress"
-              ? "in_flight" as const
-              : "due_backlog" as const,
+            ? ("today" as const)
+                : columnKey === "in-progress"
+              ? ("in_flight" as const)
+                  : ("due_backlog" as const),
           status: "open" as const,
           updatedAt: row.updated_at ?? refreshedAt,
           refreshedAt,
@@ -837,8 +815,9 @@ export async function GET(request: NextRequest) {
     const accessMode = currentDayPlanAccessMode();
     // One read model read: the projection is derived from the same plan the
     // response carries, so plan.briefId and the brief id always agree.
-    const readModel = store.getReadModel();
-    const morningBrief = readModelMorningBrief(store, readModel.currentPlan);
+    const bundle = store.planningReadBundle();
+    const readModel = bundle.model;
+    const morningBrief = accessMode === 'loopback' ? bundle.brief : undefined;
     const briefGeneration = readModelBriefGeneration(
       store,
       readModel.currentPlan,
@@ -955,11 +934,7 @@ export async function POST(request: NextRequest) {
       // failure: omitting the optional ids preserves the plan's last-known
       // decisions and still lets the Settlement dialog open.
       try {
-        parsed.input.completedHumanTaskIds = stringArray(
-          await completedPlanTaskIds(plan),
-          "completedHumanTaskIds",
-          { maxItems: 10, maxLength: 200 },
-        );
+        parsed.input.completedHumanTaskIds = await completedPlanTaskIds(plan);
       } catch {
         parsed.input.completedHumanTaskIds = undefined;
       }
@@ -1015,8 +990,8 @@ export async function POST(request: NextRequest) {
       }
     }
     const queuedRuns = parsed.action === "start_day" && "executionRuns" in result
-      ? result.executionRuns?.filter((run) => run.status === "queued").length ?? 0
-      : 0;
+      ? (result.executionRuns?.filter((run) => run.status === "queued").length ?? 0)
+        : 0;
     const accessMode = currentDayPlanAccessMode();
     // Every payload that carries a plan goes through the same public
     // projection (brief annotations and briefId are loopback-only).

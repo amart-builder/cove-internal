@@ -1,4 +1,5 @@
 #!/usr/bin/env -S node --import tsx
+import { planningQuestions } from "../src/lib/chief-of-staff/questions";
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -63,7 +64,11 @@ export async function drainChiefOfStaff(input: {
     try {
       const now=new Date();
       reconcileResponsibilities(db,now);
-      const due=listResponsibilities(db).some(row=>Date.parse(row.next_check_at)<=+now);
+      const due=listResponsibilities(db).some(
+          (row) =>Date.parse(row.next_check_at)<=+now,
+        ) ||
+        planningQuestions(db, now).some(
+          (q) => Date.parse(q.next_check_at)<=+now);
       // Existing pending wakes already carry the same fresh desk. A denied
       // budget retains its job, so the five-minute timer cannot flood the queue.
       if(due && !db.prepare("SELECT 1 FROM cove_jobs WHERE type=? AND status IN ('queued','leased','failed')").get(CHIEF_OF_STAFF_JOB_TYPE)) {
@@ -146,7 +151,8 @@ async function main(): Promise<void> {
       const counts = db.prepare(
         `SELECT status, COUNT(*) AS count FROM cove_jobs
          WHERE type = ? AND status IN ('queued','leased','dead') GROUP BY status`,
-      ).all(CHIEF_OF_STAFF_JOB_TYPE) as Array<{ status: string; count: number }>;
+      ).all(CHIEF_OF_STAFF_JOB_TYPE) as Array<{ status: string; count: number;
+      }>;
       console.log(JSON.stringify({
         sessionId: session?.sessionId ?? null,
         wakeCount: session?.wakes ?? 0,
