@@ -24,7 +24,7 @@
 
 ---
 
-## 2026-09-15 Remaining-review fixes (LIVE, PUBLICATION PENDING)
+## 2026-09-15 Remaining-review fixes (LIVE, PUSHED)
 
 - Deterministic generated time/source references, complete local-date labels and
   cached calendar offset filtering. Strengthened evidence rules for stale calendar
@@ -44,7 +44,12 @@
   brief reload, Today, keyboard navigation, People and All Work checked.
   Recovery: data/build-backups/20260915-remaining-findings/.
 - Private evidence: data/review-artifacts/remaining-findings-20260915/REPORT.md.
-  Next: publish verified changes to both private release branches.
+  Both private release branches pushed through safe-push, remote hashes verified:
+  internal software da29350, sanitized client 0d7f083.
+  All 631 client export hashes match the tested final9 candidate. For Gary, use
+  codex/cove-provider-reminder-release-20260910 explicitly and follow SETUP.md.
+  Jarvis handoff queued locally; hub unreachable.
+  Next owner: Alex with setup agent for actual-device acceptance.
   Real device/account acceptance and the unavailable external phone route remain
   separate. Real-note reconstruction was not transmitted and remains unapproved.
 
