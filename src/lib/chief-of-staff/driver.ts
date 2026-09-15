@@ -98,7 +98,7 @@ function renderChiefOfStaffMandateForWake(input: {
     : status ? `${source}\n\n${status}` : source;
   const contract = readFileSync(path.join(input.repoDir, "prompts", "responsibility-contract.md"), "utf8");
   const phoneContract = readFileSync(path.join(input.repoDir, "prompts", "phone-reminder-contract.md"), "utf8");
-  const expected = `${rendered}\n\n${contract}\n\n${phoneContract}\n\n${PLANNING_QUESTIONS}\nFor a material change to selected actions, use replan_day. It queues the shared daily planner. Do not write a competing ranked plan in journal or watching. The brief renders the committed plan revision.\n`;
+  const expected = `${rendered}\n\n${contract}\n\n${phoneContract}\n\n${PLANNING_QUESTIONS}\nUse replan_day only before the person starts their day. After Start Day, the chosen plan and written brief stay settled until the person explicitly changes tasks. Keep new source information for the next Morning Arrival; do not request a midday plan review or write a competing ranked plan in journal or watching.\n`;
   if (readFileSync(input.mandatePath, "utf8") === expected) return;
   atomicWrite(input.mandatePath, expected, 0o444);
 }
@@ -1048,7 +1048,8 @@ export async function runWake(
       });
       try {
         const current = plans.getReadModel().currentPlan;
-        if (current && !["settled", "abandoned"].includes(current.state))
+        if (current && ["draft", "proposed"].includes(current.state) &&
+            !current.arrivalInteractedAt)
           plans.enqueueMorningBrief(current.localDate, morningBriefModelConfig());
       } finally {
         plans.close();

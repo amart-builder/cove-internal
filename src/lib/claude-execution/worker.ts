@@ -1428,7 +1428,8 @@ export function enqueueDueMorningBrief(
     const model = store.getReadModel();
     // Read local durable closure state, never the potentially stale relay.
     if (model.currentPlan && model.currentPlan.localDate < target) return undefined;
-    if (model.currentPlan?.briefId) return undefined;
+    if (model.currentPlan?.briefId || model.currentPlan?.arrivalInteractedAt ||
+      (model.currentPlan && !["draft", "proposed"].includes(model.currentPlan.state))) return undefined;
     if (model.latestSnapshot && model.latestSnapshot.localDate >= target) return undefined;
     if (model.latestSnapshot && !settlementReconciliationComplete(
       model.pendingReconciliations, model.latestSnapshot.id,

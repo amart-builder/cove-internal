@@ -81,7 +81,6 @@ import MorningArrival, {
 } from './MorningArrival';
 import DaySettlement from './DaySettlement';
 import useCloseoutDraft from './useCloseoutDraft';
-import QuietCurrentInbox from './QuietCurrentInbox';
 import DayRitualLayer, { DayRitualContentSwap } from './DayRitualLayer';
 import { OpenInClaudeCode, RunStatusChip } from './ClaudeRunIndicators';
 import ExecutionConfigPanel from './ExecutionConfigPanel';
@@ -114,7 +113,6 @@ import {
 import CoveReadinessStrip from './CoveReadinessStrip';
 import ClaudeDeskStrip from './ClaudeDeskStrip';
 import FollowThrough from '../reliability/FollowThrough';
-import PlanningFollowUp from './arrival/PlanningFollowUp';
 import TodayRiverStageV2, {
   TODAY_CLOSED_MESSAGE,
   type SecondCurrentItemV2,
@@ -2180,7 +2178,7 @@ function TodayExperience({
       id: task._id,
       itemId: item.id,
       title: item.planningRef ? item.title : task.title,
-      planningState: item.planningState,
+      planningState: item.planningStale && dayRitual.plan?.state === 'active' ? undefined : item.planningState,
       description: task.description || item.outcome,
       project: item.project,
       dueLabel: item.dueAt ? formatArrivalDueDate(item.dueAt) : undefined,
@@ -2188,7 +2186,7 @@ function TodayExperience({
       run: localMode ? taskSessions.latestByTaskId.get(task._id) : undefined,
       sessionBusy: taskSessions.launchingTaskIds.has(task._id),
     })),
-    [localMode, taskSessions.latestByTaskId, taskSessions.launchingTaskIds, today2PlanEntries],
+    [dayRitual.plan?.state, localMode, taskSessions.latestByTaskId, taskSessions.launchingTaskIds, today2PlanEntries],
   );
   // Count of pending email items (reply or action). Shown as a badge on the
   // Email needs you card and refreshed on the same bus the email card uses.
@@ -2334,25 +2332,7 @@ function TodayExperience({
       {TODAY_RIVER_STAGE_V2 ? (
         <TodayRiverStageV2
           ref={today2MotionRef}
-          headerSupplement={localMode ? <>
-            <FollowThrough compact />
-            <QuietCurrentInbox
-              suggestions={suggestions.filter(suggestion => suggestion.state === 'proposed' || suggestion.state === 'refined')}
-              loading={suggestionsLoading}
-              error={visibleSurfaceError ?? undefined}
-              onRetry={loadSuggestions}
-              onAccept={commitSuggestion}
-              onDefer={deferSuggestion}
-              onDismiss={dismissSuggestion}
-              onRefine={async (suggestion, title, description) => {
-                await resolveSuggestion(suggestion.id, { state: 'refined', title, description, source: 'human_refinement' });
-                await loadSuggestions();
-              }}
-            />
-            {dayRitual.plan && (dayRitual.morningBrief?.proposalId || dayRitual.morningBrief?.statusNote) && (
-              <PlanningFollowUp plan={dayRitual.plan} brief={dayRitual.morningBrief} />
-            )}
-          </> : undefined}
+          headerSupplement={localMode ? <FollowThrough compact /> : undefined}
           model={{
             timeLabel,
             timeIso: now.toISOString(),

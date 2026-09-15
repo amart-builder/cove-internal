@@ -33,7 +33,10 @@ import type {
 // 17 / schema 6: rank up to eight existing tasks, with the first three as focus.
 // 18 / schema 7: a grounded concrete recommendation may create a real Today task.
 // 20: restore full narrative alongside the shared planning decision.
-export const MORNING_BRIEF_PROMPT_VERSION = 21;
+// 22: explicit machine-readable review timestamps and evidence-bounded availability.
+// 24: preserve undecided terms and bound both positive and negative monitoring claims.
+// 25: deterministic local dates and freshness precedence for saved calendar answers.
+export const MORNING_BRIEF_PROMPT_VERSION = 25;
 export const MORNING_BRIEF_SCHEMA_VERSION = 8;
 
 export type MorningBriefStatus = "queued" | "running" | "succeeded" | "failed";

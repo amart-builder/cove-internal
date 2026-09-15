@@ -29,6 +29,7 @@ import { LocalCRMBackend } from "../src/lib/crm/local.ts";
 import { LocalPipelineStore } from "../src/lib/crm/pipeline-store.ts";
 import { openLocalDatabase } from "../src/lib/local/database.ts";
 import { createWorkSuggestion, getQuietCurrentSnapshot } from "../src/lib/quiet-current/store.ts";
+import { createDayPlanStore } from "../src/lib/day-plan/store.ts";
 import { JobScheduler } from "../src/lib/reliability/jobs.ts";
 
 import { sourceRecord, sourceVersion } from "../src/lib/responsibility/store.ts";
@@ -665,6 +666,8 @@ function fakeCodex(file, mode = "success") {
     : `printf '%s\\n' '{"type":"thread.started","thread_id":"new-session-id"}'`;
   const output = mode === "no-session"
     ? '{"journal":["Applied the task.","A fresh session is acceptable."],"watching":[],"actions":[{"action_id":"no-session-task","kind":"task_create","why":"manual payload","title":"Created without session id"}]}'
+    : mode === "replan"
+    ? '{"journal":["A source changed.","Requested fresh morning planning."],"watching":[],"actions":[{"action_id":"fresh-plan","kind":"replan_day","why":"Source context changed"}]}'
     : mode === "two-texts"
     ? '{"journal":["Reviewed both due tasks.","Requested the necessary interruptions."],"watching":[],"actions":[{"action_id":"text-one","kind":"notify","why":"notice one is due","ref_kind":"task","ref_id":"notice-one","level":"text","reason":"First task is due now."},{"action_id":"text-two","kind":"notify","why":"notice two is due","ref_kind":"task","ref_id":"notice-two","level":"text","reason":"Second task is due now."}]}'
     : mode === "mixed-outcome"
@@ -1438,4 +1441,27 @@ test('phone reminder judgment queues one durable versioned intent and never repo
   assert.equal(payload.phone_reminder_delivered, false); verify.close();
   const staleJob = enqueue(dbPath, { reason: 'manual', note: 'stale' }).job;
   assert.equal(applyChiefOfStaffActions({ dbPath, dataDir, wakeJobId: staleJob.id, actions: [{ ...actions[0], expected_version: 'stale' }] }).rejected, 1);
+});
+
+
+test("automatic replan wakes only schedule an untouched morning plan", async () => {
+  for (const [state, interacted, expected] of [
+    ["proposed", false, 1], ["proposed", true, 0],
+    ["active", false, 0], ["settling", false, 0], ["settled", false, 0],
+  ]) {
+    const { dataDir, dbPath, operatorEnv } = tempCove();
+    const now = new Date("2026-09-03T16:00:00Z");
+    const plans = createDayPlanStore({ dbPath, now: () => now });
+    const plan = plans.ensureDayPlan({ localDate: "2026-09-03", timezone: "America/Los_Angeles", mutationId: "ensure", candidates: [] }).plan;
+    const db = openLocalDatabase(dbPath);
+    db.prepare("UPDATE day_plans SET plan_state=?,arrival_interacted_at=? WHERE id=?").run(state, interacted ? now.toISOString() : null, plan.id);
+    db.close();
+    const binary = path.join(dataDir, "fake-codex");
+    fakeCodex(binary, "replan");
+    const job = enqueue(dbPath, { reason: "manual", note: "Source update", now }).job;
+    try {
+      await runWake(job, { repoDir: ROOT, dataDir, dbPath, codexPath: binary, now: () => now, env: operatorEnv });
+      assert.equal(plans.listMorningBriefs("2026-09-03").length, expected, `${state}, interacted=${interacted}`);
+    } finally { plans.close(); }
+  }
 });

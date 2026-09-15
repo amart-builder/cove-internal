@@ -139,7 +139,8 @@ export function maybeQueueMorningBrief(
     }
     if (action === "ensure" || action === "arrival_open") {
       const plan = (result as DayPlanMutationResult).plan;
-      if (!plan || plan.briefId) return;
+      if (!plan || plan.briefId || plan.arrivalInteractedAt ||
+          !["draft", "proposed"].includes(plan.state)) return;
       // Only today's arrival regenerates. A stale plan surfacing here heads to
       // settlement, whose reconciliation trigger targets the right morning.
       if (plan.localDate !== localDateInTimezone(now, plan.timezone)) return;

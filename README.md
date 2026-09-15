@@ -160,6 +160,9 @@ Cove code authorizes and writes. SQLite owns product state. Gmail owns email.
 New code must preserve those boundaries and include a regression test for the
 invariant it changes.
 
+For repeatable behavior checks, see the [working-week evaluation](EVALUATION.md).
+It combines a five-day state simulation with isolated model scenarios and saved-response replay.
+
 ### Follow-through you can inspect
 
 Cove keeps a next review for each open task and commitment. The chief can propose
@@ -168,3 +171,7 @@ not infer that work is complete. Open Your follow-through from Today to see next
 steps, proposed capacity, repeated carryovers and anything prepared for you.
 Calendar and estimate gaps stay visible. You remain in control of completion,
 changed promises and anything sent outside Cove.
+
+Choose and arrange the day in Morning Arrival's Plan your day step. After Start
+my day, Cove preserves that plan and its written brief. Background planning does
+not create another approval queue. Use All tasks to make explicit changes.

@@ -185,21 +185,25 @@ Morning Brief flow:
    transports this decision instead of independently ranking or creating tasks.
 3. `completeDailyPlanning` validates source versions in a transaction and stores
    the decision, linked proposals/checks, and plan revision together. An untouched
-   provisional plan may be replaced. Human edits leave a reviewable revision.
+   provisional plan may be replaced. Human edits close the automatic write window.
+   Late output stays an artifact; it cannot create fresh linked proposals or questions.
 4. `planningReadBundle` resolves current linked actions for the plan, separately
    from the saved Morning Brief. Arrival always displays the complete saved
    headline and narrative, including after priority edits, completion or reload.
    Task titles and rationales must never substitute for the written brief.
    Without a readable artifact, Arrival shows writing/retry status, not task prose.
-   Source changes still invalidate executable plan assumptions and queue a new
-   recommendation; they do not erase the saved document. A rejected stale
-   generation receives at most one automatic retry.
+   Source changes still invalidate executable assumptions. Automatic regeneration
+   is limited to an untouched provisional plan. Start my day pins the document
+   and choices; Today and Arrival do not show a separate plan review queue.
+   Explicit All tasks edits remain available. A rejected stale generation gets
+   at most one automatic retry while that morning window remains open.
 5. New inferred work stays in Quiet Current. Start my day explicitly accepts
-   selected proposals; skipping Arrival does not. Acceptance through either
-   surface preserves the responsibility identity and its check.
+   selected proposals; skipping Arrival does not. Acceptance preserves the
+   responsibility identity and its check.
 
 `chief-of-staff/questions.ts` stores material questions and source-backed answers.
-The question form is available in Arrival, closeout and the matching task editor.
+The question form is available in the pre-start Plan your day step, closeout and
+the matching task editor.
 Buddy's `planning-question` CLI command uses the same answer transaction. Ambiguous
 answers remain open with the earlier reply visible. Parking a question preserves
 its underlying responsibility. No answer automatically becomes a standing policy.

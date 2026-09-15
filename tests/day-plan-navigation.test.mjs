@@ -4,6 +4,12 @@ import test from 'node:test';
 
 const readComponent = (name) => readFileSync(new URL(`../src/components/tasks/${name}.tsx`, import.meta.url), 'utf8');
 
+test('Today and Morning Arrival have no separate recommendation approval controls', () => {
+  assert.doesNotMatch(readComponent('TodayView'), /<QuietCurrentInbox|<PlanningFollowUp/);
+  assert.doesNotMatch(readComponent('MorningArrival'), /<PlanningFollowUp/);
+  assert.match(readComponent('MorningArrival'), /step === 'plan' && plan.state !== 'active' && <PlanningQuestion/);
+});
+
 test('the full-plan entry closes the grid and uses the planner task count', () => {
   const stage = readComponent('TodayRiverStageV2');
   const footer = stage.slice(stage.indexOf('<footer className="today2-grid-footer">'));

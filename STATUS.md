@@ -24,6 +24,33 @@
 
 ---
 
+## 2026-09-15 Morning-only planning and working-week evaluation (LIVE)
+
+- Removed Review suggestions and Review proposed changes from Today/Arrival.
+  Morning Brief -> Plan your day -> Start Day is the planning contract. Started
+  or interacted-with days retain their choices, order and full saved brief;
+  automatic refresh and late worker output cannot reopen them. All Tasks remains
+  the explicit editing path.
+- Added a repeatable five-day state simulation, isolated GPT-6/Fable 5.1 case
+  runner and production persistence replay. See EVALUATION.md. State: 40/40;
+  final verifier: 1,613 passing tests, zero failures, one opt-in skip, TypeScript,
+  zero-warning lint and production build. Final Fable code review: no blockers.
+- Activated build N4RKBE9QNs0PXufgjSzCI, prompt version 25. Saved day/brief,
+  settings, database integrity and worker heartbeat verified. Full brief and
+  Today layout checked in browser. Recovery: data/build-backups/20260915-working-week-dates.
+- Model trials found and repaired invalid timestamps/references, assumed
+  commercial terms, unsupported monitoring claims and source-date conversion.
+  Earlier failures are retained. Final holdout repair: 9 pass, 3 concerns, no
+  frozen-criterion failures; 12/12 persisted. One Fable answer still disagreed
+  between prose and saved review time, and stale-calendar urgency remains a
+  concern. This is not proof of unattended model reliability or a bugless app.
+- Real-note reconstruction remains local pending explicit transmission approval;
+  automatic approval review blocked that payload, not the fictional cases.
+- Private evidence/report: data/review-artifacts/working-week-20260915/REPORT.md.
+  Publication proceeds on the existing release branch in both private repos.
+  Next owner: Alex with setup agent for Gary's actual-device acceptance, and
+  engineering for deterministic generated review times/stale calendar reasoning.
+
 ## 2026-09-15 Reviewed release pushed to GitHub
 
 - All 157 pending source, test and documentation files committed to the existing

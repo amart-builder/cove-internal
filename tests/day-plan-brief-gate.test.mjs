@@ -92,7 +92,7 @@ test('the arrival backfill queues for today, and waits on a live peer attempt', 
   maybeQueueMorningBrief(
     allowed,
     'arrival_open',
-    { plan: { id: 'p', localDate: '2026-07-24', timezone: TZ }, replayed: false },
+    { plan: { id: 'p', state: 'proposed', localDate: '2026-07-24', timezone: TZ }, replayed: false },
     morning,
   );
   assert.equal(allowed.enqueued.length, 1);
@@ -104,11 +104,24 @@ test('the arrival backfill queues for today, and waits on a live peer attempt', 
   maybeQueueMorningBrief(
     waiting,
     'arrival_open',
-    { plan: { id: 'p', localDate: '2026-07-24', timezone: TZ }, replayed: false },
+    { plan: { id: 'p', state: 'proposed', localDate: '2026-07-24', timezone: TZ }, replayed: false },
     morning,
     { isRemoteAttemptLive: () => true },
   );
   assert.deepEqual(waiting.enqueued, []);
+});
+
+test('arrival backfill leaves a started or already arranged day alone', () => {
+  for (const detail of [
+    { state: 'active' },
+    { state: 'proposed', arrivalInteractedAt: '2026-07-24T15:59:00.000Z' },
+  ]) {
+    const store = triggerStore();
+    maybeQueueMorningBrief(store, 'arrival_open', {
+      plan: { id: 'p', localDate: '2026-07-24', timezone: TZ, ...detail }, replayed: false,
+    }, new Date('2026-07-24T16:00:00.000Z'));
+    assert.deepEqual(store.enqueued, []);
+  }
 });
 
 // ---------------------------------------------------------------------------

@@ -505,12 +505,15 @@ test("malformed saved decisions cannot break a coherent plan read",t=>{
  const result=store.planningReadBundle();assert.equal(result.model.currentPlan.id,plan.id);assert.equal(result.brief.headline, undefined);assert.deepEqual(result.brief.narrativeParagraphs, []);
 });
 
-test("accepted preparation rejects a parent change after context was collected",t=>{
+test("late planning retains a stale artifact without changing accepted preparation",t=>{
  const {db,store}=fixture(t);task(db);const context=store.planningContext(date,[event]);generate(store,context,wire(context,{proposal:true}));
  let plan=ensure(store);plan=mutate(store,plan,"arrival_open");plan=mutate(store,plan,"start_day");
  const fresh=store.planningContext(date);const raw=wire(fresh);raw.actions[0].source=fresh.references.find(r=>r.kind==="task"&&r.id===plan.items[0].taskId);
  rememberCalendarOccurrences(db,[{...event,start:"2026-09-11T19:00:00Z"}],new Date(+now+60000));
- assert.throws(()=>generate(store,fresh,raw),/planning_source_changed/);
+ const before=store.getPlan(plan.id);
+ const artifactId=generate(store,fresh,raw);
+ assert.equal(store.getMorningBrief(artifactId).status,"succeeded");
+ assert.deepEqual(store.getPlan(plan.id),before);
 });
 test("park and expiry close the question without resolving its accepted source",async t=>{
  const {answerPlanningQuestion,planningQuestions}=await import("../src/lib/chief-of-staff/questions.ts");
@@ -666,4 +669,79 @@ test("historical saved daily narrative becomes readable without adopting its rec
   assert.equal(bundle.brief.proposalId,brief.id);
   mutate(store,bundle.model.currentPlan,"plan_revision_accept",{briefId:brief.id});
   assert.equal(store.planningReadBundle().brief.proposalId,undefined);
+});
+
+
+test("Start My Day pins the brief and chosen order while late output remains quiet", (t) => {
+  const { db, store } = fixture(t);
+  task(db);
+  const firstContext = store.planningContext(date);
+  const first = generate(store, firstContext, { ...wire(firstContext), narrativeParagraphs: ["The morning briefing you chose."] });
+  let plan = mutate(store, ensure(store), "arrival_open");
+  plan = mutate(store, plan, "start_day");
+  const chosen = structuredClone(plan);
+  const fresh = store.planningContext(date, [event]);
+  const raw = { ...wire(fresh, { proposal: true }), narrativeParagraphs: ["An unrequested midday replacement."] };
+  raw.questions = [{ outcomeKey: "calendar:call", decisionKey: "prep", question: "Add more preparation?", source: raw.actions[0].source, nextCheckAt: "2026-09-11T16:00:00Z", expiresAt: "2026-09-12T16:00:00Z" }];
+  const tables = ["cove_quiet_current", "cove_responsibilities", "cove_planning_questions", "tasks"];
+  const before = tables.map(table => db.prepare(`SELECT * FROM ${table}`).all());
+  const late = generate(store, fresh, raw);
+  assert.equal(store.getMorningBrief(late).status, "succeeded");
+  assert.deepEqual(tables.map(table => db.prepare(`SELECT * FROM ${table}`).all()), before);
+  assert.equal(store.forceAttachMorningBrief(date, late), false);
+  const bundle = store.planningReadBundle();
+  assert.equal(bundle.model.currentPlan.briefId, first);
+  assert.deepEqual(bundle.model.currentPlan.items, chosen.items);
+  assert.equal(bundle.model.currentPlan.version, chosen.version);
+  assert.deepEqual(bundle.brief.narrativeParagraphs, ["The morning briefing you chose."]);
+  assert.equal(bundle.brief.proposalId, undefined);
+  assert.equal(bundle.brief.proposedActions, undefined);
+  assert.throws(() => mutate(store, bundle.model.currentPlan, "plan_revision_accept", { briefId: late }), /before Start My Day/);
+  // A real explicit task completion remains available after the plan is pinned.
+  plan = mutate(store, bundle.model.currentPlan, "item_complete", { itemId: chosen.items[0].id });
+  assert.equal(plan.items[0].decision, "completed");
+  assert.equal(plan.briefId, first);
+});
+
+test("started day source refresh and stale retry do not schedule replacement planning", (t) => {
+  const { db, store } = fixture(t);
+  task(db);
+  generate(store, store.planningContext(date));
+  const plan = mutate(store, ensure(store), "arrival_open");
+  mutate(store, plan, "start_day");
+  db.prepare("UPDATE tasks SET updated_at='2026-09-11T15:10:00Z' WHERE id='strategic'").run();
+  const count = store.listMorningBriefs(date).length;
+  const bundle = store.planningReadBundle();
+  assert.equal(bundle.model.currentPlan.items[0].planningStale, true);
+  assert.equal(bundle.brief.statusNote, undefined);
+  assert.equal(store.listMorningBriefs(date).length, count);
+  const { brief } = store.enqueueMorningBrief(date, { modelAlias: "opus", effort: "high", budgetUsd: 1.5 });
+  store.claimNextMorningBrief();
+  store.failMorningBrief(brief.id, "planning_source_changed");
+  assert.equal(store.requeueStalePlanning(brief.id), undefined);
+  assert.equal(store.listMorningBriefs(date).length, count + 1);
+});
+
+
+test("first brief racing plan creation saves morning links without replacing ensured choices", (t) => {
+  const { db, store } = fixture(t);
+  task(db);
+  const context = store.planningContext(date, [event]);
+  const raw = { ...wire(context, { proposal: true }), narrativeParagraphs: ["Review the questionnaire, then answer the preparation question."] };
+  raw.questions = [{ outcomeKey: "calendar:call", decisionKey: "prep", question: "Do the answers cover the call?", source: raw.actions[0].source, nextCheckAt: "2026-09-11T16:00:00Z", expiresAt: "2026-09-12T16:00:00Z" }];
+  const plan = ensure(store);
+  const before = structuredClone(plan);
+  const artifactId = generate(store, context, raw);
+  const bundle = store.planningReadBundle();
+  assert.equal(bundle.model.currentPlan.briefId, artifactId);
+  assert.deepEqual(bundle.model.currentPlan.items, before.items);
+  assert.equal(bundle.model.currentPlan.version, before.version);
+  assert.deepEqual(bundle.brief.narrativeParagraphs, raw.narrativeParagraphs);
+  const state = JSON.parse(db.prepare("SELECT state_json FROM cove_quiet_current").get().state_json);
+  assert.equal(state.suggestions.length, 1);
+  assert.equal(state.suggestions[0].title, raw.actions[0].proposal.title);
+  assert.equal(db.prepare("SELECT count(*) FROM cove_responsibilities WHERE ref_kind='suggestion'").pluck().get(), 1);
+  assert.equal(db.prepare("SELECT count(*) FROM cove_planning_questions WHERE state='open'").pluck().get(), 1);
+  assert.ok(bundle.brief.watchItems.some(watch => watch.recordId === `suggestion:${state.suggestions[0].id}`));
+  assert.equal(db.prepare("SELECT count(*) FROM tasks").pluck().get(), 1);
 });

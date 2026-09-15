@@ -2782,6 +2782,9 @@ export function createDayPlanStore(options: {
           .get(id, id)
       )
         return undefined;
+      const plan = getPlanForDate(artifact.targetLocalDate);
+      if (plan && (!["draft", "proposed"].includes(plan.state) || plan.arrivalInteractedAt))
+        return undefined;
       const queued = enqueueMorningBrief(artifact.targetLocalDate, {
         modelAlias: artifact.modelAlias,
         effort: artifact.effort,
@@ -2946,12 +2949,14 @@ export function createDayPlanStore(options: {
       // without changing intent. Human edits stamp arrivalInteractedAt; source
       // and responsibility versions are separately validated before any write.
       const applies = untouched && brief.dailyDecision.basePlanId === (plan?.id ?? null);
-      const linkedCandidates = persistDecisionLinks(
-        db,
-        brief.dailyDecision,
-        now(),
-        { applyExisting: applies },
-      );
+      // A plan can be ensured while its first brief is being written. Keep
+      // that morning's new proposals and questions without replacing its items.
+      // Human interaction or starting the day closes this automatic write window.
+      const canSaveLinks = !plan ||
+        (["draft", "proposed"].includes(plan.state) && !plan.arrivalInteractedAt);
+      const linkedCandidates = canSaveLinks
+        ? persistDecisionLinks(db, brief.dailyDecision, now(), { applyExisting: applies })
+        : [];
       if (applies) candidates = linkedCandidates;
       const result = completeMorningBrief(
         id,
@@ -3041,7 +3046,8 @@ export function createDayPlanStore(options: {
         });
         // One bounded regeneration per newly observed source revision. Queue
         // deduplication coalesces concurrent changes; failures remain visible.
-        if (plan.items.some((i) => i.planningStale))
+        if (plan.state === "proposed" && !plan.arrivalInteractedAt &&
+            plan.items.some((i) => i.planningStale))
           enqueueMorningBrief(plan.localDate, morningBriefModelConfig());
       }
       const latest = latestEligibleMorningBrief(plan.localDate);
@@ -3051,13 +3057,15 @@ export function createDayPlanStore(options: {
           forceAttachMorningBrief(plan.localDate, latest.id)) plan.briefId = latest.id;
       const artifact = plan.briefId ? getMorningBrief(plan.briefId) : undefined;
       const brief = projectPlanningBrief(db, plan, artifact);
+      if (plan.state !== "draft" && plan.state !== "proposed") delete brief.statusNote;
       const recommendationsAccepted = latest && db.prepare(
         "SELECT 1 FROM day_plan_events WHERE day_plan_id=? AND event_type='plan_revision_accept' AND json_extract(after_json,'$.briefId')=? LIMIT 1",
       ).get(plan.id, latest.id);
       const latestHasUnappliedRecommendations = latest?.briefJson && !recommendationsAccepted
         ? !Array.isArray(JSON.parse(latest.briefJson).planningCandidates)
         : false;
-      if (latest && (latest.id !== plan.briefId || latestHasUnappliedRecommendations)) {
+      if (plan.state === "proposed" && latest &&
+          (latest.id !== plan.briefId || latestHasUnappliedRecommendations)) {
         const proposal = morningBriefFromArtifact(latest)?.dailyDecision;
         if (proposal) {
           brief.proposalId = latest.id;
@@ -4201,7 +4209,9 @@ export function createDayPlanStore(options: {
     return immediate(() => {
       const plan = getPlanForDate(localDate);
       if (!plan || plan.briefId === briefId) return false;
-      if (plan.state === "settled" || plan.state === "abandoned") return false;
+      // Start My Day pins the written brief, including any existing saved
+      // narrative. Late results remain available as artifacts only.
+      if (plan.state !== "draft" && plan.state !== "proposed") return false;
       const artifact = getMorningBrief(briefId);
       const newBrief = morningBriefFromArtifact(artifact);
       if (!newBrief || artifact?.targetLocalDate !== localDate) return false;
@@ -4807,7 +4817,11 @@ export function createDayPlanStore(options: {
           break;
         }
         case "plan_revision_accept": {
-          requirePlanOrdering(plan);
+          if (plan.state !== "proposed" || plan.arrivalState !== "opened") {
+            throw new DayPlanInvalidTransition(
+              "Recommendations can change only before Start My Day. Update tasks in All Tasks after starting.",
+            );
+          }
           const artifact = input.briefId
             ? getMorningBrief(input.briefId)
             : undefined;
@@ -4828,22 +4842,15 @@ export function createDayPlanStore(options: {
           const completed = plan.items.filter(
             (item) => item.decision === "completed",
           );
-          const wasActive = plan.state === "active";
           plan.items = [
             ...candidates.map((candidate, position) => ({
               ...candidate,
               id: candidate.candidateId,
               position,
-              decision: wasActive
-                ? ("accepted" as const)
-                : ("preselected" as const),
+              decision: "preselected" as const,
             })),
             ...completed,
           ];
-          if (wasActive)
-            plan.items.forEach((item) =>
-              acceptPlanningProposal(db, item, new Date(changedAt)),
-            );
           plan.items.forEach((item, position) => {
             item.position = position;
           });

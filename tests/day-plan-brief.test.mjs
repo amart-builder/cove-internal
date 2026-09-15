@@ -1742,7 +1742,7 @@ test('ensure keeps at most three items from a larger deterministic pool', (t) =>
 // ---------------------------------------------------------------------------
 
 test('the brief command is the exact bounded toolless invocation', () => {
-  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 21);
+  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 25);
   const repoCwd = process.cwd();
   const ownerPrompt = readFileSync(path.join(repoCwd, 'prompts', 'chief-of-staff.md'), 'utf8').trimEnd();
   assert.ok(ownerPrompt.includes(
@@ -2409,7 +2409,7 @@ function triggerStore({ pending = [], plans = {}, eligible } = {}) {
 
 // 08:30 Pacific: yesterday is being closed this morning.
 const TRIGGER_NOW = new Date('2026-07-15T15:30:00.000Z');
-const LA_PLAN = { id: 'plan-1', localDate: '2026-07-14', timezone: 'America/Los_Angeles', briefId: undefined };
+const LA_PLAN = { state: 'proposed', id: 'plan-1', localDate: '2026-07-14', timezone: 'America/Los_Angeles', briefId: undefined };
 
 test('a late closeout with no defers or drops enqueues today immediately', () => {
   const store = triggerStore();
@@ -2503,7 +2503,7 @@ test('ensure and arrival triggers regenerate only for today and never for a cons
   maybeQueueMorningBrief(
     fresh,
     'ensure',
-    { plan: { id: 'p', localDate: today, timezone: 'America/Los_Angeles' }, replayed: false },
+    { plan: { state: 'proposed', id: 'p', localDate: today, timezone: 'America/Los_Angeles' }, replayed: false },
     TRIGGER_NOW,
   );
   assert.deepEqual(fresh.enqueued, [today]);
@@ -2512,14 +2512,14 @@ test('ensure and arrival triggers regenerate only for today and never for a cons
   maybeQueueMorningBrief(
     consumed,
     'arrival_open',
-    { plan: { id: 'p', localDate: today, timezone: 'America/Los_Angeles', briefId: 'b1' }, replayed: false },
+    { plan: { state: 'proposed', id: 'p', localDate: today, timezone: 'America/Los_Angeles', briefId: 'b1' }, replayed: false },
     TRIGGER_NOW,
   );
   // Stale plan: settlement owns the right target.
   maybeQueueMorningBrief(
     consumed,
     'ensure',
-    { plan: { id: 'p', localDate: '2026-07-01', timezone: 'America/Los_Angeles' }, replayed: false },
+    { plan: { state: 'proposed', id: 'p', localDate: '2026-07-01', timezone: 'America/Los_Angeles' }, replayed: false },
     TRIGGER_NOW,
   );
   // Eligible artifact already exists: nothing to do.
@@ -2527,7 +2527,7 @@ test('ensure and arrival triggers regenerate only for today and never for a cons
   maybeQueueMorningBrief(
     covered,
     'ensure',
-    { plan: { id: 'p', localDate: today, timezone: 'America/Los_Angeles' }, replayed: false },
+    { plan: { state: 'proposed', id: 'p', localDate: today, timezone: 'America/Los_Angeles' }, replayed: false },
     TRIGGER_NOW,
   );
   assert.deepEqual(consumed.enqueued, []);
@@ -2886,4 +2886,28 @@ test('date correction reaches the nested decision used by the Arrival projection
   assert.equal(result.contradicted, true);
   assert.deepEqual(result.brief.dailyDecision.narrativeParagraphs, result.brief.narrativeParagraphs);
   assert.doesNotMatch(result.brief.dailyDecision.narrativeParagraphs.join(' '), /Today is Sunday/);
+});
+
+
+test('automatic arrival backfill does not regenerate a started or closing day', () => {
+  for (const state of ['active', 'settling', 'settled', 'abandoned']) {
+    for (const action of ['ensure', 'arrival_open']) {
+      const store = triggerStore();
+      maybeQueueMorningBrief(store, action, { plan: { ...LA_PLAN, state, localDate: '2026-07-15' }, replayed: false }, TRIGGER_NOW);
+      assert.deepEqual(store.enqueued, [], `${state} ${action}`);
+    }
+  }
+});
+
+
+test('timer and arrival backfill preserve a touched morning with no attached brief', () => {
+  const plan = { ...LA_PLAN, localDate: '2026-07-15', arrivalInteractedAt: '2026-07-15T15:05:00Z' };
+  for (const action of ['ensure', 'arrival_open']) {
+    const store = triggerStore();
+    maybeQueueMorningBrief(store, action, { plan, replayed: false }, TRIGGER_NOW);
+    assert.deepEqual(store.enqueued, []);
+  }
+  const timer = dueStore({ plan });
+  assert.equal(enqueueDueMorningBrief(timer, TRIGGER_NOW), undefined);
+  assert.deepEqual(timer.enqueued, []);
 });
