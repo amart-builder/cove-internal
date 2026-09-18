@@ -83,8 +83,9 @@ Set `shadow` to `false` only after the 11:30 and 16:00 attention sweep has shown
 ## Jev typed judgments (off by default)
 
 Jev is TypeSafe's System One model. Cove can ask it small closed questions about
-an email and record the answers beside the ones its own classifier already gave.
-It is off on every install and changes nothing the operator sees.
+an email, or about the tasks and waiting-on rows a meeting produced, and record
+the answers beside the ones its own models already gave. It is off on every
+install and changes nothing the operator sees.
 
 Three things must all be true before a single request is sent. The mode must not
 be `off`, the feature must be named, and a credential must be in the
@@ -93,7 +94,7 @@ environment. A credential on its own switches nothing on.
 `data/cove-jev.json`:
 
 ```json
-{"mode":"shadow","features":{"emailTriage":true,"commitmentAudit":true}}
+{"mode":"shadow","features":{"emailTriage":true,"commitmentAudit":true,"meetingAudit":true}}
 ```
 
 | Setting | Meaning | Default |
@@ -101,6 +102,7 @@ environment. A credential on its own switches nothing on.
 | `mode` | `off`, `shadow` (record only), or `assist` (annotate an existing owner's work) | `off` |
 | `features.emailTriage` | Ask for the bucket, urgency, money-out and needs-reply judgments | off |
 | `features.commitmentAudit` | Ask whether a grounded quote is really an obligation, and whose | off |
+| `features.meetingAudit` | Ask whether each task and waiting-on row a meeting produced is supported by the notes, still outstanding, agreed rather than floated, and owed by who the analyst said | off |
 | `model` | Pinned model id. Do not use a moving alias with tuned thresholds | `jev-1.13.0` |
 | `limits.attemptsPerHour` | Calls per rolling hour, read from the ledger | 120 |
 | `limits.attemptsPerDay` | Calls per rolling day | 800 |
@@ -115,6 +117,7 @@ environment. A credential on its own switches nothing on.
 | `COVE_JEV_MODE` | Overrides `mode` for one run | file value |
 | `COVE_JEV_EMAIL_TRIAGE` | `1` or `0`, overrides the feature for one run | file value |
 | `COVE_JEV_COMMITMENT_AUDIT` | `1` or `0`, overrides the feature for one run | file value |
+| `COVE_JEV_MEETING_AUDIT` | `1` or `0`, overrides the feature for one run | file value |
 
 The key is read from the environment only. It is never written to
 `cove-jev.json`, never passed to a Claude or Codex child process, and is
@@ -129,11 +132,26 @@ probability tracked that agreement.
 `node scripts/cove-jev-eval.mjs prepare` builds the exact request Cove would
 send for every committed case and prints it, reading no credential and making no
 network call. Read that before deciding what Cove is allowed to send. `run`
-scores the dev split against frozen labels and refuses the held-out split.
+scores the dev split against frozen labels and refuses the held-out split. Both
+take `--lane email` (the default) or `--lane meeting`.
 
-Shadow mode still sends email text to a third party, which is the one place Cove
-leaves the machine. Decide the source scope and confirm the retention terms
-before turning it on.
+### What each lane sends, and the decision that gates it
+
+Shadow mode still sends text to a third party, which is the one place Cove
+leaves the machine. The two lanes are not the same decision and should not be
+turned on with one:
+
+- `emailTriage` and `commitmentAudit` send one email at a time: the account
+  address, the sender, the subject and the body, truncated at 6,000 characters.
+- `meetingAudit` sends the meeting title, the attendee names, up to 6,000
+  characters of the notes, and the analyst's own wording for each item it is
+  asking about. A transcript is a longer and more sensitive artefact than an
+  email, and it carries the words of people who were not asked.
+
+Nothing else goes: no goals, no operator profile, no CRM record, no voice guide.
+Decide the source scope for each lane and confirm the retention terms before
+turning either on. TypeSafe's published terms say customer data is not used for
+training; retention is not zero without an enterprise agreement.
 
 ## Compatibility
 

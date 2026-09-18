@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Evaluate the Jev email lane against frozen labels.
+ * Evaluate a Jev lane against frozen labels.
  *
- *   node scripts/cove-jev-eval.mjs prepare [--split dev] [--json]
- *   node scripts/cove-jev-eval.mjs run [--split dev]
+ *   node scripts/cove-jev-eval.mjs prepare [--lane email] [--split dev] [--json]
+ *   node scripts/cove-jev-eval.mjs run [--lane meeting] [--split dev]
  *
  * `prepare` is the default and is the safe one: it builds the exact request
  * Cove would send for every case and prints it, with no credential and no
@@ -21,11 +21,17 @@ import { readJevCredential } from "../src/lib/jev/settings.ts";
 import {
   caseEvidence,
   formatJevEvaluation,
+  formatJevMeetingEvaluation,
+  meetingCaseEvidence,
   parseJevEmailCases,
+  parseJevMeetingCases,
   prepareJevEmailCases,
+  prepareJevMeetingCases,
   scoreJevEmailCases,
+  scoreJevMeetingCases,
 } from "../src/lib/jev/evaluation.ts";
 import { buildJevEmailQuestions, buildJevEmailState } from "../src/lib/jev/email.ts";
+import { buildJevMeetingQuestions, buildJevMeetingState } from "../src/lib/jev/meeting.ts";
 
 const repoDirDefault = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -34,11 +40,56 @@ export function loadCases(repoDir = repoDirDefault) {
   return parseJevEmailCases(JSON.parse(readFileSync(file, "utf8")));
 }
 
+export function loadMeetingCases(repoDir = repoDirDefault) {
+  const file = path.join(repoDir, "fixtures", "jev", "meeting-cases.json");
+  return parseJevMeetingCases(JSON.parse(readFileSync(file, "utf8")));
+}
+
+/**
+ * One lane is one set of cases, one request shape and one scorer. Keeping them
+ * behind the same two commands means the offline `prepare` habit carries to
+ * every lane rather than being something the email lane happened to get.
+ */
+const LANES = {
+  email: {
+    load: loadCases,
+    prepare: prepareJevEmailCases,
+    request: (item) => {
+      const evidence = caseEvidence(item);
+      return {
+        state: buildJevEmailState(evidence),
+        questions: buildJevEmailQuestions({
+          evidence,
+          triage: true,
+          commitmentAudit: (item.commitments ?? []).length > 0,
+        }),
+      };
+    },
+    score: scoreJevEmailCases,
+    format: formatJevEvaluation,
+  },
+  meeting: {
+    load: loadMeetingCases,
+    prepare: prepareJevMeetingCases,
+    request: (item) => {
+      const evidence = meetingCaseEvidence(item);
+      return {
+        state: buildJevMeetingState(evidence),
+        questions: buildJevMeetingQuestions(evidence),
+      };
+    },
+    score: scoreJevMeetingCases,
+    format: formatJevMeetingEvaluation,
+  },
+};
+
 function parseArgs(argv) {
   const command = argv[0] && !argv[0].startsWith("--") ? argv[0] : "prepare";
   const splitIndex = argv.indexOf("--split");
   const split = splitIndex === -1 ? "dev" : argv[splitIndex + 1];
-  return { command, split, json: argv.includes("--json") };
+  const laneIndex = argv.indexOf("--lane");
+  const lane = laneIndex === -1 ? "email" : argv[laneIndex + 1];
+  return { command, split, lane, json: argv.includes("--json") };
 }
 
 function selected(cases, split) {
@@ -46,15 +97,20 @@ function selected(cases, split) {
 }
 
 async function main(argv) {
-  const { command, split, json } = parseArgs(argv);
-  const cases = selected(loadCases(), split);
+  const { command, split, lane, json } = parseArgs(argv);
+  const laneImpl = LANES[lane];
+  if (!laneImpl) {
+    console.error(`Unknown lane: ${lane}. Use ${Object.keys(LANES).join(" or ")}.`);
+    return 1;
+  }
+  const cases = selected(laneImpl.load(), split);
   if (cases.length === 0) {
-    console.error(`No cases in split ${split}.`);
+    console.error(`No ${lane} cases in split ${split}.`);
     return 1;
   }
 
   if (command === "prepare") {
-    const prepared = prepareJevEmailCases(cases);
+    const prepared = laneImpl.prepare(cases);
     if (json) {
       console.log(JSON.stringify(prepared, null, 2));
       return 0;
@@ -94,23 +150,15 @@ async function main(argv) {
 
   const answersById = {};
   for (const item of cases) {
-    const evidence = caseEvidence(item);
-    const result = await askJev({
-      state: buildJevEmailState(evidence),
-      questions: buildJevEmailQuestions({
-        evidence,
-        triage: true,
-        commitmentAudit: (item.commitments ?? []).length > 0,
-      }),
-    }, { apiKey });
+    const result = await askJev(laneImpl.request(item), { apiKey });
     if (!result.ok) {
       console.error(`${item.id}: ${result.error.code} ${result.error.message}`);
       continue;
     }
     answersById[item.id] = result.answers;
   }
-  const summary = scoreJevEmailCases({ cases, answersById });
-  console.log(json ? JSON.stringify(summary, null, 2) : formatJevEvaluation(summary));
+  const summary = laneImpl.score({ cases, answersById });
+  console.log(json ? JSON.stringify(summary, null, 2) : laneImpl.format(summary));
   return 0;
 }
 

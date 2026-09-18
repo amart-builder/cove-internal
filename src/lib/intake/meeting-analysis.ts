@@ -9,11 +9,16 @@ import { resolveBriefFileSourcePolicy } from "../day-plan/brief-sources";
 import type { InboundEvent } from "../data/types";
 import { openLocalDatabase } from "../local/database";
 import { runJob, type RunJobInput, type RunJobResult } from "../model-runner";
-import { coveDataDir, loadOperatorProfile, operatorTimezone } from "../operator";
+import { coveDataDir, loadOperatorProfile, operatorName, operatorTimezone } from "../operator";
 import { formatOperatorPolicy, readOperatorPolicy } from "../operator-policy";
 import { reconcileEmailDraftsForContact } from "../email/automation";
 import { tryEnqueueChiefOfStaffWake } from "../chief-of-staff/hooks";
 import { recordFailureInDatabase } from "../reliability/failures";
+import { runJevMeetingShadow } from "../jev/meeting-shadow";
+import {
+  JEV_MAX_AUDITED_MEETING_ITEMS,
+  type JevMeetingItem,
+} from "../jev/meeting";
 import type { RestrictedMailGateway } from "../workspace/contracts";
 import { recordEvent, resolveEvent } from "./inbox";
 import {
@@ -266,6 +271,8 @@ type AnalysisSweepOptions = {
   ) => Promise<string | null>;
   legacyFallback: (envelope: MeetingEnvelope) => void | Promise<void>;
   maxJobs?: number;
+  /** Injected in tests. Off on every install until Jev is turned on. */
+  jevAuditor?: typeof runJevMeetingShadow;
 };
 
 function boundedError(error: unknown): string {
@@ -1204,6 +1211,33 @@ async function executeAction(
   return resolution.contact.id;
 }
 
+/**
+ * The tasks and waiting-on rows the analyst proposed, flattened into one list
+ * with stable indices so an assessment row traces back to an item. Tasks come
+ * first because they are the ones that land on the operator's board.
+ */
+export function meetingAuditItems(artifact: MeetingAnalystArtifact): JevMeetingItem[] {
+  const items: JevMeetingItem[] = [];
+  for (const task of artifact.tasks) {
+    items.push({
+      index: items.length,
+      kind: "task",
+      title: task.title,
+      detail: task.description,
+    });
+  }
+  for (const waiting of artifact.waiting_on) {
+    items.push({
+      index: items.length,
+      kind: "waiting_on",
+      title: waiting.title,
+      detail: waiting.detail,
+      counterparty: waiting.counterparty,
+    });
+  }
+  return items.slice(0, JEV_MAX_AUDITED_MEETING_ITEMS);
+}
+
 async function processClaimedJob(
   db: Database.Database,
   job: MeetingJobRow,
@@ -1325,6 +1359,39 @@ async function processClaimedJob(
         "UPDATE meeting_analysis_actions SET status = 'failed', error = ? WHERE job_id = ? AND action_key = ?",
       ).run(boundedError(error), job.id, action.action_key);
       throw error;
+    }
+  }
+
+  // Jev's shadow audit runs last, once every task and commitment this meeting
+  // produced has already been written. An optional third-party lane can never
+  // delay a write the operator is waiting on, and it never decides whether one
+  // happens. It records what it thinks of the items that now exist, and
+  // returns; the promotion decision is made later, from the ledger.
+  const auditItems = meetingAuditItems(artifact);
+  if (auditItems.length > 0) {
+    // The boundary swallows its own failures, but the seam above lets a caller
+    // supply one that does not, and no injected lane may fail this job.
+    try {
+      await (options.jevAuditor ?? runJevMeetingShadow)({
+        dbPath: options.dbPath,
+        dataDir: options.dataDir,
+        refId: job.id,
+        evidence: {
+          operator: operatorName(options.dataDir),
+          title: envelopes[0].title,
+          attendees: uniqueAttendees(envelopes.flatMap((envelope) => envelope.attendees))
+            .map((attendee) => attendee.name),
+          notes: envelopes.map((envelope) => envelope.body).join("\n\n"),
+          items: auditItems,
+        },
+        baseline: { fragment: envelopes.every((envelope) => envelope.fragment) },
+        ...(options.now ? { now: options.now } : {}),
+      });
+    } catch (error) {
+      console.error(
+        "Meeting Jev audit failed:",
+        error instanceof Error ? error.message : String(error),
+      );
     }
   }
 }

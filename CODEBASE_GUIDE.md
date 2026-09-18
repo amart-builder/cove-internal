@@ -364,16 +364,23 @@ owns no decision. Nothing it returns reaches the operator.
   daily attempt caps, a daily spend reservation, and a concurrency lease.
 - `ledger.ts` and `schema.ts` store what was asked, what came back, and what
   Cove's existing owner had already decided, so agreement can be measured.
-- `email.ts` and `email-shadow.ts` are the one call site today. They run after
-  email classification has already been applied, so the lane cannot delay or
-  break the judgment it is being compared against.
+- `email.ts` and `email-shadow.ts` run after email classification has already
+  been applied, so the lane cannot delay or break the judgment it is being
+  compared against.
+- `meeting.ts` and `meeting-shadow.ts` do the same for the tasks and waiting-on
+  rows a meeting analysis produced, after every one of them has been written.
+  `planJevMeetingRequest` decides how many items fit in one request and names
+  the ones it could not cover, so a gap is visible rather than quiet.
 - `report.ts` and `scripts/cove-jev.mjs` turn the ledger into agreement rates,
   reported-probability bands, latency and reserved spend.
+- `evaluation.ts`, `fixtures/jev/` and `scripts/cove-jev-eval.mjs` build every
+  request offline without a credential and score both lanes against labels
+  frozen before the run.
 
 Jev is not asked about dates, intervals or counting, which the model's own
 documented weaknesses cover. Deadlines stay with the frontier model and with
-code. Jev is also not a security boundary: email bodies are still untrusted
-data, and the deterministic guards keep their authority.
+code. Jev is also not a security boundary: email bodies and meeting notes are
+still untrusted data, and the deterministic guards keep their authority.
 
 ### Intake and meeting notes
 

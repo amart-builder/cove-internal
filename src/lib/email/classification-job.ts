@@ -315,32 +315,41 @@ export function createEmailClassificationHandler(input: {
     // Jev's shadow reading runs after the operator-visible write has landed, so
     // an optional third-party lane can never delay or block the classification
     // it is being measured against. It records and returns; it changes nothing.
-    await (input.jevAssessor ?? runJevEmailShadow)({
-      dbPath: input.dbPath,
-      dataDir: input.dataDir,
-      refId: claim.messageId,
-      evidence: {
-        accountEmail: input.accountEmail,
-        sender: header(message, "From"),
-        subject: header(message, "Subject"),
-        text: message.text || message.snippet,
-        commitments: groundedCommitments.map((commitment, index) => ({
-          index,
-          kind: commitment.kind,
-          title: commitment.title,
-          sourceQuote: commitment.sourceQuote,
-        })),
-      },
-      baseline: {
-        bucket: result.bucket,
-        urgent: result.urgent === true,
-        chargeNotice: isChargeNotice({
+    // The boundary swallows its own failures, but the seam above lets a caller
+    // supply one that does not, and no injected lane may fail this job.
+    try {
+      await (input.jevAssessor ?? runJevEmailShadow)({
+        dbPath: input.dbPath,
+        dataDir: input.dataDir,
+        refId: claim.messageId,
+        evidence: {
+          accountEmail: input.accountEmail,
+          sender: header(message, "From"),
           subject: header(message, "Subject"),
           text: message.text || message.snippet,
-        }),
-      },
-      now: input.now,
-    });
+          commitments: groundedCommitments.map((commitment, index) => ({
+            index,
+            kind: commitment.kind,
+            title: commitment.title,
+            sourceQuote: commitment.sourceQuote,
+          })),
+        },
+        baseline: {
+          bucket: result.bucket,
+          urgent: result.urgent === true,
+          chargeNotice: isChargeNotice({
+            subject: header(message, "Subject"),
+            text: message.text || message.snippet,
+          }),
+        },
+        now: input.now,
+      });
+    } catch (error) {
+      console.error(
+        "Email Jev shadow failed:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     if (applied.applied && result.urgent === true) {
       try {
         (input.urgentHandler ?? handleUrgentEmail)({

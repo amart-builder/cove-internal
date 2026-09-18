@@ -112,10 +112,12 @@ export function buildJevReport(input: {
 
   const byQuestion = new Map<string, JevAssessmentRow[]>();
   for (const row of all) {
-    // Commitment questions are keyed per candidate within an email. They are
-    // the same question, so they are reported together rather than as one
-    // single-row group per email.
-    const key = row.questionKey.replace(/^commitment_\d+_/, "commitment_");
+    // Commitment and meeting-item questions are keyed per candidate within one
+    // source. They are the same question, so they are reported together rather
+    // than as one single-row group per email or meeting.
+    const key = row.questionKey
+      .replace(/^commitment_\d+_/, "commitment_")
+      .replace(/^item_\d+_/, "item_");
     const group = byQuestion.get(key);
     if (group) group.push(row);
     else byQuestion.set(key, [row]);

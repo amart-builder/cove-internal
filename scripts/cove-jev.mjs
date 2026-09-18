@@ -53,6 +53,7 @@ export function jevStatus(options = {}) {
       breakers: {
         emailTriage: readJevBreaker({ db, feature: "emailTriage", now }),
         commitmentAudit: readJevBreaker({ db, feature: "commitmentAudit", now }),
+        meetingAudit: readJevBreaker({ db, feature: "meetingAudit", now }),
       },
     };
   } finally {

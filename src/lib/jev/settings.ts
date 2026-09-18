@@ -27,15 +27,23 @@ export type JevMode = "off" | "shadow" | "assist";
  *                  inside Cove's one frontier classification call today.
  * commitmentAudit  whether a quote Cove already grounded in the source text
  *                  actually states an obligation, and whose it is.
+ * meetingAudit     whether the tasks and waiting-on rows the meeting analyst
+ *                  wrote are supported by the notes, still outstanding, agreed
+ *                  rather than floated, and owed by who the analyst says.
  *
- * Both read the same email, so both ride in one request. Jev evaluates every
- * question in a batch against the same state in parallel, and only input
- * tokens are billed, so the second feature costs a rounding error on top of
- * the first.
+ * The first two read the same email, so both ride in one request. Jev evaluates
+ * every question in a batch against the same state in parallel, and only input
+ * tokens are billed, so the second feature costs a rounding error on top of the
+ * first. The third reads a meeting instead and rides in its own request, once
+ * per analysed meeting rather than once per item.
  */
-export type JevFeature = "emailTriage" | "commitmentAudit";
+export type JevFeature = "emailTriage" | "commitmentAudit" | "meetingAudit";
 
-export const JEV_FEATURES: readonly JevFeature[] = ["emailTriage", "commitmentAudit"];
+export const JEV_FEATURES: readonly JevFeature[] = [
+  "emailTriage",
+  "commitmentAudit",
+  "meetingAudit",
+];
 
 export type JevLimits = {
   attemptsPerHour: number;
@@ -68,7 +76,7 @@ export const DEFAULT_JEV_LIMITS: JevLimits = {
 
 export const DEFAULT_JEV_SETTINGS: JevSettings = {
   mode: "off",
-  features: { emailTriage: false, commitmentAudit: false },
+  features: { emailTriage: false, commitmentAudit: false, meetingAudit: false },
   model: "jev-1.13.0",
   limits: DEFAULT_JEV_LIMITS,
   assessmentRetentionDays: 30,
@@ -119,6 +127,7 @@ function fileSettings(dataDir: string): JevSettings {
         // Anything not written as exactly true stays off.
         emailTriage: features.emailTriage === true,
         commitmentAudit: features.commitmentAudit === true,
+        meetingAudit: features.meetingAudit === true,
       },
       model: typeof row.model === "string" && row.model.trim()
         ? row.model.trim().slice(0, 80)
@@ -170,6 +179,7 @@ export function readJevSettings(options: {
   const modeOverride = coveEnvTrimmed("JEV_MODE", env);
   const triageOverride = coveEnvTrimmed("JEV_EMAIL_TRIAGE", env);
   const auditOverride = coveEnvTrimmed("JEV_COMMITMENT_AUDIT", env);
+  const meetingOverride = coveEnvTrimmed("JEV_MEETING_AUDIT", env);
   return {
     ...stored,
     mode: isMode(modeOverride) ? modeOverride : stored.mode,
@@ -180,6 +190,9 @@ export function readJevSettings(options: {
       commitmentAudit: auditOverride === undefined
         ? stored.features.commitmentAudit
         : auditOverride === "1",
+      meetingAudit: meetingOverride === undefined
+        ? stored.features.meetingAudit
+        : meetingOverride === "1",
     },
   };
 }
