@@ -88,6 +88,8 @@ function jevResponse(overrides = {}) {
       money_out: { type: "noul", noul: 0.02 },
       needs_reply: { type: "noul", noul: 0.94 },
       commitment_0_real: { type: "noul", noul: 0.91 },
+      commitment_0_future_action: { type: "noul", noul: 0.96 },
+      commitment_0_unconditional: { type: "noul", noul: 0.89 },
       commitment_0_owner: {
         type: "choice",
         choice: "sender",
@@ -167,13 +169,19 @@ test("no question asks Jev to reason about a date", () => {
   // jev-1.13 treats dates as text rather than ordered quantities, so deadlines
   // stay with the frontier model and with code.
   for (const [key, question] of Object.entries(questions)) {
-    const text = question.instructions.toLowerCase();
-    assert.equal(/\bwhen is\b|\bdue date\b|\bhow many days\b/.test(text), false, key);
+    const text = JSON.stringify(question).toLowerCase();
+    assert.equal(
+      /\bwhen is\b|\bdue date\b|\bhow many days\b|\bwhich date\b/.test(text),
+      false,
+      key,
+    );
   }
   assert.deepEqual(Object.keys(questions).sort(), [
     "bucket",
+    "commitment_0_future_action",
     "commitment_0_owner",
     "commitment_0_real",
+    "commitment_0_unconditional",
     "money_out",
     "needs_reply",
     "urgent",
@@ -186,6 +194,25 @@ test("no question asks Jev to reason about a date", () => {
   ]);
 });
 
+test("options say what they are not for, which is what decides the boundaries", () => {
+  const questions = buildJevEmailQuestions({
+    evidence: EVIDENCE,
+    triage: true,
+    commitmentAudit: false,
+  });
+  // Jev reads criteria literally, so every bucket names its neighbour.
+  for (const [option, criteria] of Object.entries(questions.bucket.criteria)) {
+    assert.equal(typeof criteria.what, "string", option);
+    assert.equal(typeof criteria.not_for, "string", option);
+    assert.ok(Array.isArray(criteria.examples), option);
+  }
+  // The account holder cannot be inferred from the body, so it is stated.
+  assert.equal(
+    questions.bucket.instructions.participants.account_holder,
+    "alex@example.com",
+  );
+});
+
 test("turning one feature off removes only its questions", () => {
   const triageOnly = buildJevEmailQuestions({
     evidence: EVIDENCE,
@@ -193,6 +220,7 @@ test("turning one feature off removes only its questions", () => {
     commitmentAudit: false,
   });
   assert.equal("commitment_0_real" in triageOnly, false);
+  assert.equal("commitment_0_future_action" in triageOnly, false);
   const auditOnly = buildJevEmailQuestions({
     evidence: EVIDENCE,
     triage: false,
@@ -214,7 +242,7 @@ test("a shadow pass records agreement against what Cove already decided", async 
     askImpl: async () => jevResponse(),
   });
   assert.equal(result.ran, true);
-  assert.equal(result.recorded, 6);
+  assert.equal(result.recorded, 8);
 
   const rows = readJevAssessments({ db, refId: "message-1" });
   const byKey = Object.fromEntries(rows.map((row) => [row.questionKey, row]));
@@ -229,6 +257,12 @@ test("a shadow pass records agreement against what Cove already decided", async 
   assert.equal(byKey.commitment_0_owner.baseline, "sender");
   assert.equal(byKey.commitment_0_owner.agreed, true);
   assert.equal(byKey.commitment_0_real.noul, 0.91);
+  // The atomic halves explain the headline answer and are deliberately not
+  // scored against a baseline Cove's classifier never produced.
+  assert.equal(byKey.commitment_0_real.detail.composedVerdict, true);
+  assert.equal(byKey.commitment_0_future_action.baseline, null);
+  assert.equal(byKey.commitment_0_future_action.agreed, null);
+  assert.equal(byKey.commitment_0_unconditional.noul, 0.89);
 });
 
 test("a disagreement is recorded rather than acted on", async (t) => {
@@ -246,6 +280,7 @@ test("a disagreement is recorded rather than acted on", async (t) => {
         ...answers,
         bucket: { ...answers.bucket, choice: "noise" },
         commitment_0_real: { type: "noul", noul: 0.04 },
+        commitment_0_unconditional: { type: "noul", noul: 0.06 },
       },
     }),
   });
@@ -256,6 +291,8 @@ test("a disagreement is recorded rather than acted on", async (t) => {
   assert.equal(byKey.bucket.baseline, "reply");
   assert.equal(byKey.bucket.agreed, false);
   assert.equal(byKey.commitment_0_real.agreed, false);
+  // Composition happens in code: a conditional offer is not an obligation.
+  assert.equal(byKey.commitment_0_real.detail.composedVerdict, false);
   // The commitment candidate itself is untouched: shadow mode records only.
   assert.equal(byKey.commitment_0_real.detail.title, "Taylor sends the revised deck");
 });

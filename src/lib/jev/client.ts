@@ -72,19 +72,29 @@ export type JevFailure = {
 /** Text-only state: a string, an array of strings, or a shallow JSON object. */
 export type JevState = string | readonly string[] | Record<string, unknown>;
 
+/**
+ * Instructions and option descriptions may be a plain string or a structured
+ * object or array. Structure is worth using: named keys such as question,
+ * inspect and focus, and what, not_for and examples on each option, let the
+ * model compare options field by field instead of parsing a paragraph. Because
+ * Jev reads instructions literally, saying what an option is NOT for is often
+ * what decides the boundary cases.
+ */
+export type JevDescription = string | Record<string, unknown> | readonly unknown[];
+
 export type JevChoiceQuestion = {
   type: "choice";
-  instructions: string;
+  instructions: JevDescription;
   /** Option name to a description of when that option applies. */
-  criteria: Record<string, string>;
+  criteria: Record<string, JevDescription>;
 };
 
 export type JevNoulQuestion = {
   type: "noul";
-  instructions: string;
+  instructions: JevDescription;
   /** Optional true/false descriptions. Jev reads instructions literally, so
    *  spelling out both sides is how boundary cases get decided on purpose. */
-  criteria?: { true: string; false: string };
+  criteria?: { true: JevDescription; false: JevDescription };
 };
 
 export type JevQuestion = JevChoiceQuestion | JevNoulQuestion;
@@ -175,6 +185,14 @@ export function redactSecret(text: string, apiKey: string): string {
   return withoutKey.replace(/Bearer\s+[A-Za-z0-9._\-]+/g, "Bearer [redacted]");
 }
 
+/** A usable description: a non-empty string, or any non-empty object or array. */
+function describes(value: unknown): boolean {
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  return Boolean(value) && typeof value === "object" &&
+    Object.keys(value as Record<string, unknown>).length > 0;
+}
+
 export function validateJevQuestions(
   questions: Record<string, JevQuestion>,
 ): string | undefined {
@@ -188,7 +206,7 @@ export function validateJevQuestions(
     if (!question || typeof question !== "object") {
       return `Question ${key} is not an object.`;
     }
-    if (typeof question.instructions !== "string" || !question.instructions.trim()) {
+    if (!describes(question.instructions)) {
       return `Question ${key} has no instructions.`;
     }
     if (question.type === "choice") {
@@ -200,16 +218,13 @@ export function validateJevQuestions(
         return `Choice question ${key} has more than ${JEV_MAX_CHOICE_OPTIONS} options.`;
       }
       for (const option of options) {
-        if (typeof question.criteria[option] !== "string" || !question.criteria[option].trim()) {
+        if (!describes(question.criteria[option])) {
           return `Choice question ${key} option ${option} has no description.`;
         }
       }
     } else if (question.type === "noul") {
       if (question.criteria) {
-        if (
-          typeof question.criteria.true !== "string" ||
-          typeof question.criteria.false !== "string"
-        ) {
+        if (!describes(question.criteria.true) || !describes(question.criteria.false)) {
           return `Noul question ${key} needs both true and false descriptions.`;
         }
       }

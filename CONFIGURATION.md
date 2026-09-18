@@ -80,6 +80,61 @@ The installer creates private `data/attention-sweep.json` settings with both jud
 
 Set `shadow` to `false` only after the 11:30 and 16:00 attention sweep has shown acceptable precision in Quiet Current. Set `email_shadow` to `false` only after urgent-email classifications have shown acceptable precision. The deterministic noon floor is live regardless of these settings.
 
+## Jev typed judgments (off by default)
+
+Jev is TypeSafe's System One model. Cove can ask it small closed questions about
+an email and record the answers beside the ones its own classifier already gave.
+It is off on every install and changes nothing the operator sees.
+
+Three things must all be true before a single request is sent. The mode must not
+be `off`, the feature must be named, and a credential must be in the
+environment. A credential on its own switches nothing on.
+
+`data/cove-jev.json`:
+
+```json
+{"mode":"shadow","features":{"emailTriage":true,"commitmentAudit":true}}
+```
+
+| Setting | Meaning | Default |
+| --- | --- | --- |
+| `mode` | `off`, `shadow` (record only), or `assist` (annotate an existing owner's work) | `off` |
+| `features.emailTriage` | Ask for the bucket, urgency, money-out and needs-reply judgments | off |
+| `features.commitmentAudit` | Ask whether a grounded quote is really an obligation, and whose | off |
+| `model` | Pinned model id. Do not use a moving alias with tuned thresholds | `jev-1.13.0` |
+| `limits.attemptsPerHour` | Calls per rolling hour, read from the ledger | 120 |
+| `limits.attemptsPerDay` | Calls per rolling day | 800 |
+| `limits.dailySpendUsd` | Cove's own reservation ceiling, not an invoice guarantee | 1 |
+| `limits.maxConcurrent` | Calls in flight at once | 2 |
+| `assessmentRetentionDays` | Days of per-answer detail kept | 30 |
+| `usageRetentionDays` | Days of usage and outcome metadata kept | 90 |
+
+| Variable | Meaning | Default |
+| --- | --- | --- |
+| `COVE_TYPESAFE_API_KEY` | TypeSafe credential. Put it in `.env.local` yourself | unset |
+| `COVE_JEV_MODE` | Overrides `mode` for one run | file value |
+| `COVE_JEV_EMAIL_TRIAGE` | `1` or `0`, overrides the feature for one run | file value |
+| `COVE_JEV_COMMITMENT_AUDIT` | `1` or `0`, overrides the feature for one run | file value |
+
+The key is read from the environment only. It is never written to
+`cove-jev.json`, never passed to a Claude or Codex child process, and is
+redacted from error text before it reaches a log or the failure inbox.
+
+`node scripts/cove-jev.mjs status` prints the mode, which features are on,
+whether a credential is present, the last day's calls and reserved spend, and
+whether the breaker is open. `node scripts/cove-jev.mjs report` prints how often
+Jev agreed with Cove's own classifier, where it did not, and how the reported
+probability tracked that agreement.
+
+`node scripts/cove-jev-eval.mjs prepare` builds the exact request Cove would
+send for every committed case and prints it, reading no credential and making no
+network call. Read that before deciding what Cove is allowed to send. `run`
+scores the dev split against frozen labels and refuses the held-out split.
+
+Shadow mode still sends email text to a third party, which is the one place Cove
+leaves the machine. Decide the source scope and confirm the retention terms
+before turning it on.
+
 ## Compatibility
 
 `FORGE_*` names are accepted only for migration from older installations. New documentation, scripts, and configuration must use `COVE_*`. Supabase, Convex, and multi-machine relay settings are not part of the supported single-Mac product.
