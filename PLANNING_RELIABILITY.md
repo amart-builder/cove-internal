@@ -109,7 +109,7 @@ text, and Cove then rendered time labels into it. A valid 163-character
 then threw `planning_text_invalid` at its 200 limit: a decision Cove had accepted
 could not be read back.
 
-**Cause (class).** One bound was used for two different strings — what the model
+**Cause (class).** One bound was used for two different strings: what the model
 wrote and what Cove stores.
 
 **Safeguard.** `PLANNING_TEXT_BOUNDS` holds both: the `raw` bound, which is what
@@ -182,14 +182,47 @@ rationale in task details, and proposed-time labels in the brief and question.
 Start Day and reload retained the same preparation without another task.
 This does not test notification delivery or real-client acceptance.
 
-### Remaining coverage gap: directly selected tasks
+### 5. A directly selected task cited a meeting without recording the dependency
 
-The calendar-plus-existingTask route records the supporting event and detects
-later schedule changes. A model can instead select the task directly with
-proposal=null. In the Priya trial it did that while citing the meeting as a
-reason to prioritize preparation, without recording the supporting event. The
-identity and saved-date checks passed, but automatic withdrawal of that rationale
-after a later calendar change is not covered on this route. Do not claim that
-all calendar-dependent recommendations are now invalidated correctly. A future
-repair should make that evidence dependency explicit and test both selection
-routes; matching by a person's name would be unsafe.
+**Incident.** The calendar-plus-existingTask route records the supporting event
+and detects later schedule changes. In the Priya trial the model instead
+selected the task directly with proposal=null while citing the meeting as the
+reason to prioritize preparation. The identity and saved-date checks passed, but
+nothing recorded the event, so a later calendar change could not withdraw that
+rationale.
+
+**Cause (class).** The TypeScript action type and the validator both accepted
+`supportingSources`, but the generated wire schema did not expose the field. On
+the direct route the writer had no way to declare the evidence its timing
+depended on, and a dependency that is not declared cannot be checked.
+
+**Safeguard.** `supportingSources` is a required action field in the wire
+schema, selected from the same frozen `ref.N` catalog as the source
+(`src/lib/chief-of-staff/daily-planning.ts`). The validator merges declared
+support with the existingTask normalization, keeps one identity per record, and
+rejects a declaration equal to the action's own source
+(`planning_support_is_source`). Both routes persist the support as
+`planningSupport`, and the existing resolution path withdraws only the timing
+rationale when a listed occurrence moves, is cancelled or disappears. A cited
+time is treated as a dependency: when every record that supplied a `{{time.N}}`
+label used in an action's text is a calendar occurrence and none of them is the
+action's source or declared support, validation fails with
+`planning_calendar_support_undeclared` and the existing correction retry asks
+for the declaration. Cove never attaches an occurrence from a clock label,
+because two events can share one: a label that a task deadline also supplies is
+left to the writer. Stored decisions written before the field existed read
+unchanged.
+
+**Regression evidence.** `tests/daily-planning.test.mjs`: "the wire contract
+requires explicit supportingSources selected from the frozen catalog", "a
+directly selected task can declare the meeting it is timed against; a move
+withdraws only the timing", "a cancelled meeting cannot cancel a directly
+selected task that declared it", "declared support is one identity per record,
+never the action's own source, and survives storage", "an action that cites a
+calendar time must declare that occurrence as its source or support". The
+existingTask-route tests above are unchanged.
+
+**Remaining gap.** A rationale that names the meeting in words without citing
+its time, or depends on it for a reason other than timing, is a semantic
+omission this contract cannot see. That is the planned scope of the separate
+bounded evidence check, not of this deterministic rule.

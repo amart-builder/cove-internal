@@ -8,33 +8,53 @@ export const RENDERED_TIME_LABEL_MAX = 100;
 const clockPattern =/\b(?:(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:\s*[ap]\.?m\.?)?|(?:1[0-2]|0?[1-9])\s*[ap]\.?m\.?|noon|midnight)\b/gi;
 type Timed = { nextCheckAt: string; plannedFor?: string | null; expiresAt?: string };
 
-export function planningTimeReferences(contextText: string, sourcePrompt: string): { timeZone: string; labels: string[] } {
+/** Labels are deduplicated formatted text, not record identity: two events can
+ * share a start time. `owners` records which supplied records (`kind:id`)
+ * contributed each label, or `context` for view-level and prompt text, so a
+ * validator can tell a label that only calendar occurrences supplied from one
+ * that also came from a task deadline. It never resolves a label to one event. */
+export function planningTimeReferences(contextText: string, sourcePrompt: string): { timeZone: string; labels: string[]; owners: Map<string, Set<string>> } {
   let view: Record<string, unknown> = {};
   try { view = JSON.parse(contextText); } catch { /* Legacy/test context may be empty. */ }
   const timeZone = typeof view.timeZone === "string" ? view.timeZone : "UTC";
   const labels = new Set<string>();
-  const visit = (value: unknown, key = "") => {
+  const owners = new Map<string, Set<string>>();
+  const add = (label: string, owner: string) => {
+    labels.add(label);
+    let set = owners.get(label);
+    if (!set) owners.set(label, (set = new Set()));
+    set.add(owner);
+  };
+  const visit = (value: unknown, key = "", owner = "context") => {
     if (typeof value === "string") {
       const internalMeaning: Record<string, string> = {
         nextCheckAtLocal: "internal review time", plannedForLocal: "proposed work time",
         expiresAtLocal: "question expiry",
       };
       if (internalMeaning[key]) {
-        if (!/^(Invalid|Unlabelled)/.test(value)) labels.add(`${value} (${internalMeaning[key]})`);
+        if (!/^(Invalid|Unlabelled)/.test(value)) add(`${value} (${internalMeaning[key]})`, owner);
         return;
       }
-      if (key.endsWith("Local") && !/^(Invalid|Unlabelled)/.test(value)) labels.add(value);
+      // When an occurrence was observed is about the fetch, not the event.
+      const labelOwner = key === "observedAtLocal" ? "context" : owner;
+      if (key.endsWith("Local") && !/^(Invalid|Unlabelled)/.test(value)) add(value, labelOwner);
       // Quoted source clock wording is not proof of a current booking. The
       // caller supplies that distinction separately in the planning contract.
       for (const match of value.matchAll(clockPattern)) {
-        if (!/[T+\d:-]/.test(value[(match.index ?? 0) - 1] ?? "")) labels.add(match[0]);
+        if (!/[T+\d:-]/.test(value[(match.index ?? 0) - 1] ?? "")) add(match[0], labelOwner);
       }
-    } else if (Array.isArray(value)) value.forEach(item => visit(item));
-    else if (value && typeof value === "object") Object.entries(value).forEach(([name, item]) => visit(item, name));
+    } else if (Array.isArray(value)) value.forEach(item => visit(item, "", owner));
+    else if (value && typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      const source = record.source as Record<string, unknown> | undefined;
+      const recordOwner = source && typeof source.kind === "string" && typeof source.id === "string"
+        ? `${source.kind}:${source.id}` : owner;
+      Object.entries(record).forEach(([name, item]) => visit(item, name, recordOwner));
+    }
   };
   visit(view);
   visit(sourcePrompt);
-  return { timeZone, labels: [...labels] };
+  return { timeZone, labels: [...labels], owners };
 }
 
 export function renderPlanningTimeText(

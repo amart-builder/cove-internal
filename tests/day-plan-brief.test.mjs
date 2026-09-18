@@ -200,6 +200,7 @@ function currentPlanningFixture(output, input) {
         {
           source: references.find(ref => ref.source.kind === record.source.kind && ref.source.id === record.source.id).key,
           proposal: null,
+          supportingSources: [],
           nextAction: record.title,
           rationale: candidate.why_today,
           assumptions: [],

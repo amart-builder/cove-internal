@@ -24,6 +24,33 @@
 
 ---
 
+## 2026-09-18 Jev slice one: W0 baseline and W1 dependency contract (LOCAL, NOT ACTIVATED)
+
+- Branch `fable/jev-w0-w1` off `54b1f7b` (the committed 2026-09-16 work). Agreed
+  plan and debate live outside the repo in the Codex handoff package dated
+  2026-09-17; no Jev runtime, migration, credential or external data flow yet.
+- W1: `supportingSources` is now a required action field in the planning wire
+  schema, selected from the frozen `ref.N` catalog. The validator keeps one
+  identity per supporting record, rejects self-support, and fails a response
+  whose action cites a calendar-only time label without declaring that
+  occurrence (`planning_calendar_support_undeclared`, handled by the existing
+  correction retry). Both selection routes persist support; stale-rationale
+  withdrawal now covers the direct-task route. PLANNING_RELIABILITY incident 5.
+  The brief-worker test fixture now emits the required field, as a real writer
+  must.
+- Bounded paired check: three planning-reliability cases, both configured
+  providers, one repeat: 6 of 6 validated, every response carried the field,
+  and each provider declared the calendar on a directly selected task. Replay:
+  6 persisted and projected, 0 rejected. Semantic review pending.
+- W0: `fixtures/jev/` (six lanes, 44 development and 24 heldout synthetic
+  cases, labels frozen) and `scripts/evaluation/jev-cases.mjs` (offline prepare
+  only, refuses live). No email-lane baseline defect counts exist yet.
+- Full gate on a clean copy: TypeScript 0, lint 0, 1,676 tests passed, 0 failed,
+  2 skipped. Committed on `fable/jev-w0-w1`, not pushed.
+- Evidence: `data/review-artifacts/jev-w0-w1-20260918/REPORT.md`. Next: W2
+  default-off runtime with fake transport (needs `COVE_TYPESAFE_API_KEY`
+  placement and source-scope approval before any live call).
+
 ## 2026-09-16 Follow-through configuration repair (LIVE, LOCAL)
 
 - Fixed today's shared-runner regression: disabling an absent 1Password server

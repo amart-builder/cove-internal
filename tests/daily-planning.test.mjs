@@ -11,7 +11,10 @@ import {
   rememberCalendarOccurrences,
   dailyPlanningPrompt,
   dailyPlanningSchema,
+  readStoredDailyDecision,
+  DAILY_PLANNING_SCHEMA,
 } from "../src/lib/chief-of-staff/daily-planning.ts";
+import { planningTimeReferences } from "../src/lib/chief-of-staff/planning-time-text.ts";
 import { PLANNING_LESSONS } from "../src/lib/chief-of-staff/planning-lessons.ts";
 import {
   sourceRecord,
@@ -212,6 +215,143 @@ test("the runtime planning prompt carries the short lessons and a task-only exis
   assert.throws(() => validateDailyDecision(raw, context, { requireNarrative: true }), /planning_existing_task_required/);
   raw.actions[0].proposal.existingTask = context.references.find(ref => ref.kind === "calendar");
   assert.throws(() => validateDailyDecision(raw, context, { requireNarrative: true }), /planning_existing_task_required/);
+});
+
+test("the wire contract requires explicit supportingSources selected from the frozen catalog", (t) => {
+  const { db, store } = fixture(t);
+  task(db, "existing-preparation");
+  const context = store.planningContext(date, [event]);
+  const action = dailyPlanningSchema(context).properties.actions.items;
+  assert.ok(action.required.includes("supportingSources"));
+  assert.ok(DAILY_PLANNING_SCHEMA.properties.actions.items.required.includes("supportingSources"));
+  const keys = context.references.map((_ref, index) => `ref.${index + 1}`);
+  assert.deepEqual(action.properties.supportingSources.items, { type: "string", enum: keys });
+  assert.equal(action.properties.supportingSources.maxItems, 8);
+  assert.match(dailyPlanningPrompt(context, ""), /supportingSources lists the ref\.N keys/);
+  // Without any catalog there is nothing to declare.
+  const empty = dailyPlanningSchema({ plan: null, references: [], text: "", now: now.toISOString() });
+  assert.equal(empty.properties.actions.items.properties.supportingSources.maxItems, 0);
+});
+
+test("a directly selected task can declare the meeting it is timed against; a move withdraws only the timing", (t) => {
+  const { db, store } = fixture(t);
+  task(db, "existing-preparation");
+  const context = store.planningContext(date, [event]);
+  const calendarRef = context.references.find((ref) => ref.kind === "calendar");
+  const raw = wire(context);
+  assert.equal(raw.actions[0].proposal, null);
+  raw.actions[0].supportingSources = [calendarRef];
+  raw.actions[0].rationale = "Meeting today: prepare while there is time before the call.";
+  generate(store, context, raw);
+  let plan = ensure(store);
+  assert.equal(plan.items[0].taskId, "existing-preparation");
+  assert.deepEqual(plan.items[0].planningSupport, [
+    { kind: "calendar", id: calendarRef.id, version: calendarRef.version },
+  ]);
+  plan = mutate(store, plan, "arrival_open");
+  plan = mutate(store, plan, "start_day");
+  rememberCalendarOccurrences(db, [{ ...event, start: "2026-09-14T18:00:00Z", end: "2026-09-14T20:00:00Z" }], new Date(+now + 60000));
+  const bundle = store.planningReadBundle();
+  const item = bundle.model.currentPlan.items[0];
+  assert.equal(item.taskId, "existing-preparation");
+  assert.equal(item.planningStale, true);
+  assert.equal(item.planningState, "ready");
+  assert.equal(item.decision, "accepted");
+  assert.doesNotMatch(item.whyToday, /Meeting today/);
+  assert.deepEqual(item.planningAssumptions, []);
+  assert.equal(db.prepare("SELECT status FROM tasks WHERE id='existing-preparation'").pluck().get(), "open");
+  assert.equal(db.prepare("SELECT count(*) FROM tasks").pluck().get(), 1);
+  // Reading again neither re-withdraws nor bumps the plan version.
+  const repeated = store.planningReadBundle();
+  assert.equal(repeated.model.currentPlan.version, bundle.model.currentPlan.version);
+  assert.deepEqual(repeated.model.currentPlan.items, bundle.model.currentPlan.items);
+});
+
+test("a cancelled meeting cannot cancel a directly selected task that declared it", (t) => {
+  const { db, store } = fixture(t);
+  task(db, "existing-preparation");
+  const context = store.planningContext(date, [event]);
+  const raw = wire(context);
+  raw.actions[0].supportingSources = [context.references.find((ref) => ref.kind === "calendar")];
+  generate(store, context, raw);
+  mutate(store, mutate(store, ensure(store), "arrival_open"), "start_day");
+  rememberCalendarOccurrences(db, [{ ...event, status: "cancelled" }], new Date(+now + 60000));
+  const item = store.planningReadBundle().model.currentPlan.items[0];
+  assert.equal(item.planningStale, true);
+  assert.notEqual(item.planningState, "resolved");
+  assert.equal(item.decision, "accepted");
+  assert.equal(db.prepare("SELECT status FROM tasks WHERE id='existing-preparation'").pluck().get(), "open");
+});
+
+test("declared support is one identity per record, never the action's own source, and survives storage", (t) => {
+  const { db, store } = fixture(t);
+  task(db, "existing-preparation");
+  const context = store.planningContext(date, [event]);
+  const calendarRef = context.references.find((ref) => ref.kind === "calendar");
+  const taskRef = context.references.find((ref) => ref.kind === "task");
+  // Declaring the calendar again on the existingTask route yields one support.
+  const reused = wire(context, { proposal: true });
+  reused.actions[0].proposal.existingTask = taskRef;
+  reused.actions[0].supportingSources = [calendarRef, calendarRef];
+  const decision = validateDailyDecision(reused, context);
+  assert.deepEqual(decision.actions[0].source, taskRef);
+  assert.deepEqual(decision.actions[0].supportingSources, [calendarRef]);
+  const stored = readStoredDailyDecision(JSON.parse(JSON.stringify(decision)));
+  assert.deepEqual(stored.actions[0].supportingSources, [calendarRef]);
+  // The resolved task cannot be its own evidence.
+  const self = wire(context, { proposal: true });
+  self.actions[0].proposal.existingTask = taskRef;
+  self.actions[0].supportingSources = [taskRef];
+  assert.throws(() => validateDailyDecision(self, context), /planning_support_is_source/);
+  const direct = wire(context);
+  direct.actions[0].supportingSources = [taskRef];
+  assert.throws(() => validateDailyDecision(direct, context), /planning_support_is_source/);
+  // Support is selected from the frozen catalog like every other reference.
+  const stale = wire(context);
+  stale.actions[0].supportingSources = [{ ...calendarRef, version: "stale" }];
+  assert.throws(() => validateDailyDecision(stale, context), /planning_reference_unavailable/);
+  // Stored decisions written before the field existed still read unchanged.
+  const legacy = JSON.parse(JSON.stringify(validateDailyDecision(wire(context), context)));
+  delete legacy.actions[0].supportingSources;
+  assert.equal(readStoredDailyDecision(legacy).actions[0].supportingSources, undefined);
+});
+
+test("an action that cites a calendar time must declare that occurrence as its source or support", (t) => {
+  const { db, store } = fixture(t);
+  task(db, "existing-preparation");
+  const context = store.planningContext(date, [event]);
+  const calendarRef = context.references.find((ref) => ref.kind === "calendar");
+  const view = JSON.parse(context.text);
+  const startLabel = view.records.find((row) => row.source.kind === "calendar").event.startLocal;
+  const sources = planningTimeReferences(context.text, "");
+  const index = sources.labels.indexOf(startLabel);
+  assert.ok(index >= 0);
+  assert.deepEqual([...sources.owners.get(startLabel)], [`calendar:${calendarRef.id}`]);
+  // The fetch time belongs to the observation, not to any one event.
+  const observed = view.records.find((row) => row.source.kind === "calendar").observedAtLocal;
+  assert.ok(sources.owners.get(observed).has("context"));
+  const authored = (ctx, position, extra = {}) => ({
+    ...wire(ctx),
+    narrativeParagraphs: ["The call today shapes the morning."],
+    actions: [{ ...wire(ctx).actions[0], rationale: `The call starts at {{time.${position + 1}}}, so prepare first.`, ...extra }],
+  });
+  const options = { requireNarrative: true, sourcePrompt: "" };
+  assert.throws(() => validateDailyDecision(authored(context, index), context, options), /planning_calendar_support_undeclared/);
+  const declared = validateDailyDecision(authored(context, index, { supportingSources: [calendarRef] }), context, options);
+  assert.match(declared.actions[0].rationale, /The call starts at/);
+  assert.deepEqual(declared.actions[0].supportingSources, [calendarRef]);
+  // A label the task's own deadline also supplies is not calendar-only
+  // evidence. Cove asks for a declaration; it never picks an event from a clock.
+  db.prepare("UPDATE tasks SET due_at=? WHERE id='existing-preparation'").run(event.start);
+  const shared = store.planningContext(date, [event]);
+  const sharedSources = planningTimeReferences(shared.text, "");
+  const sharedIndex = sharedSources.labels.indexOf(startLabel);
+  assert.ok(sharedIndex >= 0);
+  assert.ok(sharedSources.owners.get(startLabel).has("task:existing-preparation"));
+  assert.ok(sharedSources.owners.get(startLabel).has(`calendar:${calendarRef.id}`));
+  const ambiguous = validateDailyDecision(authored(shared, sharedIndex), shared, options);
+  assert.equal(ambiguous.actions[0].supportingSources, undefined);
+  assert.match(ambiguous.actions[0].rationale, /The call starts at/);
 });
 
 function fixture(t) {

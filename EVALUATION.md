@@ -159,3 +159,54 @@ This prevents independent clock conversion for compliant references; it does
 not prove that the writer chose the right source, inferred the right priority,
 or avoided every unsupported sentence. Grade meaning separately, keep failed
 trials, and treat provider/network errors as unevaluated, not model passes.
+
+## Jev judgment fixtures (offline)
+
+`fixtures/jev/cases.json` holds frozen, synthetic cases for the planned
+TypeSafe Jev judgments, one lane per feature: `commitment-meaning`,
+`email-triage`, `draft-correctness`, `reply-fulfillment`, `task-identity` and
+`planning-evidence`. `fixtures/jev/README.md` documents the lanes and the case
+schema. Everyone and everything in the fixture is fictional.
+
+Prepare and validate without any provider:
+
+```sh
+node --import tsx scripts/evaluation/jev-cases.mjs \
+  --output "$eval_root/jev-prepared"
+
+node --import tsx scripts/evaluation/jev-cases.mjs \
+  --output "$eval_root/jev-email" --lane email-triage
+
+node --import tsx --test tests/jev-cases.test.mjs
+```
+
+The script refuses an existing output directory, strips inherited `COVE_*` and
+`FORGE_*` paths, validates the fixture strictly (unique ids, split matches its
+array, every expected key names a defined question, every choice label exists
+in that question's criteria, state under 24 KiB, at most 32 questions per
+lane), and writes one `<lane>.prepared.json` with the exact request bodies
+(`model`, `state`, `questions`) a later live runner would send. Expected answers
+and notes go to a separate `<lane>.expected.json` so they can never appear in
+a request. `manifest.json` records the fixture hash, each lane's question-set
+version and hash, case counts by split, and hashes of the source files whose
+behavior these judgments will sit beside.
+
+What this proves: the fixture is well-formed and the request shape is stable
+and reproducible. What it does not prove: anything about Jev's accuracy, Cove's
+live behavior, latency, cost, or safety. No network call is made, no key is
+read, no database is opened and no model is invoked. `--live` and `--run` exit
+with code 2; live evaluation is a separate work package with its own
+activation.
+
+Development and heldout rule: labels were frozen before any Jev call. Tune
+question wording, thresholds and retrieval on development cases only. Heldout
+cases run once per candidate question set and are reported as-is; never adjust
+anything to make a heldout number pass, and never move a case between splits.
+If a heldout label is wrong, fix it, bump `questionSetVersion` when wording
+changed, and record why.
+
+Email triage is a separate lane from commitment meaning by design. Triage asks
+whether a reply or action is needed and whether an archive decision would hide
+a request; commitment meaning asks who owns a quoted obligation and whether an
+extracted candidate matches its source. They are gated, measured and promoted
+independently, so a good score on one says nothing about the other.
