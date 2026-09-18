@@ -21,7 +21,8 @@ import { judgeDraftVoice } from "./voice-judge";
 import { coveDataDir } from "../operator";
 import { formatOperatorPolicy, readOperatorPolicy } from "../operator-policy";
 import { detectCalendarNotice, summarizeCalendarNotice } from "./calendar-notice";
-import { protectChargeNotice } from "./charge-notice";
+import { isChargeNotice, protectChargeNotice } from "./charge-notice";
+import { runJevEmailShadow } from "../jev/email-shadow";
 
 function header(message: MailMessage, name: string): string {
   return message.headers.find((item) => item.name.toLowerCase() === name.toLowerCase())
@@ -75,6 +76,7 @@ export function createEmailClassificationHandler(input: {
   now?: () => Date;
   urgentHandler?: typeof handleUrgentEmail;
   runJobImpl?: typeof runJob;
+  jevAssessor?: typeof runJevEmailShadow;
 }) {
   const classifier = input.classifier ??
     ((classificationInput) => classifyEmail({
@@ -309,6 +311,35 @@ export function createEmailClassificationHandler(input: {
       modelVersion: result.modelVersion,
       dbPath: input.dbPath,
       now: input.now?.(),
+    });
+    // Jev's shadow reading runs after the operator-visible write has landed, so
+    // an optional third-party lane can never delay or block the classification
+    // it is being measured against. It records and returns; it changes nothing.
+    await (input.jevAssessor ?? runJevEmailShadow)({
+      dbPath: input.dbPath,
+      dataDir: input.dataDir,
+      refId: claim.messageId,
+      evidence: {
+        accountEmail: input.accountEmail,
+        sender: header(message, "From"),
+        subject: header(message, "Subject"),
+        text: message.text || message.snippet,
+        commitments: groundedCommitments.map((commitment, index) => ({
+          index,
+          kind: commitment.kind,
+          title: commitment.title,
+          sourceQuote: commitment.sourceQuote,
+        })),
+      },
+      baseline: {
+        bucket: result.bucket,
+        urgent: result.urgent === true,
+        chargeNotice: isChargeNotice({
+          subject: header(message, "Subject"),
+          text: message.text || message.snippet,
+        }),
+      },
+      now: input.now,
     });
     if (applied.applied && result.urgent === true) {
       try {

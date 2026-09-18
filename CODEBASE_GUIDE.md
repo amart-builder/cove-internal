@@ -348,6 +348,33 @@ move a still-open Cove-owned draft back through `observed` and the existing
 classification job. The next version's `upsert_draft` updates the known Gmail
 draft only after its stored body hash still matches.
 
+### Jev typed judgments
+
+`src/lib/jev/` is an optional, off-by-default lane that asks TypeSafe's System
+One endpoint small closed questions about meaning and records the answers. It
+owns no decision. Nothing it returns reaches the operator.
+
+- `client.ts` is the whole wire contract: one fixed endpoint, a pinned model, no
+  redirects, bounded request and response sizes, and typed failures. It rejects
+  any answer that names an option the question did not offer.
+- `settings.ts` keeps the lane off unless the mode, the named feature and a
+  credential in the environment all agree. The credential is read here and is
+  never written to a config file or passed to a model child process.
+- `policy.ts` is the ceiling: a breaker read from recent attempts, hourly and
+  daily attempt caps, a daily spend reservation, and a concurrency lease.
+- `ledger.ts` and `schema.ts` store what was asked, what came back, and what
+  Cove's existing owner had already decided, so agreement can be measured.
+- `email.ts` and `email-shadow.ts` are the one call site today. They run after
+  email classification has already been applied, so the lane cannot delay or
+  break the judgment it is being compared against.
+- `report.ts` and `scripts/cove-jev.mjs` turn the ledger into agreement rates,
+  reported-probability bands, latency and reserved spend.
+
+Jev is not asked about dates, intervals or counting, which the model's own
+documented weaknesses cover. Deadlines stay with the frontier model and with
+code. Jev is also not a security boundary: email bodies are still untrusted
+data, and the deterministic guards keep their authority.
+
 ### Intake and meeting notes
 
 `src/lib/intake/` turns chat, voice, email, and meeting evidence into durable

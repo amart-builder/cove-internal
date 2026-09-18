@@ -1,5 +1,6 @@
 import { FOLLOW_THROUGH_SCHEMA } from "../attention/follow-through.mjs";
 import { BACKGROUND_USAGE_SCHEMA } from "../background-usage.mjs";
+import { JEV_LEDGER_SCHEMA } from "../jev/schema";
 import { RESPONSIBILITY_SCHEMA } from "../responsibility/store";
 /**
  * Ordered, append-only schema history for Cove's local SQLite database.
@@ -1720,6 +1721,11 @@ export const LOCAL_MIGRATIONS: readonly LocalMigration[] = [
         DELETE FROM cove_floor_reminder_state WHERE ref_kind='commitment' AND ref_id=NEW.id;
       END;
     `),
+  },
+  {
+    version: 37,
+    name: "jev-assessment-ledger",
+    up: (db) => db.exec(JEV_LEDGER_SCHEMA),
   },
 ];
 
