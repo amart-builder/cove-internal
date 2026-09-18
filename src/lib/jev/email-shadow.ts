@@ -40,7 +40,10 @@ export async function runJevEmailShadow(input: {
     return { ran: false, reason: "Jev settings could not be read." };
   }
   if (settings.mode === "off") return { ran: false, reason: "Jev is off." };
-  if (!settings.features.emailTriage && !settings.features.commitmentAudit) {
+  if (
+    !settings.features.emailTriage && !settings.features.commitmentAudit &&
+    !settings.features.waitingResolution
+  ) {
     return { ran: false, reason: "No Jev email feature is enabled." };
   }
 

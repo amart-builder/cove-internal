@@ -4,6 +4,7 @@
  *
  *   node scripts/cove-jev.mjs status
  *   node scripts/cove-jev.mjs report [--days 7] [--json]
+ *   node scripts/cove-jev.mjs waiting [--days 30] [--json]
  *
  * There is deliberately no command that writes the credential. The key is
  * pasted into .env.local by the person who owns it; no Cove script reads it
@@ -16,7 +17,12 @@ import { resolveEmailRuntimePaths } from "../src/lib/email/runtime-paths.ts";
 import { readJevCredential, readJevSettings } from "../src/lib/jev/settings.ts";
 import { readJevBreaker } from "../src/lib/jev/policy.ts";
 import { readJevSpendSince } from "../src/lib/jev/ledger.ts";
-import { buildJevReport, formatJevReport } from "../src/lib/jev/report.ts";
+import {
+  buildJevReport,
+  buildJevWaitingOutcomes,
+  formatJevReport,
+  formatJevWaitingReport,
+} from "../src/lib/jev/report.ts";
 
 const repoDirDefault = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -54,6 +60,7 @@ export function jevStatus(options = {}) {
         emailTriage: readJevBreaker({ db, feature: "emailTriage", now }),
         commitmentAudit: readJevBreaker({ db, feature: "commitmentAudit", now }),
         meetingAudit: readJevBreaker({ db, feature: "meetingAudit", now }),
+        waitingResolution: readJevBreaker({ db, feature: "waitingResolution", now }),
       },
     };
   } finally {
@@ -107,6 +114,27 @@ export function jevReport(options = {}) {
   }
 }
 
+/**
+ * The waiting lane's own readout. It is separate from `report` because it is
+ * scored differently: there is no existing Cove owner to agree with, only what
+ * the operator did about the commitment afterwards, which takes longer to
+ * accumulate. Hence the longer default window.
+ */
+export function jevWaiting(options = {}) {
+  const repoDir = options.repoDir ?? repoDirDefault;
+  const env = options.env ?? process.env;
+  const { dbPath } = resolveEmailRuntimePaths({ repoDir, env });
+  const now = options.now ?? new Date();
+  const since = new Date(now.getTime() - (options.days ?? 30) * 24 * 60 * 60 * 1000)
+    .toISOString();
+  const db = options.db ?? new Database(dbPath, { readonly: true, fileMustExist: true });
+  try {
+    return buildJevWaitingOutcomes({ db, since });
+  } finally {
+    if (!options.db) db.close();
+  }
+}
+
 async function main(argv) {
   const { command, days, json } = parseArgs(argv);
   if (command === "status") {
@@ -119,7 +147,12 @@ async function main(argv) {
     console.log(json ? JSON.stringify(report, null, 2) : formatJevReport(report));
     return 0;
   }
-  console.error(`Unknown command: ${command}. Use status or report.`);
+  if (command === "waiting") {
+    const report = jevWaiting({ days: argv.includes("--days") ? days : 30 });
+    console.log(json ? JSON.stringify(report, null, 2) : formatJevWaitingReport(report));
+    return 0;
+  }
+  console.error(`Unknown command: ${command}. Use status, report or waiting.`);
   return 1;
 }
 

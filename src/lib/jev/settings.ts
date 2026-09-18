@@ -30,6 +30,9 @@ export type JevMode = "off" | "shadow" | "assist";
  * meetingAudit     whether the tasks and waiting-on rows the meeting analyst
  *                  wrote are supported by the notes, still outstanding, agreed
  *                  rather than floated, and owed by who the analyst says.
+ * waitingResolution  whether an inbound email delivers a thing Cove has an open
+ *                  waiting-on commitment for. Nothing answers this today, so an
+ *                  open commitment stays open until the operator remembers it.
  *
  * The first two read the same email, so both ride in one request. Jev evaluates
  * every question in a batch against the same state in parallel, and only input
@@ -37,12 +40,17 @@ export type JevMode = "off" | "shadow" | "assist";
  * first. The third reads a meeting instead and rides in its own request, once
  * per analysed meeting rather than once per item.
  */
-export type JevFeature = "emailTriage" | "commitmentAudit" | "meetingAudit";
+export type JevFeature =
+  | "emailTriage"
+  | "commitmentAudit"
+  | "meetingAudit"
+  | "waitingResolution";
 
 export const JEV_FEATURES: readonly JevFeature[] = [
   "emailTriage",
   "commitmentAudit",
   "meetingAudit",
+  "waitingResolution",
 ];
 
 export type JevLimits = {
@@ -76,7 +84,12 @@ export const DEFAULT_JEV_LIMITS: JevLimits = {
 
 export const DEFAULT_JEV_SETTINGS: JevSettings = {
   mode: "off",
-  features: { emailTriage: false, commitmentAudit: false, meetingAudit: false },
+  features: {
+    emailTriage: false,
+    commitmentAudit: false,
+    meetingAudit: false,
+    waitingResolution: false,
+  },
   model: "jev-1.13.0",
   limits: DEFAULT_JEV_LIMITS,
   assessmentRetentionDays: 30,
@@ -128,6 +141,7 @@ function fileSettings(dataDir: string): JevSettings {
         emailTriage: features.emailTriage === true,
         commitmentAudit: features.commitmentAudit === true,
         meetingAudit: features.meetingAudit === true,
+        waitingResolution: features.waitingResolution === true,
       },
       model: typeof row.model === "string" && row.model.trim()
         ? row.model.trim().slice(0, 80)
@@ -180,6 +194,7 @@ export function readJevSettings(options: {
   const triageOverride = coveEnvTrimmed("JEV_EMAIL_TRIAGE", env);
   const auditOverride = coveEnvTrimmed("JEV_COMMITMENT_AUDIT", env);
   const meetingOverride = coveEnvTrimmed("JEV_MEETING_AUDIT", env);
+  const waitingOverride = coveEnvTrimmed("JEV_WAITING_RESOLUTION", env);
   return {
     ...stored,
     mode: isMode(modeOverride) ? modeOverride : stored.mode,
@@ -193,6 +208,9 @@ export function readJevSettings(options: {
       meetingAudit: meetingOverride === undefined
         ? stored.features.meetingAudit
         : meetingOverride === "1",
+      waitingResolution: waitingOverride === undefined
+        ? stored.features.waitingResolution
+        : waitingOverride === "1",
     },
   };
 }

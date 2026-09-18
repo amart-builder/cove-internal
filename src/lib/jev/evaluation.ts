@@ -13,10 +13,11 @@
  * the real client.
  */
 import {
-  buildJevEmailQuestions,
-  buildJevEmailState,
   composeCommitmentVerdict,
+  planJevEmailRequest,
+  readWaitingAnswers,
   type JevEmailEvidence,
+  type JevWaitingReason,
 } from "./email";
 import {
   composeMeetingItemVerdict,
@@ -31,6 +32,17 @@ export type JevEmailCaseLabels = {
   urgent: boolean;
   moneyOut: boolean;
   needsReply: boolean;
+};
+
+export type JevWaitingCase = {
+  id: string;
+  title: string;
+  detail?: string | null;
+  labels: {
+    /** Whether the operator still has to wait for this after the email. */
+    resolved: boolean;
+    reason: JevWaitingReason;
+  };
 };
 
 export type JevCommitmentCase = {
@@ -49,6 +61,8 @@ export type JevEmailCase = {
   text: string;
   labels: JevEmailCaseLabels;
   commitments?: JevCommitmentCase[];
+  /** Waiting-on rows Cove already held open against this sender. */
+  waiting?: JevWaitingCase[];
 };
 
 export type JevPreparedCase = {
@@ -101,6 +115,23 @@ export function parseJevEmailCases(value: unknown): JevEmailCase[] {
           };
         })
         : undefined,
+      waiting: Array.isArray(item.waiting)
+        ? item.waiting.map((entry) => {
+          const candidate = entry as Record<string, unknown>;
+          const candidateLabels = candidate.labels as Record<string, unknown>;
+          return {
+            id: String(candidate.id),
+            title: String(candidate.title),
+            detail: candidate.detail === undefined || candidate.detail === null
+              ? null
+              : String(candidate.detail),
+            labels: {
+              resolved: candidateLabels?.resolved === true,
+              reason: (candidateLabels?.reason ?? "still_coming") as JevWaitingReason,
+            },
+          };
+        })
+        : undefined,
     };
   });
 }
@@ -117,28 +148,30 @@ export function caseEvidence(item: JevEmailCase): JevEmailEvidence {
       title: commitment.title,
       sourceQuote: commitment.sourceQuote,
     })),
+    waiting: (item.waiting ?? []).map((candidate, index) => ({
+      index,
+      id: candidate.id,
+      title: candidate.title,
+      detail: candidate.detail ?? null,
+    })),
   };
 }
 
 /** Builds every request without a credential and without touching the network. */
 export function prepareJevEmailCases(cases: readonly JevEmailCase[]): JevPreparedCase[] {
   return cases.map((item) => {
-    const evidence = caseEvidence(item);
-    const state = buildJevEmailState(evidence);
-    const questions = buildJevEmailQuestions({
-      evidence,
+    const plan = planJevEmailRequest({
+      evidence: caseEvidence(item),
       triage: true,
       commitmentAudit: (item.commitments ?? []).length > 0,
+      waitingResolution: (item.waiting ?? []).length > 0,
     });
     return {
       id: item.id,
       split: item.split,
-      state,
-      questions,
-      requestBytes: Buffer.byteLength(
-        JSON.stringify({ model: "jev-1.13.0", state, questions }),
-        "utf8",
-      ),
+      state: plan.state,
+      questions: plan.questions,
+      requestBytes: plan.requestBytes,
     };
   });
 }
@@ -157,6 +190,12 @@ export type JevEvaluationSummary = {
    * quietly drops the emails that actually needed the operator.
    */
   missedRequests: { id: string; expected: string; got: string }[];
+  /**
+   * Waiting-on rows the labels say are still owed that Jev read as settled.
+   * Counted separately because this is the one answer in the lane that could
+   * retire a real obligation, which is the failure Cove cannot afford.
+   */
+  falseCloses: { id: string; commitmentId: string; title: string }[];
   cases: JevCaseScore[];
 };
 
@@ -171,6 +210,7 @@ export function scoreJevEmailCases(input: {
   const threshold = input.noulThreshold ?? NOUL_DECISION_THRESHOLD;
   const byQuestion: Record<string, { correct: number; total: number; rate: number }> = {};
   const missedRequests: JevEvaluationSummary["missedRequests"] = [];
+  const falseCloses: JevEvaluationSummary["falseCloses"] = [];
   const cases: JevCaseScore[] = [];
 
   const tally = (question: string, correct: boolean): void => {
@@ -241,10 +281,31 @@ export function scoreJevEmailCases(input: {
         record("commitment_owner", commitment.labels.owner, owner.choice);
       }
     });
+    (item.waiting ?? []).forEach((candidate, index) => {
+      const noul = (key: string): number | null => {
+        const answer = answers[`waiting_${index}_${key}`];
+        return answer && answer.type === "noul" ? answer.noul : null;
+      };
+      const reading = readWaitingAnswers({
+        delivered: noul("delivered"),
+        stillOutstanding: noul("still_outstanding"),
+        threshold,
+      });
+      if (reading.resolved === null) return;
+      record("waiting_resolved", String(candidate.labels.resolved), String(reading.resolved));
+      record("waiting_reason", candidate.labels.reason, reading.reason ?? "");
+      if (!candidate.labels.resolved && reading.resolved) {
+        falseCloses.push({
+          id: item.id,
+          commitmentId: candidate.id,
+          title: candidate.title,
+        });
+      }
+    });
     cases.push({ id: item.id, split: item.split, results });
   }
 
-  return { scored: cases.length, byQuestion, missedRequests, cases };
+  return { scored: cases.length, byQuestion, missedRequests, falseCloses, cases };
 }
 
 export function formatJevEvaluation(summary: JevEvaluationSummary): string {
@@ -263,6 +324,13 @@ export function formatJevEvaluation(summary: JevEvaluationSummary): string {
     lines.push("Dismissed an email that needed the operator:");
     for (const missed of summary.missedRequests) {
       lines.push(`  ${missed.id}: expected ${missed.expected}, got ${missed.got}`);
+    }
+  }
+  if (summary.falseCloses.length > 0) {
+    lines.push("");
+    lines.push("Read a commitment as settled that is still owed:");
+    for (const close of summary.falseCloses) {
+      lines.push(`  ${close.id}: ${close.title} (${close.commitmentId})`);
     }
   }
   const wrong = summary.cases.flatMap((item) =>

@@ -11,6 +11,7 @@ import {
   recordCRMResolutionFailure,
   recordEmailCorrespondence,
   type EmailCommitmentInput,
+  type EmailCRMContext,
 } from "./automation";
 import { handleUrgentEmail } from "../attention/email-urgency";
 import { recordFailure } from "../reliability/failures";
@@ -185,6 +186,10 @@ export function createEmailClassificationHandler(input: {
     // identity is ambiguous or Cove records cannot load.
     let recentContext: string | undefined;
     let draftBlockReason: string | undefined;
+    // Kept beyond the block below so the shadow lane can ask whether this email
+    // delivers any of them. Empty whenever identity was ambiguous or records
+    // would not load, which is the same fail-closed rule drafting follows.
+    let openWaitingOn: EmailCRMContext["waitingOn"] = [];
     if (!deterministicCalendarNotice) {
       try {
         const crmContext = getEmailCRMContext({
@@ -196,6 +201,7 @@ export function createEmailClassificationHandler(input: {
           now: input.now,
         });
         recentContext = formatEmailCRMContext(crmContext);
+        if (crmContext.status === "matched") openWaitingOn = crmContext.waitingOn;
         if (crmContext.status === "ambiguous") {
           draftBlockReason = `contact record is ambiguous (${crmContext.candidates?.length ?? 0} candidates)`;
         }
@@ -332,6 +338,12 @@ export function createEmailClassificationHandler(input: {
             kind: commitment.kind,
             title: commitment.title,
             sourceQuote: commitment.sourceQuote,
+          })),
+          waiting: openWaitingOn.map((row, index) => ({
+            index,
+            id: row.id,
+            title: row.title,
+            detail: row.details,
           })),
         },
         baseline: {

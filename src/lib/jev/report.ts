@@ -251,3 +251,171 @@ export function formatJevReport(report: JevReport): string {
   );
   return lines.join("\n");
 }
+
+/* -------------------------------------------------------------------------- */
+/* Waiting-on resolution                                                       */
+/*                                                                            */
+/* This lane has no existing owner to agree with, so the report above cannot   */
+/* say anything about it. What it has instead is better: the operator's own    */
+/* later action on the commitment. If Jev said an email delivered the thing    */
+/* and the operator went on to close that commitment, the lane could have told */
+/* them sooner, and the gap between the two is how much sooner.                */
+/* -------------------------------------------------------------------------- */
+
+export type JevWaitingOutcome = {
+  commitmentId: string;
+  title: string;
+  /** What the two atomic halves composed to at the time. */
+  saidResolved: boolean | null;
+  assessedAt: string;
+  status: string | null;
+  closedAt: string | null;
+  /** Days between Jev's reading and the operator closing it, when both exist. */
+  daysAhead: number | null;
+};
+
+export type JevWaitingReport = {
+  since: string;
+  total: number;
+  /** Jev said delivered, and the operator has since closed the commitment. */
+  confirmed: JevWaitingOutcome[];
+  /** Jev said delivered and the commitment is still open. Read these first. */
+  unconfirmed: JevWaitingOutcome[];
+  /** Jev said still outstanding, and the operator closed it anyway. */
+  missed: JevWaitingOutcome[];
+  /** Jev said still outstanding and it is still open. The quiet, correct case. */
+  consistent: JevWaitingOutcome[];
+  /** Median days Jev's reading preceded the operator's own close. */
+  medianDaysAhead: number | null;
+};
+
+function detailRecord(detail: unknown): Record<string, unknown> {
+  return detail && typeof detail === "object" && !Array.isArray(detail)
+    ? detail as Record<string, unknown>
+    : {};
+}
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+export function buildJevWaitingOutcomes(input: {
+  db: Database.Database;
+  since: string;
+}): JevWaitingReport {
+  const rows = readJevAssessments({
+    db: input.db,
+    feature: "waitingResolution",
+    limit: 2_000,
+  }).filter((row) =>
+    row.createdAt >= input.since && row.questionKey === "waiting_delivered"
+  );
+
+  const commitments = new Map<string, { status: string; updated_at: string; title: string }>();
+  if (rows.length > 0) {
+    // One read of the commitments named, rather than a query per row.
+    const ids = [...new Set(rows.map((row) => row.refId))];
+    const placeholders = ids.map(() => "?").join(",");
+    const found = input.db.prepare(
+      `SELECT id, status, updated_at, title FROM commitments WHERE id IN (${placeholders})`,
+    ).all(...ids) as Array<{ id: string; status: string; updated_at: string; title: string }>;
+    for (const row of found) {
+      commitments.set(row.id, {
+        status: row.status,
+        updated_at: row.updated_at,
+        title: row.title,
+      });
+    }
+  }
+
+  const report: JevWaitingReport = {
+    since: input.since,
+    total: rows.length,
+    confirmed: [],
+    unconfirmed: [],
+    missed: [],
+    consistent: [],
+    medianDaysAhead: null,
+  };
+  const aheadDays: number[] = [];
+
+  for (const row of rows) {
+    const detail = detailRecord(row.detail);
+    const composed = detail.composedVerdict;
+    const saidResolved = typeof composed === "boolean" ? composed : null;
+    const commitment = commitments.get(row.refId);
+    // A commitment Cove no longer holds cannot be scored either way.
+    const status = commitment?.status ?? null;
+    const closed = status === "done";
+    // updated_at moves for any edit, so this is when the row last changed and
+    // not provably when it was closed. It is the best Cove records and it is
+    // only ever used as a lower bound on how far ahead the reading was.
+    const closedAt = closed ? commitment?.updated_at ?? null : null;
+    const daysAhead = closedAt && closedAt > row.createdAt
+      ? (Date.parse(closedAt) - Date.parse(row.createdAt)) / 86_400_000
+      : null;
+    const outcome: JevWaitingOutcome = {
+      commitmentId: row.refId,
+      title: String(detail.title ?? commitment?.title ?? ""),
+      saidResolved,
+      assessedAt: row.createdAt,
+      status,
+      closedAt,
+      daysAhead: daysAhead === null ? null : Math.round(daysAhead * 10) / 10,
+    };
+    if (saidResolved === null || status === null) continue;
+    if (saidResolved && closed) {
+      report.confirmed.push(outcome);
+      if (outcome.daysAhead !== null) aheadDays.push(outcome.daysAhead);
+    } else if (saidResolved && !closed) {
+      report.unconfirmed.push(outcome);
+    } else if (!saidResolved && closed) {
+      report.missed.push(outcome);
+    } else {
+      report.consistent.push(outcome);
+    }
+  }
+
+  report.medianDaysAhead = median(aheadDays);
+  return report;
+}
+
+export function formatJevWaitingReport(report: JevWaitingReport): string {
+  const lines: string[] = [];
+  lines.push(`Waiting-on readings since ${report.since}: ${report.total}`);
+  lines.push("");
+  lines.push(`Jev said delivered, operator later closed it: ${report.confirmed.length}`);
+  lines.push(`Jev said delivered, still open: ${report.unconfirmed.length}`);
+  lines.push(`Jev said still owed, operator closed it anyway: ${report.missed.length}`);
+  lines.push(`Jev said still owed, still open: ${report.consistent.length}`);
+  if (report.medianDaysAhead !== null) {
+    lines.push("");
+    lines.push(
+      `Median days between Jev's reading and the operator's own close: `
+        + `${report.medianDaysAhead}`,
+    );
+  }
+  if (report.unconfirmed.length > 0) {
+    lines.push("");
+    lines.push("Still open although Jev read the thing as delivered:");
+    for (const outcome of report.unconfirmed.slice(0, 10)) {
+      lines.push(`  ${outcome.title} (${outcome.commitmentId}), read ${outcome.assessedAt}`);
+    }
+  }
+  if (report.missed.length > 0) {
+    lines.push("");
+    lines.push("Closed by the operator although Jev read it as still owed:");
+    for (const outcome of report.missed.slice(0, 10)) {
+      lines.push(`  ${outcome.title} (${outcome.commitmentId}), read ${outcome.assessedAt}`);
+    }
+  }
+  lines.push("");
+  lines.push(
+    "Nothing here is accuracy. A commitment still open after Jev read the thing "
+      + "as delivered may mean Jev was wrong, or may mean the operator has not "
+      + "got to it yet, which is the case this lane exists to catch.",
+  );
+  return lines.join("\n");
+}

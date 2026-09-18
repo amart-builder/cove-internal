@@ -369,8 +369,13 @@ owns no decision. Nothing it returns reaches the operator.
   compared against.
 - `meeting.ts` and `meeting-shadow.ts` do the same for the tasks and waiting-on
   rows a meeting analysis produced, after every one of them has been written.
-  `planJevMeetingRequest` decides how many items fit in one request and names
-  the ones it could not cover, so a gap is visible rather than quiet.
+- The waiting lane rides in the email request and asks whether that email
+  delivers, or ends the need for, a waiting-on commitment already open against
+  the sender. Its answers are written against the commitment rather than the
+  email, because the row outlives the message and the operator's own later
+  action on it is what scores the lane.
+- `planJevEmailRequest` and `planJevMeetingRequest` decide how much fits in one
+  request and name what they dropped, so a gap is visible rather than quiet.
 - `report.ts` and `scripts/cove-jev.mjs` turn the ledger into agreement rates,
   reported-probability bands, latency and reserved spend.
 - `evaluation.ts`, `fixtures/jev/` and `scripts/cove-jev-eval.mjs` build every

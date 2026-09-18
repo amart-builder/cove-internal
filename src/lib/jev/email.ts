@@ -20,7 +20,15 @@
  * when anything is due. Deadlines stay with the frontier model and with code.
  */
 import type Database from "better-sqlite3";
-import { askJev, type JevAnswer, type JevFetch, type JevQuestion, type JevResult } from "./client";
+import {
+  askJev,
+  JEV_MAX_QUESTIONS,
+  JEV_MAX_REQUEST_BYTES,
+  type JevAnswer,
+  type JevFetch,
+  type JevQuestion,
+  type JevResult,
+} from "./client";
 import { acquireJevLease, releaseJevLease } from "./policy";
 import { recordJevAssessments, recordJevAttempt, type JevAssessmentRecord } from "./ledger";
 import {
@@ -37,6 +45,10 @@ export const JEV_EMAIL_SENDER_LIMIT = 200;
 export const JEV_EMAIL_QUOTE_LIMIT = 400;
 /** The classifier itself never returns more than five candidates. */
 export const JEV_MAX_AUDITED_COMMITMENTS = 5;
+/** Open waiting-on rows for one sender. The reader loads at most fifty. */
+export const JEV_MAX_AUDITED_WAITING = 6;
+export const JEV_WAITING_TITLE_LIMIT = 240;
+export const JEV_WAITING_DETAIL_LIMIT = 400;
 
 /**
  * Rough input-token reservation for one email request, used to hold budget
@@ -55,12 +67,25 @@ export type JevAuditedCommitment = {
   sourceQuote: string;
 };
 
+/**
+ * An open waiting-on commitment for this sender, as Cove already stores it.
+ * The identifier travels so the answer can be written against the commitment
+ * rather than against the email that happened to arrive.
+ */
+export type JevWaitingCandidate = {
+  index: number;
+  id: string;
+  title: string;
+  detail?: string | null;
+};
+
 export type JevEmailEvidence = {
   accountEmail: string;
   sender: string;
   subject: string;
   text: string;
   commitments?: readonly JevAuditedCommitment[];
+  waiting?: readonly JevWaitingCandidate[];
 };
 
 /**
@@ -159,6 +184,7 @@ export function buildJevEmailQuestions(input: {
   evidence: JevEmailEvidence;
   triage: boolean;
   commitmentAudit: boolean;
+  waitingResolution?: boolean;
 }): Record<string, JevQuestion> {
   const questions: Record<string, JevQuestion> = {};
   const who = participants(input.evidence);
@@ -371,7 +397,159 @@ export function buildJevEmailQuestions(input: {
     }
   }
 
+  if (input.waitingResolution) {
+    const waiting = (input.evidence.waiting ?? []).slice(0, JEV_MAX_AUDITED_WAITING);
+    for (const candidate of waiting) {
+      // Cove already holds this commitment open against this sender. Nothing in
+      // Cove asks whether the thing has since arrived, so an open row stays open
+      // until the operator remembers it. These two questions are the missing
+      // half of "a reliable path to its next decision".
+      const awaited = {
+        title: candidate.title.slice(0, JEV_WAITING_TITLE_LIMIT),
+        ...(candidate.detail
+          ? { detail: candidate.detail.slice(0, JEV_WAITING_DETAIL_LIMIT) }
+          : {}),
+      };
+      questions[`waiting_${candidate.index}_delivered`] = {
+        type: "noul",
+        instructions: {
+          question: "Does this email hand over the thing described below, or "
+            + "state plainly that it has been done?",
+          awaited,
+          inspect: "untrusted_email_body",
+          focus: "Handing it over means it is here, attached, linked, included "
+            + "in the message, or reported as already sent or already done.",
+          participants: who,
+        },
+        criteria: {
+          true: {
+            what: "The thing is in this email, or the sender says it has "
+              + "already been sent, filed, signed or completed.",
+            examples: [
+              "Attached is the signed contract you were waiting on.",
+              "I sent the deposit across this morning.",
+            ],
+          },
+          false: {
+            what: "The email discusses the thing, promises it, asks about it, "
+              + "or says it is coming, without it being here.",
+            not_for: "An email that includes the thing while also discussing "
+              + "something else.",
+            examples: [
+              "I will get the signed contract over to you tomorrow.",
+              "Sorry for the delay, still chasing our legal team on this.",
+            ],
+          },
+        },
+      };
+      // Asked as its own observation rather than inferred from the first. A
+      // sender can hand over part of what was asked for, and an email can
+      // confirm delivery of something while making clear more is still owed.
+      questions[`waiting_${candidate.index}_still_outstanding`] = {
+        type: "noul",
+        instructions: {
+          question: "After this email, is the thing described below still owed "
+            + "to the account holder?",
+          awaited,
+          inspect: "untrusted_email_body",
+          participants: who,
+        },
+        criteria: {
+          true: {
+            what: "Some or all of it has still not arrived, including when a "
+              + "new promise about it is made here.",
+            examples: ["Here is the first half; the rest follows next week."],
+          },
+          false: {
+            what: "Nothing about it is outstanding any more, because it "
+              + "arrived, was completed, or was called off.",
+            examples: ["We have decided not to proceed, so no need for the pack."],
+          },
+        },
+      };
+    }
+  }
+
   return questions;
+}
+
+/**
+ * What Cove would actually send for one email, and which groups it covers.
+ *
+ * Three features can ride in one request, and together they can exceed both the
+ * API's question cap and the client's byte cap. Rather than pick per-feature
+ * limits that happen to stay under both, this drops whole groups until the
+ * request fits, and names what it dropped.
+ *
+ * Triage is never dropped: it is the judgment the whole lane exists to compare
+ * against. Waiting candidates go first, then commitment candidates, because a
+ * waiting candidate missed here is asked again by the sender's next email,
+ * while a commitment candidate is only ever asked about on the email it came
+ * from.
+ */
+export type JevEmailPlan = {
+  state: Record<string, unknown>;
+  questions: Record<string, JevQuestion>;
+  auditedCommitments: JevAuditedCommitment[];
+  auditedWaiting: JevWaitingCandidate[];
+  dropped: string[];
+  requestBytes: number;
+};
+
+export function planJevEmailRequest(input: {
+  evidence: JevEmailEvidence;
+  triage: boolean;
+  commitmentAudit: boolean;
+  waitingResolution?: boolean;
+  model?: string;
+  maxRequestBytes?: number;
+  maxQuestions?: number;
+}): JevEmailPlan {
+  const model = input.model ?? "jev-1.13.0";
+  const byteBudget = input.maxRequestBytes ?? JEV_MAX_REQUEST_BYTES;
+  const questionBudget = input.maxQuestions ?? JEV_MAX_QUESTIONS;
+  const state = buildJevEmailState(input.evidence);
+  const commitments = input.commitmentAudit
+    ? [...(input.evidence.commitments ?? []).slice(0, JEV_MAX_AUDITED_COMMITMENTS)]
+    : [];
+  const waiting = input.waitingResolution
+    ? [...(input.evidence.waiting ?? []).slice(0, JEV_MAX_AUDITED_WAITING)]
+    : [];
+  const dropped: string[] = [];
+
+  const build = (): Record<string, JevQuestion> =>
+    buildJevEmailQuestions({
+      evidence: { ...input.evidence, commitments, waiting },
+      triage: input.triage,
+      commitmentAudit: commitments.length > 0,
+      waitingResolution: waiting.length > 0,
+    });
+  const fits = (questions: Record<string, JevQuestion>): boolean =>
+    Object.keys(questions).length <= questionBudget &&
+    Buffer.byteLength(JSON.stringify({ model, state, questions }), "utf8") <= byteBudget;
+
+  let questions = build();
+  while (!fits(questions) && (waiting.length > 0 || commitments.length > 0)) {
+    const removed = waiting.length > 0 ? waiting.pop() : commitments.pop();
+    if (removed) {
+      dropped.push(
+        "id" in removed ? `waiting:${removed.id}` : `commitment:${removed.index}`,
+      );
+    }
+    questions = build();
+  }
+
+  return {
+    state,
+    questions,
+    auditedCommitments: commitments,
+    auditedWaiting: waiting,
+    dropped,
+    requestBytes: Buffer.byteLength(
+      JSON.stringify({ model, state, questions }),
+      "utf8",
+    ),
+  };
 }
 
 /**
@@ -389,12 +567,62 @@ export function composeCommitmentVerdict(input: {
   return input.futureAction >= threshold && input.unconditional >= threshold;
 }
 
+/**
+ * Why a waiting-on row no longer needs waiting on, or why it still does.
+ *
+ * The distinction matters to the operator, not just to the ledger. "It arrived"
+ * and "they called it off" both end the wait, but only one of them is good
+ * news; "part of it arrived" and "they say it is coming" both continue the
+ * wait, but only one of them is progress.
+ */
+export type JevWaitingReason =
+  | "arrived"
+  | "no_longer_owed"
+  | "partly_arrived"
+  | "still_coming";
+
+export type JevWaitingReading = {
+  /** Whether the operator still has to wait for this. */
+  resolved: boolean | null;
+  reason: JevWaitingReason | null;
+};
+
+/**
+ * The question the operator actually has about a waiting-on row is whether they
+ * still need the thing, so that is the half the verdict comes from. Delivery is
+ * asked separately because it explains the verdict rather than deciding it: a
+ * commitment can stop needing to be waited on because it was called off, and
+ * one can have something arrive against it and still be owed the rest.
+ *
+ * Composition stays in code. Jev gives no guarantee that two related answers
+ * are consistent with each other, so the pair is read rather than trusted to
+ * agree.
+ */
+export function readWaitingAnswers(input: {
+  delivered: number | null;
+  stillOutstanding: number | null;
+  threshold?: number;
+}): JevWaitingReading {
+  const threshold = input.threshold ?? JEV_COMPARISON_NOUL_THRESHOLD;
+  if (input.delivered === null || input.stillOutstanding === null) {
+    return { resolved: null, reason: null };
+  }
+  const arrived = input.delivered >= threshold;
+  const outstanding = input.stillOutstanding >= threshold;
+  if (outstanding) {
+    return { resolved: false, reason: arrived ? "partly_arrived" : "still_coming" };
+  }
+  return { resolved: true, reason: arrived ? "arrived" : "no_longer_owed" };
+}
+
 export type JevEmailAssessment = {
   ran: true;
   model: string;
   latencyMs: number;
   answers: Record<string, JevAnswer>;
   recorded: number;
+  /** Groups the request could not cover, so a gap is visible rather than quiet. */
+  dropped: string[];
 } | {
   ran: false;
   /** Why nothing was asked or nothing came back. Never thrown at the caller. */
@@ -413,7 +641,9 @@ export const JEV_COMPARISON_NOUL_THRESHOLD = 0.5;
 function agreementRows(input: {
   answers: Record<string, JevAnswer>;
   baseline: JevEmailBaseline;
-  evidence: JevEmailEvidence;
+  /** Only the groups the request actually covered. */
+  auditedCommitments: readonly JevAuditedCommitment[];
+  auditedWaiting: readonly JevWaitingCandidate[];
   mode: JevSettings["mode"];
   model: string;
   refId: string;
@@ -426,14 +656,17 @@ function agreementRows(input: {
     baseline: string | null,
     agreed: boolean | null,
     detail: Record<string, unknown> = {},
+    ref: { kind: string; id: string } = { kind: "email", id: input.refId },
+    /** When the stored key differs from the one the answer came back under. */
+    answerKey?: string,
   ): void => {
-    const answer = input.answers[questionKey];
+    const answer = input.answers[answerKey ?? questionKey];
     if (!answer) return;
     rows.push({
       feature,
       mode: input.mode,
-      refKind: "email",
-      refId: input.refId,
+      refKind: ref.kind,
+      refId: ref.id,
       questionKey,
       answer,
       baseline,
@@ -479,7 +712,7 @@ function agreementRows(input: {
     );
   }
 
-  for (const commitment of (input.evidence.commitments ?? []).slice(0, JEV_MAX_AUDITED_COMMITMENTS)) {
+  for (const commitment of input.auditedCommitments) {
     const noul = (key: string): number | null => {
       const answer = input.answers[`commitment_${commitment.index}_${key}`];
       return answer && answer.type === "noul" ? answer.noul : null;
@@ -543,6 +776,52 @@ function agreementRows(input: {
     );
   }
 
+  // Waiting answers are written against the commitment, not against the email
+  // that happened to arrive. The row outlives this message, and the operator's
+  // own later action on that commitment is what will score it.
+  for (const candidate of input.auditedWaiting) {
+    const noul = (key: string): number | null => {
+      const answer = input.answers[`waiting_${candidate.index}_${key}`];
+      return answer && answer.type === "noul" ? answer.noul : null;
+    };
+    const delivered = noul("delivered");
+    const stillOutstanding = noul("still_outstanding");
+    const reading = readWaitingAnswers({ delivered, stillOutstanding });
+    const ref = { kind: "commitment", id: candidate.id };
+    const shared = {
+      messageId: input.refId,
+      title: candidate.title.slice(0, JEV_WAITING_TITLE_LIMIT),
+    };
+    // No baseline on either row. Nothing in Cove answers this question today,
+    // so there is no existing owner to agree or disagree with, and inventing
+    // one would make the report read as evidence when it is not.
+    push(
+      "waitingResolution",
+      "waiting_delivered",
+      null,
+      null,
+      {
+        ...shared,
+        comparisonThreshold: JEV_COMPARISON_NOUL_THRESHOLD,
+        composedVerdict: reading.resolved,
+        reason: reading.reason,
+        delivered,
+        stillOutstanding,
+      },
+      ref,
+      `waiting_${candidate.index}_delivered`,
+    );
+    push(
+      "waitingResolution",
+      "waiting_still_outstanding",
+      null,
+      null,
+      shared,
+      ref,
+      `waiting_${candidate.index}_still_outstanding`,
+    );
+  }
+
   return rows;
 }
 
@@ -571,37 +850,46 @@ export async function assessEmailWithJev(input: {
   const now = input.now ?? (() => new Date());
   const triage = jevFeatureEnabled(input.settings, "emailTriage", env);
   const audit = jevFeatureEnabled(input.settings, "commitmentAudit", env);
-  if (!triage && !audit) return { ran: false, reason: "Jev is not enabled for email." };
+  const waiting = jevFeatureEnabled(input.settings, "waitingResolution", env);
+  if (!triage && !audit && !waiting) {
+    return { ran: false, reason: "Jev is not enabled for email." };
+  }
 
   const apiKey = input.apiKey ?? env.COVE_TYPESAFE_API_KEY ?? env.FORGE_TYPESAFE_API_KEY;
   if (!apiKey) return { ran: false, reason: "No TypeSafe credential is configured." };
 
-  const questions = buildJevEmailQuestions({
+  const plan = planJevEmailRequest({
     evidence: input.evidence,
     triage,
     commitmentAudit: audit,
+    waitingResolution: waiting,
+    model: input.settings.model,
   });
-  if (Object.keys(questions).length === 0) {
+  if (Object.keys(plan.questions).length === 0) {
     return { ran: false, reason: "Nothing to ask about this email." };
   }
 
   const lease = acquireJevLease({
     db: input.db,
-    // Both features share one request, so one lane holds the lease. Triage is
-    // the wider of the two and names it.
-    feature: triage ? "emailTriage" : "commitmentAudit",
+    // Every enabled feature shares one request, so one lane holds the lease.
+    // Triage is the widest and names it when it is on.
+    feature: triage ? "emailTriage" : audit ? "commitmentAudit" : "waitingResolution",
     limits: input.settings.limits,
     now: now(),
     reservedInputTokens: JEV_EMAIL_RESERVED_INPUT_TOKENS,
   });
   if (!lease.allowed) return { ran: false, reason: lease.detail };
 
-  const leaseFeature: JevFeature = triage ? "emailTriage" : "commitmentAudit";
+  const leaseFeature: JevFeature = triage
+    ? "emailTriage"
+    : audit
+      ? "commitmentAudit"
+      : "waitingResolution";
   let result: JevResult;
   try {
     result = await (input.askImpl ?? askJev)({
-      state: buildJevEmailState(input.evidence),
-      questions,
+      state: plan.state,
+      questions: plan.questions,
       model: input.settings.model,
     }, { apiKey, fetchImpl: input.fetchImpl });
   } catch (error) {
@@ -638,7 +926,8 @@ export async function assessEmailWithJev(input: {
   const rows = agreementRows({
     answers: result.answers,
     baseline: input.baseline,
-    evidence: input.evidence,
+    auditedCommitments: plan.auditedCommitments,
+    auditedWaiting: plan.auditedWaiting,
     mode: input.settings.mode,
     model: result.model,
     refId: input.refId,
@@ -651,5 +940,6 @@ export async function assessEmailWithJev(input: {
     latencyMs: result.latencyMs,
     answers: result.answers,
     recorded,
+    dropped: plan.dropped,
   };
 }

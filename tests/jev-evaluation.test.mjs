@@ -155,3 +155,65 @@ test("a case with no answers is skipped rather than counted as wrong", () => {
   assert.deepEqual(summary.byQuestion, {});
   assert.match(formatJevEvaluation(summary), /Scored 0 case/);
 });
+
+test("a waiting case builds both halves of the question and scores them", () => {
+  const subject = cases.filter((item) => item.id === "waiting-called-off");
+  const prepared = prepareJevEmailCases(subject);
+  assert.deepEqual(Object.keys(prepared[0].questions).sort(), [
+    "bucket",
+    "money_out",
+    "needs_reply",
+    "urgent",
+    "waiting_0_delivered",
+    "waiting_0_still_outstanding",
+  ]);
+  const summary = scoreJevEmailCases({
+    cases: subject,
+    answersById: {
+      "waiting-called-off": {
+        bucket: {
+          type: "choice",
+          choice: "fyi",
+          probabilities: { fyi: 0.9, noise: 0.1 },
+          confidence: 0.9,
+        },
+        urgent: noul(0.02),
+        money_out: noul(0.01),
+        needs_reply: noul(0.1),
+        // Nothing arrived, and nothing is owed any more.
+        waiting_0_delivered: noul(0.05),
+        waiting_0_still_outstanding: noul(0.04),
+      },
+    },
+  });
+  assert.equal(summary.byQuestion.waiting_resolved.rate, 1);
+  assert.equal(summary.byQuestion.waiting_reason.rate, 1);
+  assert.deepEqual(summary.falseCloses, []);
+});
+
+test("a commitment read as settled while still owed is named, not averaged", () => {
+  const subject = cases.filter((item) => item.id === "waiting-partly-arrived");
+  const summary = scoreJevEmailCases({
+    cases: subject,
+    answersById: {
+      "waiting-partly-arrived": {
+        bucket: {
+          type: "choice",
+          choice: "fyi",
+          probabilities: { fyi: 0.9, noise: 0.1 },
+          confidence: 0.9,
+        },
+        urgent: noul(0.02),
+        money_out: noul(0.01),
+        needs_reply: noul(0.1),
+        // Something arrived, and the rest being owed is missed.
+        waiting_0_delivered: noul(0.9),
+        waiting_0_still_outstanding: noul(0.1),
+      },
+    },
+  });
+  assert.equal(summary.byQuestion.waiting_resolved.rate, 0);
+  assert.equal(summary.falseCloses.length, 1);
+  assert.equal(summary.falseCloses[0].commitmentId, "cmt-soc2");
+  assert.match(formatJevEvaluation(summary), /Read a commitment as settled that is still owed/);
+});
