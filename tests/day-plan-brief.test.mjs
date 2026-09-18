@@ -246,6 +246,7 @@ function fakeCodex(dir, outputs, exitCodes = [], stdoutBytes = 0) {
   writeFileSync(executable,
     `#!/usr/bin/env node
 const fs = require('node:fs');
+if (process.argv[2] === 'mcp') { console.log('{"name":"1password"}'); process.exit(0); }
 ${currentPlanningFixture.toString()}
 let input = '';
 process.stdin.setEncoding('utf8');
@@ -1743,7 +1744,7 @@ test('ensure keeps at most three items from a larger deterministic pool', (t) =>
 // ---------------------------------------------------------------------------
 
 test('the brief command is the exact bounded toolless invocation', () => {
-  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 28);
+  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 29);
   const repoCwd = process.cwd();
   const ownerPrompt = readFileSync(path.join(repoCwd, 'prompts', 'chief-of-staff.md'), 'utf8').trimEnd();
   assert.ok(ownerPrompt.includes(
@@ -1940,12 +1941,14 @@ test('the Codex writer command uses a private read-only temp workspace', () => {
   const attempt = createCodexMorningBriefAttempt({
     prompt: 'STRICT JSON PROMPT',
     executable: '/bin/echo',
+    codexConfigProbe: () => ({ status: 0, stdout: '{"name":"1password"}' }),
   });
   try {
     assert.notEqual(attempt.command.cwd, process.cwd());
     assert.equal(attempt.command.stdin, 'STRICT JSON PROMPT');
     assert.deepEqual(attempt.command.args, [
       'exec', '--sandbox', 'read-only', '--skip-git-repo-check',
+      '-c', 'mcp_servers.1password.enabled=false',
       '-m', 'gpt-5.6-sol', '-c', 'model_reasoning_effort=high',
       '--output-last-message', attempt.outputPath, '-',
     ]);
@@ -2036,8 +2039,9 @@ test('the preferred Codex writer retries invalid JSON once and records its prove
   assert.equal(captures.length, 2);
   assert.equal(captures[0].cwd.includes('cove-morning-brief-'), true);
   assert.match(captures[1].input, /CORRECTION: Your previous output failed validation:/);
-  assert.deepEqual(captures[0].args.slice(0, 9), [
+  assert.deepEqual(captures[0].args.slice(0, 11), [
     'exec', '--sandbox', 'read-only', '--skip-git-repo-check',
+    '-c', 'mcp_servers.1password.enabled=false',
     '-m', 'gpt-5.6-sol', '-c', 'model_reasoning_effort=high',
     '--output-last-message',
   ]);

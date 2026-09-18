@@ -37,7 +37,7 @@ import type {
 // 24: preserve undecided terms and bound both positive and negative monitoring claims.
 // 25: deterministic local dates and freshness precedence for saved calendar answers.
 // Version 27 selects frozen sources by key and renders check times from saved values.
-export const MORNING_BRIEF_PROMPT_VERSION = 28;
+export const MORNING_BRIEF_PROMPT_VERSION = 29;
 export const MORNING_BRIEF_SCHEMA_VERSION = 8;
 
 export type MorningBriefStatus = "queued" | "running" | "succeeded" | "failed";

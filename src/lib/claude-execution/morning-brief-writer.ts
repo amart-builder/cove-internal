@@ -26,11 +26,13 @@ export function createCodexStructuredAttempt(input: {
   executable?: string;
   env?: NodeJS.ProcessEnv;
   tempPrefix?: string;
+  codexConfigProbe?: typeof import("node:child_process").spawnSync;
 }): CodexStructuredAttempt | undefined {
   return createCodexJobAttempt({
     prompt: input.prompt,
     executable: input.executable,
     env: input.env,
+    codexConfigProbe: input.codexConfigProbe,
     tempPrefix: input.tempPrefix ?? "cove-morning-brief-",
   }) as CodexStructuredAttempt | undefined;
 }

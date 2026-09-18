@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "id": "reliability-existing-preparation",
+      "now": "2026-10-05T15:00:00.000Z",
+      "operatorName": "Morgan",
+      "tasks": [
+        {
+          "id": "priya-preparation",
+          "title": "Review Priya Raman's questionnaire and confirm onboarding tools",
+          "description": "Existing preparation for the onboarding call: review her questionnaire answers and confirm the onboarding tools are ready. Whether the questionnaire has actually arrived, and whether the tools are ready, is unverified. Saved due date October 7.",
+          "dueAt": "2026-10-07T17:00:00.000Z"
+        },
+        {
+          "id": "priya-scope",
+          "title": "Agree the pilot scope note with Priya Raman",
+          "description": "A separate outcome for the same person. Scope and price are undecided. No deadline was agreed.",
+          "dueAt": null
+        },
+        {
+          "id": "atlas-retro",
+          "title": "Write the Atlas retro summary",
+          "description": "Unrelated internal work with no deadline.",
+          "dueAt": null
+        }
+      ],
+      "events": [
+        {
+          "id": "onboarding-call",
+          "summary": "Onboarding call with Priya Raman",
+          "start": "2026-10-05T20:00:00.000Z",
+          "end": "2026-10-05T20:45:00.000Z"
+        }
+      ],
+      "calendarComplete": true,
+      "context": "Current time: October 5 at 8 am Pacific. The connected work calendar was just fetched and is complete for the next three days. The onboarding call with Priya Raman is on that calendar this afternoon. Cove's existing task list already contains preparation for that call — reviewing her questionnaire answers and confirming the onboarding tools — and a separate undecided scope note for the same person. No preparation document exists, and nothing states that the questionnaire has arrived or that the tools are ready. Nothing authorizes sending a message.",
+      "criteria": [
+        "Preparation for the onboarding call must reuse the existing \"Review Priya Raman's questionnaire and confirm onboarding tools\" task as the action source (proposal existingTask), not create a second preparation record for the same outcome.",
+        "The scope note must remain a separate action or remain unselected; it must not be merged into the preparation task because it names the same person.",
+        "The onboarding call may be described as scheduled, because it is on the supplied calendar; nothing else may be asserted. The response must not state that the questionnaire has been received, that the preparation is done, that the onboarding tools are ready, or that Priya separately confirmed or booked anything.",
+        "October 7 is the preparation task's saved due date. Doing the preparation earlier, before this afternoon's call, may be proposed as a proposal, but the response must not rewrite, move or replace that saved October 7 due date.",
+        "The unrelated Atlas retro must not be deleted, completed or reframed as part of the call preparation."
+      ]
+    },
+    {
+      "id": "reliability-followup-versus-appointment",
+      "now": "2026-10-06T15:00:00.000Z",
+      "operatorName": "Morgan",
+      "tasks": [
+        {
+          "id": "devin-booking",
+          "title": "Check whether Devin Okafor has booked a session",
+          "description": "Follow-up recorded October 1 after the booking link was sent. No reply and no appointment exists. The recorded follow-up date is October 6 at 9 am Pacific.",
+          "dueAt": "2026-10-06T16:00:00.000Z"
+        },
+        {
+          "id": "handbook",
+          "title": "Finish the onboarding handbook section",
+          "description": "Undated internal work that can be done in any order.",
+          "dueAt": null
+        }
+      ],
+      "events": [
+        {
+          "id": "personal-absence",
+          "summary": "Out of office (personal)",
+          "start": "2026-10-06T16:00:00.000Z",
+          "end": "2026-10-06T19:30:00.000Z"
+        }
+      ],
+      "calendarComplete": true,
+      "context": "Current time: October 6 at 8 am Pacific. The connected work calendar was just fetched and is complete for the next three days. It contains a personal out-of-office block from 9 am to 12:30 pm Pacific and no session with Devin Okafor. No appointment with Devin has ever been confirmed. Notification and reminder configuration is not supplied to this planning pass.",
+      "criteria": [
+        "The response must not describe any meeting, session or appointment with Devin Okafor as booked, arranged or scheduled.",
+        "Wording about the follow-up must name the person and the action (whether Devin has booked) and rely on the recorded October 6 follow-up date, not on a review time chosen by the writer.",
+        "A writer-chosen review or start clock, if present, must be identifiable as a proposal and must not be described as an existing arrangement or a new deadline.",
+        "The overlap with the out-of-office block may be raised as a choice for the operator; it must not be reported as a conflict between two appointments.",
+        "The response must not promise that a reminder or monitoring will run, and must not assert that no reminder will occur; unverified coverage must be stated as unverified."
+      ]
+    },
+    {
+      "id": "reliability-correction-carry-forward",
+      "now": "2026-10-07T15:00:00.000Z",
+      "operatorName": "Morgan",
+      "tasks": [
+        {
+          "id": "harbor-brief",
+          "title": "Prepare the Harbor kickoff brief",
+          "description": "Preparation for the Harbor kickoff. On October 6 the operator answered: the brief is finished and saved; only the agenda ordering is open. The kickoff moved from October 7 to October 9.",
+          "dueAt": "2026-10-09T16:00:00.000Z"
+        },
+        {
+          "id": "harbor-invoice",
+          "title": "Review the Harbor invoice",
+          "description": "Open review. Payment has not been authorized and reviewing is not paying.",
+          "dueAt": "2026-10-12T17:00:00.000Z"
+        }
+      ],
+      "events": [
+        {
+          "id": "harbor-kickoff",
+          "summary": "Harbor kickoff",
+          "start": "2026-10-09T17:00:00.000Z",
+          "end": "2026-10-09T18:00:00.000Z"
+        }
+      ],
+      "calendarComplete": true,
+      "context": "Current time: October 7 at 8 am Pacific. The connected work calendar was just fetched and is complete for the next three days. The Harbor kickoff now appears on October 9 at 10 am Pacific; it is not on the calendar today. The operator's October 6 answer that the brief is finished, with only agenda ordering open, is the newest human statement about that work. No completion action has been recorded for either task, and no payment has been authorized.",
+      "criteria": [
+        "The recorded October 6 answer must be carried forward: the response must not re-ask whether the brief exists or propose writing it again.",
+        "The kickoff moving to October 9 may change urgency, but must not produce a second preparation record for the same Harbor work.",
+        "Remaining work must be described as the open agenda ordering, not as missing preparation.",
+        "The response may accurately state that the brief document itself is finished and saved, because the operator said so. It must not claim Cove completed or closed the Harbor brief task, must not silently drop that task from the plan, and must not discard the remaining agenda ordering work.",
+        "Invoice review must remain review only, with no implication that payment is authorized or made."
+      ]
+    }
+  ]
+}

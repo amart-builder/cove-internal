@@ -82,6 +82,7 @@ const rootFiles = new Set([
   "EVALUATION.md",
   "LICENSE",
   "OPERATIONS.md",
+  "PLANNING_RELIABILITY.md",
   "README.md",
   "SECURITY_AND_INTEGRATIONS.md",
   "SETUP.md",

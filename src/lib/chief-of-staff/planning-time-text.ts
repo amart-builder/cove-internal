@@ -2,7 +2,10 @@ import { localDateLabel } from "./planning-dates";
 
 // Clock values in generated prose are references, not a second independently
 // authored schedule. Old stored prose is deliberately outside this boundary.
-const clockPattern = /\b(?:(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:\s*[ap]\.?m\.?)?|(?:1[0-2]|0?[1-9])\s*[ap]\.?m\.?|noon|midnight)\b/gi;
+// A rendered reference is one local date label plus its meaning. Bounding it
+// keeps the stored text length predictable for the fields that carry it.
+export const RENDERED_TIME_LABEL_MAX = 100;
+const clockPattern =/\b(?:(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:\s*[ap]\.?m\.?)?|(?:1[0-2]|0?[1-9])\s*[ap]\.?m\.?|noon|midnight)\b/gi;
 type Timed = { nextCheckAt: string; plannedFor?: string | null; expiresAt?: string };
 
 export function planningTimeReferences(contextText: string, sourcePrompt: string): { timeZone: string; labels: string[] } {
@@ -12,6 +15,14 @@ export function planningTimeReferences(contextText: string, sourcePrompt: string
   const labels = new Set<string>();
   const visit = (value: unknown, key = "") => {
     if (typeof value === "string") {
+      const internalMeaning: Record<string, string> = {
+        nextCheckAtLocal: "internal review time", plannedForLocal: "proposed work time",
+        expiresAtLocal: "question expiry",
+      };
+      if (internalMeaning[key]) {
+        if (!/^(Invalid|Unlabelled)/.test(value)) labels.add(`${value} (${internalMeaning[key]})`);
+        return;
+      }
       if (key.endsWith("Local") && !/^(Invalid|Unlabelled)/.test(value)) labels.add(value);
       // Quoted source clock wording is not proof of a current booking. The
       // caller supplies that distinction separately in the planning contract.
@@ -54,12 +65,16 @@ export function renderPlanningTimeText(
     if (literalClocks.some(clock => !options.allowSourceClocks || !sourceClocks.has(normalizeClock(clock)))) {
       throw new Error("planning_prose_clock_requires_reference");
     }
+    const bound = (label: string) => {
+      if (label.length > RENDERED_TIME_LABEL_MAX) throw new Error("planning_time_reference_invalid");
+      return label;
+    };
     const rendered = paragraph.replace(/\{\{([^{}]+)\}\}/g, (_match, key: string) => {
       const source = /^time\.(\d+)$/.exec(key);
       if (source) {
         const label = sources.labels[Number(source[1]) - 1];
         if (!label) throw new Error("planning_time_reference_unavailable");
-        return label;
+        return bound(label);
       }
       const generated = /^(action|question)\.(\d+)\.(nextCheckAt|plannedFor|expiresAt)$/.exec(key);
       if (!generated) throw new Error("planning_time_reference_invalid");
@@ -69,7 +84,9 @@ export function renderPlanningTimeText(
       if (!value) throw new Error("planning_time_reference_unavailable");
       const label = localDateLabel(value, sources.timeZone);
       if (!label || /^(Invalid|Unlabelled)/.test(label)) throw new Error("planning_time_reference_invalid");
-      return label;
+      const meaning = field === "nextCheckAt" ? "proposed review time"
+        : field === "plannedFor" ? "proposed work time" : "question expiry";
+      return bound(`${label} (${meaning})`);
     });
     if (rendered.includes("{{") || rendered.includes("}}")) throw new Error("planning_time_reference_invalid");
     return rendered;

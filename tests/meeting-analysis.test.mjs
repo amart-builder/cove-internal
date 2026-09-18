@@ -368,6 +368,7 @@ test("analyst validation rejects task and waiting-on due dates at or before proc
 test("meeting research enables Codex web search without changing the read-only sandbox", () => {
   const attempt = createCodexJobAttempt({
     executable: process.execPath,
+    codexConfigProbe: () => ({ status: 1, stderr: "Error: No MCP server named '1password' found." }),
     prompt: "Research the attendee.",
     webSearch: true,
   });

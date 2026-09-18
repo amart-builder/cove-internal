@@ -9,15 +9,211 @@ import {
   validateDailyDecision,
   decisionAsBrief,
   rememberCalendarOccurrences,
+  dailyPlanningPrompt,
+  dailyPlanningSchema,
 } from "../src/lib/chief-of-staff/daily-planning.ts";
+import { PLANNING_LESSONS } from "../src/lib/chief-of-staff/planning-lessons.ts";
 import {
   sourceRecord,
   sourceVersion,
 } from "../src/lib/responsibility/store.ts";
 import { morningBriefFromArtifact } from "../src/lib/day-plan/brief.ts";
-import { projectPlanningBrief } from "../src/lib/day-plan/planning.ts";
+import { projectPlanningBrief, persistDecisionLinks } from "../src/lib/day-plan/planning.ts";
+import { eligibleNotTodayTasks } from "../src/lib/day-plan/candidates.ts";
 const date = "2026-09-11";
 const now = new Date("2026-09-11T15:00:00Z");
+
+test("existing preparation stays selectable when detailed responsibility context is full", (t) => {
+  const { db, store } = fixture(t);
+  for (let i = 0; i < 45; i++) {
+    task(db, `backlog-${i}`);
+    db.prepare("UPDATE tasks SET description=? WHERE id=?").run("Background detail. ".repeat(80), `backlog-${i}`);
+  }
+  task(db, "existing-preparation");
+  // Push preparation behind the detailed context budget, as after a prior review.
+  store.planningContext(date);
+  db.prepare("UPDATE cove_responsibilities SET last_reviewed_at=? WHERE ref_id='existing-preparation'").run(now.toISOString());
+  const context = store.planningContext(date, [event]);
+  assert.ok(context.references.some(ref => ref.kind === "task" && ref.id === "existing-preparation"));
+  assert.ok(JSON.parse(context.text).existingTasks.some(row => row.source.id === "existing-preparation"));
+  assert.ok(JSON.parse(context.text).coverage.omittedResponsibilities > 0);
+});
+
+test("calendar preparation explicitly reuses one task through persistence, Arrival and acceptance", (t) => {
+  const { db, store } = fixture(t);
+  task(db, "existing-preparation");
+  const context = store.planningContext(date, [event]);
+  const raw = wire(context, { proposal: true });
+  raw.actions[0].proposal.existingTask = context.references.find(ref => ref.kind === "task");
+  generate(store, context, raw);
+  let plan = ensure(store);
+  assert.equal(plan.items.length, 1);
+  assert.equal(plan.items[0].taskId, "existing-preparation");
+  const board = [{ id: "existing-preparation", columnId: "todo", priority: "medium", status: "open", tags: [], position: 0, updatedAt: +now }];
+  assert.equal(eligibleNotTodayTasks(board, plan.items).length, 0);
+  plan = mutate(store, plan, "arrival_open");
+  plan = mutate(store, plan, "start_day");
+  assert.equal(plan.items[0].taskId, "existing-preparation");
+  assert.equal(db.prepare("SELECT count(*) FROM tasks").pluck().get(), 1);
+  assert.equal(store.planningReadBundle().model.currentPlan.items[0].taskId, "existing-preparation");
+});
+
+test("reused preparation rejects a stale task or stale supporting calendar before writes", (t) => {
+  const { db, store } = fixture(t);
+  task(db);
+  const context = store.planningContext(date, [event]);
+  const raw = wire(context, { proposal: true });
+  raw.actions[0].proposal.existingTask = context.references.find(ref => ref.kind === "task");
+  db.prepare("UPDATE tasks SET title='Edited by the person' WHERE id='strategic'").run();
+  assert.throws(() => persistDecisionLinks(db, validateDailyDecision(raw, context), now), /planning_source_changed/);
+  const fresh = store.planningContext(date, [event]);
+  const revised = wire(fresh, { proposal: true });
+  revised.actions[0].proposal.existingTask = fresh.references.find(ref => ref.kind === "task");
+  rememberCalendarOccurrences(db, [{ ...event, start: "2026-09-12T18:00:00Z" }], now);
+  assert.throws(() => persistDecisionLinks(db, validateDailyDecision(revised, fresh), now), /planning_source_changed/);
+  assert.equal(db.prepare("SELECT count(*) FROM cove_quiet_current").pluck().get(), 0);
+});
+test("a rescheduled meeting withdraws obsolete timing without resolving the reused task", (t) => {
+  const { db, store } = fixture(t);
+  task(db, "existing-preparation");
+  const context = store.planningContext(date, [event]);
+  const raw = wire(context, { proposal: true });
+  raw.actions[0].proposal.existingTask = context.references.find(ref => ref.kind === "task");
+  raw.actions[0].rationale = "Meeting today: prepare while there is time before the call.";
+  generate(store, context, raw);
+  let plan = ensure(store);
+  assert.deepEqual(plan.items[0].planningSupport, [{
+    kind: "calendar",
+    id: context.references.find(ref => ref.kind === "calendar").id,
+    version: context.references.find(ref => ref.kind === "calendar").version,
+  }]);
+  plan = mutate(store, plan, "arrival_open");
+  plan = mutate(store, plan, "start_day");
+  rememberCalendarOccurrences(db, [{ ...event, start: "2026-09-14T18:00:00Z", end: "2026-09-14T20:00:00Z" }], new Date(+now + 60000));
+  const bundle = store.planningReadBundle();
+  const item = bundle.model.currentPlan.items[0];
+  assert.equal(item.taskId, "existing-preparation");
+  assert.equal(item.planningStale, true);
+  // A meeting moving invalidates the timing, never the accepted work.
+  assert.equal(item.planningState, "ready");
+  assert.equal(item.decision, "accepted");
+  assert.doesNotMatch(item.whyToday, /Meeting today/);
+  assert.deepEqual(item.planningAssumptions, []);
+  assert.equal(db.prepare("SELECT status FROM tasks WHERE id='existing-preparation'").pluck().get(), "open");
+  assert.equal(db.prepare("SELECT count(*) FROM tasks").pluck().get(), 1);
+  const repeated = store.planningReadBundle();
+  assert.equal(repeated.model.currentPlan.version, bundle.model.currentPlan.version);
+  assert.deepEqual(repeated.model.currentPlan.items, bundle.model.currentPlan.items);
+});
+
+test("a cancelled meeting cannot cancel the work it was preparation for", (t) => {
+  const { db, store } = fixture(t);
+  task(db, "existing-preparation");
+  const context = store.planningContext(date, [event]);
+  const raw = wire(context, { proposal: true });
+  raw.actions[0].proposal.existingTask = context.references.find(ref => ref.kind === "task");
+  generate(store, context, raw);
+  mutate(store, mutate(store, ensure(store), "arrival_open"), "start_day");
+  rememberCalendarOccurrences(db, [{ ...event, status: "cancelled" }], new Date(+now + 60000));
+  const item = store.planningReadBundle().model.currentPlan.items[0];
+  assert.equal(item.planningStale, true);
+  assert.notEqual(item.planningState, "resolved");
+  assert.equal(item.decision, "accepted");
+  assert.equal(db.prepare("SELECT status FROM tasks WHERE id='existing-preparation'").pluck().get(), "open");
+});
+
+test("two different tasks for one person stay distinct records in one plan", (t) => {
+  const { db, store } = fixture(t);
+  task(db, "sam-proposal");
+  task(db, "sam-booking-followup");
+  const context = store.planningContext(date, [event]);
+  const followup = context.references.find(ref => ref.kind === "task" && ref.id === "sam-booking-followup");
+  const raw = wire(context, { proposal: true });
+  raw.actions[0].proposal.existingTask = followup;
+  raw.actions.push({
+    source: context.references.find(ref => ref.kind === "task" && ref.id === "sam-proposal"),
+    proposal: null,
+    nextAction: "Finish the proposal for Sam Lee",
+    rationale: "A separate outcome from the booking follow-up.",
+    assumptions: [],
+    owner: "me",
+    state: "ready",
+    plannedFor: null,
+    nextCheckAt: "2026-09-11T16:00:00Z",
+  });
+  generate(store, context, raw);
+  const plan = ensure(store);
+  assert.deepEqual(plan.items.map(i => i.taskId).sort(), ["sam-booking-followup", "sam-proposal"]);
+  assert.equal(new Set(plan.items.map(i => i.planningRef.id)).size, 2);
+  assert.equal(db.prepare("SELECT count(*) FROM tasks").pluck().get(), 2);
+  const board = ["sam-proposal", "sam-booking-followup"].map((id, position) => ({ id, columnId: "todo", priority: "medium", status: "open", tags: [], position, updatedAt: +now }));
+  assert.equal(eligibleNotTodayTasks(board, plan.items).length, 0);
+  const followupItem = plan.items.find(i => i.taskId === "sam-booking-followup");
+  assert.deepEqual(eligibleNotTodayTasks(board, [followupItem]).map(row => row.id), ["sam-proposal"]);
+});
+
+test("one task named twice through different routes is rejected before any write", (t) => {
+  const { db, store } = fixture(t);
+  task(db, "existing-preparation");
+  const context = store.planningContext(date, [event]);
+  const taskRef = context.references.find(ref => ref.kind === "task");
+  const raw = wire(context, { proposal: true });
+  raw.actions[0].proposal.existingTask = taskRef;
+  raw.actions.push({
+    source: taskRef,
+    proposal: null,
+    nextAction: "Work on the same task again",
+    rationale: "The same canonical work reached by the direct route.",
+    assumptions: [],
+    owner: "me",
+    state: "ready",
+    plannedFor: null,
+    nextCheckAt: "2026-09-11T16:00:00Z",
+  });
+  assert.throws(() => validateDailyDecision(raw, context), /duplicate_planning_action/);
+  assert.throws(() => generate(store, context, raw), /duplicate_planning_action/);
+  assert.equal(db.prepare("SELECT count(*) FROM cove_quiet_current").pluck().get(), 0);
+  assert.equal(db.prepare("SELECT count(*) FROM tasks").pluck().get(), 1);
+});
+
+test("a completed source cannot be reused as existing preparation", (t) => {
+  const { db, store } = fixture(t);
+  task(db, "existing-preparation");
+  const context = store.planningContext(date, [event]);
+  const raw = wire(context, { proposal: true });
+  raw.actions[0].proposal.existingTask = context.references.find(ref => ref.kind === "task");
+  db.prepare("UPDATE tasks SET status='done' WHERE id='existing-preparation'").run();
+  assert.throws(() => persistDecisionLinks(db, validateDailyDecision(raw, context), now), /planning_source_changed/);
+  db.prepare("UPDATE tasks SET status='open',archived_at=? WHERE id='existing-preparation'").run(now.toISOString());
+  assert.throws(() => persistDecisionLinks(db, validateDailyDecision(raw, context), now), /planning_source_changed/);
+  assert.equal(db.prepare("SELECT count(*) FROM cove_quiet_current").pluck().get(), 0);
+});
+
+test("the runtime planning prompt carries the short lessons and a task-only existingTask field", (t) => {
+  const { db, store } = fixture(t);
+  task(db, "existing-preparation");
+  db.prepare("INSERT INTO commitments(id,title,status,confirmed,kind,source_kind,created_at,updated_at) VALUES('promised','A recorded promise','open',1,'promise','detector',?,?)").run(now.toISOString(), now.toISOString());
+  const context = store.planningContext(date, [event]);
+  const prompt = dailyPlanningPrompt(context, "TARGET_LOCAL_DATE=2026-09-11");
+  // Lessons stay short enough to send with every planning call, and they are
+  // sent: the runtime prompt is the same string planDay hands the runner.
+  assert.ok(PLANNING_LESSONS.length <= 2400, `lessons are ${PLANNING_LESSONS.length} characters`);
+  for (const rule of PLANNING_LESSONS.split(/\n(?=\d\.)/).slice(1)) {
+    assert.equal(prompt.includes(rule), true);
+  }
+  assert.equal(PLANNING_LESSONS.split(/\n(?=\d\.)/).length - 1, 3);
+  const taskKeys = context.references.flatMap((ref, index) => ref.kind === "task" ? [`ref.${index + 1}`] : []);
+  const existingTask = dailyPlanningSchema(context).properties.actions.items.properties.proposal
+    .anyOf.find(shape => shape.properties).properties.existingTask;
+  assert.deepEqual(existingTask.anyOf, [{ type: "null" }, { type: "string", enum: taskKeys }]);
+  assert.equal(taskKeys.length, 1);
+  const raw = { ...wire(context, { proposal: true }), narrativeParagraphs: ["Preparation reuses the task that already covers this outcome."] };
+  raw.actions[0].proposal.existingTask = context.references.find(ref => ref.kind === "commitment");
+  assert.throws(() => validateDailyDecision(raw, context, { requireNarrative: true }), /planning_existing_task_required/);
+  raw.actions[0].proposal.existingTask = context.references.find(ref => ref.kind === "calendar");
+  assert.throws(() => validateDailyDecision(raw, context, { requireNarrative: true }), /planning_existing_task_required/);
+});
+
 function fixture(t) {
   const dir = mkdtempSync(path.join(os.tmpdir(), "cove-daily-plan-"));
   const file = path.join(dir, "cove.db");

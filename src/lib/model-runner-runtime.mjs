@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
@@ -50,17 +50,52 @@ export function resolveCodexBinary(options = {}) {
   return undefined;
 }
 
+export function codexPasswordManagerOverrides({ executable, cwd, env, probe = spawnSync }) {
+  // Ask Codex to resolve its own config layers without starting any connector.
+  // A dotted enabled=false override creates an invalid server when it is absent.
+  const result = probe(executable, ["mcp", "get", "1password", "--json"], {
+    cwd,
+    env: minimalJobEnvironment(env ?? process.env),
+    encoding: "utf8",
+    timeout: 5_000,
+    maxBuffer: MAX_DIAGNOSTIC_BYTES,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (!result.error && result.status === 1 &&
+      /(?:^|\n)Error: No MCP server named '1password' found\.\s*$/.test(String(result.stderr))) return [];
+  if (!result.error && result.status === 0) {
+    try {
+      if (JSON.parse(result.stdout).name === "1password") {
+        return ["-c", "mcp_servers.1password.enabled=false"];
+      }
+    } catch { /* Fail closed below without exposing configuration or secrets. */ }
+  }
+  throw new Error("Cove could not verify that the background password-manager connector is disabled.");
+}
+
 export function createCodexJobAttempt(input) {
   const executable = input.executable ?? resolveCodexBinary({ env: input.env });
   if (!executable || (executable.includes(path.sep) && !existsSync(executable))) return undefined;
   const cwd = mkdtempSync(path.join(tmpdir(), input.tempPrefix ?? "cove-model-job-"));
   chmodSync(cwd, 0o700);
   const outputPath = path.join(cwd, "last-message.txt");
+  let passwordManagerOverrides;
+  try {
+    passwordManagerOverrides = codexPasswordManagerOverrides({
+      executable, cwd, env: input.env, probe: input.codexConfigProbe,
+    });
+  } catch (error) {
+    rmSync(cwd, { recursive: true, force: true });
+    throw error;
+  }
   const args = [
     "exec",
     "--sandbox",
     "read-only",
     "--skip-git-repo-check",
+    // Starting the inherited password-manager connector can itself trigger a
+    // macOS App Data prompt on every job, before the model uses any tools.
+    ...passwordManagerOverrides,
     "-m",
     input.selection?.model ?? "gpt-5.6-sol",
     "-c",
@@ -397,6 +432,7 @@ export async function runJob(input) {
           selection,
           executable: input.codexPath,
           env,
+          codexConfigProbe: input.codexConfigProbe,
           webSearch: input.webSearch === true,
           tempPrefix: `cove-${String(input.lane).replace(/[^a-z0-9_-]/gi, "-")}-`,
         });

@@ -23,11 +23,19 @@ function option(key, fallback) {
   return i < 0 ? fallback : args[i + 1];
 }
 const outputArg = option('--output');
-if (!outputArg) throw new Error('Required: --output <new-results-directory> [--run-models] [--repeats 3] [--cases file.json]');
+if (!outputArg) throw new Error('Required: --output <new-results-directory> [--run-models] [--repeats 3] [--cases file.json] [--provider codex|claude]');
 const output = path.resolve(outputArg);
 if (existsSync(output)) throw new Error('Results directory must be new; previous failures must remain visible.');
 const repeats = Number(option('--repeats', '3'));
 if (!Number.isSafeInteger(repeats) || repeats < 1 || repeats > 5) throw new Error('Repeats must be 1 to 5.');
+// Optional narrowing to one configured provider. Absent means every configured
+// provider, which is the long-standing default and stays that way.
+const PROVIDER_NAMES = ['codex', 'claude'];
+const selectedIndex = args.indexOf('--provider');
+const selected = selectedIndex < 0 ? undefined : args[selectedIndex + 1];
+// A bare trailing --provider has no value: refuse it rather than silently
+// falling back to running every provider.
+if (selectedIndex >= 0 && !PROVIDER_NAMES.includes(selected)) throw new Error(`--provider must be one of ${PROVIDER_NAMES.join(', ')}.`);
 const scenariosFile = path.resolve(option('--cases', path.join(root, 'fixtures/working-week/scenarios.json')));
 const scenarios = JSON.parse(readFileSync(scenariosFile, 'utf8')).scenarios;
 if (!Array.isArray(scenarios) || !scenarios.length || scenarios.length > 20) throw new Error('Expected 1 to 20 cases.');
@@ -79,14 +87,24 @@ try {
       prepared.push({ bundle, prompt });
     } finally { store.close(); db.close(); }
   }
-  const providers = [
+  const configuredProviders = [
     { provider: 'codex', model: 'gpt-6-astra', executable: option('--codex', 'codex') },
     { provider: 'claude', model: 'claude-fable-5-1', executable: option('--claude', 'claude') },
   ];
+  // Narrow a run to one already-configured provider. The default is unchanged:
+  // without --provider every configured provider runs. This never introduces a
+  // provider or model the file does not already configure.
+  if (configuredProviders.length !== PROVIDER_NAMES.length || configuredProviders.some(p => !PROVIDER_NAMES.includes(p.provider))) throw new Error('Provider allowlist and provider configuration disagree.');
+  const providers = selected === undefined
+    ? configuredProviders
+    : configuredProviders.filter(p => p.provider === selected);
+  if (!providers.length) throw new Error(`No configured provider named ${selected}.`);
   save('manifest.json', {
     kind: 'production-prompt-and-validator', createdAt: new Date().toISOString(),
     fixtureHash: hash(readFileSync(scenariosFile)), repeats, providers,
-    sourceHashes: Object.fromEntries(['src/lib/chief-of-staff/daily-planning.ts', 'src/lib/chief-of-staff/planning-contract.ts', 'src/lib/chief-of-staff/planning-dates.ts', 'src/lib/chief-of-staff/planning-time-text.ts', 'scripts/evaluation/working-week-models.mjs'].map(f => [f, hash(readFileSync(path.join(root, f)))])),
+    // What was asked for, beside the providers actually used above.
+    providerSelection: selected === undefined ? 'all-configured' : selected,
+    sourceHashes: Object.fromEntries(['src/lib/chief-of-staff/daily-planning.ts', 'src/lib/chief-of-staff/planning-contract.ts', 'src/lib/chief-of-staff/planning-lessons.ts', 'src/lib/chief-of-staff/planning-dates.ts', 'src/lib/chief-of-staff/planning-time-text.ts', 'scripts/evaluation/working-week-models.mjs'].map(f => [f, hash(readFileSync(path.join(root, f)))])),
     isolation: { syntheticData: true, providerTools: false, claudeSafeMode: true, codexChildOnlyConfigHome: true, authentication: 'existing sign-in; Codex auth symlink only' },
     cases: prepared.map(({ bundle }) => ({ id: bundle.id, promptHash: bundle.promptHash })),
     limits: ['No live source ingestion', 'No OS notification delivery', 'No human time-saved measurement', 'No future outcomes supplied', 'Independent semantic review required; validator pass is not usefulness'],

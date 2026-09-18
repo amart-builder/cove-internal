@@ -44,6 +44,15 @@ node --import tsx scripts/evaluation/working-week-models.mjs \
   --cases fixtures/working-week/holdouts.json
 ```
 
+`fixtures/working-week/planning-reliability.json` adds three cases for the
+repeated planning failures recorded in `PLANNING_RELIABILITY.md`: reusing an
+existing preparation (including a second, different outcome for the same person),
+a saved follow-up during an absence with no appointment, and carrying a
+correction forward. Run them the same way with `--cases`. Their criteria are
+frozen; the deterministic safeguards for those incidents are already covered by
+tests, so a passing validator here says nothing about whether the judgment was
+right.
+
 The default suite has six cases, two providers, and three repeats: 36 responses.
 The two holdouts add four responses. The runner uses the exact model IDs and effort
 recorded in its manifest/results. Calls are tool-free, run in temporary working
@@ -54,6 +63,12 @@ isolation is part of the evaluation, not proof from an expected name appearing
 in an answer. Investigate unexpected personal context before counting a run.
 
 Once a model run finishes, replay its saved responses through actual persistence:
+
+For a bounded check of one configured planner, add `--provider codex` or
+`--provider claude`. Omitting it retains both configured providers. Use
+`--repeats 1` for one trial per case; the manifest records the actual selection.
+
+Replay the saved responses:
 
 ```sh
 node --import tsx scripts/evaluation/working-week-roundtrip.mjs \
@@ -113,9 +128,14 @@ Interpret failures by layer:
 
 The runner saves both the raw wire response and the validated decision. Exact clock references in new model prose are rendered from saved timestamps or supplied source labels before persistence; grade the rendered decision alongside the wire references and source evidence. Old stored prose remains readable. This removes duplicate clock formatting, but does not prove that the chosen review time or source interpretation is sensible.
 
-The manifest records fixture and prompt provenance. Keep diagnostics, repaired
-runs, semantic judgments and holdouts distinguishable. Do not change a criterion
-after seeing an answer simply to make a run pass.
+The manifest records fixture and prompt provenance, including the hash of the
+runtime planning lessons. Keep diagnostics, repaired runs, semantic judgments and
+holdouts distinguishable. Do not change a criterion after seeing an answer simply
+to make a run pass.
+
+When a run exposes a repeated failure, record the incident, its class, the
+deterministic safeguard and the regression evidence in `PLANNING_RELIABILITY.md`
+before adding instructions to the planner.
 
 ## Remaining acceptance work
 

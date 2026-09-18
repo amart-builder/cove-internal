@@ -514,6 +514,7 @@ process.stdin.on('end', () => {
     // Two fake Codex processes are spawned for the corrective retry. Parallel
     // full-suite load can exceed 5s before they run; production timeouts are unchanged.
     timeoutMs: 15_000,
+    codexConfigProbe: () => ({ status: 1, stderr: "Error: No MCP server named '1password' found." }),
     codexPath: executable,
   });
   assert.equal(result.ok, true);

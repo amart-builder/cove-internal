@@ -126,6 +126,7 @@ function fakeCodex(dir, outputs) {
   const state = path.join(dir, `codex-state-${Math.random()}`);
   writeFileSync(executable, `#!/usr/bin/env node
 const fs = require('node:fs');
+if (process.argv[2] === 'mcp') { console.log('{"name":"1password"}'); process.exit(0); }
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => input += chunk);
@@ -361,8 +362,9 @@ test('Codex retries one invalid extraction, inserts grounded commitments, and st
   assert.equal(captures.length, 2);
   assert.equal(captures[0].cwd.includes('cove-day-dump-'), true);
   assert.match(captures[1].input, /previous output failed validation/);
-  assert.deepEqual(captures[0].args.slice(0, 9), [
+  assert.deepEqual(captures[0].args.slice(0, 11), [
     'exec', '--sandbox', 'read-only', '--skip-git-repo-check',
+    '-c', 'mcp_servers.1password.enabled=false',
     '-m', 'gpt-5.6-sol', '-c', 'model_reasoning_effort=high',
     '--output-last-message',
   ]);

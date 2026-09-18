@@ -674,6 +674,7 @@ function fakeCodex(file, mode = "success") {
     ? '{"journal":["Created the requested task.","Checked the remaining action."],"watching":[],"actions":[{"action_id":"good-task","kind":"task_create","why":"manual payload","title":"Outcome task","status":"open"},{"action_id":"bad-send","kind":"email_send","why":"manual payload"}]}'
     : '{"journal":["Reviewed the desk.","No urgent gap found."],"watching":[],"actions":[]}';
   writeFileSync(file, `#!/bin/sh
+if [ "$1" = "mcp" ]; then echo "Error: No MCP server named '1password' found." >&2; exit 1; fi
 printf '%s\\n' "$PWD" > ../fake-cwd.txt
 printf '%s\\n' "$@" > ../fake-argv.txt
 env | sort > ../fake-env.txt

@@ -16,7 +16,7 @@ import { PLANNING_QUESTIONS } from "./planning-contract";
 import { operatorTimezone } from "../operator";
 import { localDateKey } from "../local-time.mjs";
 import { localDateLabel, withPlanningDateLabels } from "./planning-dates";
-import { planningTimeReferences, renderPlanningTimeText } from "./planning-time-text";
+import { planningTimeReferences, renderPlanningTimeText, RENDERED_TIME_LABEL_MAX } from "./planning-time-text";
 
 export type PlanningReference = {
   kind: RefKind;
@@ -26,6 +26,7 @@ export type PlanningReference = {
 };
 export type PlannedAction = {
   source: PlanningReference;
+  supportingSources?: PlanningReference[];
   proposal: { key: string; title: string; description: string } | null;
   nextAction: string;
   rationale: string;
@@ -63,6 +64,25 @@ const bounded = (maxLength: number) => ({
   minLength: 1,
   maxLength,
 });
+/** Cove renders time references into model text after the raw field bounds are
+ * checked, so the stored string is longer than the authored one. Each rendered
+ * label is a bounded local date label plus its meaning; a field may carry a few.
+ * Raw bounds stay in the schema the writer sees; stored bounds are what any
+ * saved decision, new or legacy, must satisfy when it is read back. */
+export const RENDERED_TIME_LABELS_PER_FIELD = 4;
+const withRendered = (raw: number) => ({
+  raw,
+  stored: raw + RENDERED_TIME_LABEL_MAX * RENDERED_TIME_LABELS_PER_FIELD,
+});
+export const PLANNING_TEXT_BOUNDS = {
+  nextAction: withRendered(200),
+  rationale: withRendered(600),
+  assumption: withRendered(300),
+  proposalTitle: withRendered(200),
+  proposalDescription: withRendered(2000),
+  question: withRendered(500),
+} as const;
+type PlanningTextField = keyof typeof PLANNING_TEXT_BOUNDS;
 const reviewTimestamp = {
   ...bounded(40),
   format: "date-time",
@@ -110,18 +130,22 @@ export const DAILY_PLANNING_SCHEMA = {
               {
                 type: "object",
                 additionalProperties: false,
-                required: ["key", "title", "description"],
+                required: ["key", "title", "description", "existingTask"],
                 properties: {
                   key: bounded(160),
-                  title: bounded(200),
-                  description: bounded(2000),
+                  title: bounded(PLANNING_TEXT_BOUNDS.proposalTitle.raw),
+                  description: bounded(PLANNING_TEXT_BOUNDS.proposalDescription.raw),
+                  existingTask: {
+                    anyOf: [{ type: "null" }, reference],
+                    description: "Select the existing task that already covers this work. Cove will reuse it instead of creating a suggestion. Null only for distinct new work after checking existingTasks.",
+                  },
                 },
               },
             ],
           },
-          nextAction: bounded(200),
-          rationale: bounded(600),
-          assumptions: { type: "array", maxItems: 4, items: bounded(300) },
+          nextAction: bounded(PLANNING_TEXT_BOUNDS.nextAction.raw),
+          rationale: bounded(PLANNING_TEXT_BOUNDS.rationale.raw),
+          assumptions: { type: "array", maxItems: 4, items: bounded(PLANNING_TEXT_BOUNDS.assumption.raw) },
           owner: { enum: ["me", "claude", "together"] },
           state: { enum: ["ready", "waiting", "blocked", "deferred"] },
           plannedFor: {
@@ -157,7 +181,7 @@ export const DAILY_PLANNING_SCHEMA = {
         properties: {
           outcomeKey: bounded(200),
           decisionKey: bounded(120),
-          question: bounded(500),
+          question: bounded(PLANNING_TEXT_BOUNDS.question.raw),
           source: reference,
           nextCheckAt: reviewTimestamp,
           expiresAt: { ...reviewTimestamp, description: "RFC 3339 timestamp with seconds and explicit timezone at or after nextCheckAt and within seven days of CURRENT_WORKING_VIEW.now." },
@@ -174,13 +198,25 @@ export function dailyPlanningSchema(context: PlanningContext) {
   const keys = context.references.map((_ref, index) => `ref.${index + 1}`);
   const selected = { type: "string", enum: keys.length ? keys : ["no-source-available"] };
   const watched = keys.filter((_key, index) => context.references[index].kind !== "calendar");
+  const taskKeys = keys.filter((_key, index) => context.references[index].kind === "task");
+  const proposalSchema = schema.properties.actions.items.properties.proposal;
+  const linkedProposal = {
+    ...proposalSchema,
+    anyOf: proposalSchema.anyOf.map(shape => "properties" in shape ? {
+      ...shape,
+      properties: { ...shape.properties, existingTask: {
+        anyOf: [{ type: "null" }, ...(taskKeys.length ? [{ type: "string", enum: taskKeys }] : [])],
+        description: shape.properties!.existingTask.description,
+      } },
+    } : shape),
+  };
   // Runtime schema shape intentionally differs from stored/legacy references.
   return {
     ...schema,
     properties: {
       ...schema.properties,
       actions: { ...schema.properties.actions, ...(keys.length ? {} : { maxItems: 0 }), items: {
-        ...schema.properties.actions.items, properties: { ...schema.properties.actions.items.properties, source: selected },
+        ...schema.properties.actions.items, properties: { ...schema.properties.actions.items.properties, source: selected, proposal: linkedProposal },
       } },
       questions: { ...schema.properties.questions, ...(keys.length ? {} : { maxItems: 0 }), items: {
         ...schema.properties.questions.items, properties: { ...schema.properties.questions.items.properties, source: selected },
@@ -223,6 +259,18 @@ export function validateDailyDecision(
   options: { requireNarrative?: boolean; sourcePrompt?: string } = {},
 ): DailyDecision {
   const raw = object(value);
+  // A new model response is bounded as authored, then bounded again after Cove
+  // renders its time references. A stored decision is read at the rendered
+  // bound, so a decision Cove accepted can always be read back and legacy
+  // artifacts written under the raw bound stay readable.
+  const authored = options.requireNarrative;
+  const limit = (field: PlanningTextField) =>
+    authored ? PLANNING_TEXT_BOUNDS[field].raw : PLANNING_TEXT_BOUNDS[field].stored;
+  const rendered = (text: string, field: PlanningTextField): string => {
+    if (text.length > PLANNING_TEXT_BOUNDS[field].stored)
+      throw new Error("planning_rendered_text_too_long");
+    return text;
+  };
   // Legacy stored decisions remain readable; new model responses need prose.
   // The runner retains its technical response-size boundary.
   let narrativeParagraphs: string[] | undefined;
@@ -247,15 +295,28 @@ export function validateDailyDecision(
   const seen = new Set<string>();
   const actions = array(raw.actions, 8).map((value) => {
     const a = object(value);
-    const source = ref(a.source);
+    let source = ref(a.source);
+    const supportingSources = array(a.supportingSources ?? [], 8).map(ref);
     const p = a.proposal === null ? null : object(a.proposal);
-    const proposal = p
+    let proposal = p
       ? {
           key: string(p.key, 160),
-          title: string(p.title, 200),
-          description: string(p.description, 2000),
+          title: string(p.title, limit("proposalTitle")),
+          description: string(p.description, limit("proposalDescription")),
         }
       : null;
+    if (p && options.requireNarrative && !Object.hasOwn(p, "existingTask"))
+      throw new Error("planning_existing_task_decision_required");
+    if (p?.existingTask != null) {
+      const existingTask = ref(p.existingTask);
+      if (existingTask.kind !== "task") throw new Error("planning_existing_task_required");
+      // Resolve identity before deduplication and persistence. Prose saying
+      // "reuse" is not a link; both source revisions still gate the write.
+      if (source.kind !== existingTask.kind || source.id !== existingTask.id)
+        supportingSources.push(source);
+      source = existingTask;
+      proposal = null;
+    }
     if (source.kind === "calendar" && !proposal)
       throw new Error("calendar_is_not_an_action");
     const key = proposal
@@ -270,10 +331,11 @@ export function validateDailyDecision(
       throw new Error("planning_state_invalid");
     return {
       source,
+      ...(supportingSources.length ? { supportingSources } : {}),
       proposal,
-      nextAction: string(a.nextAction, 200),
-      rationale: string(a.rationale, 600),
-      assumptions: array(a.assumptions, 4).map((v) => string(v, 300)),
+      nextAction: string(a.nextAction, limit("nextAction")),
+      rationale: string(a.rationale, limit("rationale")),
+      assumptions: array(a.assumptions, 4).map((v) => string(v, limit("assumption"))),
       owner: a.owner as PlannedAction["owner"],
       state: a.state as PlannedAction["state"],
       plannedFor:
@@ -288,7 +350,7 @@ export function validateDailyDecision(
     return {
       outcomeKey: string(q.outcomeKey, 200),
       decisionKey: string(q.decisionKey, 120),
-      question: string(q.question, 500),
+      question: string(q.question, limit("question")),
       source: ref(q.source),
       nextCheckAt: time(q.nextCheckAt, context.now),
       expiresAt: time(q.expiresAt, context.now),
@@ -305,14 +367,16 @@ export function validateDailyDecision(
     const supportingText = (text: string) => renderPlanningTimeText([text], actions, questions, sources, { allowSourceClocks: true })[0];
     narrativeParagraphs = narrativeParagraphs!.map(render);
     for (const action of actions) {
-      action.nextAction = supportingText(action.nextAction);
-      action.rationale = supportingText(action.rationale);
-      action.assumptions = action.assumptions.map(supportingText);
+      action.nextAction = rendered(supportingText(action.nextAction), "nextAction");
+      action.rationale = rendered(supportingText(action.rationale), "rationale");
+      action.assumptions = action.assumptions.map((text) => rendered(supportingText(text), "assumption"));
       if (action.proposal) action.proposal = {
-        ...action.proposal, title: supportingText(action.proposal.title), description: supportingText(action.proposal.description),
+        ...action.proposal,
+        title: rendered(supportingText(action.proposal.title), "proposalTitle"),
+        description: rendered(supportingText(action.proposal.description), "proposalDescription"),
       };
     }
-    for (const question of questions) question.question = render(question.question);
+    for (const question of questions) question.question = rendered(render(question.question), "question");
   }
   return {
     version: 1,
@@ -340,6 +404,7 @@ export function readStoredDailyDecision(value: unknown): DailyDecision {
   const questions = array(raw.questions, 3).map(object);
   const refs = [
     ...actions.map((a) => a.source),
+    ...actions.flatMap((a) => array(a.supportingSources ?? [], 8)),
     ...array(raw.watches, 8),
     ...questions.map((q) => q.source),
   ].map((value) => {
@@ -491,6 +556,15 @@ export function collectPlanningContext(
     refs.push(ref);
     lines.push(line);
   }
+  const detailedResponsibilities = refs.length;
+  // The detailed review queue is bounded, but accepted task identity must not
+  // disappear with that budget. Otherwise a visible task can only be recreated.
+  const existingTasks = all.filter(row => row.ref_kind === "task").map(row => {
+    const source = { kind: row.ref_kind, id: row.ref_id, version: row.source_version, revision: row.revision };
+    if (!refs.some(ref => ref.kind === source.kind && ref.id === source.id)) refs.push(source);
+    return withPlanningDateLabels({ source, title: row.title, details: row.description,
+      deadline: row.due_at, state: row.state }, timeZone);
+  });
   const freshCalendar = calendar &&
     Number.isFinite(Date.parse(calendar.observation.observedAt)) &&
     +now - Date.parse(calendar.observation.observedAt) >= 0 &&
@@ -562,11 +636,12 @@ export function collectPlanningContext(
         }
       : null,
     records: lines.map((line) => JSON.parse(line)),
+    existingTasks,
     questions: questions.map(row => withPlanningDateLabels(row as Record<string, unknown>, timeZone)),
     coverage: {
       responsibilitiesTotal: all.length,
-      responsibilitiesIncluded: refs.filter((r) => r.kind !== "calendar")
-        .length,
+      responsibilitiesIncluded: detailedResponsibilities,
+      selectableExistingTasks: existingTasks.length,
       calendarIncluded: refs.filter((r) => r.kind === "calendar").length,
       calendarSelected: events.length,
       calendarSchedule: freshCalendar ? {
@@ -575,7 +650,7 @@ export function collectPlanningContext(
         meaning: "Current connected calendar schedule within this window. Cancelled and self-declined events do not occupy time. Pipeline dates are not calendar bookings. Absence does not establish cancellation or a new date.",
       } : { status: "unverified", meaning: "Cached event references only; no fresh complete calendar window was verified in this pass." },
       omittedResponsibilities:
-        all.length - refs.filter((r) => r.kind !== "calendar").length,
+        all.length - detailedResponsibilities,
       unavailable:
         "Omitted responsibilities do not make the separately verified calendar schedule incomplete. Outside a complete fresh calendar window, absence remains unknown. No retrieval tools in this reasoning pass. Due omitted responsibilities remain in the review queue.",
     },

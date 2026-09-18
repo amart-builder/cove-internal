@@ -201,6 +201,16 @@ Morning Brief flow:
    selected proposals; skipping Arrival does not. Acceptance preserves the
    responsibility identity and its check.
 
+A proposal must decide `existingTask`. When it names a supplied task, that task
+becomes the canonical source with no proposal, and the calendar occurrence it was
+timed against is kept as a supporting source and stored on the plan item as
+`planningSupport`. `resolvePlanningItems` re-checks those supporting sources: a
+moved or cancelled meeting withdraws the obsolete rationale and marks the item
+stale, and never resolves, completes or cancels accepted work. Model text is
+bounded twice, as authored and as stored after Cove renders its time labels; see
+`PLANNING_RELIABILITY.md` for the incidents behind these rules, the short runtime
+lessons in `chief-of-staff/planning-lessons.ts`, and how to add the next fix.
+
 `chief-of-staff/questions.ts` stores material questions and source-backed answers.
 The question form is available in the pre-start Plan your day step, closeout and
 the matching task editor.

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -39,16 +40,28 @@ function fixture(t) {
   mkdirSync(path.join(dir, 'brief'), { recursive: true });
   writeFileSync(path.join(dir, 'brief', 'goals.md'), '# Goals\nGrow Edge AI.');
   const prior = {
+    path: process.env.PATH,
     db: process.env.COVE_DB_PATH,
     runtime: process.env.NEXT_PUBLIC_COVE_RUNTIME,
     timezone: process.env.COVE_TIMEZONE,
   };
+  const bin = path.join(dir, 'bin');
+  mkdirSync(bin);
+  const codex = path.join(bin, 'codex');
+  writeFileSync(codex, `#!/bin/sh
+if [ "$1" = "mcp" ]; then echo '{"name":"1password"}'; exit 0; fi
+exit 99
+`);
+  chmodSync(codex, 0o700);
+  process.env.PATH = `${bin}${path.delimiter}${prior.path ?? ''}`;
   const priorDb = globalThis.__coveDb;
   delete globalThis.__coveDb;
   process.env.COVE_DB_PATH = path.join(dir, 'cove.db');
   process.env.NEXT_PUBLIC_COVE_RUNTIME = 'local';
   process.env.COVE_TIMEZONE = 'America/Los_Angeles';
   t.after(() => {
+    if (prior.path === undefined) delete process.env.PATH;
+    else process.env.PATH = prior.path;
     globalThis.__coveDb?.close();
     if (priorDb === undefined) delete globalThis.__coveDb;
     else globalThis.__coveDb = priorDb;
@@ -390,8 +403,9 @@ test('canonical intake captures first, triages once, writes project, and is idem
   assert.equal(stored.state, 'triaged');
   assert.equal(stored.task_id, result.event.id);
   assert.equal(spawnCalls[0].executable, 'codex');
-  assert.deepEqual(spawnCalls[0].args.slice(0, 9), [
+  assert.deepEqual(spawnCalls[0].args.slice(0, 11), [
     'exec', '--sandbox', 'read-only', '--skip-git-repo-check',
+    '-c', 'mcp_servers.1password.enabled=false',
     '-m', 'gpt-5.6-sol', '-c', 'model_reasoning_effort=high',
     '--output-last-message',
   ]);

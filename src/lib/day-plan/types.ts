@@ -62,6 +62,12 @@ export type RecommendationSourceRef = {
   supports: RecommendationSupport[];
 };
 
+export type PlanningSupportRef = {
+  kind: "task" | "commitment" | "calendar" | "suggestion";
+  id: string;
+  version: string;
+};
+
 export type RecommendationCandidate = {
   candidateId: string;
   taskId: string;
@@ -78,6 +84,11 @@ export type RecommendationCandidate = {
     revision: number;
   };
   planningState?: "ready" | "waiting" | "blocked" | "deferred" | "resolved";
+  // Schedule evidence this recommendation depended on without owning: the
+  // meeting a reused preparation was timed against. It is not a second work
+  // record and never becomes the item's identity. A change here invalidates the
+  // timing rationale for a fresh recommendation; it cannot resolve the work.
+  planningSupport?: PlanningSupportRef[];
   planningAssumptions?: string[];
   planningStale?: boolean;
   whyToday: string;

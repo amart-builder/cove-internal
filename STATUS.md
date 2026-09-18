@@ -24,6 +24,92 @@
 
 ---
 
+## 2026-09-16 Follow-through configuration repair (LIVE, LOCAL)
+
+- Fixed today's shared-runner regression: disabling an absent 1Password server
+  created an incomplete Codex MCP entry, preventing isolated chief reviews.
+- The runner now performs a bounded read-only Codex configuration lookup in the
+  same environment and working directory. Existing 1Password stays disabled;
+  absent servers stay absent. Lookup errors stop safely without exposing secrets.
+- Installed CLI checks cover absent, stdio and HTTP server configurations. All
+  203 focused tests passed in an isolated checkout; TypeScript, scoped lint and
+  whitespace checks passed. Independent fresh-context review found no blockers.
+- Full suite on 2026-09-18 exposed and fixed one missed probe injection in `meeting-intelligence-foundations` before commit.
+- Both live config files were unchanged. Restarted the idle brief worker and
+  confirmed a fresh heartbeat. The scheduled chief drain loads repaired source
+  each invocation; no web rebuild or settings change was needed for this fix.
+- Live installed-service follow-through job
+  `b33c2fcf-ff84-4469-82b8-15edb21b235c` succeeded on its first attempt at
+  12:12:34 Pacific, with recorded provider usage. Database quick_check passed.
+- A direct verification attempt was blocked by the command sandbox's DNS. Its
+  task-started model child was stopped and its failure receipt retained; recovery
+  was verified through the existing installed service. No usage caps changed.
+- Evidence: `data/review-artifacts/follow-through-config-20260916/REPORT.md`.
+  Prior dirty work preserved. Local changes only; no commit, push or publication.
+- Resolved the six configuration warnings and the sandbox verification warning
+  through the existing failure store after successful recovery. Original jobs
+  and receipts remain intact; before-state and DB backup are in the evidence.
+  The review applied four updates and safely rejected one already-closed source.
+- Jarvis handoff queued locally because its hub is unreachable, not confirmed
+  saved remotely. Next: ordinary scheduled use; no remaining repair blocker.
+
+## 2026-09-16 Planning reliability pass (LIVE, LOCAL)
+
+- Short runtime lessons now distinguish existing work, source dates, proposed
+  review times and persisted corrections. Proposals can explicitly reuse a
+  canonical task; the complete task identity index stays available beyond the
+  detailed context budget. New generated clocks state their proposed meaning.
+- Opus 5 high implemented the remaining work in isolated source copies after
+  Alex explicitly approved source access through his Claude Max sign-in. Codex
+  independently reviewed it. No live database, credentials or client records
+  were provided to the coding workers. Prior 1Password changes are preserved.
+- Review-driven repairs retain supporting calendar references after persistence
+  and allow validated rendered time labels to survive stored text limits.
+  Permanent regressions include reschedule, reopen, completion and next day.
+- Parent final gate: 1,661 passed, zero failed, three environment-dependent skips;
+  TypeScript, lint and production build passed. Three frozen fictional Astra
+  low-effort trials passed independent semantic review and persistence replay.
+  Synthetic browser acceptance passed through Start Day and reload.
+- Known remaining gap: directly selected task actions may cite calendar timing
+  without recording that dependency. Automatic stale-rationale withdrawal is
+  proven for the calendar-plus-existingTask route only. No universal planning
+  reliability or notification-delivery claim.
+- Candidate build: lmJGYqgky6RP3KtxyvvRi. Evidence:
+  data/review-artifacts/planning-reliability-20260916/.
+- Activated after independent review and 68 offline recovery tests. Idle worker
+  stopped before replacement and restarted from its unchanged plist; fresh
+  heartbeat, healthy HTTP routes and database quick_check confirmed. Exact day
+  and full brief, settings and prior 1Password changes were preserved, including
+  after a separate live browser read. The user's Buddy tab was not reloaded.
+- Recovery: data/build-backups/20260916-planning-reliability/. Local changes only;
+  no commit, push or publication. Existing saved proposals were not regenerated
+  or merged; safeguards apply to new planning. Next owner: engineering for the
+  documented direct-task calendar-dependency gap and ordinary-use feedback.
+- Jarvis handoff queued locally because the hub is unreachable; not a confirmed
+  hub save. The private evidence REPORT.md and this file contain the full handoff.
+
+## 2026-09-16 Repeated Node privacy prompts (LIVE, LOCAL)
+
+- macOS TCC logs at 09:47 to 09:49 attribute repeated App Data prompts to
+  `1password-mcp` started under Cove's Node runtime. Alex explicitly does not
+  want 1Password running in Cove's background calls.
+- Shared Codex job arguments now disable the inherited `1password` MCP server
+  per invocation. Personal Codex configuration and macOS privacy grants are
+  unchanged. Broader runner isolation remains deferred.
+- Verified actual Codex configuration reports `1password (disabled)`. All 58
+  focused tests, scoped lint, clean-copy TypeScript and diff checks passed.
+  A synthetic live shared-runner call returned the exact expected OK. No new
+  1Password process or Node privacy prompt appeared during that check.
+- Restarted the idle `com.cove.claude-worker`; fresh heartbeat confirmed.
+  Scheduled source-based jobs pick up the change on their next run. No web
+  bundle rebuild, release, task mutation or external message was performed.
+- Test evidence: `data/review-artifacts/node-permission-20260916/`. Initial
+  tests run without isolated data hit live budget limits (no test usage rows
+  were created); isolated rerun passed. In-place TypeScript scanned archived
+  data snapshots, so verification used a clean tracked-file copy instead.
+- Source remains local and uncommitted. Next owner: Alex during ordinary use;
+  longer-term prompt absence is not established by the short live check.
+
 ## 2026-09-15 Remaining-review fixes (LIVE, PUSHED)
 
 - Deterministic generated time/source references, complete local-date labels and

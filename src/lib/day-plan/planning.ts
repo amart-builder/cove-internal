@@ -71,6 +71,7 @@ export function persistDecisionLinks(
   // Validate all references before the first write; the caller holds IMMEDIATE.
   for (const ref of [
     ...decision.actions.map((a) => a.source),
+    ...decision.actions.flatMap((a) => a.supportingSources ?? []),
     ...decision.watches,
     ...decision.questions.map((q) => q.source),
   ])
@@ -254,6 +255,17 @@ export function persistDecisionLinks(
       humanDecisionEventIds: [],
       rankReasons: [],
       planningRef: { kind, id, revision: r.revision },
+      // Keep the schedule this action was timed against readable after the
+      // decision is stored, so a later read can see that it moved.
+      ...(action.supportingSources?.length
+        ? {
+            planningSupport: action.supportingSources.map((support) => ({
+              kind: support.kind,
+              id: support.id,
+              version: support.version,
+            })),
+          }
+        : {}),
       planningState: action.state,
       planningAssumptions: action.assumptions,
     });
@@ -398,6 +410,19 @@ export function resolvePlanningItems(
           !activeResponsibilitySource(parent) ||
           sourceVersion(parent) !== row.parent_version),
       );
+      // A supporting schedule is evidence, not the work. When the meeting a
+      // reused preparation was timed against moves, is cancelled or disappears,
+      // the timing rationale is obsolete, so it is withdrawn and a fresh
+      // recommendation is pending. The accepted work keeps its own state: a
+      // moved meeting never resolves, cancels or blocks it.
+      const supportChanged = (item.planningSupport ?? []).some((support) => {
+        const record = sourceRecord(db, support.kind, support.id);
+        return (
+          !record ||
+          !activeResponsibilitySource(record) ||
+          sourceVersion(record) !== support.version
+        );
+      });
       const resolved = !source || !activeResponsibilitySource(source);
       const changed =
         parentChanged ||
@@ -405,6 +430,10 @@ export function resolvePlanningItems(
         !row ||
         row.revision !== ref.revision ||
         row.source_version !== sourceVersion(source!);
+      // Withdrawing the annotation must not reintroduce the key on every read:
+      // storage drops an undefined value, so an unconditional `brief: undefined`
+      // would make each resolution look like a change and bump the version.
+      const withdrawBrief = item.brief === undefined ? {} : { brief: undefined };
       return {
         ...item,
         planningState: resolved
@@ -416,13 +445,21 @@ export function resolvePlanningItems(
         planningRef: { ...ref, revision: row?.revision ?? ref.revision },
         ...(changed
           ? {
-              brief: undefined,
+              ...withdrawBrief,
               whyToday:
                 "Current source state changed. A fresh recommendation is pending.",
               planningAssumptions: [],
               planningStale: true,
             }
-          : {}),
+          : supportChanged
+            ? {
+                ...withdrawBrief,
+                whyToday:
+                  "A scheduled event this preparation was timed against changed. The work is still yours; a fresh recommendation is pending for its timing.",
+                planningAssumptions: [],
+                planningStale: true,
+              }
+            : {}),
       };
     }),
   };
