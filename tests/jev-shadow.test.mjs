@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,9 +8,11 @@ import { runLocalMigrations } from "../src/lib/local/migrations.ts";
 import {
   DEFAULT_JEV_SETTINGS,
   estimateJevCostUsd,
+  isJevFeature,
   jevFeatureEnabled,
   readJevCredential,
   readJevSettings,
+  writeJevSettings,
 } from "../src/lib/jev/settings.ts";
 import {
   pruneJevLedger,
@@ -574,4 +576,97 @@ test("pruning drops assessment detail first and keeps usage longer", (t) => {
   assert.equal(pruned.attempts, 0);
   assert.equal(readJevAssessments({ db }).length, 0);
   assert.equal(readJevSpendSince({ db, since: "2000-01-01T00:00:00.000Z" }).attempts, 1);
+});
+
+/* Turning a lane on --------------------------------------------------------- */
+
+test("writing the settings round-trips through the reader", (t) => {
+  const { dir } = fixture(t);
+  const written = writeJevSettings({
+    dataDir: dir,
+    mode: "shadow",
+    features: { emailTriage: true, waitingResolution: true },
+  });
+  assert.equal(written.mode, "shadow");
+  const reloaded = readJevSettings({ dataDir: dir, env: {} });
+  assert.equal(reloaded.mode, "shadow");
+  assert.equal(reloaded.features.emailTriage, true);
+  assert.equal(reloaded.features.waitingResolution, true);
+  // Features not named keep whatever they were, which was off.
+  assert.equal(reloaded.features.meetingAudit, false);
+  assert.equal(reloaded.features.commitmentAudit, false);
+});
+
+test("a second write changes only the flags it names", (t) => {
+  const { dir } = fixture(t);
+  writeJevSettings({ dataDir: dir, mode: "shadow", features: { emailTriage: true } });
+  writeJevSettings({ dataDir: dir, features: { meetingAudit: true } });
+  const reloaded = readJevSettings({ dataDir: dir, env: {} });
+  assert.equal(reloaded.mode, "shadow");
+  assert.equal(reloaded.features.emailTriage, true);
+  assert.equal(reloaded.features.meetingAudit, true);
+});
+
+test("setting the mode to off leaves the flags alone, so it is a kill switch", (t) => {
+  const { dir } = fixture(t);
+  writeJevSettings({
+    dataDir: dir,
+    mode: "shadow",
+    features: { emailTriage: true, meetingAudit: true },
+  });
+  writeJevSettings({ dataDir: dir, mode: "off" });
+  const stopped = readJevSettings({ dataDir: dir, env: {} });
+  assert.equal(stopped.mode, "off");
+  // Nothing runs while the mode is off, whatever the flags say.
+  assert.equal(
+    jevFeatureEnabled(stopped, "emailTriage", { COVE_TYPESAFE_API_KEY: KEY }),
+    false,
+  );
+  // And turning it back on does not mean naming every lane again.
+  writeJevSettings({ dataDir: dir, mode: "shadow" });
+  const resumed = readJevSettings({ dataDir: dir, env: {} });
+  assert.equal(resumed.features.emailTriage, true);
+  assert.equal(resumed.features.meetingAudit, true);
+});
+
+test("the written file never carries the credential", (t) => {
+  const { dir } = fixture(t);
+  writeJevSettings({
+    dataDir: dir,
+    mode: "shadow",
+    // Whatever a caller passes, only known feature names are persisted.
+    features: { emailTriage: true, COVE_TYPESAFE_API_KEY: KEY },
+  });
+  const raw = readFileSync(path.join(dir, "cove-jev.json"), "utf8");
+  assert.equal(raw.includes(KEY), false, "the key reached the settings file");
+  assert.equal(raw.toLowerCase().includes("api_key"), false);
+  assert.equal(raw.toLowerCase().includes("credential"), false);
+  const reloaded = readJevSettings({ dataDir: dir, env: {} });
+  assert.deepEqual(Object.keys(reloaded.features).sort(), [
+    "commitmentAudit",
+    "emailTriage",
+    "meetingAudit",
+    "waitingResolution",
+  ]);
+});
+
+test("a one-run environment override is never made permanent", (t) => {
+  const { dir } = fixture(t);
+  writeJevSettings({ dataDir: dir, mode: "off", features: { emailTriage: false } });
+  // A caller running with overrides in the environment writes the file's state,
+  // not the environment's, so `COVE_JEV_MODE=shadow` stays a single run.
+  writeJevSettings({ dataDir: dir, features: { meetingAudit: true } });
+  const raw = JSON.parse(readFileSync(path.join(dir, "cove-jev.json"), "utf8"));
+  assert.equal(raw.mode, "off");
+  assert.equal(raw.features.emailTriage, false);
+  assert.equal(raw.features.meetingAudit, true);
+});
+
+test("only real feature names are accepted, because a typo fails silently", () => {
+  for (const name of ["emailTriage", "commitmentAudit", "meetingAudit", "waitingResolution"]) {
+    assert.equal(isJevFeature(name), true, name);
+  }
+  for (const name of ["emailtriage", "email_triage", "meetingaudit", "", "mode"]) {
+    assert.equal(isJevFeature(name), false, name);
+  }
 });

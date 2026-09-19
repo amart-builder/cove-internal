@@ -8,8 +8,13 @@
  * written to cove-jev.json, never returned by a settings reader that something
  * might log, and never passed into a Claude or Codex child process.
  */
-import { readFileSync } from "node:fs";
-import { coveConfigPath, coveEnvTrimmed, type CoveEnvironment } from "../env";
+import { readFileSync, writeFileSync } from "node:fs";
+import {
+  coveConfigPath,
+  coveConfigWritePath,
+  coveEnvTrimmed,
+  type CoveEnvironment,
+} from "../env";
 
 /**
  * off     nothing calls TypeSafe.
@@ -232,4 +237,48 @@ export function jevFeatureEnabled(
   if (settings.mode === "off") return false;
   if (!settings.features[feature]) return false;
   return Boolean(readJevCredential(env));
+}
+
+/**
+ * Writes the mode and the feature flags, and nothing else.
+ *
+ * Turning a lane on should not mean hand-editing JSON, because a typo in a
+ * feature name fails silently: the reader treats anything that is not exactly
+ * `true` as off, so a misspelled flag looks enabled in the file and is not.
+ *
+ * The object written here is built field by field from a known list rather than
+ * spread from anything the caller passed. That is what guarantees a credential
+ * can never reach this file, whatever ends up in the input, and it is why the
+ * env overrides are deliberately not consulted: this persists the file's own
+ * state, so a one-run `COVE_JEV_MODE` cannot be accidentally made permanent.
+ */
+export function writeJevSettings(input: {
+  dataDir: string;
+  mode?: JevMode;
+  features?: Partial<Record<JevFeature, boolean>>;
+}): JevSettings {
+  const current = fileSettings(input.dataDir);
+  const features = { ...current.features };
+  for (const feature of JEV_FEATURES) {
+    const value = input.features?.[feature];
+    if (typeof value === "boolean") features[feature] = value;
+  }
+  const next: JevSettings = {
+    mode: input.mode ?? current.mode,
+    features,
+    model: current.model,
+    limits: { ...current.limits },
+    assessmentRetentionDays: current.assessmentRetentionDays,
+    usageRetentionDays: current.usageRetentionDays,
+  };
+  writeFileSync(
+    coveConfigWritePath(input.dataDir, "jev.json"),
+    `${JSON.stringify(next, null, 2)}\n`,
+    "utf8",
+  );
+  return next;
+}
+
+export function isJevFeature(value: string): value is JevFeature {
+  return (JEV_FEATURES as readonly string[]).includes(value);
 }

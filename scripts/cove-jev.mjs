@@ -3,18 +3,31 @@
  * Jev status and shadow readout.
  *
  *   node scripts/cove-jev.mjs status
+ *   node scripts/cove-jev.mjs enable <feature...>
+ *   node scripts/cove-jev.mjs disable [feature...]
  *   node scripts/cove-jev.mjs report [--days 7] [--json]
  *   node scripts/cove-jev.mjs waiting [--days 30] [--json]
  *
+ * `enable` writes the mode and the named feature flags. `disable` with no
+ * feature named sets the mode to off, which is the kill switch: it stops every
+ * lane in one command without having to remember which are on.
+ *
  * There is deliberately no command that writes the credential. The key is
  * pasted into .env.local by the person who owns it; no Cove script reads it
- * from an argument, prints it, or copies it anywhere.
+ * from an argument, prints it, or copies it anywhere. `enable` therefore cannot
+ * finish the job on its own, and says so when the key is not there yet.
  */
 import Database from "better-sqlite3";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolveEmailRuntimePaths } from "../src/lib/email/runtime-paths.ts";
-import { readJevCredential, readJevSettings } from "../src/lib/jev/settings.ts";
+import {
+  JEV_FEATURES,
+  isJevFeature,
+  readJevCredential,
+  readJevSettings,
+  writeJevSettings,
+} from "../src/lib/jev/settings.ts";
 import { readJevBreaker } from "../src/lib/jev/policy.ts";
 import { readJevSpendSince } from "../src/lib/jev/ledger.ts";
 import {
@@ -26,6 +39,22 @@ import {
 
 const repoDirDefault = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
+/**
+ * Read-only, and it must exist: these commands report on a real install and
+ * should say so plainly rather than creating an empty database that would read
+ * as "Jev has never run" on a machine where it has.
+ */
+function openLedger(dbPath) {
+  try {
+    return new Database(dbPath, { readonly: true, fileMustExist: true });
+  } catch {
+    throw new Error(
+      `No Cove database at ${dbPath}. Run this on the machine with the install, `
+        + "or set COVE_DB_PATH or COVE_DATA_DIR to point at it.",
+    );
+  }
+}
+
 function parseArgs(argv) {
   const command = argv[0] && !argv[0].startsWith("--") ? argv[0] : "status";
   const days = (() => {
@@ -34,7 +63,31 @@ function parseArgs(argv) {
     const value = Number(argv[index + 1]);
     return Number.isFinite(value) && value > 0 ? Math.min(Math.floor(value), 365) : 7;
   })();
-  return { command, days, json: argv.includes("--json") };
+  // Everything after the command that is not a flag or a flag's value.
+  const names = [];
+  for (let index = 1; index < argv.length; index += 1) {
+    const value = argv[index];
+    if (value === "--days") {
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("--")) continue;
+    names.push(value);
+  }
+  return { command, days, names, json: argv.includes("--json") };
+}
+
+export function jevSetFeatures(options) {
+  const repoDir = options.repoDir ?? repoDirDefault;
+  const env = options.env ?? process.env;
+  const { dataDir } = resolveEmailRuntimePaths({ repoDir, env });
+  const features = {};
+  for (const name of options.names) features[name] = options.on;
+  return writeJevSettings({
+    dataDir,
+    ...(options.mode ? { mode: options.mode } : {}),
+    features,
+  });
 }
 
 export function jevStatus(options = {}) {
@@ -44,7 +97,7 @@ export function jevStatus(options = {}) {
   const settings = readJevSettings({ dataDir, env });
   // Presence only. The value never leaves the environment.
   const credential = Boolean(readJevCredential(env));
-  const db = options.db ?? new Database(dbPath, { readonly: true, fileMustExist: true });
+  const db = options.db ?? openLedger(dbPath);
   try {
     const now = options.now ?? new Date();
     const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
@@ -92,9 +145,9 @@ function formatStatus(status) {
   }
   if (status.mode === "off") {
     lines.push("");
-    lines.push("Jev is off. To run it in shadow, set mode and a feature in");
-    lines.push("cove-jev.json under the Cove data directory, and put");
-    lines.push("COVE_TYPESAFE_API_KEY in .env.local yourself.");
+    lines.push("Jev is off. To run a lane in shadow:");
+    lines.push("  node scripts/cove-jev.mjs enable emailTriage");
+    lines.push("and put COVE_TYPESAFE_API_KEY in .env.local yourself.");
   }
   return lines.join("\n");
 }
@@ -106,7 +159,7 @@ export function jevReport(options = {}) {
   const now = options.now ?? new Date();
   const since = new Date(now.getTime() - (options.days ?? 7) * 24 * 60 * 60 * 1000)
     .toISOString();
-  const db = options.db ?? new Database(dbPath, { readonly: true, fileMustExist: true });
+  const db = options.db ?? openLedger(dbPath);
   try {
     return buildJevReport({ db, since });
   } finally {
@@ -127,7 +180,7 @@ export function jevWaiting(options = {}) {
   const now = options.now ?? new Date();
   const since = new Date(now.getTime() - (options.days ?? 30) * 24 * 60 * 60 * 1000)
     .toISOString();
-  const db = options.db ?? new Database(dbPath, { readonly: true, fileMustExist: true });
+  const db = options.db ?? openLedger(dbPath);
   try {
     return buildJevWaitingOutcomes({ db, since });
   } finally {
@@ -136,7 +189,40 @@ export function jevWaiting(options = {}) {
 }
 
 async function main(argv) {
-  const { command, days, json } = parseArgs(argv);
+  const { command, days, names, json } = parseArgs(argv);
+  if (command === "enable" || command === "disable") {
+    const unknown = names.filter((name) => !isJevFeature(name));
+    if (unknown.length > 0) {
+      console.error(
+        `Unknown feature(s): ${unknown.join(", ")}. Available: ${JEV_FEATURES.join(", ")}.`,
+      );
+      return 1;
+    }
+    if (command === "enable" && names.length === 0) {
+      console.error(`Name at least one feature to enable: ${JEV_FEATURES.join(", ")}.`);
+      return 1;
+    }
+    const next = jevSetFeatures({
+      names,
+      on: command === "enable",
+      // Enabling names shadow explicitly rather than assuming it, and disabling
+      // with no feature named is the kill switch for every lane at once.
+      ...(command === "enable" ? { mode: "shadow" } : {}),
+      ...(command === "disable" && names.length === 0 ? { mode: "off" } : {}),
+    });
+    console.log(formatStatus({
+      ...next,
+      credentialConfigured: Boolean(readJevCredential()),
+      last24h: { attempts: 0, estimatedCostUsd: 0 },
+      breakers: {},
+    }));
+    if (command === "enable" && !readJevCredential()) {
+      console.log("");
+      console.log("No credential is set, so nothing will run yet. Put");
+      console.log("COVE_TYPESAFE_API_KEY in .env.local yourself and rerun status.");
+    }
+    return 0;
+  }
   if (command === "status") {
     const status = jevStatus();
     console.log(json ? JSON.stringify(status, null, 2) : formatStatus(status));
@@ -152,7 +238,9 @@ async function main(argv) {
     console.log(json ? JSON.stringify(report, null, 2) : formatJevWaitingReport(report));
     return 0;
   }
-  console.error(`Unknown command: ${command}. Use status, report or waiting.`);
+  console.error(
+    `Unknown command: ${command}. Use status, enable, disable, report or waiting.`,
+  );
   return 1;
 }
 

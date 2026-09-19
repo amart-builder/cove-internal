@@ -92,6 +92,20 @@ Three things must all be true before a single request is sent. The mode must not
 be `off`, the feature must be named, and a credential must be in the
 environment. A credential on its own switches nothing on.
 
+To turn a lane on, rather than editing the file by hand:
+
+```
+node scripts/cove-jev.mjs enable emailTriage waitingResolution
+node scripts/cove-jev.mjs disable
+```
+
+`enable` sets the mode to shadow and the named flags, and refuses a feature name
+it does not recognise, because the reader treats anything that is not exactly
+`true` as off and a typo would otherwise look enabled. `disable` with no feature
+named sets the mode to off, which stops every lane in one command. The flags are
+left as they were, so turning it back on does not mean naming them all again.
+Neither command touches the credential.
+
 `data/cove-jev.json`:
 
 ```json
