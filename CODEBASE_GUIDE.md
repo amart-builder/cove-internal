@@ -348,6 +348,47 @@ move a still-open Cove-owned draft back through `observed` and the existing
 classification job. The next version's `upsert_draft` updates the known Gmail
 draft only after its stored body hash still matches.
 
+### Jev typed judgments
+
+`src/lib/jev/` is an optional, off-by-default lane that asks TypeSafe's System
+One endpoint small closed questions about meaning and records the answers. It
+owns no decision. Nothing it returns reaches the operator.
+
+- `client.ts` is the whole wire contract: one fixed endpoint, a pinned model, no
+  redirects, bounded request and response sizes, and typed failures. It rejects
+  any answer that names an option the question did not offer.
+- `settings.ts` keeps the lane off unless the mode, the named feature and a
+  credential in the environment all agree. The credential is read here and is
+  never written to a config file or passed to a model child process.
+- `policy.ts` is the ceiling: a breaker read from recent attempts, an hourly
+  probe after a rejected credential, hourly and daily attempt caps, a daily
+  spend reservation, and a concurrency lease. Retention runs from the lanes
+  themselves after each recorded call, since nothing else runs on Jev's behalf.
+- `ledger.ts` and `schema.ts` store what was asked, what came back, and what
+  Cove's existing owner had already decided, so agreement can be measured.
+- `email.ts` and `email-shadow.ts` run after email classification has already
+  been applied, so the lane cannot delay or break the judgment it is being
+  compared against.
+- `meeting.ts` and `meeting-shadow.ts` do the same for the tasks and waiting-on
+  rows a meeting analysis produced, after every one of them has been written.
+- The waiting lane rides in the email request and asks whether that email
+  delivers, or ends the need for, a waiting-on commitment already open against
+  the sender. Its answers are written against the commitment rather than the
+  email, because the row outlives the message and the operator's own later
+  action on it is what scores the lane.
+- `planJevEmailRequest` and `planJevMeetingRequest` decide how much fits in one
+  request and name what they dropped, so a gap is visible rather than quiet.
+- `report.ts` and `scripts/cove-jev.mjs` turn the ledger into agreement rates,
+  reported-probability bands, latency and reserved spend.
+- `evaluation.ts`, `fixtures/jev/` and `scripts/cove-jev-eval.mjs` build every
+  request offline without a credential and score both lanes against labels
+  frozen before the run.
+
+Jev is not asked about dates, intervals or counting, which the model's own
+documented weaknesses cover. Deadlines stay with the frontier model and with
+code. Jev is also not a security boundary: email bodies and meeting notes are
+still untrusted data, and the deterministic guards keep their authority.
+
 ### Intake and meeting notes
 
 `src/lib/intake/` turns chat, voice, email, and meeting evidence into durable

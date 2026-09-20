@@ -11,6 +11,7 @@ import {
   recordCRMResolutionFailure,
   recordEmailCorrespondence,
   type EmailCommitmentInput,
+  type EmailCRMContext,
 } from "./automation";
 import { handleUrgentEmail } from "../attention/email-urgency";
 import { recordFailure } from "../reliability/failures";
@@ -21,7 +22,8 @@ import { judgeDraftVoice } from "./voice-judge";
 import { coveDataDir } from "../operator";
 import { formatOperatorPolicy, readOperatorPolicy } from "../operator-policy";
 import { detectCalendarNotice, summarizeCalendarNotice } from "./calendar-notice";
-import { protectChargeNotice } from "./charge-notice";
+import { isChargeNotice, protectChargeNotice } from "./charge-notice";
+import { runJevEmailShadow } from "../jev/email-shadow";
 
 function header(message: MailMessage, name: string): string {
   return message.headers.find((item) => item.name.toLowerCase() === name.toLowerCase())
@@ -75,6 +77,7 @@ export function createEmailClassificationHandler(input: {
   now?: () => Date;
   urgentHandler?: typeof handleUrgentEmail;
   runJobImpl?: typeof runJob;
+  jevAssessor?: typeof runJevEmailShadow;
 }) {
   const classifier = input.classifier ??
     ((classificationInput) => classifyEmail({
@@ -183,6 +186,10 @@ export function createEmailClassificationHandler(input: {
     // identity is ambiguous or Cove records cannot load.
     let recentContext: string | undefined;
     let draftBlockReason: string | undefined;
+    // Kept beyond the block below so the shadow lane can ask whether this email
+    // delivers any of them. Empty whenever identity was ambiguous or records
+    // would not load, which is the same fail-closed rule drafting follows.
+    let openWaitingOn: EmailCRMContext["waitingOn"] = [];
     if (!deterministicCalendarNotice) {
       try {
         const crmContext = getEmailCRMContext({
@@ -194,6 +201,7 @@ export function createEmailClassificationHandler(input: {
           now: input.now,
         });
         recentContext = formatEmailCRMContext(crmContext);
+        if (crmContext.status === "matched") openWaitingOn = crmContext.waitingOn;
         if (crmContext.status === "ambiguous") {
           draftBlockReason = `contact record is ambiguous (${crmContext.candidates?.length ?? 0} candidates)`;
         }
@@ -310,6 +318,50 @@ export function createEmailClassificationHandler(input: {
       dbPath: input.dbPath,
       now: input.now?.(),
     });
+    // Jev's shadow reading runs after the operator-visible write has landed, so
+    // an optional third-party lane can never delay or block the classification
+    // it is being measured against. It records and returns; it changes nothing.
+    // The boundary swallows its own failures, but the seam above lets a caller
+    // supply one that does not, and no injected lane may fail this job.
+    try {
+      await (input.jevAssessor ?? runJevEmailShadow)({
+        dbPath: input.dbPath,
+        dataDir: input.dataDir,
+        refId: claim.messageId,
+        evidence: {
+          accountEmail: input.accountEmail,
+          sender: header(message, "From"),
+          subject: header(message, "Subject"),
+          text: message.text || message.snippet,
+          commitments: groundedCommitments.map((commitment, index) => ({
+            index,
+            kind: commitment.kind,
+            title: commitment.title,
+            sourceQuote: commitment.sourceQuote,
+          })),
+          waiting: openWaitingOn.map((row, index) => ({
+            index,
+            id: row.id,
+            title: row.title,
+            detail: row.details,
+          })),
+        },
+        baseline: {
+          bucket: result.bucket,
+          urgent: result.urgent === true,
+          chargeNotice: isChargeNotice({
+            subject: header(message, "Subject"),
+            text: message.text || message.snippet,
+          }),
+        },
+        now: input.now,
+      });
+    } catch (error) {
+      console.error(
+        "Email Jev shadow failed:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     if (applied.applied && result.urgent === true) {
       try {
         (input.urgentHandler ?? handleUrgentEmail)({

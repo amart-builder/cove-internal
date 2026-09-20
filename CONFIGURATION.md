@@ -80,6 +80,111 @@ The installer creates private `data/attention-sweep.json` settings with both jud
 
 Set `shadow` to `false` only after the 11:30 and 16:00 attention sweep has shown acceptable precision in Quiet Current. Set `email_shadow` to `false` only after urgent-email classifications have shown acceptable precision. The deterministic noon floor is live regardless of these settings.
 
+## Jev typed judgments (off by default)
+
+Jev is TypeSafe's System One model. Cove can ask it small closed questions about
+an email, about the tasks and waiting-on rows a meeting produced, or about
+whether an email delivers something Cove is already waiting on, and record the
+answers beside the ones its own models already gave. It is off on every install
+and changes nothing the operator sees.
+
+Three things must all be true before a single request is sent. The mode must not
+be `off`, the feature must be named, and a credential must be in the
+environment. A credential on its own switches nothing on.
+
+To turn a lane on, rather than editing the file by hand:
+
+```
+node scripts/cove-jev.mjs enable emailTriage waitingResolution
+node scripts/cove-jev.mjs disable
+```
+
+`enable` sets the mode to shadow and the named flags, and refuses a feature name
+it does not recognise, because the reader treats anything that is not exactly
+`true` as off and a typo would otherwise look enabled. `disable` with no feature
+named sets the mode to off, which stops every lane in one command. The flags are
+left as they were, so turning it back on does not mean naming them all again.
+Neither command touches the credential.
+
+`data/cove-jev.json`:
+
+```json
+{"mode":"shadow","features":{"emailTriage":true,"commitmentAudit":true,"meetingAudit":true,"waitingResolution":true}}
+```
+
+| Setting | Meaning | Default |
+| --- | --- | --- |
+| `mode` | `off`, `shadow` (record only), or `assist` (annotate an existing owner's work) | `off` |
+| `features.emailTriage` | Ask for the bucket, urgency, money-out and needs-reply judgments | off |
+| `features.commitmentAudit` | Ask whether a grounded quote is really an obligation, and whose | off |
+| `features.meetingAudit` | Ask whether each task and waiting-on row a meeting produced is supported by the notes, still outstanding, agreed rather than floated, and owed by who the analyst said | off |
+| `features.waitingResolution` | Ask whether an inbound email delivers, or ends the need for, a waiting-on commitment Cove already holds open against that sender | off |
+| `model` | Pinned model id. Do not use a moving alias with tuned thresholds | `jev-1.13.0` |
+| `limits.attemptsPerHour` | Calls per rolling hour, read from the ledger | 120 |
+| `limits.attemptsPerDay` | Calls per rolling day | 800 |
+| `limits.dailySpendUsd` | Cove's own reservation ceiling, not an invoice guarantee | 1 |
+| `limits.maxConcurrent` | Calls in flight at once | 2 |
+| `assessmentRetentionDays` | Days of per-answer detail kept. Pruned after each recorded call | 30 |
+| `usageRetentionDays` | Days of usage and outcome metadata kept. Pruned on the same clock | 90 |
+
+| Variable | Meaning | Default |
+| --- | --- | --- |
+| `COVE_TYPESAFE_API_KEY` | TypeSafe credential. Put it in `.env.local` yourself | unset |
+| `COVE_JEV_MODE` | Overrides `mode` for one run | file value |
+| `COVE_JEV_EMAIL_TRIAGE` | `1` or `0`, overrides the feature for one run | file value |
+| `COVE_JEV_COMMITMENT_AUDIT` | `1` or `0`, overrides the feature for one run | file value |
+| `COVE_JEV_MEETING_AUDIT` | `1` or `0`, overrides the feature for one run | file value |
+| `COVE_JEV_WAITING_RESOLUTION` | `1` or `0`, overrides the feature for one run | file value |
+
+The key is read from the environment only. It is never written to
+`cove-jev.json`, never passed to a Claude or Codex child process, and is
+redacted from error text before it reaches a log or the failure inbox.
+
+`node scripts/cove-jev.mjs status` prints the mode, which features are on,
+whether a credential is present, the last day's calls and reserved spend, and
+whether the breaker is open. A rejected key pauses its lane for an hour and is
+then probed once an hour, so fixing the key in `.env.local` is enough; nothing
+in the ledger needs clearing. `node scripts/cove-jev.mjs report` prints how often
+Jev agreed with Cove's own classifier, where it did not, and how the reported
+probability tracked that agreement.
+
+`node scripts/cove-jev.mjs waiting` is the waiting lane's own readout, and is
+scored differently because nothing in Cove answers that question today. Instead
+of agreement it reports what the operator did afterwards: of the commitments Jev
+read as settled, how many they went on to close, how long after, and which are
+still sitting open. A commitment still open after Jev read the thing as
+delivered may mean Jev was wrong, or may mean the operator has not got to it,
+which is the case the lane exists to catch. The default window is 30 days
+because outcomes take longer to accumulate than agreement does.
+
+`node scripts/cove-jev-eval.mjs prepare` builds the exact request Cove would
+send for every committed case and prints it, reading no credential and making no
+network call. Read that before deciding what Cove is allowed to send. `run`
+scores the dev split against frozen labels and refuses the held-out split. Both
+take `--lane email` (the default) or `--lane meeting`.
+
+### What each lane sends, and the decision that gates it
+
+Shadow mode still sends text to a third party, which is the one place Cove
+leaves the machine. The two lanes are not the same decision and should not be
+turned on with one:
+
+- `emailTriage` and `commitmentAudit` send one email at a time: the account
+  address, the sender, the subject and the body, truncated at 6,000 characters.
+- `meetingAudit` sends the meeting title, the attendee names, up to 6,000
+  characters of the notes, and the analyst's own wording for each item it is
+  asking about. A transcript is a longer and more sensitive artefact than an
+  email, and it carries the words of people who were not asked.
+- `waitingResolution` rides in the same request as the email lanes and adds the
+  title and detail of each open waiting-on commitment for that sender, up to
+  six. It never runs when identity is ambiguous or Cove records could not load,
+  which is the same fail-closed rule drafting follows.
+
+Nothing else goes: no goals, no operator profile, no CRM history, no voice guide.
+Decide the source scope for each lane and confirm the retention terms before
+turning either on. TypeSafe's published terms say customer data is not used for
+training; retention is not zero without an enterprise agreement.
+
 ## Compatibility
 
 `FORGE_*` names are accepted only for migration from older installations. New documentation, scripts, and configuration must use `COVE_*`. Supabase, Convex, and multi-machine relay settings are not part of the supported single-Mac product.
