@@ -367,6 +367,9 @@ function backupCommandFixture(t) {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const env = {
     PATH: process.env.PATH,
+    // The daily idempotency key is a local calendar date, so the command has to
+    // read the same clock this test does. Inherit nothing else.
+    TZ: Intl.DateTimeFormat().resolvedOptions().timeZone,
     COVE_NODE_PATH: process.execPath,
     COVE_DB_PATH: dbPath,
     COVE_DATA_DIR: root,
