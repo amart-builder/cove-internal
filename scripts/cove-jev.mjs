@@ -12,10 +12,12 @@
  * feature named sets the mode to off, which is the kill switch: it stops every
  * lane in one command without having to remember which are on.
  *
- * There is deliberately no command that writes the credential. The key is
- * pasted into .env.local by the person who owns it; no Cove script reads it
- * from an argument, prints it, or copies it anywhere. `enable` therefore cannot
- * finish the job on its own, and says so when the key is not there yet.
+ * There is deliberately no command that writes the credential. A key passed as
+ * an argument would land in shell history, so no Cove script reads one from an
+ * argument, prints it, or copies it anywhere. The key is either pasted into
+ * Cove's settings screen or put in .env.local by the person who owns it, and
+ * `enable` says so when it is not there yet. Everything below reports presence
+ * only, from whichever of those two places holds it.
  */
 import Database from "better-sqlite3";
 import path from "node:path";
@@ -24,10 +26,10 @@ import { resolveEmailRuntimePaths } from "../src/lib/email/runtime-paths.ts";
 import {
   JEV_FEATURES,
   isJevFeature,
-  readJevCredential,
   readJevSettings,
   writeJevSettings,
 } from "../src/lib/jev/settings.ts";
+import { resolveJevCredential } from "../src/lib/jev/credential.ts";
 import { readJevBreaker } from "../src/lib/jev/policy.ts";
 import { readJevSpendSince } from "../src/lib/jev/ledger.ts";
 import {
@@ -95,8 +97,8 @@ export function jevStatus(options = {}) {
   const env = options.env ?? process.env;
   const { dataDir, dbPath } = resolveEmailRuntimePaths({ repoDir, env });
   const settings = readJevSettings({ dataDir, env });
-  // Presence only. The value never leaves the environment.
-  const credential = Boolean(readJevCredential(env));
+  // Presence only. The value is never printed and never leaves this process.
+  const credential = Boolean(resolveJevCredential({ dataDir, env }));
   const db = options.db ?? openLedger(dbPath);
   try {
     const now = options.now ?? new Date();
@@ -147,7 +149,8 @@ function formatStatus(status) {
     lines.push("");
     lines.push("Jev is off. To run a lane in shadow:");
     lines.push("  node scripts/cove-jev.mjs enable emailTriage");
-    lines.push("and put COVE_TYPESAFE_API_KEY in .env.local yourself.");
+    lines.push("and paste the TypeSafe key on Cove's settings screen, or put");
+    lines.push("COVE_TYPESAFE_API_KEY in .env.local yourself.");
   }
   return lines.join("\n");
 }
@@ -210,16 +213,19 @@ async function main(argv) {
       ...(command === "enable" ? { mode: "shadow" } : {}),
       ...(command === "disable" && names.length === 0 ? { mode: "off" } : {}),
     });
+    const { dataDir } = resolveEmailRuntimePaths({ repoDir: repoDirDefault });
+    const credential = Boolean(resolveJevCredential({ dataDir }));
     console.log(formatStatus({
       ...next,
-      credentialConfigured: Boolean(readJevCredential()),
+      credentialConfigured: credential,
       last24h: { attempts: 0, estimatedCostUsd: 0 },
       breakers: {},
     }));
-    if (command === "enable" && !readJevCredential()) {
+    if (command === "enable" && !credential) {
       console.log("");
-      console.log("No credential is set, so nothing will run yet. Put");
-      console.log("COVE_TYPESAFE_API_KEY in .env.local yourself and rerun status.");
+      console.log("No credential is set, so nothing will run yet. Paste the");
+      console.log("TypeSafe key on Cove's settings screen, or put");
+      console.log("COVE_TYPESAFE_API_KEY in .env.local yourself, then rerun status.");
     }
     return 0;
   }

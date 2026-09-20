@@ -86,6 +86,7 @@ JSON.
 | Follow-through | `src/app/follow-through/page.tsx` | `src/components/reliability/ResponsibilityOverview.tsx` | `src/lib/responsibility/`, `src/lib/attention/follow-through.mjs` |
 | Issues | `src/app/failures/page.tsx` | `src/components/reliability/FailureInbox.tsx` | `src/lib/reliability/failures.ts` |
 | Guide | `src/app/guide/page.tsx` | Page-local presentation | User education only |
+| Settings | `src/app/settings/page.tsx` | `src/components/settings/JevSettings.tsx` | `src/lib/jev/credential.ts`, `presentation.ts`, `/api/jev-settings` |
 
 Notification sheets attach the visible notification, exact task ID and saved task
 origin to Buddy separately from the underlying page context. The attachment is
@@ -132,6 +133,7 @@ Treat request bodies, query strings, headers, and stored model text as untrusted
 | `/api/agent-usage` | Selected model and rolling bounded-job usage, local read-only | `src/lib/agent-settings.mjs`, `src/lib/background-usage.mjs` |
 | `/api/health` | Read-only readiness and latest health snapshot | `src/lib/health/` |
 | `/api/task-settings` | Local focus-seat and stale-task settings | `src/lib/tasks/settings.ts` |
+| `/api/jev-settings` | Read every Jev lane's state, switch a lane on or off, store or remove the TypeSafe key, local and CSRF-protected | `src/lib/jev/settings.ts`, `src/lib/jev/credential.ts` |
 
 Before adding a route, look at `src/lib/request-security.ts` and a sibling route.
 Reads need the trusted local request boundary. Mutations also need the Cove CSRF
@@ -358,8 +360,16 @@ owns no decision. Nothing it returns reaches the operator.
   redirects, bounded request and response sizes, and typed failures. It rejects
   any answer that names an option the question did not offer.
 - `settings.ts` keeps the lane off unless the mode, the named feature and a
-  credential in the environment all agree. The credential is read here and is
-  never written to a config file or passed to a model child process.
+  credential all agree. It never writes the credential and never returns it.
+- `credential.ts` resolves that credential: the environment first, then a 0600
+  file in the operator's data directory that the settings screen writes. A lane
+  entry point hands the rest of the code an environment carrying whichever one
+  it found, so nothing downstream needs to know there are two places. The key is
+  never logged, never returned by a status reader, and never passed to a model
+  child process; callers see presence, a source and the last four characters.
+- `presentation.ts` is the settings screen's wording and wire types, with no
+  runtime imports, so the browser can hold them without pulling in a module that
+  opens files.
 - `policy.ts` is the ceiling: a breaker read from recent attempts, an hourly
   probe after a rejected credential, hourly and daily attempt caps, a daily
   spend reservation, and a concurrency lease. Retention runs from the lanes
@@ -379,7 +389,10 @@ owns no decision. Nothing it returns reaches the operator.
 - `planJevEmailRequest` and `planJevMeetingRequest` decide how much fits in one
   request and name what they dropped, so a gap is visible rather than quiet.
 - `report.ts` and `scripts/cove-jev.mjs` turn the ledger into agreement rates,
-  reported-probability bands, latency and reserved spend.
+  reported-probability bands, latency and reserved spend. The same switches the
+  script writes are on the Settings screen, which is also the only place that
+  writes the credential: the script refuses to, because a key passed as an
+  argument lands in shell history.
 - `evaluation.ts`, `fixtures/jev/` and `scripts/cove-jev-eval.mjs` build every
   request offline without a credential and score both lanes against labels
   frozen before the run.

@@ -12,6 +12,7 @@
  */
 import { openLocalDatabase } from "../local/database";
 import { coveDataDir } from "../operator";
+import { withJevCredential } from "./credential";
 import { readJevCredential, readJevSettings } from "./settings";
 import {
   assessMeetingWithJev,
@@ -31,9 +32,12 @@ export async function runJevMeetingShadow(input: {
   env?: CoveEnvironment;
   now?: () => Date;
 }): Promise<JevMeetingAssessment> {
-  const env = input.env ?? process.env;
-  // Cheapest checks first, so an install that has never heard of Jev does no
-  // file reads and opens no connection after every meeting.
+  const dataDir = coveDataDir(input.dataDir);
+  // Cheapest checks first, so an install that has never heard of Jev opens no
+  // connection after every meeting. The key may have been pasted into the
+  // settings screen rather than the environment, so the one file this looks at
+  // before giving up is the stored copy.
+  const env = withJevCredential(input.env ?? process.env, dataDir);
   const apiKey = readJevCredential(env);
   if (!apiKey) return { ran: false, reason: "No TypeSafe credential is configured." };
   if (input.evidence.items.length === 0) {
@@ -41,7 +45,7 @@ export async function runJevMeetingShadow(input: {
   }
   let settings;
   try {
-    settings = readJevSettings({ dataDir: coveDataDir(input.dataDir), env });
+    settings = readJevSettings({ dataDir, env });
   } catch {
     return { ran: false, reason: "Jev settings could not be read." };
   }

@@ -129,7 +129,7 @@ Neither command touches the credential.
 
 | Variable | Meaning | Default |
 | --- | --- | --- |
-| `COVE_TYPESAFE_API_KEY` | TypeSafe credential. Put it in `.env.local` yourself | unset |
+| `COVE_TYPESAFE_API_KEY` | TypeSafe credential. Put it in `.env.local` yourself, or paste it on the Settings screen, which stores it in the data directory instead. This variable wins when both exist | unset |
 | `COVE_JEV_MODE` | Overrides `mode` for one run | file value |
 | `COVE_JEV_EMAIL_TRIAGE` | `1` or `0`, overrides the feature for one run | file value |
 | `COVE_JEV_COMMITMENT_AUDIT` | `1` or `0`, overrides the feature for one run | file value |

@@ -222,6 +222,19 @@ export default function TabNav() {
         </div>
       ) : <span />}
       <div className="ml-auto flex items-center gap-2 justify-self-end">
+        {runtimeMode === 'local' && (
+          <Link
+            href="/settings"
+            className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
+              pathname.startsWith('/settings')
+                ? 'text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+            aria-current={pathname.startsWith('/settings') ? 'page' : undefined}
+          >
+            Settings
+          </Link>
+        )}
         <Link
           href="/guide"
           className={`rounded px-2 py-1 text-xs font-medium transition-colors ${

@@ -17,7 +17,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { askJev } from "../src/lib/jev/client.ts";
-import { readJevCredential } from "../src/lib/jev/settings.ts";
+import { resolveJevCredential } from "../src/lib/jev/credential.ts";
 import {
   caseEvidence,
   formatJevEvaluation,
@@ -32,6 +32,7 @@ import {
 } from "../src/lib/jev/evaluation.ts";
 import { buildJevEmailQuestions, buildJevEmailState } from "../src/lib/jev/email.ts";
 import { buildJevMeetingQuestions, buildJevMeetingState } from "../src/lib/jev/meeting.ts";
+import { coveDataDir } from "../src/lib/operator.ts";
 
 const repoDirDefault = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -139,11 +140,12 @@ async function main(argv) {
     );
     return 1;
   }
-  const apiKey = readJevCredential();
+  const apiKey = resolveJevCredential({ dataDir: coveDataDir() });
   if (!apiKey) {
     console.error(
-      "No TypeSafe credential is configured. Set COVE_TYPESAFE_API_KEY to run live, "
-        + "or use prepare to inspect the requests offline.",
+      "No TypeSafe credential is configured. Paste the key on Cove's settings "
+        + "screen or set COVE_TYPESAFE_API_KEY to run live, or use prepare to "
+        + "inspect the requests offline.",
     );
     return 1;
   }

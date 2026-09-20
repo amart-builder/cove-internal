@@ -14,7 +14,7 @@
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { openLocalDatabase } from "../local/database";
-import { estimateJevCostUsd, type JevFeature, type JevMode } from "./settings";
+import { JEV_FEATURES, estimateJevCostUsd, type JevFeature, type JevMode } from "./settings";
 import type { JevAnswer, JevFailureCode, JevUsage } from "./client";
 
 export { JEV_LEDGER_SCHEMA } from "./schema";
@@ -157,6 +157,47 @@ export function readJevSpendSince(input: {
       attempts: Number(row.attempts) || 0,
       estimatedCostUsd: Number(row.cost) || 0,
     };
+  });
+}
+
+/** The last call a lane made, for a screen that has to say what it is doing. */
+export type JevLastAttempt = {
+  outcome: string;
+  occurredAt: string;
+  status: number | null;
+};
+
+/**
+ * One row per lane that has ever called, keyed by feature.
+ *
+ * A lane the operator has never switched on is simply absent rather than
+ * present with a zero, because "has not run" and "ran and returned nothing"
+ * are different things to read on a settings screen.
+ */
+export function readJevLastAttempts(input: {
+  features?: readonly JevFeature[];
+  dbPath?: string;
+  db?: Database.Database;
+}): Partial<Record<JevFeature, JevLastAttempt>> {
+  const features = input.features ?? JEV_FEATURES;
+  return withDatabase(input.dbPath, input.db, (db) => {
+    const statement = db.prepare(
+      `SELECT outcome, status, created_at FROM cove_jev_attempts
+        WHERE feature = ? ORDER BY created_at DESC, id DESC LIMIT 1`,
+    );
+    const latest: Partial<Record<JevFeature, JevLastAttempt>> = {};
+    for (const feature of features) {
+      const row = statement.get(feature) as
+        | { outcome: string; status: number | null; created_at: string }
+        | undefined;
+      if (!row) continue;
+      latest[feature] = {
+        outcome: String(row.outcome),
+        occurredAt: String(row.created_at),
+        status: row.status === null ? null : Number(row.status),
+      };
+    }
+    return latest;
   });
 }
 
