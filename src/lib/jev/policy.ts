@@ -18,6 +18,13 @@ export const JEV_BREAKER_WINDOW_MS = 10 * 60 * 1000;
 export const JEV_BREAKER_FAILURE_THRESHOLD = 5;
 /** After tripping, nothing calls for this long, then exactly one probe goes. */
 export const JEV_BREAKER_COOLDOWN_MS = 5 * 60 * 1000;
+/**
+ * After a rejected credential, nothing calls for this long, then one probe
+ * goes. The probe is what notices that the key was fixed: the gate cannot see
+ * the environment change on its own, and a lock with no probe would hold until
+ * the attempt row aged out of the ledger months later.
+ */
+export const JEV_CREDENTIAL_COOLDOWN_MS = 60 * 60 * 1000;
 
 export type JevPolicyDecision =
   | { allowed: true; reservedInputTokens: number }
@@ -35,8 +42,9 @@ type AttemptRow = { outcome: string; created_at: string };
 
 /**
  * Failures a retry cannot fix. A rejected credential is configuration, so the
- * lane stays down until configuration changes rather than re-testing a key
- * that is still wrong.
+ * lane stays down for a cooldown rather than re-testing a key that is still
+ * wrong on every email, and then probes once an hour so a corrected key is
+ * picked up without anyone clearing the ledger by hand.
  */
 function isCredentialFault(outcome: string): boolean {
   return outcome === "jev_unauthorized";
@@ -114,16 +122,22 @@ export function acquireJevLease(input: {
   /** Tokens to reserve when usage does not come back. */
   reservedInputTokens: number;
 }): JevPolicyDecision {
-  const credentialFault = input.db.prepare(
-    `SELECT outcome FROM cove_jev_attempts
+  const latest = input.db.prepare(
+    `SELECT outcome, created_at FROM cove_jev_attempts
       WHERE feature = ? ORDER BY created_at DESC, id DESC LIMIT 1`,
-  ).get(input.feature) as { outcome: string } | undefined;
-  if (credentialFault && isCredentialFault(credentialFault.outcome)) {
-    return {
-      allowed: false,
-      reason: "credential_rejected",
-      detail: "TypeSafe rejected the credential. Fix the key before Jev runs again.",
-    };
+  ).get(input.feature) as AttemptRow | undefined;
+  let credentialProbe = false;
+  if (latest && isCredentialFault(latest.outcome)) {
+    const retryAt = new Date(latest.created_at).getTime() + JEV_CREDENTIAL_COOLDOWN_MS;
+    if (input.now.getTime() < retryAt) {
+      return {
+        allowed: false,
+        reason: "credential_rejected",
+        detail: "TypeSafe rejected the credential. Fix the key; Jev retries it once " +
+          `an hour, next at ${new Date(retryAt).toISOString()}.`,
+      };
+    }
+    credentialProbe = true;
   }
 
   const breaker = readJevBreaker({ db: input.db, feature: input.feature, now: input.now });
@@ -135,7 +149,8 @@ export function acquireJevLease(input: {
     };
   }
   // A probe is one call, so it must not share the window with anything else.
-  const concurrencyCeiling = breaker.state === "probe" ? 1 : input.limits.maxConcurrent;
+  const probing = breaker.state === "probe" || credentialProbe;
+  const concurrencyCeiling = probing ? 1 : input.limits.maxConcurrent;
   if (inFlight >= concurrencyCeiling) {
     return {
       allowed: false,

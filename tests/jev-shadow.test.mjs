@@ -383,7 +383,7 @@ test("a success inside the window clears the failure run", (t) => {
   assert.equal(state.state, "closed");
 });
 
-test("a rejected credential stops the lane until configuration changes", (t) => {
+test("a rejected credential pauses the lane for an hour, then one probe notices a fixed key", (t) => {
   const { db } = fixture(t);
   recordJevAttempt({
     db,
@@ -394,15 +394,31 @@ test("a rejected credential stops the lane until configuration changes", (t) => 
     latencyMs: 20,
     occurredAt: "2026-09-18T12:00:00.000Z",
   });
-  const decision = acquireJevLease({
+  const acquire = (now, feature = "emailTriage") => acquireJevLease({
     db,
-    feature: "emailTriage",
+    feature,
     limits: DEFAULT_JEV_SETTINGS.limits,
-    now: new Date("2026-09-18T18:00:00.000Z"),
+    now: new Date(now),
     reservedInputTokens: 10,
   });
-  assert.equal(decision.allowed, false);
-  assert.equal(decision.reason, "credential_rejected");
+  const paused = acquire("2026-09-18T12:30:00.000Z");
+  assert.equal(paused.allowed, false);
+  assert.equal(paused.reason, "credential_rejected");
+  assert.match(paused.detail, /next at 2026-09-18T13:00:00\.000Z/);
+
+  // Without a probe the lane would stay dead until the row aged out of the
+  // ledger: nothing else can tell that the key in the environment changed.
+  // The probe is one call, so it does not share the window even under the
+  // normal concurrency ceiling of two.
+  const other = acquire("2026-09-18T13:01:00.000Z", "meetingAudit");
+  assert.equal(other.allowed, true);
+  const crowded = acquire("2026-09-18T13:01:00.000Z");
+  assert.equal(crowded.allowed, false);
+  assert.equal(crowded.reason, "concurrency");
+  releaseJevLease();
+  const probe = acquire("2026-09-18T13:01:00.000Z");
+  assert.equal(probe.allowed, true);
+  releaseJevLease();
 });
 
 test("the daily attempt ceiling is enforced from the ledger, not from memory", (t) => {
@@ -669,4 +685,43 @@ test("only real feature names are accepted, because a typo fails silently", () =
   for (const name of ["emailtriage", "email_triage", "meetingaudit", "", "mode"]) {
     assert.equal(isJevFeature(name), false, name);
   }
+});
+
+test("each recorded pass applies the retention windows to the ledger", async (t) => {
+  const { db } = fixture(t);
+  const day = 24 * 60 * 60 * 1000;
+  const today = new Date("2026-09-20T12:00:00.000Z");
+  recordJevAttempt({
+    db,
+    feature: "emailTriage",
+    outcome: "ok",
+    reservedInputTokens: 10,
+    latencyMs: 20,
+    occurredAt: new Date(today.getTime() - 100 * day).toISOString(),
+  });
+  const settings = shadowSettings();
+  const run = (at, refId) => assessEmailWithJev({
+    db,
+    settings,
+    evidence: EVIDENCE,
+    baseline: BASELINE,
+    refId,
+    env: { COVE_TYPESAFE_API_KEY: KEY },
+    askImpl: async () => jevResponse(),
+    now: () => at,
+  });
+  assert.equal((await run(new Date(today.getTime() - 40 * day), "old")).ran, true);
+  assert.equal(readJevAssessments({ db, refId: "old" }).length, 8);
+
+  assert.equal((await run(today, "new")).ran, true);
+  // Detail from 40 days ago is past the 30-day assessment window and gone;
+  // its attempt is inside the 90-day usage window and stays, while the one
+  // from 100 days ago does not.
+  assert.equal(readJevAssessments({ db, refId: "old" }).length, 0);
+  assert.equal(readJevAssessments({ db, refId: "new" }).length, 8);
+  const attempts = db.prepare("SELECT created_at FROM cove_jev_attempts ORDER BY created_at").all();
+  assert.deepEqual(
+    attempts.map((row) => row.created_at),
+    [new Date(today.getTime() - 40 * day).toISOString(), today.toISOString()],
+  );
 });

@@ -124,8 +124,8 @@ Neither command touches the credential.
 | `limits.attemptsPerDay` | Calls per rolling day | 800 |
 | `limits.dailySpendUsd` | Cove's own reservation ceiling, not an invoice guarantee | 1 |
 | `limits.maxConcurrent` | Calls in flight at once | 2 |
-| `assessmentRetentionDays` | Days of per-answer detail kept | 30 |
-| `usageRetentionDays` | Days of usage and outcome metadata kept | 90 |
+| `assessmentRetentionDays` | Days of per-answer detail kept. Pruned after each recorded call | 30 |
+| `usageRetentionDays` | Days of usage and outcome metadata kept. Pruned on the same clock | 90 |
 
 | Variable | Meaning | Default |
 | --- | --- | --- |
@@ -142,7 +142,9 @@ redacted from error text before it reaches a log or the failure inbox.
 
 `node scripts/cove-jev.mjs status` prints the mode, which features are on,
 whether a credential is present, the last day's calls and reserved spend, and
-whether the breaker is open. `node scripts/cove-jev.mjs report` prints how often
+whether the breaker is open. A rejected key pauses its lane for an hour and is
+then probed once an hour, so fixing the key in `.env.local` is enough; nothing
+in the ledger needs clearing. `node scripts/cove-jev.mjs report` prints how often
 Jev agreed with Cove's own classifier, where it did not, and how the reported
 probability tracked that agreement.
 

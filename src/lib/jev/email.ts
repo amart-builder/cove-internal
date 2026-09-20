@@ -30,7 +30,12 @@ import {
   type JevResult,
 } from "./client";
 import { acquireJevLease, releaseJevLease } from "./policy";
-import { recordJevAssessments, recordJevAttempt, type JevAssessmentRecord } from "./ledger";
+import {
+  pruneJevLedger,
+  recordJevAssessments,
+  recordJevAttempt,
+  type JevAssessmentRecord,
+} from "./ledger";
 import {
   jevFeatureEnabled,
   type JevFeature,
@@ -934,6 +939,15 @@ export async function assessEmailWithJev(input: {
     occurredAt,
   });
   const recorded = recordJevAssessments({ assessments: rows, db: input.db });
+  // Retention is applied here, on the lane's own clock, because nothing else
+  // in Cove runs on Jev's behalf. Two indexed deletes per call is the price of
+  // a ledger that cannot grow without bound on a laptop.
+  pruneJevLedger({
+    db: input.db,
+    now: now(),
+    assessmentRetentionDays: input.settings.assessmentRetentionDays,
+    usageRetentionDays: input.settings.usageRetentionDays,
+  });
   return {
     ran: true,
     model: result.model,

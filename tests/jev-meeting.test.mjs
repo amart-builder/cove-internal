@@ -11,7 +11,7 @@ import {
   jevFeatureEnabled,
   readJevSettings,
 } from "../src/lib/jev/settings.ts";
-import { readJevAssessments } from "../src/lib/jev/ledger.ts";
+import { readJevAssessments, recordJevAttempt } from "../src/lib/jev/ledger.ts";
 import { resetJevLeases } from "../src/lib/jev/policy.ts";
 import {
   JEV_MAX_AUDITED_MEETING_ITEMS,
@@ -553,4 +553,34 @@ test("a meeting with no answers is skipped rather than counted as wrong", () => 
   assert.equal(summary.scored, 0);
   assert.deepEqual(summary.byQuestion, {});
   assert.match(formatJevMeetingEvaluation(summary), /Scored 0 meeting/);
+});
+
+test("a recorded meeting pass applies the retention windows to the ledger", async (t) => {
+  const { db } = fixture(t);
+  const day = 24 * 60 * 60 * 1000;
+  const today = new Date("2026-09-20T12:00:00.000Z");
+  recordJevAttempt({
+    db,
+    feature: "meetingAudit",
+    outcome: "ok",
+    reservedInputTokens: 10,
+    latencyMs: 20,
+    occurredAt: new Date(today.getTime() - 100 * day).toISOString(),
+  });
+  const run = (at, refId) => assessMeetingWithJev({
+    db,
+    settings: meetingSettings(),
+    evidence: EVIDENCE,
+    baseline: BASELINE,
+    refId,
+    apiKey: KEY,
+    env: { COVE_TYPESAFE_API_KEY: KEY },
+    askImpl: async () => meetingResponse(),
+    now: () => at,
+  });
+  assert.equal((await run(new Date(today.getTime() - 40 * day), "old")).ran, true);
+  assert.equal((await run(today, "new")).ran, true);
+  assert.equal(readJevAssessments({ db, refId: "old" }).length, 0);
+  assert.equal(readJevAssessments({ db, refId: "new" }).length, 9);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM cove_jev_attempts").get().n, 2);
 });

@@ -360,8 +360,10 @@ owns no decision. Nothing it returns reaches the operator.
 - `settings.ts` keeps the lane off unless the mode, the named feature and a
   credential in the environment all agree. The credential is read here and is
   never written to a config file or passed to a model child process.
-- `policy.ts` is the ceiling: a breaker read from recent attempts, hourly and
-  daily attempt caps, a daily spend reservation, and a concurrency lease.
+- `policy.ts` is the ceiling: a breaker read from recent attempts, an hourly
+  probe after a rejected credential, hourly and daily attempt caps, a daily
+  spend reservation, and a concurrency lease. Retention runs from the lanes
+  themselves after each recorded call, since nothing else runs on Jev's behalf.
 - `ledger.ts` and `schema.ts` store what was asked, what came back, and what
   Cove's existing owner had already decided, so agreement can be measured.
 - `email.ts` and `email-shadow.ts` run after email classification has already
