@@ -22,6 +22,29 @@ import { JobScheduler } from '../src/lib/reliability/jobs.ts';
 import { createSqliteBackup } from '../src/lib/reliability/backup.ts';
 import { listRecentReceipts } from '../src/lib/reliability/receipts.ts';
 
+test('the recovery notes describe the gate the restore actually has', () => {
+  const repoRoot = path.resolve(import.meta.dirname, '..');
+  const operations = readFileSync(path.join(repoRoot, 'OPERATIONS.md'), 'utf8');
+  const script = readFileSync(path.join(repoRoot, 'scripts/cove-restore-backup.sh'), 'utf8');
+
+  // The gate is "no Cove service is loaded", which is a different question from
+  // "is anything writing to this database". A web app started by hand -- which
+  // setup does, before the installer runs -- passes it, and the open-handle
+  // check behind it can read an idle moment as nobody having the file open.
+  // Someone restoring a backup is already having a bad day; the notes have to
+  // say which processes the refusal will and will not catch.
+  const bullet = operations.match(/- Use `bash scripts\/cove-restore-backup\.sh[^\n]*/);
+  assert.ok(bullet, 'OPERATIONS.md no longer documents the restore command');
+  for (const phrase of ['com.cove.*', 'cove-stop.sh', 'started by hand', 'backstop']) {
+    assert.ok(bullet[0].includes(phrase), `the restore note must mention ${phrase}`);
+  }
+
+  assert.ok(script.includes('loaded_cove_services'), 'the restore must still gate on loaded services');
+  assert.ok(script.includes("'^com\\.(cove|forge)\\.'"), 'the gate must still match both label prefixes');
+  assert.ok(script.includes('database_is_open'), 'the open-handle backstop must still exist');
+});
+
+
 test('backup and restore round trip preserves rows and schema', async (t) => {
   const root = path.join(
     os.tmpdir(),
