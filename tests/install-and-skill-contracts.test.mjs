@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
 import http from "node:http";
 import { promisify } from "node:util";
-import { copyFileSync, mkdirSync, readFileSync, readdirSync, symlinkSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync } from "node:fs";
 import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -670,4 +670,50 @@ test("every agent the installer can load is also enabled, before it is loaded", 
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+// The block is extracted and run rather than pattern-matched, so this fails if
+// the guard stops narrowing the file for any reason, not just if a line moves.
+async function runEnvLocalGuard(prepare) {
+  const installer = readFileSync(path.join(ROOT, "scripts/install-cove-local.sh"), "utf8");
+  const start = installer.indexOf('if [ ! -e "$REPO_DIR/.env.local" ]; then');
+  const end = installer.indexOf("local_env_value() {");
+  assert.ok(start > 0 && end > start, "install-cove-local.sh no longer has an .env.local block to extract");
+  const block = installer.slice(start, end);
+  const dir = await mkdtemp(path.join(os.tmpdir(), "cove-envlocal-"));
+  try {
+    await prepare(dir);
+    const harness = path.join(dir, "guard.sh");
+    await writeFile(harness, ["set -euo pipefail", `REPO_DIR=${JSON.stringify(dir)}`, block].join("\n"));
+    await execFileAsync("bash", [harness], { encoding: "utf8" });
+    return (statSync(path.join(dir, ".env.local")).mode & 0o777).toString(8);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test("the installer creates .env.local private", async () => {
+  assert.equal(await runEnvLocalGuard(async () => {}), "600");
+});
+
+test("the installer narrows an .env.local someone wrote by hand first", async () => {
+  // SECURITY_AND_INTEGRATIONS.md promises a mode-0600 .env.local and tells
+  // people to put a Granola API key in it. The setup playbook also has you
+  // write COVE_CHIEF_OF_STAFF or COVE_BRIEF_WEB_BASE into it before the
+  // install, which creates it with the author's umask — normally 0644.
+  const mode = await runEnvLocalGuard(async (dir) => {
+    await writeFile(path.join(dir, ".env.local"), "COVE_CHIEF_OF_STAFF=0\n", { mode: 0o644 });
+    chmodSync(path.join(dir, ".env.local"), 0o644);
+  });
+  assert.equal(mode, "600");
+});
+
+test("the installer leaves an already-private .env.local and its contents alone", async () => {
+  let contents;
+  const mode = await runEnvLocalGuard(async (dir) => {
+    await writeFile(path.join(dir, ".env.local"), "COVE_BRIEF_WEB_BASE=http://127.0.0.1:3201\n", { mode: 0o600 });
+    contents = readFileSync(path.join(dir, ".env.local"), "utf8");
+  });
+  assert.equal(mode, "600");
+  assert.equal(contents, "COVE_BRIEF_WEB_BASE=http://127.0.0.1:3201\n");
 });
