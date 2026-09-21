@@ -23,15 +23,13 @@ import {
  * plan rows, items, events, task mutations, and receipts.
  */
 import { createHash, randomUUID } from "node:crypto";
-import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type Database from "better-sqlite3";
 import { resolveProjectDirectory } from "../atlas-projects";
 import { normalizeBuddyReceipts } from "../buddy/receipts";
 import { morningBriefModelConfig } from "../claude-execution/brief-commands";
 import { hasPlanExecutionResultSubstance } from "../claude-execution/commands";
-import { coveEnv } from "../env";
-import { openSqliteDatabase } from "../local/database";
+import { localDatabasePath, openSqliteDatabase } from "../local/database";
 import { getRuntimeMode } from "../runtime/mode";
 import { operatorTimezone } from "../operator";
 import { recordFailureInDatabase } from "../reliability/failures";
@@ -5566,8 +5564,7 @@ export function getDayPlanStore(): DayPlanStore {
   const global = globalThis as unknown as DayPlanGlobal;
   if (!global.__coveDayPlanStore) {
     global.__coveDayPlanStore = createDayPlanStore({
-      dbPath:
-        coveEnv("DB_PATH") ?? path.join(process.cwd(), "data", "cove.db"),
+      dbPath: localDatabasePath(),
       focusCount: configuredFocusCountFromTaskSettings,
     });
   }
