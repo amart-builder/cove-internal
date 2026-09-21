@@ -93,9 +93,17 @@ case "$NODE_REAL" in
     echo "Note: Node is managed by a version manager. If Cove stops starting after you switch Node versions, re-run this script." ;;
 esac
 
+# SECURITY_AND_INTEGRATIONS.md promises a "mode-0600 .env.local" and sends
+# people there to put a Granola API key. That was only true of a file this
+# script created: one written by hand first -- which the setup playbook asks
+# for, to set COVE_CHIEF_OF_STAFF or COVE_BRIEF_WEB_BASE before the install --
+# kept its author's umask, normally 0644, and nothing here narrowed it. This
+# only ever tightens, and only a file Cove already owns.
 if [ ! -e "$REPO_DIR/.env.local" ]; then
   install -m 600 /dev/null "$REPO_DIR/.env.local"
   echo "Created a private empty .env.local. Add optional Cove settings there when needed."
+else
+  chmod 600 "$REPO_DIR/.env.local"
 fi
 local_env_value() {
   "$NODE_REAL" --input-type=module -e '
