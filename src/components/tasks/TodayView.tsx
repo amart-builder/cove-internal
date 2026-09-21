@@ -2171,7 +2171,7 @@ function TodayExperience({
       title: item.planningRef ? item.title : task.title,
       planningState: item.planningStale && dayRitual.plan?.state === 'active' ? undefined : item.planningState,
       description: task.description || item.outcome,
-      project: item.project,
+      project: helpfulProjectLabel(item.project),
       dueLabel: item.dueAt ? formatArrivalDueDate(item.dueAt) : undefined,
       owner: todayOwnerLabel(item.owner),
       run: localMode ? taskSessions.latestByTaskId.get(task._id) : undefined,
