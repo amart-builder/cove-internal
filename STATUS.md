@@ -24,6 +24,28 @@
 
 ---
 
+## 2026-09-20 Client release prepared for the 2026-09-21 install (NOT PUSHED)
+
+- Decisions from Alex: publish from this branch (his call was "whatever you
+  suggest"); `amart-builder/cove` stays PRIVATE, client-only; the inert
+  progress, meeting-watch and voice-review lanes stay in the standard install.
+- Internal commits `f22ef48` (Jev W2 + readiness fixes) and `1e4d5af` (six
+  more tests pinned to a scratch data dir; a full verify on a fresh export had
+  still written `data/cove.db` and a quiet-current token into the checkout).
+- Sanitized export of `1e4d5af` from a clean clone: 650 files, secret and
+  setup scans passed. `npm run verify` on that exact export: TypeScript,
+  ESLint, 1692 tests passed, 0 failed, 2 skipped, production build compiled,
+  and `data/` still holds only the three example files afterwards.
+- Client branch `release/2026-09-20-readiness` at `1e7e8dd` is committed in a
+  local clone at `/private/tmp/cove-client-release-20260920` (based on client
+  `main` c8c9c94, which was 9 commits behind the last release branch). Not
+  pushed. Plan: push through safe-push, open a PR to `main`, merge, so Gary's
+  setup agent clones the default branch. SETUP.md no longer names a branch and
+  README says a private repo needs a working signed-in clone first.
+- Still unverified: installer end to end on a fresh Mac, LaunchAgent restart
+  persistence, live account steps. Evidence:
+  `data/review-artifacts/jev-w2-readiness-20260920/REPORT.md`.
+
 ## 2026-09-20 Jev W2 runtime and client readiness pass (LOCAL, OFF BY DEFAULT)
 
 - W2 shipped on `fable/jev-w0-w1`: `src/lib/jev/{settings,client,ledger,runtime}.ts`
