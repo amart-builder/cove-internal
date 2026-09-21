@@ -47,7 +47,12 @@ test('the guide says where work is kept and what leaves the Mac', () => {
   const source = readFileSync(new URL('../src/app/guide/content.tsx', import.meta.url), 'utf8');
   assert.match(source, /Where your work is kept/);
   assert.match(source, /\{dataFolder\}/);
-  assert.match(source, /no Cove\s+\n?\s*account and no Cove server holding a copy/);
+  assert.match(source, /account and no Cove server holding a copy/);
+  // The folder is not the whole story, and a card that said it was would be
+  // read as "delete this and Cove forgets me". Logs and the Keychain are the
+  // two places OPERATIONS.md has to clean up separately.
+  assert.match(source, /logs in your Library folder/);
+  assert.match(source, /Keychain/);
   assert.match(source, /Two things do leave the Mac/);
   assert.match(source, /the model provider you chose/);
   assert.match(source, /Google is sent the requests Cove/);
