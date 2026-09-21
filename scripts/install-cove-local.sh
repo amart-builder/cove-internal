@@ -123,6 +123,16 @@ COVE_BRIEF_WEB_BASE="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" webBase)"
 WEB_HOST="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" host)"
 WEB_PORT="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" port)"
 export COVE_DATA_DIR COVE_DB_PATH COVE_BRIEF_WEB_BASE
+
+# Every JSON store under here is written 0600 into a directory its writer
+# creates 0700 -- but data/ ships in the checkout with three example files, so
+# it already exists at whatever the clone gave it, normally 0755, and none of
+# those writers ever narrows it. cove.db is the other half: SQLite creates it
+# under the umask, 0644, and it holds the tasks, commitments, contacts and
+# triage records that the 0600 files around it are being careful about.
+# Narrowing the directory covers both, and every Cove lane runs as this user.
+mkdir -p "$COVE_DATA_DIR"
+chmod 700 "$COVE_DATA_DIR"
 BUDDY_APP_URL="$(local_env_value COVE_BUDDY_APP_URL)"
 BUDDY_APP_URL="${BUDDY_APP_URL:-$COVE_BRIEF_WEB_BASE}"
 AGENT_PROVIDER="$("$NODE_REAL" --input-type=module -e '

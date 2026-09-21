@@ -717,3 +717,30 @@ test("the installer leaves an already-private .env.local and its contents alone"
   assert.equal(mode, "600");
   assert.equal(contents, "COVE_BRIEF_WEB_BASE=http://127.0.0.1:3201\n");
 });
+
+test("the installer makes the data directory private, whatever the clone left", async () => {
+  // Every JSON store under data/ is written 0600 into a directory its writer
+  // would create 0700 — but data/ ships in the checkout, so it already exists
+  // at the clone's mode, and cove.db is created by SQLite under the umask.
+  // Measured on a fresh path: the database opener leaves data/ at 755 and
+  // cove.db at 644, while a JSON writer reaching it first leaves it at 700.
+  const installer = readFileSync(path.join(ROOT, "scripts/install-cove-local.sh"), "utf8");
+  const start = installer.indexOf('mkdir -p "$COVE_DATA_DIR"');
+  const end = installer.indexOf("BUDDY_APP_URL=", start);
+  assert.ok(start > 0 && end > start, "install-cove-local.sh no longer narrows the data directory");
+  const block = installer.slice(start, end);
+  const dir = await mkdtemp(path.join(os.tmpdir(), "cove-datadir-"));
+  try {
+    const data = path.join(dir, "data");
+    mkdirSync(data, { recursive: true });
+    chmodSync(data, 0o755);
+    await writeFile(path.join(data, "cove.db"), "");
+    const harness = path.join(dir, "narrow.sh");
+    await writeFile(harness, ["set -euo pipefail", `COVE_DATA_DIR=${JSON.stringify(data)}`, block].join("\n"));
+    await execFileAsync("bash", [harness], { encoding: "utf8" });
+    assert.equal((statSync(data).mode & 0o777).toString(8), "700");
+    assert.ok(readdirSync(data).includes("cove.db"), "narrowing the directory must not disturb what is in it");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
