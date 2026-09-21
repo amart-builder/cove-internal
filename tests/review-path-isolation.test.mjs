@@ -8,7 +8,11 @@ import { createWorkSuggestion, getQuietCurrentSnapshot, setQuietCurrentNowForTes
 import { consumeProgressSuggestionRelays, writeProgressSuggestionRelay } from "../src/lib/progress/relay.ts";
 import { runAttentionSweep } from "../scripts/cove-attention-sweep.mjs";
 
-const now = new Date("2026-09-15T15:00:00Z");
+// Anchored to the run, not to a calendar date. A relay expires three days after
+// its createdAt, and the suggestion store rejects an expiry that is already in
+// the past against its own clock, so a frozen literal here silently rots: this
+// file began failing once the wall clock passed 2026-09-18.
+const now = new Date(Date.now() - 60 * 60 * 1000);
 
 function fixture(t) {
   const root = mkdtempSync(path.join(os.tmpdir(), "cove-review-paths-"));
