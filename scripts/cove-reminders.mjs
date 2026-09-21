@@ -2,6 +2,16 @@
 import { executeNotificationDelivery } from "../src/lib/notifications/delivery-receipts.mjs";
 import { drainNotificationReminders } from "../src/lib/notifications/reminders.mjs";
 import { notificationUrl } from "../src/lib/attention/notification-links.mjs";
+// The two names below used to be local copies of these functions, byte for
+// byte. That is how the invisible-character bypass stayed open here after it
+// was closed in safety.mjs: a fix to one copy was invisible to the other, and
+// this is the copy that runs every minute from com.cove.reminders and feeds
+// Telegram and iMessage as well as the Mac banner. Importing rather than
+// re-copying is what stops them drifting apart again.
+import {
+  cleanAttentionText as plainAttentionText,
+  sanitizeNonDirectBanner as sanitizedNonDirectText,
+} from "../src/lib/attention/safety.mjs";
 /**
  * Cove reminder helper. Run every minute by the com.cove.reminders LaunchAgent.
  *
@@ -211,26 +221,6 @@ function attentionNow() {
   if (!configured) return new Date();
   const parsed = new Date(configured);
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
-}
-
-function plainAttentionText(value) {
-  return String(value ?? "")
-    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
-    .replace(/[\u2013\u2014]/g, ":")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function sanitizedNonDirectText(value, provenance) {
-  const sanitized = plainAttentionText(value)
-    .replace(/\b(?:https?:\/\/|www\.)\S+/gi, "")
-    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "")
-    .replace(/(?:\+?\d[\d().\s-]{6,}\d)/g, "")
-    .replace(/\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?\b/gi, "")
-    .replace(/\s+/g, " ")
-    .replace(/\s+([,.;:!?])/g, "$1")
-    .trim();
-  return `${provenance}: ${sanitized || "Open Cove to review this item."}`.slice(0, 180);
 }
 
 function taskProvenance(task) {
