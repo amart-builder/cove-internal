@@ -1206,7 +1206,21 @@ if [ -n "$UP" ]; then
   echo "Server logs: $LOG_DIR/cove.log"
   echo "Daily database backups: $COVE_BACKUP_DIR"
   echo "Reliability jobs: bounded scheduler supervised by com.cove.jobs"
-  echo "Attention sweep: shadow mode at 11:30 and 16:00"
+  # AGENTS.md makes "the user has been told exactly which background lanes are
+  # active" a condition of a finished setup, so this summary has to be true.
+  # It used to print "Attention sweep: shadow mode at 11:30 and 16:00"
+  # unconditionally. com.cove.attention-sweep is a retired lane this same
+  # script boots out and deletes; the 11:30 and 16:00 sweep is
+  # com.cove.chief-of-staff-sweep, which is not installed when the chief of
+  # staff is off. So with COVE_CHIEF_OF_STAFF=0 the install reported a sweep
+  # that nothing runs, and the four chief-of-staff lanes it does install were
+  # named nowhere.
+  if [ "$INSTALL_CHIEF_OF_STAFF_LANE" = "1" ]; then
+    echo "Chief of staff: sweeps at 11:30 and 16:00, a nightly pass at 21:30, a weekly review Sundays at 18:00, and a drain every 5 minutes"
+    echo "Attention and urgent-email models: shadow mode, recording only"
+  else
+    echo "Chief of staff: not installed, so nothing sweeps at 11:30 or 16:00"
+  fi
   echo "Claude worker: supervised by com.cove.claude-worker"
   echo "Claude worker status: ok"
   if [ "$INSTALL_MEETING_LANE" = "1" ]; then
