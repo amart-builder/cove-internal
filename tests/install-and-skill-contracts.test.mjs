@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
 import http from "node:http";
 import { promisify } from "node:util";
-import { copyFileSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { copyFileSync, mkdirSync, readFileSync, readdirSync, symlinkSync } from "node:fs";
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -607,4 +607,67 @@ test("the installer says what to do when another program holds the port", () => 
   assert.match(installer, /lsof -nP -iTCP:\$WEB_PORT -sTCP:LISTEN/);
   assert.match(installer, /COVE_BRIEF_WEB_BASE=http:\/\/127\.0\.0\.1:3201/);
   assert.match(installer, /grep -q 'EADDRINUSE'/);
+});
+
+
+// `launchctl disable` outlives the plist and survives a restart, so a label
+// disabled once stays refused until something enables it. com.cove.local.backup,
+// com.cove.reminders and com.cove.email-triage were bootstrapped and never
+// enabled, so stopping Cove for good and re-running the installer brought the
+// website and the worker back while the daily backup, the reminders lane and
+// email triage stayed off, silently.
+test("every agent the installer can load is also enabled, before it is loaded", async () => {
+  const installer = readFileSync(path.join(ROOT, "scripts/install-cove-local.sh"), "utf8");
+
+  // Two sources, because the agents come from two places: plists written
+  // inline by the installer, and the lane templates rendered through
+  // scripts/lib/render-lane-plist.mjs.
+  const labelFrom = text =>
+    [...text.matchAll(/<key>Label<\/key>\s*\n?\s*<string>(com\.cove\.[^<]+)<\/string>/g)]
+      .map(match => match[1]);
+  const labels = new Set(labelFrom(installer));
+  for (const file of readdirSync(path.join(ROOT, "scripts/launchd"))) {
+    if (!file.endsWith(".plist")) continue;
+    for (const label of labelFrom(readFileSync(path.join(ROOT, "scripts/launchd", file), "utf8"))) {
+      labels.add(label);
+    }
+  }
+  assert.ok(labels.size >= 14, `expected the installer to write plists, saw ${labels.size}`);
+
+  const loop = installer.match(/for cove_label in \\\n([\s\S]*?)\ndone\n/);
+  assert.ok(loop, "install-cove-local.sh no longer enables its agents in one loop");
+  const enabled = new Set(
+    loop[1].split("\n")
+      .map(line => line.trim().replace(/\s*\\$/, "").trim())
+      .filter(line => line.startsWith("com.cove.")),
+  );
+  for (const label of labels) {
+    assert.ok(enabled.has(label), `${label} is loaded by the installer but never enabled`);
+  }
+
+  // Order matters: launchd refuses to load a disabled service, so an enable
+  // that runs after the bootstrap is too late to help the run it is in.
+  assert.ok(
+    installer.indexOf("for cove_label in") < installer.indexOf('launchctl bootstrap "gui/$UID_NUM"'),
+    "the enable loop must run before the first bootstrap",
+  );
+
+  // And run the real loop against a stub launchctl, so this is not only a read.
+  const dir = await mkdtemp(path.join(os.tmpdir(), "cove-enable-"));
+  try {
+    const calls = path.join(dir, "calls");
+    await writeFile(path.join(dir, "launchctl"),
+      `#!/bin/bash\nprintf '%s\\n' "$*" >> "${calls}"\n`);
+    await chmod(path.join(dir, "launchctl"), 0o755);
+    const harness = path.join(dir, "enable.sh");
+    await writeFile(harness, ["set -uo pipefail", "UID_NUM=501", loop[0]].join("\n"));
+    await execFileAsync("bash", [harness], { env: { ...process.env, PATH: `${dir}:${process.env.PATH}` } });
+    const seen = (await readFile(calls, "utf8")).trim().split("\n");
+    assert.equal(seen.length, enabled.size);
+    for (const label of labels) {
+      assert.ok(seen.includes(`enable gui/501/${label}`), `no enable call for ${label}`);
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

@@ -292,6 +292,41 @@ printf -v RUNTIME_PLIST_ENTRY '    <key>COVE_DATA_DIR</key>\n    <string>%s</str
   "$(xml_escape "$COVE_DATA_DIR")" "$(xml_escape "$COVE_DB_PATH")" "$(xml_escape "$COVE_BRIEF_WEB_BASE")"
 
 mkdir -p "$LOG_DIR" "$LA_DIR"
+
+# `launchctl disable` survives a restart and outlives the plist, so a label
+# disabled once stays refused until something enables it again. Three of the
+# labels below used to be bootstrapped without ever being enabled, so anyone
+# who stopped Cove for good and later re-ran this installer got the website
+# and the worker back while the daily backup, the reminders lane and email
+# triage stayed off, with nothing on screen saying so. Enabling is also done
+# before bootstrapping rather than after, because launchd refuses to load a
+# disabled service and the enable that followed came too late to help it.
+#
+# Enabling only clears a previous refusal; it loads nothing by itself, so a
+# label whose plist this install did not write stays absent either way. That
+# is why the list is every label rather than the ones the current options
+# happen to select.
+for cove_label in \
+  com.cove.local \
+  com.cove.local.backup \
+  com.cove.jobs \
+  com.cove.reminders \
+  com.cove.claude-worker \
+  com.cove.email-triage \
+  com.cove.meeting-watch \
+  com.cove.meeting-drain \
+  com.cove.progress \
+  com.cove.voice-review \
+  com.cove.morning-brief \
+  com.cove.attention-sweep \
+  com.cove.chief-of-staff-drain \
+  com.cove.chief-of-staff-sweep \
+  com.cove.chief-of-staff-nightly \
+  com.cove.chief-of-staff-review
+do
+  launchctl enable "gui/$UID_NUM/$cove_label" 2>/dev/null || true
+done
+
 LANE_DATA_DIR="${COVE_DATA_DIR:-$REPO_DIR/data}"
 mkdir -p "$LANE_DATA_DIR"
 ATTENTION_CONFIG="$LANE_DATA_DIR/attention-sweep.json"
@@ -1103,25 +1138,6 @@ if [ "$INSTALL_CHIEF_OF_STAFF_LANE" = "1" ]; then
   mark_lane_installed chief_of_staff
 fi
 if [ -f "$TRIAGE_PLIST" ]; then launchctl bootstrap "gui/$UID_NUM" "$TRIAGE_PLIST"; fi
-launchctl enable "gui/$UID_NUM/com.cove.local" 2>/dev/null || true
-launchctl enable "gui/$UID_NUM/com.cove.claude-worker" 2>/dev/null || true
-launchctl enable "gui/$UID_NUM/com.cove.jobs" 2>/dev/null || true
-if [ "$INSTALL_MEETING_LANE" = "1" ]; then
-  launchctl enable "gui/$UID_NUM/com.cove.meeting-watch" 2>/dev/null || true
-  launchctl enable "gui/$UID_NUM/com.cove.meeting-drain" 2>/dev/null || true
-fi
-if [ "$INSTALL_PROGRESS_LANE" = "1" ]; then
-  launchctl enable "gui/$UID_NUM/com.cove.progress" 2>/dev/null || true
-fi
-if [ "$INSTALL_VOICE_REVIEW_LANE" = "1" ]; then
-  launchctl enable "gui/$UID_NUM/com.cove.voice-review" 2>/dev/null || true
-fi
-if [ "$INSTALL_CHIEF_OF_STAFF_LANE" = "1" ]; then
-  launchctl enable "gui/$UID_NUM/com.cove.chief-of-staff-drain" 2>/dev/null || true
-  launchctl enable "gui/$UID_NUM/com.cove.chief-of-staff-sweep" 2>/dev/null || true
-  launchctl enable "gui/$UID_NUM/com.cove.chief-of-staff-nightly" 2>/dev/null || true
-  launchctl enable "gui/$UID_NUM/com.cove.chief-of-staff-review" 2>/dev/null || true
-fi
 
 # Confirm the server actually came up. This catches the most common failure:
 # launchd not being able to find/run Node on the client's machine.
