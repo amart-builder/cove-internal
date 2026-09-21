@@ -40,14 +40,34 @@ export function buildMeetingFollowupsPrompt(text, operator) {
 }
 
 export function parseNextSteps(text) {
+  return parseNextStepsBlock(text).items;
+}
+
+const BULLET_LINE = /^\s*[-•*]\s*\S/;
+const OWNED_BULLET = /^\s*[-•*]\s*\[([^\]]+)\]\s*(.+?)\s*$/;
+
+/**
+ * The deterministic parse, plus whether it read the whole Next-steps block.
+ *
+ * This parser only understands a bullet that names its owner in brackets. A
+ * bullet without one is a follow-up someone stated out loud that it cannot
+ * read, and returning the rest as if that were the meeting loses an accepted
+ * commitment with nothing anywhere recording the loss. Mixed notes are the
+ * norm rather than the exception: Granola and Gemini summaries bracket the
+ * lines that have an assignee and leave the others plain. So the caller is
+ * told the parse was partial and hands the notes to the model, which reads
+ * both shapes.
+ */
+export function parseNextStepsBlock(text) {
   const lines = text.split(/\r?\n/);
   const start = lines.findIndex((line) =>
     /^\s*(?:#+\s*)?(?:(?:suggested\s+)?next steps|action items)\s*:?\s*$/i
       .test(line)
   );
-  if (start === -1) return [];
+  if (start === -1) return { items: [], complete: true };
 
   const items = [];
+  let complete = true;
   for (let index = start + 1; index < lines.length; index += 1) {
     const line = lines[index];
     if (
@@ -56,8 +76,11 @@ export function parseNextSteps(text) {
     ) {
       break;
     }
-    const match = line.match(/^\s*[-•*]\s*\[([^\]]+)\]\s*(.+?)\s*$/);
-    if (!match) continue;
+    const match = line.match(OWNED_BULLET);
+    if (!match) {
+      if (BULLET_LINE.test(line)) complete = false;
+      continue;
+    }
     const owner = match[1].trim();
     const body = match[2].trim();
     const split = body.match(/^([^:]{3,80}):\s*(.+)$/);
@@ -67,7 +90,7 @@ export function parseNextSteps(text) {
       detail: split ? split[2].trim() : "",
     });
   }
-  return items;
+  return { items, complete };
 }
 
 function unfenceJson(value) {
@@ -150,9 +173,19 @@ export async function claudeMeetingFallback(text, options = {}) {
 }
 
 export async function extractMeetingFollowUps(text, options = {}) {
-  const parsed = parseNextSteps(text);
-  if (parsed.length > 0) return parsed;
-  return (options.fallback ?? claudeMeetingFallback)(text, options);
+  const parsed = parseNextStepsBlock(text);
+  if (parsed.items.length > 0 && parsed.complete) return parsed.items;
+  const fallback = options.fallback ?? claudeMeetingFallback;
+  if (parsed.items.length === 0) return fallback(text, options);
+  try {
+    return await fallback(text, options);
+  } catch {
+    // The model reads mixed notes and this parser does not, but a partial
+    // list is still more than failing the whole meeting, which is what the
+    // caller does with a throw. This is the one case where items are still
+    // dropped quietly.
+    return parsed.items;
+  }
 }
 
 export function inboundAckState(receipt) {
