@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import test from 'node:test';
 
@@ -103,4 +104,17 @@ test('a missing probe does not stop the stop command from stopping', (t) => {
   });
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.doesNotMatch(result.stderr, /cove-serving\.sh/);
+});
+
+test('the stop mode waits before naming a Cove it may have just stopped', () => {
+  // A shape assertion, not a behavioural one: the stop mode boots services out,
+  // so it cannot be run here. What it guards is real -- after a bootout the
+  // process takes a moment to release its socket, and reporting it as a
+  // hand-started Cove would send someone looking for a terminal that does not
+  // exist. --status, which changes nothing, must keep asking exactly once.
+  const source = readFileSync(SCRIPT, 'utf8');
+  assert.match(source, /^report_hand_started_cove [2-9][0-9]*$/m);
+  assert.match(source, /^ {2}report_hand_started_cove$/m);
+  const body = source.slice(source.indexOf('report_hand_started_cove() {'));
+  assert.match(body.slice(0, body.indexOf('\n}')), /while \[ "\$tries" -gt 0 \]/);
 });
