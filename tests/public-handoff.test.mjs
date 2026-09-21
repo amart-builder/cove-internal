@@ -78,7 +78,10 @@ test('the release gate runs the suite in the zone its fixtures were written in',
     /TZ: process\.env\.COVE_VERIFY_TZ \?\? "America\/Los_Angeles"/,
   );
   assert.match(verifyScript, /for \(const \[command, args, stepEnv\] of steps\)/);
-  assert.match(verifyScript, /env: \{ \.\.\.process\.env, PATH: childPath, \.\.\.stepEnv \}/);
+  // The rule is that `stepEnv` comes last, not the exact shape of the object:
+  // the runner also pins Next's telemetry off, and a later addition should not
+  // fail this test as long as a step's own env still wins.
+  assert.match(verifyScript, /env: \{ \.\.\.process\.env, PATH: childPath,[^}]*\.\.\.stepEnv \}/);
 });
 
 test('the public agent notes keep the client on the supported local runtime', () => {
