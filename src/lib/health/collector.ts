@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { openLocalDatabase } from "../local/database";
+import { localDatabasePath, openLocalDatabase } from "../local/database";
 import type { JobScheduler } from "../reliability/jobs";
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
@@ -230,7 +230,7 @@ export function collectCoveHealth(input: {
   const now = input.now ?? new Date();
   const collectedAt = now.toISOString();
   const dataDir = input.dataDir ??
-    path.dirname(input.dbPath ?? path.join(process.cwd(), "data", "cove.db"));
+    path.dirname(input.dbPath ?? localDatabasePath());
   const backupDir = input.backupDir ?? path.join(dataDir, "backups");
   const thirtyDaysAgo = new Date(now.getTime() - 30 * DAY_MS).toISOString();
   const staleCutoff = new Date(now.getTime() - 14 * DAY_MS).toISOString();
