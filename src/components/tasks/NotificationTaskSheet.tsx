@@ -6,6 +6,7 @@ import ModalScrim from './arrival/ModalScrim';
 import {useBuddy} from '@/components/buddy/BuddyProvider';
 import {BuddyGlyph} from '@/components/buddy/BuddyLauncher';
 import EmailCardDetail from './EmailCardDetail';
+import {taskDueLabel} from '@/lib/tasks/due-label';
 
 type Action='today'|'priority'|'complete';
 export default function NotificationTaskSheet({query,onClose,onAction}: {
@@ -74,7 +75,7 @@ export default function NotificationTaskSheet({query,onClose,onAction}: {
         <section className="notification-reason"><h3>Why Cove notified you</h3><p>{context.reason}</p>{context.createdAt&&<small>{new Date(context.createdAt).toLocaleString()}</small>}</section>
         {context.unavailable&&<p>This task is no longer available. The notification has been kept for context.</p>}
         {task&&<>
-          <p className="notification-task-state">{open?'Open':task.status==='done'?'Already completed':'Archived'}{task.due_at&&<> · Due {task.due_at.length===10?new Date(`${task.due_at}T12:00:00`).toLocaleDateString():new Date(task.due_at).toLocaleString()}</>}</p>
+          <p className="notification-task-state">{open?'Open':task.status==='done'?'Already completed':'Archived'}{task.due_at&&<> · Due {taskDueLabel(task.due_at)}</>}</p>
           {task.origin&&<section className="notification-reason"><h3>Where this task came from</h3><p>{task.origin}</p></section>}
           {task.description&&<section><h3>Task details</h3><p className="notification-task-description">{task.description}</p></section>}
           {open&&<div className="notification-task-actions" aria-label="Task actions">

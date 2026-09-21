@@ -27,6 +27,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { execFile as execFileCallback } from "node:child_process";
+import { dueCalendarDay } from "../src/lib/attention/due-date.mjs";
 import { coveEnv } from "../src/lib/env-runtime.mjs";
 import {
   checkLaneOwnership,
@@ -199,7 +200,13 @@ export function groupRecentPings(pings, now = new Date(), options = {}) {
 
 export function taskDueToday(task, localDate, timezone) {
   if (typeof task?.due_at !== "string") return false;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(task.due_at)) return task.due_at === localDate;
+  // A due_at that names a calendar day is compared as a day. This already
+  // handled the bare `YYYY-MM-DD` form; the board's date pickers write the same
+  // day as UTC midnight, and reading that as an instant puts it on the previous
+  // day for every operator west of UTC. src/lib/attention/due-date.mjs explains
+  // the two encodings and is where the other four readers ask.
+  const day = dueCalendarDay(task.due_at);
+  if (day !== null) return day === localDate;
   const due = new Date(task.due_at);
   if (Number.isNaN(due.getTime())) return false;
   const parts = Object.fromEntries(
