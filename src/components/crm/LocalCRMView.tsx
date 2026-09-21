@@ -160,7 +160,16 @@ export default function LocalCRMView() {
         <div className="water-empty-state max-w-lg p-6">
           <p className="water-eyebrow">Relationships</p>
           <h1 className="water-workspace-title mt-2">People could not load.</h1>
-          <p className="mt-2 text-[13.5px] leading-[1.55] text-muted-foreground">{error}</p>
+          <p className="mt-2 text-[13.5px] leading-[1.55] text-muted-foreground">
+            Cove could not reach your contacts. Nothing has been lost. Try again
+            in a moment.
+          </p>
+          <details className="mt-2">
+            <summary className="cursor-pointer text-xs text-muted-foreground">
+              What went wrong
+            </summary>
+            <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">{error}</p>
+          </details>
           <button
             onClick={() => void load(search)}
             className="water-primary-button mt-4 px-4 py-2"
@@ -376,7 +385,8 @@ function AddContactForm({
       });
       onCreated(contact, createdCompany);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : String(err));
+      console.error('Cove could not add a contact', err);
+      setFormError('That could not be saved. Nothing was lost. Try again in a moment.');
       setSaving(false);
     }
   }
@@ -499,6 +509,9 @@ function AddContactForm({
   );
 }
 
+/** Reads inside "Could not save notes: …. Your text is still here". */
+const FIELD_SAVE_REASON = 'the change did not reach your Mac';
+
 function ContactDetailPanel({
   contact,
   companyName,
@@ -587,7 +600,8 @@ function ContactDetailPanel({
         saveStatusField.current = undefined;
         setSaveStatus('idle');
       }
-      setFieldErrors(current => ({ ...current, [field]: err instanceof Error ? err.message : String(err) }));
+      console.error(`Cove could not save the ${field} field`, err);
+      setFieldErrors(current => ({ ...current, [field]: FIELD_SAVE_REASON }));
     }
   }
 
@@ -632,7 +646,8 @@ function ContactDetailPanel({
       setSaveError(undefined);
       await onDeleteContact();
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : String(err));
+      console.error('Cove could not delete a contact', err);
+      setSaveError('That could not be deleted. Nothing has changed. Try again in a moment.');
     }
   }
 
@@ -838,7 +853,8 @@ function ActivityTimeline({
       const rows = await listContactActivities(contactId);
       setActivities(rows);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      console.error('Cove could not load contact activity', err);
+      setError('Cove could not load this history. Try again in a moment.');
     }
   }, [contactId]);
 
@@ -873,14 +889,14 @@ function ActivityTimeline({
       try {
         await onActivityAdded({ last_interaction_at: new Date().toISOString() });
       } catch (touchErr) {
+        console.error('Cove could not touch last_interaction_at', touchErr);
         setTouchWarning(
-          `Activity saved, but the last-contact time did not update: ${
-            touchErr instanceof Error ? touchErr.message : String(touchErr)
-          }`,
+          'Activity saved. The last-contact time did not update.',
         );
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      console.error('Cove could not save contact activity', err);
+      setError('That could not be saved. Nothing was lost. Try again in a moment.');
     } finally {
       setSaving(false);
     }
