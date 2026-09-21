@@ -44,6 +44,7 @@ export default function RhythmManager({
   const [error, setError] = useState<string>();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const settleTimer = useRef<number | undefined>(undefined);
 
   // The panel opens over the Today screen and covers a focus card while it is
   // there, so it has to close the way everything else on that screen closes.
@@ -73,6 +74,24 @@ export default function RhythmManager({
     };
   }, [open]);
 
+  useEffect(() => () => {
+    if (settleTimer.current !== undefined) window.clearTimeout(settleTimer.current);
+  }, []);
+
+  // The list is ordered active first, so stopping a rhythm drops it down the
+  // panel and pulls the next one up into the space it left. A round trip here
+  // takes about 60ms, which is inside the gap between the two halves of one
+  // double click. Measured before this: double-clicking Stop on the first
+  // rhythm stopped that rhythm and the one below it, because by the second
+  // click the second rhythm's Stop button was sitting under the cursor --
+  // and this panel has no undo. Double-clicking Pause was the same shape in
+  // reverse: it paused and resumed, so the rhythm was never paused and the
+  // panel said nothing about it. Guarding by row id could not catch either,
+  // because the second click is a different row's button or a different
+  // button on the same row. The guard is the whole panel now, and it is held
+  // a moment past the re-render so the settled list cannot take a click
+  // nobody aimed at it. A failure clears it at once, so a real retry is
+  // never delayed.
   async function change(
     id: string,
     patch: Parameters<typeof updateRecurringTemplate>[0],
@@ -82,9 +101,9 @@ export default function RhythmManager({
     try {
       await updateRecurringTemplate({ ...patch, id });
       await onChanged();
+      settleTimer.current = window.setTimeout(() => setBusyId(undefined), 400);
     } catch {
       setError("Cove couldn't update that rhythm.");
-    } finally {
       setBusyId(undefined);
     }
   }
@@ -131,9 +150,9 @@ export default function RhythmManager({
                   {!template.active && (
                     <button
                       type="button"
-                      disabled={busyId === template.id}
+                      disabled={busyId !== undefined}
                       onClick={() => void change(template.id, { id: template.id, active: true })}
-                      className="text-[12px] font-medium normal-case tracking-normal text-muted-foreground hover:text-foreground disabled:opacity-50"
+                      className="-my-1.5 py-1.5 text-[12px] font-medium normal-case tracking-normal text-muted-foreground hover:text-foreground disabled:opacity-50"
                     >
                       Restart
                     </button>
@@ -141,9 +160,9 @@ export default function RhythmManager({
                   {template.active && (
                     <button
                       type="button"
-                      disabled={busyId === template.id}
+                      disabled={busyId !== undefined}
                       onClick={() => void change(template.id, { id: template.id, active: false })}
-                      className="text-[12px] font-medium normal-case tracking-normal text-muted-foreground hover:text-accent-red disabled:opacity-50"
+                      className="-my-1.5 py-1.5 text-[12px] font-medium normal-case tracking-normal text-muted-foreground hover:text-accent-red disabled:opacity-50"
                     >
                       Stop
                     </button>
@@ -154,7 +173,7 @@ export default function RhythmManager({
                     <select
                       aria-label={`Cadence for ${template.title}`}
                       value={template.cadence}
-                      disabled={busyId === template.id}
+                      disabled={busyId !== undefined}
                       onChange={(event) =>
                         void change(template.id, {
                           id: template.id,
@@ -173,13 +192,13 @@ export default function RhythmManager({
                     </select>
                     <button
                       type="button"
-                      disabled={busyId === template.id}
+                      disabled={busyId !== undefined}
                       onClick={() =>
                         void change(template.id, {
                           id: template.id,
                           pausedUntil: template.pausedUntil ? null : '9999-12-31',
                         })}
-                      className="mt-2 text-[12px] font-medium normal-case tracking-normal text-muted-foreground hover:text-foreground disabled:opacity-50"
+                      className="mt-0.5 py-1.5 text-[12px] font-medium normal-case tracking-normal text-muted-foreground hover:text-foreground disabled:opacity-50"
                     >
                       {template.pausedUntil ? 'Resume' : 'Pause'}
                     </button>
