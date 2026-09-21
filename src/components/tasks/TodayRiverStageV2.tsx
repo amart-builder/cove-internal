@@ -1270,18 +1270,30 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
               const point = beadPoints[index];
               if (!point) return null;
               return (
-                <circle
+                // The bead paints at 11x13px on screen, well under the 24px
+                // WCAG 2.2 asks of a target, and the river stretches its own
+                // coordinates unevenly so the bead cannot simply be drawn
+                // larger without changing how the river looks. The press
+                // lives on an invisible circle around it instead, which puts
+                // the target over 24px in both directions and leaves every
+                // painted pixel exactly where it was.
+                <g
                   key={task.id}
-                  className={`today2-bead is-${index + 1}`}
-                  cx={point.x}
-                  cy={point.y}
-                  r="7"
+                  className="today2-bead-target"
                   role="button"
                   tabIndex={0}
                   aria-label={`Open Focus Grid for ${task.title}`}
                   onClick={(event) => openGridFrom(event.currentTarget)}
                   onKeyDown={(event) => onKeyboardActivate(event, () => openGridFrom(event.currentTarget))}
-                />
+                >
+                  <circle className="today2-bead-hit" cx={point.x} cy={point.y} r="16" />
+                  <circle
+                    className={`today2-bead is-${index + 1}`}
+                    cx={point.x}
+                    cy={point.y}
+                    r="7"
+                  />
+                </g>
               );
             })}
           </svg>

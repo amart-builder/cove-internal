@@ -84,3 +84,44 @@ test('the check stays whole while its card is completing', () => {
   assert.match(css, /\.today2-focus-card\.is-completing\s*\{[^}]*animation:\s*today2-complete-fade/,
     'the completing card no longer runs its own fade, so re-check what the dim rule should exclude');
 });
+
+test('the way back from Follow-through is big enough to hit', () => {
+  // "Back to Today" stands on its own above the heading rather than inside a
+  // sentence, so the 24px WCAG 2.2 asks of a target applies to it. Measured in
+  // a browser before the padding: 97x16.
+  const source = readFileSync(
+    new URL('../src/components/reliability/ResponsibilityOverview.tsx', import.meta.url), 'utf8');
+  const at = source.indexOf('Back to Today');
+  assert.notEqual(at, -1, 'Follow-through no longer offers a way back to Today');
+  const link = source.slice(source.lastIndexOf('<Link', at), at);
+  assert.match(link, /\bpy-\d/, 'the Back to Today link has no vertical padding, so it is 16px tall');
+  assert.match(link, /\binline-block\b/,
+    'padding on an inline link does not grow its box, so the target stays 16px tall');
+});
+
+test('a river bead is pressed through something big enough to press', () => {
+  // The painted bead is 11x13px on screen, and the river stretches its own
+  // coordinates unevenly, so it cannot be drawn bigger without changing how
+  // the river looks. An invisible circle around it carries the press instead:
+  // measured at 1440x900, the target is 26x30 and the dot is still 11x13.
+  const stage = readFileSync(
+    new URL('../src/components/tasks/TodayRiverStageV2.tsx', import.meta.url), 'utf8');
+  const at = stage.indexOf('today2-bead-target');
+  assert.notEqual(at, -1, 'the bead no longer has a target of its own');
+  const group = stage.slice(at, stage.indexOf('</g>', at));
+
+  const hit = group.match(/today2-bead-hit[^/]*?r="(\d+)"/);
+  const dot = group.match(/today2-bead is-\$\{index \+ 1\}`\}[\s\S]*?r="(\d+)"/);
+  assert.ok(hit && dot, 'the bead is no longer drawn as an invisible target around a painted dot');
+  assert.ok(Number(hit[1]) >= Number(dot[1]) * 2,
+    `the invisible target (r=${hit?.[1]}) is no longer twice the painted dot (r=${dot?.[1]}), so it is back under 24px`);
+
+  // The press has to be on the group. On the painted circle it would be the
+  // small one again, whatever is drawn around it.
+  assert.match(group.slice(0, group.indexOf('<circle')), /role="button"[\s\S]*onClick=/,
+    'the press moved off the group and back onto something the size of the dot');
+  assert.doesNotMatch(css, /\.today2-bead\s*\{[^}]*pointer-events:\s*auto/,
+    'the painted bead takes presses again, which puts the small target back in front of the big one');
+  assert.match(css, /\.today2-bead-hit\s*\{[^}]*pointer-events:\s*all/,
+    'the invisible target takes no presses, so nothing is clickable at all');
+});
