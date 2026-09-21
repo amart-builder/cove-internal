@@ -213,16 +213,26 @@ export function resolveLocalInboundEvent(input: {
       input.id,
     ) as Record<string, unknown> | undefined;
     if (!row) return undefined;
-    if (input.state === "failed") {
+    // "triaged" with an error is the degraded capture: triage threw, so the raw
+    // text became a plain card and the reason was recorded on the event. That
+    // used to take the branch below and dismiss failures instead of raising
+    // one, so a person who was told Cove would work out what their note was got
+    // the note back verbatim with nothing anywhere saying why. A still-retrying
+    // "pending" is not a failure yet, and "dismissed" is a decision, not one.
+    const degraded = input.state === "triaged" && Boolean(input.error);
+    if (input.state === "failed" || degraded) {
       recordFailureInDatabase(db, {
         source: "inbound-event",
         sourceId: input.id,
-        message: `Could not process ${String(row.source ?? "inbound")} item: ${input.error ?? "unknown error"}`,
+        message: degraded
+          ? `Cove saved your ${String(row.source ?? "inbound")} item but could not sort it out, so it is on your board as you wrote it. Open it to set the deadline and where it belongs.`
+          : `Could not process ${String(row.source ?? "inbound")} item: ${input.error ?? "unknown error"}`,
         details: {
           eventId: input.id,
           eventSource: row.source,
           attempts: row.attempts,
           error: input.error,
+          ...(degraded ? { degraded: true, taskId: input.taskId } : {}),
         },
         occurredAt: input.updatedAt,
       });
