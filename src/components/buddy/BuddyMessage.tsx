@@ -131,8 +131,15 @@ export default function BuddyMessage({ turn, thinking, hostname, deepLinksEnable
 }) {
   const isConfirmedDelete = /^CONFIRM_DELETE\b/.test(turn.user_text);
   const partialOverflow = turn.state === 'failed' && turn.error_code === 'context_overflow_after_changes';
-  const needsClaudeSignIn = turn.provider !== 'codex' && turn.state === 'failed' && isClaudeNotSignedIn(turn.assistant_text);
-  const needsCodexSignIn = turn.provider === 'codex' && turn.state === 'failed' && /sign in|login|authentication|unauthorized/i.test(turn.assistant_text);
+  // A turn that fails before the provider streams anything has no assistant
+  // text to read a cause out of, so the route classifies the rejection and
+  // sends the code. Without this the lapsed sign-in that stops a turn dead
+  // showed the same "Buddy was interrupted." as everything else.
+  const lapsedSignIn = turn.state === 'failed' && turn.error_code === 'not_signed_in';
+  const needsClaudeSignIn = turn.provider !== 'codex' && turn.state === 'failed' &&
+    (lapsedSignIn || isClaudeNotSignedIn(turn.assistant_text));
+  const needsCodexSignIn = turn.provider === 'codex' && turn.state === 'failed' &&
+    (lapsedSignIn || /sign in|login|authentication|unauthorized/i.test(turn.assistant_text));
   return (
     <article className="space-y-2">
       {turn.provider_changed === 1 && (
@@ -165,7 +172,11 @@ export default function BuddyMessage({ turn, thinking, hostname, deepLinksEnable
             <span>Thinking…</span>
           </div>
         ) : (
-          <p className="text-muted-foreground">Buddy was interrupted.</p>
+          <p className="text-muted-foreground">
+            {turn.error_code === 'provider_missing'
+              ? `Cove cannot find the ${turn.provider === 'codex' ? 'Codex' : 'Claude'} command it thinks with. Ask your Cove setup agent to install it.`
+              : 'Buddy was interrupted.'}
+          </p>
         )}
         {partialOverflow && (
           <p className="mt-2 text-xs text-muted-foreground">
