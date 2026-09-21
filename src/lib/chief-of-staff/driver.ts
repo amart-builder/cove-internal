@@ -2,6 +2,8 @@ import { createDayPlanStore } from "../day-plan/store";
 import { morningBriefModelConfig } from "../claude-execution/brief-commands";
 import { PLANNING_QUESTIONS } from "./planning-contract";
 import { localDateLabel } from "./planning-dates";
+import { operatorTimezone } from "../operator";
+import { originDate } from "../tasks/origin";
 import {
   dailyPlanningSchema,
   dailyPlanningPrompt,
@@ -71,6 +73,18 @@ const WAKE_TIMEOUT_MS = 15 * 60_000;
 const RECENT_TASK_DAYS = 14;
 const MAX_PROCESS_OUTPUT = 4 * 1024 * 1024;
 const SALES_PIPELINE_STATUS_PLACEHOLDER = "{{SALES_PIPELINE_STATUS}}";
+
+/**
+ * The proposed deadline is read by the person on the suggestion card, so it is
+ * written the way every other date Cove shows them is. A bare calendar date is
+ * labelled in UTC: read as an instant it would slide to the previous day in a
+ * negative-offset timezone and move the deadline the model proposed.
+ */
+function proposedDeadlineLabel(due: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(due)
+    ? originDate(`${due}T12:00:00.000Z`, "UTC")
+    : originDate(due, operatorTimezone());
+}
 
 type CodexAttempt = {
   ok: boolean;
@@ -764,7 +778,7 @@ function applyChiefOfStaffActionsWithDetails(input: {
           const title=requiredActionText(action,"title",500);
           if(existingTaskWithTitle(db,title,now))throw new Error("A task with this title already exists. Read the current task.");
           const due=optionalActionText(action,"due_at",40);validateChiefOfStaffDueAt(due,"due_at");
-          const description=[optionalActionText(action,"details",4000),due?`Proposed deadline, not yet confirmed: ${due}`:null].filter(Boolean).join("\n");
+          const description=[optionalActionText(action,"details",4000),due?`Proposed deadline, not yet confirmed: ${proposedDeadlineLabel(due)}`:null].filter(Boolean).join("\n");
           createWorkSuggestion({kind:"create_task",title,description,reason:requiredActionText(action,"why",200),source:"chief-of-staff",priority:priority(action.priority),
             claimKey:`cos:proposed:${createHash("sha256").update(normalizedTaskTitle(title)).digest("hex").slice(0,24)}`,dataDir:input.dataDir});
           action.downgraded_to="suggest";
