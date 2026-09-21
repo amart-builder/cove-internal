@@ -457,6 +457,10 @@ function KanbanBoardContent({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all');
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  // Completing a task has been guarded against a second click since it was
+  // written (see completingTaskId below); adding one was not, so a double
+  // click on Add Task made two of it.
+  const [addingTask, setAddingTask] = useState(false);
   const [showRecentlyDeleted, setShowRecentlyDeleted] = useState(false);
   const [operationError, setOperationError] = useState<{
     message: string;
@@ -835,8 +839,9 @@ function KanbanBoardContent({
 
   async function handleAddTask(e: React.FormEvent) {
     e.preventDefault();
-    if (!newTask.title.trim() || !notStartedColumn) return;
+    if (!newTask.title.trim() || !notStartedColumn || addingTask) return;
 
+    setAddingTask(true);
     try {
       const tags = newTask.tags
         .split(',')
@@ -861,6 +866,8 @@ function KanbanBoardContent({
       setOperationError({
         message: "Cove couldn't add that task. Your draft is still here.",
       });
+    } finally {
+      setAddingTask(false);
     }
   }
 
@@ -1175,12 +1182,12 @@ function KanbanBoardContent({
             <div className="flex gap-1.5 shrink-0">
               <button
                 type="submit"
-                disabled={Boolean(addTaskUnavailableReason)}
+                disabled={Boolean(addTaskUnavailableReason) || addingTask}
                 title={addTaskUnavailableReason}
                 aria-describedby={addTaskUnavailableReason ? 'add-task-availability' : undefined}
                 className="water-primary-button px-4 py-2 disabled:opacity-40"
               >
-                Add Task
+                {addingTask ? 'Adding…' : 'Add Task'}
               </button>
               <button
                 type="button"
