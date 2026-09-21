@@ -16,6 +16,19 @@ export function reconcileRecoveredFailures(db: Database.Database, now = new Date
         AND CASE WHEN json_valid(newer.payload) THEN json_extract(newer.payload,'$.payload') END='{}'
         AND newer.finished_at>cove_failure_inbox.occurred_at))`)
     .run(now.toISOString());
+  // Backup and the service check are whole-system periodic runs: each one
+  // starts fresh and supersedes the last, so a later success is durable
+  // evidence that the earlier failure no longer describes anything. The email
+  // and Gmail job types are deliberately absent. Each of those is one message,
+  // so another message succeeding says nothing about this one.
+  db.prepare(`UPDATE cove_failure_inbox SET dismissed_at=?
+    WHERE dismissed_at IS NULL AND source='job' AND source_id IN (
+      SELECT old.id FROM cove_jobs old
+      WHERE old.type IN ('backup','health-collector')
+      AND EXISTS (SELECT 1 FROM cove_jobs newer
+        WHERE newer.type=old.type AND newer.status='done' AND newer.id<>old.id
+        AND newer.finished_at>cove_failure_inbox.occurred_at))`)
+    .run(now.toISOString());
   db.prepare(`UPDATE cove_failure_inbox SET dismissed_at=?
     WHERE dismissed_at IS NULL AND source='meeting-analysis-degraded'
       AND source_id IN (SELECT id FROM meeting_analysis_jobs WHERE status='succeeded')`)
