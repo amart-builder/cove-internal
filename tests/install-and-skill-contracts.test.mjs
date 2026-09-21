@@ -836,6 +836,11 @@ test("--status says a disabled lane will not start, instead of 'starts at login'
   assert.match(status, /com\.cove\.local\s+loaded\s+starts at login/);
   assert.match(status, /stays stopped through a restart/);
   assert.match(status, /install-cove-local\.sh/);
+  // The hint used to say the override survives a reinstall, one line above
+  // telling you to reinstall to clear it. Since the installer enables every
+  // label it loads, the remedy is the true half; the warning has to be about
+  // what does survive, which is a restart and the plist file itself.
+  assert.doesNotMatch(status, /reinstall/i);
 });
 
 test("--status is unchanged on a Mac where nothing is disabled", async (t) => {
