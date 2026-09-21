@@ -67,6 +67,16 @@ function fixture(t) {
     "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$COVE_TEST_CALLS\"\n",
   );
   chmodSync(path.join(bin, "osascript"), 0o700);
+  // The triage runner resolves its provider binary on PATH before it spawns
+  // anything, and falls back to a raw-text card when it cannot find one. The
+  // spawn itself is stubbed below, so this only has to exist and answer the
+  // capability probe.
+  const codex = path.join(bin, "codex");
+  writeFileSync(
+    codex,
+    "#!/bin/sh\nif [ \"$1\" = \"mcp\" ]; then echo '{\"name\":\"1password\"}'; exit 0; fi\nexit 99\n",
+  );
+  chmodSync(codex, 0o700);
   const dbPath = path.join(dir, "cove.db");
   const db = new Database(dbPath);
   runLocalMigrations(db);
@@ -78,16 +88,20 @@ function fixture(t) {
   );
 
   const prior = {
+    path: process.env.PATH,
     db: process.env.COVE_DB_PATH,
     runtime: process.env.NEXT_PUBLIC_COVE_RUNTIME,
     timezone: process.env.COVE_TIMEZONE,
   };
   const priorDb = globalThis.__coveDb;
   delete globalThis.__coveDb;
+  process.env.PATH = `${bin}${path.delimiter}${prior.path ?? ""}`;
   process.env.COVE_DB_PATH = dbPath;
   process.env.NEXT_PUBLIC_COVE_RUNTIME = "local";
   process.env.COVE_TIMEZONE = TIMEZONE;
   t.after(() => {
+    if (prior.path === undefined) delete process.env.PATH;
+    else process.env.PATH = prior.path;
     globalThis.__coveDb?.close();
     if (priorDb === undefined) delete globalThis.__coveDb;
     else globalThis.__coveDb = priorDb;
