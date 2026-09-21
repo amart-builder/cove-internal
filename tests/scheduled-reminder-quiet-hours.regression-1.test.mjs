@@ -120,6 +120,30 @@ test("a daytime reminder is unaffected", (t) => {
   assert.equal(existsSync(file), false);
 });
 
+// The cost of the window, stated rather than left to be discovered. An hour
+// the model picks just past 20:00 is not delivered that evening; it waits
+// until 08:00. That is a real delay for an evening reminder, and it is the
+// deliberate trade for never ringing at 3am: 20:00 is where the sibling lane
+// in this same file and the meeting analyst's remind_at rule both draw the
+// line, and prompts/triage.md now tells the model the window and says an hour
+// outside it waits. Widening to 21:00 would match the Apple Reminders bridge
+// instead; that is a product call, and this case is here so that changing the
+// number changes a test rather than passing unnoticed.
+test("an hour just past the window waits for the morning", (t) => {
+  const files = fixture(t);
+  const file = schedule(files, "task-evening", {
+    title: "Text Dana about Friday",
+    surface_at: "2026-09-22T20:30:00-07:00",
+  });
+
+  // 21:15 in Los Angeles, forty-five minutes after it came due.
+  assert.doesNotMatch(runReminders(files, "2026-09-23T04:15:00Z"), /Text Dana/);
+  assert.equal(existsSync(file), true, "waiting must not mean discarded");
+  // 08:30 the next morning.
+  assert.match(runReminders(files, "2026-09-23T15:30:00Z"), /Text Dana/);
+  assert.equal(existsSync(file), false);
+});
+
 test("a reminder not yet due is still not delivered", (t) => {
   const files = fixture(t);
   const file = schedule(files, "task-3", {
