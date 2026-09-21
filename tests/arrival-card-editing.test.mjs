@@ -99,3 +99,21 @@ test('the removed All Work picker has no remaining import or file', () => {
   assert.doesNotMatch(source, /AllWorkPicker/);
   assert.equal(existsSync(componentPath('arrival', 'AllWorkPicker.tsx')), false);
 });
+
+test('a refused drop is announced once, not twice', () => {
+  // Every refusal reaches a screen reader through the drag library's own
+  // assertive region, which returns outcome.note from onDragEnd. The visible
+  // paragraph under the grid shows that same sentence to a sighted person.
+  // While it was also a live region, one refused drop was read out twice.
+  const source = readFileSync(componentPath('arrival', 'ArrivalPlanGrid.tsx'), 'utf8');
+
+  const at = source.indexOf('{dropNote && (');
+  assert.notEqual(at, -1, 'the grid no longer shows why a drop was refused');
+  const block = source.slice(at, source.indexOf(')}', at));
+  assert.doesNotMatch(block, /role="(status|alert)"|aria-live/,
+    'the visible note is a live region again, so a refusal is announced twice');
+
+  // And the announcement it relies on is still there.
+  assert.match(source, /onDragEnd:[\s\S]{0,400}?outcome\.kind === 'refused'\) return outcome\.note/,
+    'onDragEnd no longer announces the refusal, so now nothing does');
+});

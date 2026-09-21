@@ -877,8 +877,14 @@ export default function ArrivalPlanGrid({
         </section>
       </DndContext>
 
+      {/* Deliberately not a live region. dropNote is only ever set from the
+          drop handler, and the drag library's own announcement returns the
+          same refusal sentence from onDragEnd, so marking this one up as
+          well had a screen reader read "Initial priorities are full at
+          three" twice for one drop. This paragraph is what a sighted person
+          reads; the assertive region is what a screen reader hears. */}
       {dropNote && (
-        <p role="status" className="mt-3 text-xs text-muted-foreground">
+        <p className="mt-3 text-xs text-muted-foreground">
           {dropNote}
         </p>
       )}
