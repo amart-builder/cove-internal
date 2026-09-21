@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getQuietCurrentCsrfToken } from "@/lib/quiet-current/store";
+import { diagnosticCause } from "@/lib/reliability/job-failure-copy";
 import {
   currentDayPlanAccessMode,
   hasDayPlanRouteAccess,
@@ -802,6 +803,25 @@ export function includeBriefCreatedEnsureCandidates(
   }
 }
 
+// Everything a person can act on reaches this route as its own status and its
+// own sentence; what falls through to a 500 is an internal exception, and its
+// message is written for whoever reads a log. Today renders `error` verbatim,
+// so a full disk used to put "database or disk is full" on the first screen of
+// the day, ahead of a sentence about suggestions that was not what had gone
+// wrong. The cause, when Cove recognises one, is said in words instead, and
+// the raw text stays in `detail` for whoever is helping.
+function unexpectedDayPlanFailure(
+  impact: string,
+  error: unknown,
+): { error: string; detail?: string } {
+  const diagnostic = error instanceof Error ? error.message : String(error);
+  const { cause, remedy } = diagnosticCause(diagnostic);
+  return {
+    error: impact + cause + remedy,
+    ...(diagnostic ? { detail: diagnostic } : {}),
+  };
+}
+
 export async function GET(request: NextRequest) {
   if (!hasDayPlanRouteAccess(request)) {
     return NextResponse.json({ error: "Untrusted request host." }, { status: 403 });
@@ -834,10 +854,9 @@ export async function GET(request: NextRequest) {
       csrfToken: getQuietCurrentCsrfToken(),
     });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Day plan failed." },
-      { status: 500 },
-    );
+    return NextResponse.json(unexpectedDayPlanFailure("Cove couldn't load your day.", error), {
+      status: 500,
+    });
   }
 }
 
@@ -1054,7 +1073,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Day plan failed." },
+      unexpectedDayPlanFailure("Cove couldn't update your day.", error),
       { status: 500 },
     );
   }
