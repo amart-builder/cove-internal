@@ -275,6 +275,27 @@ export function canStartDayPlanSettlement(plan: DayPlan): boolean {
       plan.arrivalState === 'snoozed');
 }
 
+// Why "Close My Day" is unavailable, or undefined when it is available. A
+// dimmed control with no stated reason is the opposite of what this screen
+// promises, so the reason is written for him to read, not for a log.
+export function dayCloseUnavailableReason(input: {
+  plan?: Pick<DayPlan, 'state' | 'arrivalState' | 'settlementState'>;
+  busy?: boolean;
+  weekendWeekday?: string;
+}): string | undefined {
+  if (!input.plan) {
+    return input.weekendWeekday
+      ? `Closing is paused on ${input.weekendWeekday}. Choose Plan today anyway to open it.`
+      : "Closing your day is available once today's plan is ready.";
+  }
+  if (input.busy) return "Cove is updating today's plan.";
+  if (input.plan.state === 'settled') return 'Today is already closed.';
+  if (!canStartDayPlanSettlement(input.plan as DayPlan)) {
+    return 'Start your day in Morning Arrival first, then you can close it.';
+  }
+  return undefined;
+}
+
 export function reorderDayPlanItems<T extends DayPlanItem>(
   items: readonly T[],
   activeId: string,

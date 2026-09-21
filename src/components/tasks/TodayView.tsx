@@ -56,7 +56,7 @@ import {
   selectArrivalCandidateTasks,
 } from '@/lib/day-plan/candidates';
 import {
-  canStartDayPlanSettlement,
+  dayCloseUnavailableReason,
   combineSurfaceErrors,
   completedTasksForToday,
   currentDayPlanItems,
@@ -1927,9 +1927,15 @@ function TodayExperience({
         : dayRitual.busy
           ? 'Cove is updating today\'s plan.'
           : undefined;
-  const closeDayDisabled = !dayRitual.plan ||
-    dayRitual.busy ||
-    !canStartDayPlanSettlement(dayRitual.plan);
+  // Same shape as the Morning Arrival reason above, and for the same reason: a
+  // dimmed button with no explanation leaves him guessing at what to do next,
+  // which is the one thing this screen is supposed to answer.
+  const closeDayUnavailableReason = dayCloseUnavailableReason({
+    plan: dayRitual.plan,
+    busy: dayRitual.busy,
+    weekendWeekday: dayRitual.weekendGate?.weekday,
+  });
+  const closeDayDisabled = Boolean(closeDayUnavailableReason);
   const searchResults = openTasks
     .filter((task) => {
       const query = searchQuery.trim().toLowerCase();
@@ -2349,6 +2355,7 @@ function TodayExperience({
             morningArrivalDisabled: Boolean(morningArrivalUnavailableReason),
             morningArrivalTitle: morningArrivalUnavailableReason,
             closeDayDisabled,
+            closeDayTitle: closeDayUnavailableReason,
             dayClosed: dayRitual.plan?.state === 'settled',
             weekendGate: !dayRitual.plan && dayRitual.weekendGate
               ? {
@@ -2466,10 +2473,15 @@ function TodayExperience({
                 type="button"
                 className="current-capture-toggle"
                 disabled={closeDayDisabled}
+                title={closeDayUnavailableReason}
+                aria-describedby="close-day-availability"
                 onClick={() => void openDaySettlement()}
               >
                 Close My Day
               </button>
+              <span id="close-day-availability" className="sr-only">
+                {closeDayUnavailableReason ?? 'Close today and settle what is still open.'}
+              </span>
             </div>
             {captureOpen && (
               <form onSubmit={handleCapture} className="current-capture-form">

@@ -101,6 +101,7 @@ export type TodayRiverStageV2Model = {
   morningArrivalDisabled?: boolean;
   morningArrivalTitle?: string;
   closeDayDisabled?: boolean;
+  closeDayTitle?: string;
   dayClosed?: boolean;
   weekendGate?: {
     weekday: string;
@@ -1134,13 +1135,26 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
               type="button"
               disabled={model.morningArrivalDisabled}
               title={model.morningArrivalTitle}
+              aria-describedby="today2-morning-arrival-availability"
               onClick={callbacks.onOpenMorningArrival}
             >
               Morning Arrival
             </button>
-            <button type="button" disabled={model.closeDayDisabled} onClick={callbacks.onOpenCloseDay}>
+            <span id="today2-morning-arrival-availability" className="sr-only">
+              {model.morningArrivalTitle ?? 'Open or revisit Morning Arrival.'}
+            </span>
+            <button
+              type="button"
+              disabled={model.closeDayDisabled}
+              title={model.closeDayTitle}
+              aria-describedby="today2-close-day-availability"
+              onClick={callbacks.onOpenCloseDay}
+            >
               Close My Day
             </button>
+            <span id="today2-close-day-availability" className="sr-only">
+              {model.closeDayTitle ?? 'Close today and settle what is still open.'}
+            </span>
           </div>
           {model.weekendGate && (
             <div className="today2-weekend-gate">
@@ -1319,6 +1333,7 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
               <button
                 type="button"
                 disabled={model.closeDayDisabled}
+                title={model.closeDayTitle}
                 onClick={callbacks.onOpenCloseDay}
               >
                 Close My Day
