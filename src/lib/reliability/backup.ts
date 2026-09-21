@@ -79,7 +79,15 @@ export async function createSqliteBackup(input: {
       return modified || right.localeCompare(left);
     });
   const removed = backups.slice(keep);
-  for (const file of removed) rmSync(file, { force: true });
+  // Every snapshot leaves a -wal and a -shm beside it, from the verification
+  // read that follows the copy. Deleting only the database left those two
+  // behind for good, so a pruned backup directory filled with sidecars that
+  // name a file no longer in it -- and a glob over that directory sorts a
+  // `.db-wal` after its `.db`, which is exactly how a person ends up trying to
+  // restore one.
+  for (const file of removed) {
+    for (const suffix of ["", "-wal", "-shm"]) rmSync(`${file}${suffix}`, { force: true });
+  }
   return { path: destination, removed, reused };
 }
 

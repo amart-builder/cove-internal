@@ -482,6 +482,22 @@ test('unique snapshot IDs avoid same-second collisions and participate in retent
   assert.deepEqual(second.removed, [first.path]);
 });
 
+test('a pruned snapshot takes its sidecars with it', async (t) => {
+  const fixture = backupCommandFixture(t);
+  const now = new Date('2026-09-04T12:00:00Z');
+  const first = await createSqliteBackup({ ...fixture, now, snapshotId: 'first' });
+  // The verification read leaves these beside every snapshot. Pruning used to
+  // delete the database alone, so they stayed in the directory naming a file
+  // that was no longer there -- and a glob sorts `.db-wal` after `.db`.
+  for (const suffix of ['-wal', '-shm']) {
+    writeFileSync(`${first.path}${suffix}`, '');
+  }
+  await createSqliteBackup({ ...fixture, now, snapshotId: 'second', keep: 1 });
+  assert.equal(existsSync(first.path), false);
+  assert.equal(existsSync(`${first.path}-wal`), false, 'the pruned snapshot left its -wal behind');
+  assert.equal(existsSync(`${first.path}-shm`), false, 'the pruned snapshot left its -shm behind');
+});
+
 test('daily backup verifies legacy completed jobs without inventing a new filename', async (t) => {
   const fixture = backupCommandFixture(t);
   const now = new Date();
