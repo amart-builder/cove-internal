@@ -475,3 +475,43 @@ test('local email equality filter returns only the exact normalized email', {
     [exact.contact.id],
   );
 });
+
+test('a contact without a full name is told what is missing, not that it is ambiguous', async (t) => {
+  const dir = path.join(os.tmpdir(), `cove-rest-contact-${process.pid}-${Date.now()}`);
+  mkdirSync(dir, { recursive: true });
+  const previousDbPath = process.env.COVE_DB_PATH;
+  process.env.COVE_DB_PATH = path.join(dir, 'cove.db');
+  t.after(() => {
+    if (previousDbPath === undefined) delete process.env.COVE_DB_PATH;
+    else process.env.COVE_DB_PATH = previousDbPath;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // Setup loads a person's real contacts through this path, and people arrive
+  // with one-word names. The resolver calls that ambiguous, which on an empty
+  // database means ambiguous between nothing at all.
+  const token = getQuietCurrentCsrfToken();
+  const insert = (payload) => POST(
+    new NextRequest('http://localhost:3200/api/cove-rest/contacts', {
+      method: 'POST',
+      headers: {
+        host: 'localhost:3200',
+        origin: 'http://localhost:3200',
+        'content-type': 'application/json',
+        'x-cove-csrf': token,
+      },
+      body: JSON.stringify(payload),
+    }),
+    { params: Promise.resolve({ table: 'contacts' }) },
+  );
+
+  const oneWord = await insert({ name: 'Sasha', source: 'manual' });
+  assert.equal(oneWord.status, 409);
+  const oneWordBody = await oneWord.json();
+  assert.deepEqual(oneWordBody.candidates, []);
+  assert.match(oneWordBody.error, /needs a first and last name/);
+  assert.doesNotMatch(oneWordBody.error, /ambiguous/);
+
+  const full = await insert({ name: 'Sasha Okonkwo', source: 'manual' });
+  assert.equal(full.status, 200);
+});
