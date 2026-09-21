@@ -167,7 +167,18 @@ if [ -z "$CODEX_BIN" ] && [ -x "/usr/local/bin/codex" ]; then
   CODEX_BIN="/usr/local/bin/codex"
 fi
 if [ "$JOB_RUNNER" = "codex-sol-high" ] && { [ -z "$CODEX_BIN" ] || [ ! -x "$CODEX_BIN" ]; }; then
-  echo "COVE_JOB_RUNNER=codex-sol-high requires an executable Codex CLI. Install it or set COVE_CODEX_BIN." >&2
+  if [ -z "$AGENT_PROVIDER" ]; then
+    # No saved selection, so JOB_RUNNER fell back to the legacy Codex default.
+    # On a first install that is not a Codex problem: Step 0 of SETUP.md has not
+    # been finished yet. Naming an environment variable the person never set
+    # sends them to install a CLI they may have deliberately not chosen.
+    echo "Cove has no saved agent selection yet, so it fell back to its legacy Codex runner and could not find the Codex CLI." >&2
+    echo "Choose and verify the agent first, then re-run this installer:" >&2
+    echo "  node scripts/cove-agent-settings.mjs configure --provider claude   # or --provider codex" >&2
+    echo "(For an older install that really does run on Codex, install the Codex CLI or set COVE_CODEX_BIN in .env.local.)" >&2
+  else
+    echo "COVE_JOB_RUNNER=codex-sol-high requires an executable Codex CLI. Install it or set COVE_CODEX_BIN." >&2
+  fi
   exit 1
 fi
 # An explicit opt-in must not silently become a successful install with the
@@ -191,6 +202,24 @@ if [ -n "$CODEX_BIN" ]; then
   printf -v CODEX_PLIST_ENTRY \
     '    <key>COVE_CODEX_BIN</key>\n    <string>%s</string>' \
     "$CODEX_XML_BIN"
+fi
+
+# Buddy, replan, spawn-session and /login all run inside the web app, and they
+# resolve the CLI as COVE_CLAUDE_BIN or, failing that, the literal path
+# $HOME/.local/bin/claude. Neither spelling consults PATH. The worker plist
+# carries the resolved path; without the same entry here, a Claude installed
+# anywhere else (Homebrew, an npm global bin, which is what the `command -v`
+# above expects) leaves the worker able to run Claude and Buddy not, failing
+# with "Buddy was interrupted." and a Retry that fails identically.
+CLAUDE_PLIST_ENTRY=""
+if [ -n "$CLAUDE_BIN" ]; then
+  CLAUDE_XML_BIN="$(printf '%s' "$CLAUDE_BIN" | sed \
+    -e 's/&/\&amp;/g' \
+    -e 's/</\&lt;/g' \
+    -e 's/>/\&gt;/g')"
+  printf -v CLAUDE_PLIST_ENTRY \
+    '    <key>COVE_CLAUDE_BIN</key>\n    <string>%s</string>' \
+    "$CLAUDE_XML_BIN"
 fi
 
 # Build Cove's tiny local notification sender. macOS chooses a notification's
@@ -697,6 +726,11 @@ $RUNTIME_PLIST_ENTRY
     <string>$NODE_BIN:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
     <key>NODE_ENV</key>
     <string>production</string>
+    <!-- Next.js phones home anonymously on every start unless this is set.
+         Cove is local-first and names what leaves the machine; this was not
+         on that list, so it does not leave. -->
+    <key>NEXT_TELEMETRY_DISABLED</key>
+    <string>1</string>
     <key>COVE_DAY_PLAN_ACCESS_MODE</key>
     <string>loopback</string>
     <key>COVE_BUDDY_DEEPLINKS</key>
@@ -710,6 +744,7 @@ $RUNTIME_PLIST_ENTRY
     <key>COVE_JOB_RUNNER</key>
     <string>$JOB_RUNNER</string>
 $CODEX_PLIST_ENTRY
+$CLAUDE_PLIST_ENTRY
     <key>COVE_PROGRESS_RELAY_CONSUMER</key>
     <string>1</string>
 $NOTIFICATION_PLIST_ENTRY
@@ -1092,10 +1127,23 @@ fi
 # launchd not being able to find/run Node on the client's machine.
 echo "Starting Cove..."
 UP=""
+FOREIGN_SERVER=""
 for _ in $(seq 1 20); do
   CODE="$(curl -s -o /dev/null -w '%{http_code}' "$COVE_BRIEF_WEB_BASE/tasks" 2>/dev/null || true)"
   case "$CODE" in
-    200|307|308) UP="yes"; break ;;
+    200|307|308)
+      # Something answering is not the same as Cove answering. When another
+      # program already holds this port, `next start` exits with EADDRINUSE and
+      # KeepAlive restarts it every ten seconds forever, while this probe reads
+      # 200 from the other program and the install reports success. /api/health
+      # is Cove's own endpoint, needs no CSRF token on a GET, and is refused
+      # off loopback, so it is a safe way to ask "is this actually Cove".
+      if curl -fsS "$COVE_BRIEF_WEB_BASE/api/health" 2>/dev/null | grep -q '"readiness"'; then
+        UP="yes"
+        break
+      fi
+      FOREIGN_SERVER="yes"
+      ;;
   esac
   sleep 1
 done
@@ -1146,10 +1194,25 @@ if [ -n "$UP" ]; then
   echo "Morning Brief: 08:00 weekdays in the brief timezone, after the prior day closes; missed runs catch up while this Mac is awake"
   echo "Day-plan batch execution remains off until COVE_CLAUDE_EXECUTION_ENABLED=1 and an allowlisted workspace config are explicitly added."
   echo "Task controls use your selected agent: Auto works the task; Planning prepares a plan. Codex retains on-request approvals. Sending, publishing, or purchasing still requires your approval."
+elif [ -n "$FOREIGN_SERVER" ]; then
+  echo "Something other than Cove is already using port $WEB_PORT on this Mac." >&2
+  echo "Cove could not take that port, so Cove is not running." >&2
+  echo "See which program has it: lsof -nP -iTCP:$WEB_PORT -sTCP:LISTEN" >&2
+  echo "Then quit that program and re-run: bash scripts/install-cove-local.sh" >&2
+  echo "Or give Cove a different port by putting a line like" >&2
+  echo "COVE_BRIEF_WEB_BASE=http://127.0.0.1:3201 in $REPO_DIR/.env.local and re-running." >&2
+  exit 1
 else
   echo "Cove did not respond on $COVE_BRIEF_WEB_BASE within 20 seconds." >&2
   echo "See the log for why: $LOG_DIR/cove.error.log" >&2
-  echo "Most common cause: Node is installed via nvm/fnm/Volta and launchd can't use it." >&2
-  echo "Fix: install Node with Homebrew (brew install node), then re-run: bash scripts/install-cove-local.sh" >&2
+  if grep -q 'EADDRINUSE' "$LOG_DIR/cove.error.log" 2>/dev/null; then
+    echo "That log says port $WEB_PORT is already in use by another program." >&2
+    echo "See which one: lsof -nP -iTCP:$WEB_PORT -sTCP:LISTEN" >&2
+    echo "Then quit it, or set COVE_BRIEF_WEB_BASE to a free loopback port in" >&2
+    echo "$REPO_DIR/.env.local, and re-run: bash scripts/install-cove-local.sh" >&2
+  else
+    echo "Most common cause: Node is installed via nvm/fnm/Volta and launchd can't use it." >&2
+    echo "Fix: install Node with Homebrew (brew install node), then re-run: bash scripts/install-cove-local.sh" >&2
+  fi
   exit 1
 fi

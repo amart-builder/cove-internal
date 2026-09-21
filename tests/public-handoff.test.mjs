@@ -5,13 +5,26 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const handoffFiles = [
-  'AGENTS.md',
-  'README.md',
-  'SETUP.md',
-  'CONFIGURATION.md',
-  'scripts/install-cove-local.sh',
-];
+
+// Every Markdown file the exporter ships, read out of the exporter's own
+// allowlist rather than copied here. Listing four of them by hand left the
+// rest -- OPERATIONS.md, DATA.md, SECURITY_AND_INTEGRATIONS.md and the others
+// -- unguarded, so a home path or a developer name added to one of those
+// would have reached a client checkout unnoticed. Deriving the list means a
+// doc added to the allowlist is covered the day it is added.
+function exportedMarkdownFiles() {
+  const exporter = readFileSync(
+    path.join(root, 'scripts/export-cove-client.mjs'),
+    'utf8',
+  );
+  const block = exporter.match(/const rootFiles = new Set\(\[([\s\S]*?)\]\);/);
+  assert.ok(block, 'export-cove-client.mjs no longer declares rootFiles');
+  const files = [...block[1].matchAll(/"([^"]+\.md)"/g)].map(match => match[1]);
+  assert.ok(files.length >= 8, `expected the exporter to ship docs, saw ${files.length}`);
+  return files;
+}
+
+const handoffFiles = [...exportedMarkdownFiles(), 'scripts/install-cove-local.sh'];
 
 test('the public agent handoff contains no developer identity or absolute home path', () => {
   for (const relativePath of handoffFiles) {

@@ -124,9 +124,15 @@ export function arrivalDateLabel(localDate: string): string {
   }).format(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))));
 }
 
-export function formatArrivalDueDate(dueAt: string): string {
+export function formatArrivalDueDate(dueAt: string): string | undefined {
   const calendarDate = /^(\d{4}-\d{2}-\d{2})(?:T00:00:00(?:\.000)?Z)?$/.exec(dueAt)?.[1];
   const date = new Date(calendarDate ? `${calendarDate}T00:00:00Z` : dueAt);
+  // Nothing validates due_at on the way in, and Buddy and the task skill write
+  // it through the same REST endpoint a person does. A model that writes
+  // "next Tuesday" instead of an ISO datetime used to put the literal words
+  // "Invalid Date" on the Arrival card -- the first screen of the day. Drop the
+  // date chip instead, the way realTimeLabel already does for the same case.
+  if (Number.isNaN(date.getTime())) return undefined;
   return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',

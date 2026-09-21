@@ -41,14 +41,47 @@ database_is_open() {
     lsof -t -- "$DB-wal" >/dev/null 2>&1
 }
 
+# Cove's own processes open the database per operation and close it again, so
+# an idle moment reads as "nobody has it open" while the server, the worker and
+# the five-minute job tick are all running and about to write. The open-handle
+# check below is a race backstop, not the gate: the gate is that no Cove service
+# is loaded at all.
+loaded_cove_services() {
+  command -v launchctl >/dev/null 2>&1 || return 0
+  launchctl list 2>/dev/null |
+    awk '{ print $3 }' |
+    grep -E '^com\.(cove|forge)\.' || true
+}
+
+if [ "${COVE_RESTORE_ALLOW_RUNNING:-0}" != "1" ]; then
+  RUNNING="$(loaded_cove_services | tr '\n' ' ')"
+  if [ -n "${RUNNING// /}" ]; then
+    echo "Cove is still running, so a restore could be overwritten by a live writer." >&2
+    echo "Loaded: $RUNNING" >&2
+    echo "Stop everything first, then retry:" >&2
+    echo "  bash scripts/cove-stop.sh" >&2
+    echo "(Set COVE_RESTORE_ALLOW_RUNNING=1 only if you have already stopped every Cove writer another way.)" >&2
+    exit 1
+  fi
+fi
+
 # A live SQLite writer may replay the old WAL after replacement. Refuse when
 # lsof can cheaply prove that any process has the database or WAL open.
 if database_is_open; then
-  echo "Cove still has $DB open. Stop the Cove server and workers, then retry." >&2
+  echo "Cove still has $DB open. Stop the Cove server and workers with 'bash scripts/cove-stop.sh', then retry." >&2
   exit 1
 fi
 
-"$NODE_REAL" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$BACKUP"
+# A damaged snapshot is caught here, before anything is touched. The verifier
+# prints a SqliteError and a stack, which is the right level of detail for a
+# diagnostic and the wrong one for someone restoring a backup because their
+# data is already in trouble. Say what happened and what to do instead.
+if ! "$NODE_REAL" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$BACKUP"; then
+  echo >&2
+  echo "That backup file is damaged, so Cove did not restore it: $BACKUP" >&2
+  echo "Nothing was changed. Try an older snapshot from $BACKUP_DIR." >&2
+  exit 1
+fi
 
 if [ "$ASSUME_YES" != "1" ]; then
   if [ ! -t 0 ]; then
@@ -68,7 +101,14 @@ TEMP="$DB.restore.$$"
 trap 'rm -f "$TEMP"' EXIT
 cp "$BACKUP" "$TEMP"
 chmod 600 "$TEMP"
-"$NODE_REAL" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$TEMP"
+# The same check on the copy, so a snapshot damaged between the check above and
+# this point cannot reach the database.
+if ! "$NODE_REAL" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$TEMP"; then
+  echo >&2
+  echo "The copy of that backup did not verify, so Cove did not restore it." >&2
+  echo "Nothing was changed. Try an older snapshot from $BACKUP_DIR." >&2
+  exit 1
+fi
 
 STAMP="$(date +%Y%m%d-%H%M%S)-$$"
 if [ -f "$DB" ]; then
@@ -84,7 +124,7 @@ fi
 # The prompt and archive copy can take time. Re-check immediately before the
 # atomic replacement, then ignore termination signals for the tiny swap window.
 if database_is_open; then
-  echo "Cove reopened $DB during restore. Stop the server and workers, then retry." >&2
+  echo "Cove reopened $DB during restore. Stop the server and workers with 'bash scripts/cove-stop.sh', then retry." >&2
   exit 1
 fi
 trap '' HUP INT TERM

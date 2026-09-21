@@ -22,6 +22,13 @@ export function jobFailureCopy(type: string, retrying = false): { title: string;
         title: "Your inbox check needs attention",
         body: "Cove couldn't finish processing part of your inbox." + (retrying ? retry : " Check Gmail for anything urgent. Open Issues for details."),
       };
+    case "morning-brief":
+      return {
+        title: "Your morning brief needs attention",
+        body: "Cove couldn't write your brief." + (retrying
+          ? retry
+          : " Open Today to write it now, or Issues for details."),
+      };
     case "health-collector":
       return {
         title: "Cove couldn't check its services",
@@ -42,13 +49,20 @@ export function jobFailureDetail(type: string, diagnostic: string, retrying = fa
   let cause = "";
   if (/timed? out|timeout|time limit/i.test(diagnostic)) {
     cause = " The check reached its time limit.";
-  // Anchored on purpose. These ran unanchored with bare dots, so "Please try
-  // again later" (a rate-limited provider) was read as a stopped worker, and
-  // "redesign in progress" sent the person to re-authenticate a working
-  // account. A wrong cause is worse than none: it is what they act on.
-  } else if (/background_usage|usage[_.]denied|\bbudget\b|\ballowance\b/i.test(diagnostic)) {
+  // Bounded on purpose. Unanchored with bare dots, "Please try again later"
+  // (a rate-limited provider) read as a stopped worker and "redesign in
+  // progress" sent the person to re-authenticate a working account. A wrong
+  // cause is worse than none: it is what they act on. The boundary is a
+  // letter rather than \b, because \b does not fall between a word and an
+  // underscore, and authentication_error is exactly what a CLI prints.
+  } else if (/background_usage|usage[_.]denied|(?<![a-z])(?:budget|allowance)(?![a-z])/i.test(diagnostic)) {
     cause = " Cove had used up its allowance for background work.";
-  } else if (/\bunauthorized\b|\bauthentication\b|\bnot logged in\b|\bsign[-\s]?in\b/i.test(diagnostic)) {
+  // The alternation carries the strings the Claude and Codex CLIs actually
+  // print when a sign-in lapses; src/lib/buddy/errors.ts matches the same set
+  // for Buddy's sign-in card. An expired sign-in is the likeliest reason a
+  // scheduled job stops, and without these the person is told only that some
+  // background work did not finish, which names nothing they can act on.
+  } else if (/(?<![a-z])(?:unauthorized|authentication|not logged in|sign[-\s]?in|login|could not be refreshed|session expired)(?![a-z])/i.test(diagnostic)) {
     cause = " The connected account needs its sign-in checked.";
   } else if (/\blease\b/i.test(diagnostic)) {
     cause = " The background worker stopped before finishing.";
@@ -58,7 +72,9 @@ export function jobFailureDetail(type: string, diagnostic: string, retrying = fa
     ? " Review Today for time-sensitive commitments."
     : ["gmail-operation", "email-classify", "email-artifacts"].includes(type)
       ? " Check Gmail for anything urgent."
-      : type === "backup" ? " A fresh backup has not been confirmed." : "";
+      : type === "backup"
+        ? " A fresh backup has not been confirmed."
+        : type === "morning-brief" ? " Open Today to write it now." : "";
   return impact + "." + cause + " This check has stopped retrying." + immediate
     + " Ask your Cove setup agent to diagnose the failure and restore this check.";
 }

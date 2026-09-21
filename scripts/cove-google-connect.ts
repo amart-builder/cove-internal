@@ -21,6 +21,8 @@ import {
   writeGoogleSecret,
 } from "../src/lib/workspace/google/keychain";
 import { workspaceConfigPath } from "../src/lib/workspace/config";
+import { coveDataDir } from "../src/lib/operator";
+import { loadLocalEnv } from "./lib/load-local-env.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -317,7 +319,13 @@ async function disconnect(dataDir: string): Promise<void> {
 async function main(): Promise<void> {
   const command = process.argv[2];
   const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  const dataDir = path.join(repoDir, "data");
+  // CONFIGURATION.md offers COVE_DATA_DIR, and the installer writes the
+  // resolved directory into every LaunchAgent. Hard-coding <repo>/data here
+  // wrote the connection where nothing running would read it: the browser
+  // consent succeeded, the Keychain entries were made, and Cove still reported
+  // no email connected.
+  loadLocalEnv(repoDir);
+  const dataDir = coveDataDir();
   if (command === "connect" || command === "reauthorize") return connect(dataDir);
   if (command === "status") return status(dataDir);
   if (command === "disconnect") return disconnect(dataDir);

@@ -65,6 +65,32 @@ test('a date-only arrival due date stays on its local calendar day', () => {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, 'Aug 4');
 });
+
+test('an unparseable arrival due date shows no date, not "Invalid Date"', () => {
+  // Nothing validates due_at on the way in, and Buddy and the cove-task skill
+  // write it through the same REST endpoint a person does. Before this guard a
+  // model writing "next Tuesday" instead of an ISO datetime put those two
+  // words on the first card of the day.
+  for (const value of ['not-a-date', 'next Tuesday', 'tomorrow 3pm', '']) {
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        '--input-type=module',
+        '--eval',
+        `import presentation from './src/lib/day-plan/presentation.ts'; process.stdout.write(String(presentation.formatArrivalDueDate(${JSON.stringify(value)})));`,
+      ],
+      {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        env: { ...process.env, TZ: 'America/Los_Angeles' },
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, 'undefined', `formatArrivalDueDate(${JSON.stringify(value)})`);
+  }
+});
 import {
   planTaskReconciliation,
   reconciliationStateMatches,

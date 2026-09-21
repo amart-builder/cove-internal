@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import http from "node:http";
+import { promisify } from "node:util";
 import { copyFileSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -13,6 +15,7 @@ import { POST } from "../src/app/api/cove-rest/[table]/route.ts";
 import { getQuietCurrentCsrfToken } from "../src/lib/quiet-current/store.ts";
 
 const ROOT = process.cwd();
+const execFileAsync = promisify(execFile);
 
 test("meeting and progress plists render the absolute Node executable", async (t) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "cove-plist-"));
@@ -288,6 +291,179 @@ test("installer creates the optional env file safely and requires a healthy work
   assert.doesNotMatch(installer, /launchctl enable[^\n]*com\.cove\.attention-sweep/);
 });
 
+test("a first install without a saved agent is told to choose one, not to install Codex", () => {
+  const installer = readFileSync(path.join(ROOT, "scripts", "install-cove-local.sh"), "utf8");
+  // With no data/agent-settings.json the runner falls back to the legacy Codex
+  // default, so a Claude-only Mac fails this check. Pointing that person at
+  // COVE_CODEX_BIN sends them to install a CLI they may have deliberately not
+  // chosen; the actual missing step is Step 0's verified selection.
+  const block = installer.match(
+    /if \[ "\$JOB_RUNNER" = "codex-sol-high" \][\s\S]*?\nfi/,
+  )?.[0] ?? "";
+  assert.match(block, /if \[ -z "\$AGENT_PROVIDER" \]; then/);
+  assert.match(block, /cove-agent-settings\.mjs configure --provider claude/);
+  assert.match(block, /COVE_CODEX_BIN/);
+});
+
+function installerPlistBlock(installer, label) {
+  const start = installer.indexOf(`<string>${label}</string>`);
+  assert.ok(start > 0, `${label} is not written by the installer`);
+  const next = installer.indexOf("<key>Label</key>", start);
+  return installer.slice(start, next === -1 ? installer.length : next);
+}
+
+test("the web app's LaunchAgent carries the resolved Claude executable", () => {
+  const installer = readFileSync(path.join(ROOT, "scripts", "install-cove-local.sh"), "utf8");
+
+  // Buddy, replan, spawn-session and /login all run inside the web app process
+  // and resolve the CLI as COVE_CLAUDE_BIN or the literal $HOME/.local/bin/claude.
+  // Neither spelling consults PATH, so a Claude installed anywhere else leaves
+  // the worker (whose plist does carry the path) able to run Claude while Buddy
+  // fails with "Buddy was interrupted." -- the one surface a stuck person is
+  // told to ask for help.
+  const local = installerPlistBlock(installer, "com.cove.local");
+  assert.match(
+    local,
+    /\$CLAUDE_PLIST_ENTRY/,
+    "com.cove.local must receive the installer's resolved Claude path",
+  );
+  assert.match(
+    installer,
+    /<key>COVE_CLAUDE_BIN<\/key>\\n    <string>%s<\/string>/,
+    "the Claude plist entry has to be built from the resolved binary",
+  );
+
+  // Every service that can start Claude gets the same treatment.
+  for (const label of ["com.cove.claude-worker", "com.cove.morning-brief"]) {
+    assert.match(
+      installerPlistBlock(installer, label),
+      /COVE_CLAUDE_BIN/,
+      `${label} must receive the resolved Claude path`,
+    );
+  }
+});
+
+test("stopping Cove covers every service the installer can load", () => {
+  const installer = readFileSync(path.join(ROOT, "scripts", "install-cove-local.sh"), "utf8");
+  const stop = readFileSync(path.join(ROOT, "scripts", "cove-stop.sh"), "utf8");
+  const readme = readFileSync(path.join(ROOT, "README.md"), "utf8");
+
+  // "Stop Cove" has to mean every lane. A label the installer can load but the
+  // stop script does not know about keeps running -- including the chief-of-staff
+  // lanes, which call a model and can notify -- after someone was told Cove was
+  // off. Read the labels out of the installer so a new lane cannot be added
+  // without also being stoppable.
+  const installed = new Set(
+    (installer.match(/com\.cove\.[a-z0-9-]+(?:\.[a-z0-9-]+)*/g) ?? [])
+      .map((label) => label.replace(/\.plist$/, "")),
+  );
+  assert.ok(installed.size >= 10, "expected the installer to name its LaunchAgent labels");
+  const missing = [...installed].filter((label) => !stop.includes(`\n${label}\n`)).sort();
+  assert.deepEqual(missing, [], `scripts/cove-stop.sh is missing: ${missing.join(", ")}`);
+
+  // bootout alone lasts until the next login, so the stop path has to offer the
+  // one that survives a restart and say which is which.
+  assert.match(stop, /launchctl disable "gui\/\$UID_NUM\/\$label"/);
+  assert.match(stop, /--disable/);
+  assert.match(readme, /scripts\/cove-stop\.sh/);
+});
+
+test("nothing in a local-first install phones home to Next.js", () => {
+  const installer = readFileSync(path.join(ROOT, "scripts", "install-cove-local.sh"), "utf8");
+  const verify = readFileSync(path.join(ROOT, "scripts", "cove-verify.mjs"), "utf8");
+
+  // `next build` and `next start` both report anonymous telemetry unless this
+  // is set. Cove's documentation names the places data leaves the Mac, and
+  // Vercel is not one of them, so the two commands a person actually runs --
+  // the release gate and the web app agent -- have to turn it off.
+  assert.match(
+    installerPlistBlock(installer, "com.cove.local"),
+    /<key>NEXT_TELEMETRY_DISABLED<\/key>\s*<string>1<\/string>/,
+    "the web app agent must disable Next telemetry",
+  );
+  assert.match(verify, /NEXT_TELEMETRY_DISABLED: "1"/);
+});
+
+test("stopping Cove reports and disables what is actually on the Mac", async (t) => {
+  // A stub launchctl standing in for the real one, so the stop script can be
+  // run rather than only read. Everything with a plist is loaded except
+  // voice-review, which stands for a lane someone stopped by hand.
+  const dir = await mkdtemp(path.join(os.tmpdir(), "cove-stop-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const home = path.join(dir, "home");
+  const agents = path.join(home, "Library", "LaunchAgents");
+  const bin = path.join(dir, "bin");
+  mkdirSync(agents, { recursive: true });
+  mkdirSync(bin, { recursive: true });
+
+  const present = [
+    "com.cove.local",
+    "com.cove.jobs",
+    "com.cove.claude-worker",
+    "com.cove.chief-of-staff-nightly",
+    "com.cove.voice-review",
+  ];
+  for (const label of present) {
+    await writeFile(path.join(agents, `${label}.plist`), "<plist/>\n");
+  }
+  const actions = path.join(dir, "actions.log");
+  await writeFile(
+    path.join(bin, "launchctl"),
+    [
+      "#!/usr/bin/env bash",
+      `AGENTS=${JSON.stringify(agents)}`,
+      `LOG=${JSON.stringify(actions)}`,
+      'case "$1" in',
+      "  list)",
+      '    for f in "$AGENTS"/*.plist; do',
+      '      b=$(basename "$f" .plist)',
+      '      [ "$b" = "com.cove.voice-review" ] && continue',
+      `      printf '1\\t0\\t%s\\n' "$b"`,
+      "    done",
+      "    ;;",
+      "  print)",
+      '    lbl="${2##*/}"',
+      '    [ "$lbl" = "com.cove.voice-review" ] && exit 1',
+      '    [ -e "$AGENTS/$lbl.plist" ] && exit 0',
+      "    exit 1",
+      "    ;;",
+      '  bootout|disable) printf "%s %s\\n" "$1" "${2##*/}" >> "$LOG" ;;',
+      "esac",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  const env = {
+    ...process.env,
+    HOME: home,
+    PATH: `${bin}:${process.env.PATH}`,
+  };
+
+  const status = execFileSync("bash", [path.join(ROOT, "scripts/cove-stop.sh"), "--status"], {
+    encoding: "utf8",
+    env,
+  });
+  // Only what exists on this Mac. The known-label list carries every label the
+  // installer has ever written, and printing the retired and pre-rename ones
+  // buried the lanes that are actually running.
+  for (const label of present) assert.match(status, new RegExp(label.replace(/\./g, "\\.")));
+  assert.doesNotMatch(status, /com\.forge\./);
+  assert.doesNotMatch(status, /com\.cove\.wake-canary/);
+  assert.match(status, /com\.cove\.voice-review\s+not loaded\s+starts at login/);
+
+  execFileSync("bash", [path.join(ROOT, "scripts/cove-stop.sh"), "--disable"], {
+    encoding: "utf8",
+    env,
+  });
+  const log = await readFile(actions, "utf8");
+  // A lane that is stopped but still has its plist comes back at the next
+  // login, so --disable has to cover it even though there was nothing to boot
+  // out. Four loaded, five disabled.
+  assert.equal(log.match(/^bootout /gm)?.length, 4, log);
+  assert.equal(log.match(/^disable /gm)?.length, 5, log);
+  assert.match(log, /^disable com\.cove\.voice-review$/m);
+});
+
 test("task and contact skills authenticate every documented generic mutation", () => {
   const task = readFileSync(path.join(ROOT, "skills", "cove-task", "SKILL.md"), "utf8");
   const contact = readFileSync(path.join(ROOT, "skills", "cove-contact", "SKILL.md"), "utf8");
@@ -362,4 +538,73 @@ test("the distributed meeting example is disabled and the live config stays igno
   assert.equal(example.window, "newer_than:4d");
   assert.doesNotMatch(ignore, /!\/data\/cove-meetings\.json(?:\n|$)/);
   assert.match(ignore, /!\/data\/cove-meetings\.example\.json/);
+});
+
+
+// The installer's readiness probe decides whether an install is reported as
+// successful. It used to accept any 200 on /tasks, so another program holding
+// port 3200 meant `next start` exited EADDRINUSE, launchd restarted it every
+// ten seconds forever, and the installer printed "Cove is running at ...".
+// Extract the real loop and drive it against two servers to prove the
+// difference is now detected.
+async function runReadinessProbe(respond) {
+  const server = http.createServer(respond);
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const installer = readFileSync(path.join(ROOT, "scripts/install-cove-local.sh"), "utf8");
+  const start = installer.indexOf('echo "Starting Cove..."');
+  const end = installer.indexOf('if [ -n "$UP" ]; then');
+  assert.ok(start > 0 && end > start, "install-cove-local.sh no longer has a readiness loop to extract");
+  const loop = installer.slice(start, end);
+  const dir = await mkdtemp(path.join(os.tmpdir(), "cove-probe-"));
+  try {
+    const harness = path.join(dir, "probe.sh");
+    // `sleep` is stubbed so a probe that never succeeds costs no wall clock.
+    await writeFile(harness, [
+      "set -uo pipefail",
+      "sleep() { :; }",
+      `COVE_BRIEF_WEB_BASE=${base}`,
+      loop,
+      'printf "UP=%s FOREIGN=%s\\n" "$UP" "$FOREIGN_SERVER"',
+    ].join("\n"));
+    // Async on purpose: the stub server above shares this process's event
+    // loop, so a synchronous child would block it and curl would never be
+    // answered.
+    const { stdout } = await execFileAsync("bash", [harness], { encoding: "utf8" });
+    return stdout.trim().split("\n").pop();
+  } finally {
+    server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test("a program squatting on Cove's port is not mistaken for a working install", async () => {
+  const result = await runReadinessProbe((request, response) => {
+    if (request.url.startsWith("/api/health")) {
+      response.writeHead(404).end("not found");
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/html" }).end("<h1>not cove</h1>");
+  });
+  assert.equal(result, "UP= FOREIGN=yes");
+});
+
+test("Cove answering its own health endpoint is what counts as started", async () => {
+  const result = await runReadinessProbe((request, response) => {
+    if (request.url.startsWith("/api/health")) {
+      response.writeHead(200, { "content-type": "application/json" })
+        .end(JSON.stringify({ snapshot: null, readiness: { checkedAt: "2026-09-21T00:00:00.000Z" } }));
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/html" }).end("<h1>cove</h1>");
+  });
+  assert.equal(result, "UP=yes FOREIGN=");
+});
+
+test("the installer says what to do when another program holds the port", () => {
+  const installer = readFileSync(path.join(ROOT, "scripts/install-cove-local.sh"), "utf8");
+  assert.match(installer, /Something other than Cove is already using port \$WEB_PORT/);
+  assert.match(installer, /lsof -nP -iTCP:\$WEB_PORT -sTCP:LISTEN/);
+  assert.match(installer, /COVE_BRIEF_WEB_BASE=http:\/\/127\.0\.0\.1:3201/);
+  assert.match(installer, /grep -q 'EADDRINUSE'/);
 });
