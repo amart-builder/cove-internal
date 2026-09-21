@@ -239,8 +239,9 @@ export default function TaskDetail({
             </div>
           )}
           <div>
-            <label className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Title</label>
+            <label htmlFor="task-detail-title-field" className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Title</label>
             <input
+              id="task-detail-title-field"
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -249,8 +250,9 @@ export default function TaskDetail({
           </div>
 
           <div>
-            <label className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Description</label>
+            <label htmlFor="task-detail-description" className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Description</label>
             <textarea
+              id="task-detail-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={4}
@@ -260,8 +262,9 @@ export default function TaskDetail({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Priority</label>
+              <label htmlFor="task-detail-priority" className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Priority</label>
               <select
+                id="task-detail-priority"
                 value={priority}
                 onChange={(e) =>
                   setPriority(e.target.value as 'low' | 'medium' | 'high')
@@ -274,8 +277,9 @@ export default function TaskDetail({
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Status</label>
+              <label htmlFor="task-detail-status" className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Status</label>
               <select
+                id="task-detail-status"
                 value={columnId}
                 onChange={(e) => setColumnId(e.target.value)}
                 className="w-full px-2.5 py-2 text-sm border rounded-md outline-none focus:ring-1 focus:ring-accent-blue/40 bg-background text-foreground"
@@ -290,8 +294,9 @@ export default function TaskDetail({
           </div>
 
           <div>
-            <label className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Due Date</label>
+            <label htmlFor="task-detail-due" className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Due Date</label>
             <input
+              id="task-detail-due"
               type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
@@ -310,8 +315,9 @@ export default function TaskDetail({
           </label>
 
           <div>
-            <label className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Reason this task was added</label>
+            <label htmlFor="task-detail-origin" className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Reason this task was added</label>
             <textarea
+              id="task-detail-origin"
               value={origin}
               onChange={(e) => setOrigin(e.target.value)}
               rows={3}
@@ -321,8 +327,9 @@ export default function TaskDetail({
           </div>
 
           <div>
-            <label className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Tags (comma-separated)</label>
+            <label htmlFor="task-detail-tags" className="mb-1 block text-[10.5px] font-[650] uppercase tracking-[.24em] text-muted-foreground">Tags (comma-separated)</label>
             <input
+              id="task-detail-tags"
               type="text"
               value={tagsStr}
               onChange={(e) => setTagsStr(e.target.value)}
