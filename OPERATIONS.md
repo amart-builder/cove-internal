@@ -135,8 +135,9 @@ two-minute monitoring timeout; the scheduler renews its lease during execution.
 
 ## Optional iCloud reminder bridge
 
-The personal phone beta uses `com.cove.apple-reminders`, a 30-second deterministic
-sync service. It reads `data/apple-reminders.json`; receipts, queue entries and
+The personal phone beta is a 30-second deterministic sync helper. It has no
+installer and no LaunchAgent in `scripts/launchd/`, and it is not part of a
+standard install. It reads `data/apple-reminders.json`; receipts, queue entries and
 link state live under its configured `stateDir`. The helper needs its own full
 macOS Reminders permission through the standard app dialog. Running it as a
 child of an already-authorized terminal is not sufficient proof that launchd

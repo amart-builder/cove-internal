@@ -1002,8 +1002,8 @@ launchctl bootout "gui/$UID_NUM/com.cove.chief-of-staff-drain" 2>/dev/null || tr
 launchctl bootout "gui/$UID_NUM/com.cove.chief-of-staff-sweep" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.chief-of-staff-nightly" 2>/dev/null || true
 launchctl bootout "gui/$UID_NUM/com.cove.chief-of-staff-review" 2>/dev/null || true
-# Decommission the retired MBP 7:30 brief agent entirely (bootout + plist
-# removal): the Mini owns scheduled generation now.
+# Remove any older com.cove.morning-brief one-shot agent entirely (bootout +
+# plist removal): the supervised claude-worker now runs the scheduled brief.
 launchctl bootout "gui/$UID_NUM/com.cove.morning-brief" 2>/dev/null || true
 rm -f "$LA_DIR/com.cove.morning-brief.plist"
 # The wake canary experiment is retired. Clean up the installed agent without
@@ -1123,7 +1123,7 @@ if [ -n "$UP" ]; then
   echo "Server logs: $LOG_DIR/cove.log"
   echo "Daily database backups: $COVE_BACKUP_DIR"
   echo "Reliability jobs: bounded scheduler supervised by com.cove.jobs"
-  echo "Attention sweep: shadow mode at 11:30 and 16:00"
+  echo "Attention shadow switches: data/attention-sweep.json (shadow = chief-of-staff notify, email_shadow = urgent email)"
   echo "Claude worker: supervised by com.cove.claude-worker"
   echo "Claude worker status: ok"
   if [ "$INSTALL_MEETING_LANE" = "1" ]; then

@@ -56,7 +56,7 @@ Schema ownership and code ownership are mapped in `CODEBASE_GUIDE.md`.
 
 ### Sales pipeline
 
-`pipeline_deals` stores one Edge AI consulting deal per contact. Deleting a
+`pipeline_deals` stores one consulting deal per contact. Deleting a
 contact deletes its deal. Stage changes and real touches are retained in
 `contact_activities`; administrative deal removal does not delete that history.
 Follow-up dates are calendar dates in `YYYY-MM-DD` form, never timestamps.
@@ -259,6 +259,13 @@ runtime state. They must never be included in a client export or commit.
 ## Retention
 
 Jobs, receipts, failure records, brief inputs, relays, and backups have bounded cleanup paths. Any new operational table or file collection must define retention before it ships.
+
+Jev attempts (`cove_jev_attempts`, migration 37) keep answer detail for 30
+days and the attempt row (status, hashes, token counts) for 90 days;
+`pruneJevLedger` in `src/lib/jev/ledger.ts` enforces both. `cove_jev_state`
+holds two small control values (breaker cooldown and a credential fingerprint)
+and is not a record store. Neither table is exposed through the REST table
+allowlist.
 
 
 Follow-through state lives in `cove_follow_through_state` and

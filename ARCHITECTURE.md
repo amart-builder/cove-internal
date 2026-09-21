@@ -79,7 +79,9 @@ The meeting and progress LaunchAgent plists are templates under
 from discovered machine paths and enabled integrations. See the Background
 processes table in `CODEBASE_GUIDE.md` for the authoritative labels and
 conditions. `--mini` is a separate legacy profile: it installs the Mini brief
-agent and the two rendered lane plists, then stops.
+agent and the two rendered lane plists, then stops. `--mini` is the author's
+personal profile: it hard-codes paths under `~/Atlas` and a Pacific timezone,
+and must not be used for any client install, laptop or Mini.
 
 ## Selected agent and follow-through
 

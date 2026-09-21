@@ -1572,13 +1572,13 @@ test('recent brief receipts distinguish decisions and settlements', () => {
         date: '2026-07-28',
         headline: 'Finish the install preparation.',
         candidates: [
-          'task-gary',
+          'task-harbor',
           'task-zac',
           'task-done',
           'task-preselected',
           'task-later',
           'task-missing',
-          'task-gary',
+          'task-harbor',
         ],
         finishedAt: '2026-07-28T14:00:00.000Z',
       }),
@@ -1634,7 +1634,7 @@ test('recent brief receipts distinguish decisions and settlements', () => {
       id: 'plan-tue',
       briefId: 'brief-tue',
       items: [
-        { taskId: 'task-gary', title: 'Harbor install prep', decision: 'accepted' },
+        { taskId: 'task-harbor', title: 'Harbor install prep', decision: 'accepted' },
         { taskId: 'task-zac', title: 'Zac call plan', decision: 'dismissed' },
         { taskId: 'task-done', title: 'Send final scope', decision: 'completed' },
         { taskId: 'task-preselected', title: 'Unopened arrival item', decision: 'preselected' },
@@ -1667,7 +1667,7 @@ test('recent brief receipts distinguish decisions and settlements', () => {
             body: {
               completedHumanTaskIds: ['task-done'],
               unresolvedItems: [
-                { taskId: 'task-gary', disposition: 'carry' },
+                { taskId: 'task-harbor', disposition: 'carry' },
               ],
             },
           }

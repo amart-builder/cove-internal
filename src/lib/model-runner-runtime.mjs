@@ -120,7 +120,7 @@ export function readCodexJobOutput(attempt) {
   return readFileSync(attempt.outputPath, "utf8");
 }
 
-function minimalJobEnvironment(env) {
+export function minimalJobEnvironment(env) {
   const allowed = [
     "HOME", "PATH", "TMPDIR", "LANG", "LC_ALL", "USER", "LOGNAME", "SHELL",
     "NODE_ENV", "XDG_CONFIG_HOME", "CODEX_HOME", "OPENAI_API_KEY",

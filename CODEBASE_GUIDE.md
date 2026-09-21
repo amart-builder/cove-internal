@@ -300,7 +300,7 @@ Unknown actions, missing records, and pipeline moves to
 `lost` or `parked` are rejected and shown in the next snapshot. `pipeline_add`
 can create a non-terminal deal for a contact with no deal. Existing deals must
 use `pipeline_update` or `pipeline_move`. `notify` is the agent's only path to
-Alex's screen. `src/lib/attention/delivery.ts` rechecks the referenced task,
+the user's screen. `src/lib/attention/delivery.ts` rechecks the referenced task,
 commitment, or deal, allocates from the shared attention ledger, sanitizes its
 text, surfaces Quiet Current evidence, calls the shared transport, and finalizes
 the ledger row before the action is marked applied. The driver permits one text
@@ -469,6 +469,22 @@ healthy merely because configuration exists. Distinguish not configured, waiting
 for first run, healthy, stale, and failed.
 
 `src/lib/notifications/` resolves task and ledger links into full explanations and current task state. Native banners open Plan Your Day with `NotificationTaskSheet` expanded. Actions use the existing day-plan and task mutations. Requested one-hour repeats are stored under `data/reminders/`, never alter deadlines, and never use text messaging. The worker claims delivery before sending; interrupted deliveries become visible failures instead of automatic retries.
+
+### TypeSafe Jev judgments (optional, off by default)
+
+`src/lib/jev/` holds the optional TypeSafe Jev integration: `settings.ts`
+(the `data/cove-jev.json` switch, per-feature `off`, `shadow` or `assist`
+modes, limits, and the `COVE_TYPESAFE_API_KEY` read), `client.ts` (one
+bounded POST to a fixed endpoint with request and response validation against
+the pinned model), `ledger.ts` (the `cove_jev_attempts` and `cove_jev_state`
+tables from migration 37: budgets, two concurrent leases, breaker, exact-key
+reuse, retention) and `runtime.ts` (`assessWithJev`, the only entry point a
+feature calls). No feature calls it yet. With no settings file or no key,
+every call returns `skipped` without touching the network. A Jev answer is
+evidence for deterministic policy in the calling domain; it never writes
+Cove state itself. Fixtures and the offline and live evaluation runners live
+in `fixtures/jev/` and `scripts/evaluation/jev-cases*.mjs`; see
+`EVALUATION.md` and `SECURITY_AND_INTEGRATIONS.md`.
 
 ### Apple Reminders phone beta
 

@@ -50,6 +50,8 @@ Cove supports `create_task`, `returned_work`, and `observed_progress`. Returned 
 
 ## Handoff state
 
+"Jarvis", the `jarvis-held` tag, and the `jarvis_*` profile keys are legacy names for the previous assistant, kept for compatibility; read them as Cove's agent.
+
 Tasks carried by Jarvis use the `jarvis-held` tag. Jarvis may work only on tasks the person handed over or on standing routines granted during setup. Finished agent work should return through a `returned_work` suggestion rather than being marked complete.
 
 ## Groundwork autonomy

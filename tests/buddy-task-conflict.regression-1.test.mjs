@@ -31,7 +31,7 @@ test("Buddy preserves concurrent notes and retries a rebuilt patch with the real
   const params = new URLSearchParams({ id: "eq.task" });
   handleLocalRest("tasks", "POST", new URLSearchParams(), { id: "task", title: "Call", description: "Original", status: "open" });
   const original = handleLocalRest("tasks", "GET", params).body[0];
-  handleLocalRest("tasks", "PATCH", params, { description: "Original\nGary's note" });
+  handleLocalRest("tasks", "PATCH", params, { description: "Original\nOwner's note" });
   const lines = [];
   const requests = [];
   const fetch = async (url, init = {}) => {
@@ -45,12 +45,12 @@ test("Buddy preserves concurrent notes and retries a rebuilt patch with the real
   await assert.rejects(run({ description: "Original\nBuddy's fact", _expected: { updatedAt: original.updated_at, description: original.description } }), /HTTP 409/);
   assert.equal(lines.length, 0);
   const latest = handleLocalRest("tasks", "GET", params).body[0];
-  assert.equal(latest.description, "Original\nGary's note");
+  assert.equal(latest.description, "Original\nOwner's note");
   // Even if timestamps match, the original edited field protects the notes.
   await assert.rejects(run({ description: "Original\nBuddy's fact", _expected: { updatedAt: latest.updated_at, description: original.description } }), /HTTP 409/);
   assert.equal(lines.length, 0);
   await run({ description: `${latest.description}\nBuddy's fact`, _expected: { updatedAt: latest.updated_at, description: latest.description } });
-  assert.equal(handleLocalRest("tasks", "GET", params).body[0].description, "Original\nGary's note\nBuddy's fact");
+  assert.equal(handleLocalRest("tasks", "GET", params).body[0].description, "Original\nOwner's note\nBuddy's fact");
   assert.equal(lines.length, 1);
   assert.match(lines[0], /^RECEIPT /);
   assert.equal(requests.filter(({ init }) => init.method === "PATCH").length, 3);

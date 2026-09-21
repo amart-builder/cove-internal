@@ -22,7 +22,7 @@ Every Gmail mutation goes through a durable operation ledger and is finalized on
 
 ## Model execution
 
-Brief writing, progress reconciliation, and email classification send the relevant text (task text, email bodies, meeting notes, Git evidence) to the model providers, Anthropic and OpenAI, through their CLIs; that is the second place data leaves the Mac besides Google. Prompt content, email text, documents, task text, Git evidence, and transcripts are untrusted data. The execution lanes have different controls; do not assume they all have the same isolation:
+Brief writing, progress reconciliation, and email classification send the relevant text (task text, email bodies, meeting notes, Git evidence) to the model providers, Anthropic and OpenAI, through their CLIs; that is the second place data leaves the Mac besides Google. The optional TypeSafe Jev judgments below would be a third, and the Groundwork research lane's web search a fourth. Prompt content, email text, documents, task text, Git evidence, and transcripts are untrusted data. The execution lanes have different controls; do not assume they all have the same isolation:
 
 - The shared background runner validates structured output, bounds output and elapsed time, and starts Codex with a read-only filesystem sandbox. It inherits the operator's Codex configuration, but disables the inherited `1password` MCP server for each background call because connector startup can trigger repeated macOS App Data permission prompts. A bounded, read-only Codex configuration lookup first checks whether that server exists in the call's configuration home. Absent servers stay absent; an inconclusive lookup stops the call without exposing configuration contents. Other personal shell, app, and MCP capabilities remain inherited. A temporary working directory is not tool isolation. Research lanes intentionally request web access.
 - The chief-of-staff driver supports the saved provider. Codex uses its own configuration home with explicit disabled tools; Claude uses bounded no-tool calls. Both use the same separate action validator.
@@ -30,6 +30,36 @@ Brief writing, progress reconciliation, and email classification send the releva
 - Selected Codex Buddy uses a separate configuration home, disabled shell/web/app tools, and the stdio `scripts/cove-buddy-mcp.ts` bridge. The bridge invokes the existing validated data CLI directly, without a shell. Its app URL must be explicit; it never defaults to the live server. Permanent deletion still requires an exact confirmation token. Native model text cannot mint a confirmed receipt. Provider switches do not transfer prior chat history. Same-provider compaction never transfers chat to a different provider. Live client capability acceptance is still required.
 
 The September 4 review identified the shared-runner and session-seed gaps. The operator chose to document them and leave execution unchanged. These are configuration risks, not evidence of compromise. Do not describe all model subprocesses as tool-free or isolated until those paths have been hardened and verified.
+
+## TypeSafe Jev judgments (optional, off by default)
+
+Cove can ask TypeSafe's Jev model for small typed judgments (for example, who
+owns a quoted promise, or whether two tasks describe the same work). The code
+ships in `src/lib/jev/`, but nothing runs unless two things are both true:
+`data/cove-jev.json` exists with `enabled: true` and at least one feature set
+to `shadow` or `assist`, and `COVE_TYPESAFE_API_KEY` is present in the ignored
+mode-0600 `.env.local`. A standard client install has neither, so no request
+is ever made. There is no in-app switch; enabling it is an explicit operator
+change to that file and that key.
+
+When it is on, every call posts only the named evidence for that feature (for
+example one email message plus one quoted sentence, or two task titles) to
+`https://api.typesafe.ai/v1/systemone` over HTTPS with the key as a bearer
+token. Redirects are refused, the endpoint cannot be changed by configuration,
+requests are capped at 24 KiB and 32 questions, responses at 64 KiB, and every
+attempt is recorded in the `cove_jev_attempts` table with hashes, references,
+answers and token counts, never the evidence text or the key. Budgets (120
+calls an hour, 800 a day, two at a time) and a breaker (five failures in ten
+minutes pauses calls for five minutes; a rejected key disables calls until the
+key changes) are enforced from that table. The key is never passed to Claude
+or Codex child processes, which build their environment from an allowlist.
+
+Shadow mode still sends data to TypeSafe. Confirm the account's retention and
+client-data terms before enabling any feature against real mail or tasks.
+Public TypeSafe documentation states customer inputs are not used for
+training; it does not establish this account's retention setting. In v1 a
+Jev answer may annotate, ask, or route a review; it never closes, merges,
+suppresses or reorders anything on its own.
 
 ## Secrets
 

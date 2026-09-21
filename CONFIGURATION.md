@@ -2,7 +2,7 @@
 
 The default is local SQLite with no account or cloud database. Configuration is read from `.env.local`, `COVE_*` environment variables rendered into LaunchAgents, ignored files under `data/`, and macOS Keychain.
 
-The sales pipeline is owner-only and stays off unless both `COVE_SALES_PIPELINE=1` and `NEXT_PUBLIC_COVE_SALES_PIPELINE=1` are set in `.env.local`, followed by a rebuild. Full installs with saved agent settings default the chief-of-staff lanes on. They require the selected CLI and a nonempty private `data/cove-mandate.md`. `COVE_CHIEF_OF_STAFF=0` disables them; installs without saved settings retain the older explicit opt-in.
+The sales pipeline is owner-only and stays off unless both `COVE_SALES_PIPELINE=1` and `NEXT_PUBLIC_COVE_SALES_PIPELINE=1` are set in `.env.local`, followed by a rebuild. The in-app chief-of-staff hook (`chiefOfStaffEnabled` in `src/lib/chief-of-staff/hooks.ts`) is on unless `COVE_CHIEF_OF_STAFF` is set to `off`, `0` or `false`. The installer's LaunchAgent lane gate is separate: it installs the chief-of-staff agents when `COVE_CHIEF_OF_STAFF=1` is set, or when it is unset and a primary agent is saved, and only with the selected CLI present and a nonempty private `data/cove-mandate.md`.
 
 ## Core paths and runtime
 
@@ -20,6 +20,7 @@ The sales pipeline is owner-only and stays off unless both `COVE_SALES_PIPELINE=
 | `COVE_VOICE_FINGERPRINT_PATH` | Measured writing fingerprint appended to the email voice guide | unset |
 | `COVE_VOICE_REVIEW` | Enable the Sunday draft-outcome review when set to `1` | off |
 | `COVE_VOICE_JUDGE` | Measure each generated draft against the fingerprint when set to `1` | off |
+| `COVE_TYPESAFE_API_KEY` | TypeSafe Jev key for optional typed judgments. Off unless `data/cove-jev.json` also enables a feature; see SECURITY_AND_INTEGRATIONS.md | unset |
 
 A non-default data directory or database requires an explicit matching
 `COVE_BRIEF_WEB_BASE` before task-writing CLI or background lanes can run. The
@@ -72,13 +73,13 @@ it never changes the fingerprint or writing corpus automatically.
 
 ## Judgment shadow modes
 
-The installer creates private `data/attention-sweep.json` settings with both judgment model lanes in shadow mode:
+The installer creates private `data/attention-sweep.json` with both judgment lanes in shadow mode:
 
 ```json
 {"shadow":true,"email_shadow":true}
 ```
 
-Set `shadow` to `false` only after the 11:30 and 16:00 attention sweep has shown acceptable precision in Quiet Current. Set `email_shadow` to `false` only after urgent-email classifications have shown acceptable precision. The deterministic noon floor is live regardless of these settings.
+The standalone attention sweep LaunchAgent is retired. `shadow` governs chief-of-staff `notify` actions (`src/lib/attention/delivery.ts`); `email_shadow` governs urgent-email classification (`src/lib/attention/email-urgency.ts`). A missing file or key means shadow. Shadow decisions write ledger and Quiet Current evidence without sending a banner or text. Both stay `true` on a first install. Set `shadow` to `false` only after chief-of-staff notify decisions have shown acceptable precision in Quiet Current. Set `email_shadow` to `false` only after urgent-email classifications have shown acceptable precision. The deterministic noon floor is live regardless of these settings.
 
 ## Compatibility
 

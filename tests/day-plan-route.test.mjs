@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -20,6 +20,14 @@ import {
 import { hasDayPlanRouteAccess, isLoopbackCoveRequest } from '../src/lib/request-security.ts';
 import { getQuietCurrentCsrfToken } from '../src/lib/quiet-current/store.ts';
 import { openLocalDatabase } from '../src/lib/local/database.ts';
+
+// Every path that falls back to coveDataDir() must land in a scratch directory,
+// never in <cwd>/data: a fresh checkout's verify run must not mint a database,
+// a CSRF token or relay files the setup playbook would then treat as existing.
+const ISOLATED_DATA_DIR = mkdtempSync(path.join(os.tmpdir(), 'cove-test-data-'));
+process.env.COVE_DATA_DIR = ISOLATED_DATA_DIR;
+delete process.env.COVE_DB_PATH;
+test.after(() => rmSync(ISOLATED_DATA_DIR, { recursive: true, force: true }));
 
 function candidate() {
   return buildDayPlanCandidates({

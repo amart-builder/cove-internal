@@ -66,9 +66,10 @@ async function main(): Promise<number> {
     }
   }
   const store = createDayPlanStore({ dbPath });
-  // The cross-machine file relay lives next to the (now machine-private) DB. A
-  // generator that is not the authoritative source (the Mini) sets
-  // COVE_BRIEF_REQUIRE_SOURCE_CHECKPOINT=1 so it gates on the MBP's checkpoint.
+  // The file relay lives next to the machine-private DB. A standard install
+  // leaves COVE_BRIEF_REQUIRE_SOURCE_CHECKPOINT unset, so the brief lane runs
+  // locally. Setting it to 1 marks this worker as a secondary generator that
+  // gates on another machine's source checkpoint in the relay before it writes.
   const relay = {
     dataDir: path.dirname(dbPath),
     requireSourceCheckpoint: coveEnv("BRIEF_REQUIRE_SOURCE_CHECKPOINT") === "1",

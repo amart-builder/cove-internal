@@ -137,6 +137,7 @@ const secretPatterns = [
   /\bAKIA[0-9A-Z]{16}\b/g,
   /\bxox[abpr]-[A-Za-z0-9-]{10,}/g,
   /\bAIza[A-Za-z0-9_-]{20,}\b/g,
+  /\bapikey_[0-9a-f]{20,}_[0-9a-f]{40,}\b/g,
   new RegExp("https:\\\/\\\/hooks\\.slack\\.com\\/" + "services\\/[A-Za-z0-9/_-]+", "g"),
   new RegExp("-----BEGIN " + "(?:RSA |EC |OPENSSH )?PRIVATE KEY-----", "g"),
 ];

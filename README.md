@@ -25,6 +25,9 @@ Codex and say:
 
 > Set me up with Cove.
 
+If the repository is private, the agent must be given a clone that already works
+on this Mac (for example, GitHub CLI signed in) before setup starts.
+
 That is enough. The repository tells the agent how to begin the assisted setup,
 which safety checks it must preserve, and when it needs your input. You should
 not have to translate the install guide or paste a long technical prompt.
@@ -123,8 +126,15 @@ Cove keeps workflow state in its durable local ledger. Gmail stays simple: Inbox
 ## How it runs (for the curious)
 
 - **One small program**, started by a macOS LaunchAgent named `com.cove.local`, serving `http://localhost:3200`, bound to localhost only (never exposed to the network).
+- **A supervised worker** (`com.cove.claude-worker`) writes the Morning Brief and runs the bounded task work you assign, through the agent you picked. Logs to `~/Library/Logs/cove-claude-worker.log`.
+- **A job scheduler** (`com.cove.jobs`) runs Cove's durable scheduled jobs and health checks. Logs to `~/Library/Logs/cove-jobs.log`.
 - **A reminder checker** (`com.cove.reminders`) wakes once a minute, looks for tasks whose time has come, and fires a Cove-branded notification (and a text, if you set one up). The installer builds a tiny local `Cove Notifications.app` so macOS shows the blue Cove icon and a real Cove sender name. Logs to `~/Library/Logs/cove-reminders.log`.
-- **An email triage job** (`com.cove.email-triage`) runs at your two chosen times and does the inbox pass described above. Logs to `~/Library/Logs/cove-email-triage.log`. It only ever creates drafts and moves labels; sending is always you.
+- **A daily backup** (`com.cove.local.backup`) copies the database at 3:30am. Logs to `~/Library/Logs/cove-backup.log`.
+- **An email triage job** (`com.cove.email-triage`), loaded only when Workspace email is configured, runs at your two chosen times and does the inbox pass described above. Logs to `~/Library/Logs/cove-email-triage.log`. It only ever creates drafts and moves labels; sending is always you.
+- **A meeting watcher and drain** (`com.cove.meeting-watch`, `com.cove.meeting-drain`) poll Granola and any configured Gmail meeting-note source and analyze the notes. Both load on a standard install; with no meeting source configured the watcher reports itself disabled and does nothing.
+- **A progress reconciler** (`com.cove.progress`) runs every 30 minutes and reads `data/session-pings/*.jsonl`. Nothing in a standard install writes those files, so it examines no projects, sends nothing to a model provider, and only updates its heartbeat file. If pings ever exist, it reads that project's recent `git log`, the `Current State` section of its `STATUS.md`, and recent Claude Code transcript wrap-ups under `~/.claude/projects`, and sends that evidence to your selected agent for read-only progress suggestions.
+- **A weekly voice review** (`com.cove.voice-review`) loads on a standard install but the review itself stays off unless `COVE_VOICE_REVIEW=1` is set.
+- **Chief-of-staff agents** (`com.cove.chief-of-staff-drain`, `-sweep`, `-nightly`, `-review`) load only on a Full Cove install with a saved primary agent and a private `data/cove-mandate.md`. Its `notify` actions stay in shadow (evidence only, no banner or text) while `data/attention-sweep.json` has `"shadow": true`.
 - **One file of data**: `data/cove.db`, backed up every day to `data/backups/` (the latest 14 snapshots are kept), for recovery after data loss. A backup only includes work saved before it was taken.
 - **Local storage, connected processing.** The board is stored on your Mac. Enabled model features send relevant task, email, meeting, and other context to Anthropic or OpenAI. Optional Google and Granola connections contact those services. See [SECURITY_AND_INTEGRATIONS.md](SECURITY_AND_INTEGRATIONS.md) for the boundaries.
 

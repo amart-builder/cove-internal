@@ -25,8 +25,8 @@ test("partial meeting writes retry the saved extraction and retain one task and 
   const options = {
     sourceDoor: "watcher", dbPath, dataDir: dir, baseUrl: "http://fixture.invalid", now: () => now,
     crmBackend: { resolveAndAppendMeetingActivity: () => ({ status: "matched", contactId: "fixture-contact" }), close() {} },
-    isOperatorOwnedImpl: name => name === "Gary",
-    extractFollowUps: async () => [{ owner: "Gary", title: ++extractionCalls === 1 ? "Send proposal" : "Send the proposal", detail: "Same obligation", due_at: "2026-09-16T17:00:00Z" }, { owner: "Sam Smith", title: "Reply", detail: "Same waiting item" }],
+    isOperatorOwnedImpl: name => name === "Taylor",
+    extractFollowUps: async () => [{ owner: "Taylor", title: ++extractionCalls === 1 ? "Send proposal" : "Send the proposal", detail: "Same obligation", due_at: "2026-09-16T17:00:00Z" }, { owner: "Sam Smith", title: "Reply", detail: "Same waiting item" }],
     runIntakeImpl: async input => {
       taskSources.add(input.sourceId);
       const taskDb = openLocalDatabase(dbPath);
@@ -76,7 +76,7 @@ test("only the current claimant can save an extraction and a retry cannot replac
   const { dbPath } = fixture(t);
   const first = claimMessageIngestion({ ...email, sourceDoor: "watcher", dbPath, now, leaseMs: 10_000 });
   const second = claimMessageIngestion({ ...email, sourceDoor: "watcher", dbPath, now: new Date(+now + 11_000) });
-  const extraction = [{ owner: "Gary", title: "One", detail: "Original" }];
+  const extraction = [{ owner: "Taylor", title: "One", detail: "Original" }];
   assert.throws(() => messageIngestionExtraction({ messageId: email.messageId, leaseToken: first.leaseToken, dbPath, extraction }), /no longer owned/);
   assert.deepEqual(messageIngestionExtraction({ messageId: email.messageId, leaseToken: second.leaseToken, dbPath, extraction }), extraction);
   assert.deepEqual(messageIngestionExtraction({ messageId: email.messageId, leaseToken: second.leaseToken, dbPath, extraction: [] }), extraction);

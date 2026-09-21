@@ -24,6 +24,34 @@
 
 ---
 
+## 2026-09-20 Jev W2 runtime and client readiness pass (LOCAL, OFF BY DEFAULT)
+
+- W2 shipped on `fable/jev-w0-w1`: `src/lib/jev/{settings,client,ledger,runtime}.ts`
+  and migration 37 (`cove_jev_attempts`, `cove_jev_state`). Off unless
+  `data/cove-jev.json` enables a feature AND `COVE_TYPESAFE_API_KEY` is set;
+  a client install has neither. Fixed endpoint, pinned `jev-1.13.0`, no retry
+  subsystem, 24 KiB / 32-question request cap, 64 KiB response cap, 3 s attempt
+  and 6 s total timeouts, 120/hour and 800/day budgets, two concurrent leases,
+  breaker (five failures in ten minutes, five-minute cooldown, longer
+  Retry-After honoured), 401/403 disables until the key fingerprint changes,
+  exact-key reuse, 30/90-day retention. 16 tests in `tests/jev-runtime.test.mjs`.
+  The key is excluded from model child environments by the existing allowlist
+  and the export secret scanner now recognises the TypeSafe key shape.
+- Wire contract frozen from live captures in `fixtures/jev/wire/` (200, 401,
+  422). Live baseline on the fictional W0 cases via
+  `scripts/evaluation/jev-cases-live.mjs`: 172 of 193 judgments as labelled,
+  30/44 development and 20/24 heldout cases fully correct, p50 133 ms. Numbers
+  and per-lane detail in EVALUATION.md. No Cove data has been sent to TypeSafe.
+- Alex placed the TypeSafe key in this machine's ignored `.env.local` on
+  2026-09-20 (it was pasted in chat first; rotate it when convenient). No
+  feature is enabled in `cove-jev.json` yet; W3 (commitment meaning) is next
+  and needs Alex's source-scope and retention approval before any real mail
+  or task text is sent.
+- Client readiness pass for the 2026-09-21 install: a fresh-export dry run and
+  a docs review were run by subagents; findings and fixes are recorded in the
+  session report and the doc edits in this branch. Decision still open: which
+  repository and branch the client copy is exported from.
+
 ## 2026-09-18 Jev slice one: W0 baseline and W1 dependency contract (LOCAL, NOT ACTIVATED)
 
 - Branch `fable/jev-w0-w1` off `54b1f7b` (the committed 2026-09-16 work). Agreed

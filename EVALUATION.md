@@ -193,10 +193,30 @@ behavior these judgments will sit beside.
 
 What this proves: the fixture is well-formed and the request shape is stable
 and reproducible. What it does not prove: anything about Jev's accuracy, Cove's
-live behavior, latency, cost, or safety. No network call is made, no key is
-read, no database is opened and no model is invoked. `--live` and `--run` exit
-with code 2; live evaluation is a separate work package with its own
-activation.
+live behavior, latency, cost, or safety. This script makes no network call,
+reads no key, opens no database and invokes no model; `--live` and `--run`
+exit with code 2.
+
+Live scoring is the separate `scripts/evaluation/jev-cases-live.mjs`. It reads
+`COVE_TYPESAFE_API_KEY` from `.env.local`, sends each prepared request through
+the production client (`src/lib/jev/client.ts`, so the same size limits,
+pinned model and response validation apply), and scores answers against the
+expected file: a choice must match the label exactly; a noul counts as `yes`
+at or above 0.65, `no` at or below 0.35, and `uncertain` between. It opens no
+database and touches no Cove data; only the fictional fixture cases are sent.
+It exits with code 2 when the key is absent. Results go to a new directory
+with per-lane rows, per-question tallies and latency percentiles.
+
+First live baseline (2026-09-20, question sets version 1, `jev-1.13.0`): 68
+requests, 172 of 193 individual judgments as labelled; cases fully correct 30
+of 44 development and 20 of 24 heldout; median latency 133 ms, p90 183 ms,
+about 57k input tokens in total. Strongest lanes: task identity (11 of 12),
+reply fulfillment (20 of 22), commitment meaning (32 of 36). Weakest single
+questions: `claims_unestablished_event` in planning evidence (7 of 10) and
+`request_recency` and `reply_needed` in email triage (10 of 12 each). Misses
+cluster on quoted history, forwarded text and injected instructions, which is
+what the deterministic safeguards must cover regardless. A baseline is a
+measurement of these question sets, not an accuracy claim about Cove.
 
 Development and heldout rule: labels were frozen before any Jev call. Tune
 question wording, thresholds and retrieval on development cases only. Heldout
