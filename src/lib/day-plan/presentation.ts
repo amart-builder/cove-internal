@@ -370,6 +370,19 @@ export function firstContinuingItem<T extends DayPlanItem>(
     items.find((item) => decisions[item.id] === 'carry');
 }
 
+/**
+ * What the settlement says about an open item whose task is not there any more.
+ *
+ * Delete a task during the day and it leaves the board but stays on the day's
+ * plan, so the settlement asks what should happen to it next — carry it, defer
+ * it, drop it — about something already in Recently deleted, and used to offer
+ * a dead link to it as well. The plan still needs an outcome recorded before
+ * the day can close (`settlement_commit` in the store refuses without one), so
+ * the row says what happened and points at the answer that fits.
+ */
+export const SETTLEMENT_ITEM_GONE_NOTE =
+  'You deleted this task today. Choose Drop to close it out.';
+
 export function allSettlementDecisionsMade<T extends DayPlanItem>(
   items: readonly T[],
   decisions: Readonly<Record<string, SettlementDecision | undefined>>,
