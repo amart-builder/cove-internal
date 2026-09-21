@@ -296,6 +296,26 @@ export function dayCloseUnavailableReason(input: {
   return undefined;
 }
 
+/**
+ * Why the Morning Arrival's final button is dimmed, or `undefined` when it is
+ * not. The ritual is modal and its last step is the only way out that keeps the
+ * plan, so a button that does nothing there has to say what would make it work.
+ */
+export function arrivalStartDayUnavailableReason(input: {
+  finalStep: boolean;
+  busy?: boolean;
+  buddyActive?: boolean;
+  plannedCount: number;
+}): string | undefined {
+  if (!input.finalStep) return undefined;
+  if (input.busy) return 'Cove is setting your day.';
+  if (input.buddyActive) return 'Buddy is still working. This is ready in a moment.';
+  if (input.plannedCount === 0) {
+    return "Put at least one task in today's plan first. If you have nothing to plan yet, choose Continue to Today.";
+  }
+  return undefined;
+}
+
 export function reorderDayPlanItems<T extends DayPlanItem>(
   items: readonly T[],
   activeId: string,

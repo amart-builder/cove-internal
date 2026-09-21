@@ -6,6 +6,7 @@ import {
   allSettlementDecisionsMade,
   claudeResumeUrl,
   canStartDayPlanSettlement,
+  arrivalStartDayUnavailableReason,
   dayCloseUnavailableReason,
   combineSurfaceErrors,
   firstContinuingItem,
@@ -697,5 +698,35 @@ test('missing or unreadable brief never displays task fallback text', () => {
       assert.deepEqual(result.body, []);
       assert.doesNotMatch(result.leadHeadline ?? '', /Current task|Added from Not today/);
     }
+  }
+});
+
+test('a dimmed Start my day always says what would un-dim it', () => {
+  // The arrival covers the screen: a dimmed button with no sentence beside it
+  // is the whole of what a person can see, and on a brand-new install with no
+  // tasks that is exactly the state they arrive in.
+  assert.equal(
+    arrivalStartDayUnavailableReason({ finalStep: true, plannedCount: 1 }),
+    undefined,
+  );
+  assert.match(
+    arrivalStartDayUnavailableReason({ finalStep: true, plannedCount: 0 }),
+    /Continue to Today/,
+  );
+  assert.match(
+    arrivalStartDayUnavailableReason({ finalStep: true, plannedCount: 3, busy: true }),
+    /setting your day/i,
+  );
+  assert.match(
+    arrivalStartDayUnavailableReason({ finalStep: true, plannedCount: 3, buddyActive: true }),
+    /Buddy/,
+  );
+  // Earlier steps advance the ritual rather than start the day, so they are
+  // never blocked by an empty plan.
+  for (const plannedCount of [0, 1, 3]) {
+    assert.equal(
+      arrivalStartDayUnavailableReason({ finalStep: false, plannedCount, busy: true }),
+      undefined,
+    );
   }
 });
