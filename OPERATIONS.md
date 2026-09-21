@@ -112,7 +112,7 @@ of repeatedly spending model capacity. Explicit Brief me anyway remains availabl
 - Failed email archives leave the item open and retryable.
 - Dead jobs appear in Issues rather than disappearing.
 - Create a fresh recovery point with `bash scripts/cove-backup.sh`. A backup failure returns a nonzero exit code; unrelated queued work is not run.
-- Use `bash scripts/cove-restore-backup.sh --yes <backup-file>` for database recovery. Stop the app and database-using workers first.
+- Use `bash scripts/cove-restore-backup.sh --yes <backup-file>` for database recovery. Stop the app and database-using workers first. The restore refuses while any `com.cove.*` or `com.forge.*` service is loaded, which is what `bash scripts/cove-stop.sh` clears. That gate does not see a web app started by hand, as setup does before the installer runs: stop that process in its own terminal first. The open-handle check behind the gate is a race backstop, not a substitute, because Cove opens the database per operation and an idle moment looks like nobody has it.
 - Re-run `bash scripts/install-cove-local.sh` after moving the repository or changing the Node installation.
 
 ## Verification
