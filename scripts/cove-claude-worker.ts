@@ -187,5 +187,8 @@ void main()
   })
   .catch((error) => {
     console.error(error);
-    process.exitCode = 1;
+    // In watch mode the other lanes keep timers alive, so setting exitCode
+    // alone leaves a half-dead worker that launchd's KeepAlive never restarts.
+    // Exit for real so the LaunchAgent brings up a fresh, fully working one.
+    process.exit(1);
   });

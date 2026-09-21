@@ -24,6 +24,20 @@
 
 ---
 
+## 2026-09-21 Morning brief stuck: worker zombie fixed
+
+- Symptom: today's brief sat `queued` from 9:49 AM PT with no worker pickup.
+- Cause: on 2026-09-18 a transient `SQLITE_BUSY` in
+  `interruptStaleMorningBriefs` (unguarded, unlike the day-dump sweep) rejected
+  the watch-mode `Promise.all`; `main`'s `finally` closed the store but the
+  other lanes kept timers alive, so the process never exited and launchd's
+  KeepAlive never restarted it. Half-dead worker for three days.
+- Fix: the brief stale sweep is now best-effort (try/catch, retried next poll)
+  and the worker's top-level catch calls `process.exit(1)` so a dead lane
+  becomes a real restart. Worker kickstarted; today's brief succeeded 12:18 PM PT.
+- Verified: worker + morning-brief tests 28/28 on bundled Node 24; tsc error
+  count unchanged (pre-existing `data/build-backups` noise).
+
 ## 2026-09-20 Client release merged to main for the 2026-09-21 install
 
 - Decisions from Alex: publish from this branch (his call was "whatever you

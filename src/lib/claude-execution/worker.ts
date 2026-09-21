@@ -1171,7 +1171,15 @@ export async function runOneMorningBrief(
   const staleAfterMs = morningBriefStaleAfterMs(
     options.briefTimeoutMs ?? morningBriefModelConfig().timeoutMs,
   );
-  options.store.interruptStaleMorningBriefs(cutoff(clock(), staleAfterMs));
+  // Best-effort, like the day-dump sweep: a transient SQLITE_BUSY here once
+  // killed the whole brief lane while the worker process stayed alive, so
+  // launchd never restarted it and every brief sat "queued" until a manual
+  // kick. The next poll retries the sweep anyway.
+  try {
+    options.store.interruptStaleMorningBriefs(cutoff(clock(), staleAfterMs));
+  } catch (error) {
+    console.error("Morning brief stale sweep failed; continuing.", error);
+  }
   // Gating the enqueue is not enough on its own. A row queued while the relay
   // still said "closed" (or before any signal existed) can still be sitting in
   // the queue once the day goes unclosed, and draining it would write exactly
