@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { componentHarness, findElement } from './helpers/component-hooks.mjs';
+import { fakeDocument } from './helpers/board-harness.mjs';
 
 // The Rhythms panel opens over the Today screen and covers the third focus
 // card while it is there. Measured in a browser before this: Escape did not
@@ -11,20 +12,6 @@ import { componentHarness, findElement } from './helpers/component-hooks.mjs';
 //
 // Everything else on this screen closes on Escape and on an outside press, so
 // this was the one disclosure that did not.
-
-/** A stand-in for `document` that hands back the listeners the panel registers. */
-function fakeDocument() {
-  const listeners = [];
-  return {
-    addEventListener: (type, handler, capture) => listeners.push({ type, handler, capture }),
-    removeEventListener: (type, handler) => {
-      const index = listeners.findIndex((l) => l.type === type && l.handler === handler);
-      if (index >= 0) listeners.splice(index, 1);
-    },
-    listeners,
-    find: (type) => listeners.find((l) => l.type === type),
-  };
-}
 
 function panelHarness() {
   const doc = fakeDocument();
