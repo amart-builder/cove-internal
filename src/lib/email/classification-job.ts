@@ -311,8 +311,10 @@ export function createEmailClassificationHandler(input: {
       now: input.now?.(),
     });
     if (applied.applied && result.urgent === true) {
+      let urgentDetail: string | undefined;
+      let urgentDiagnostic: string | undefined;
       try {
-        (input.urgentHandler ?? handleUrgentEmail)({
+        const outcome = (input.urgentHandler ?? handleUrgentEmail)({
           dbPath: input.dbPath ?? localDatabasePath(),
           repoDir: input.repoDir,
           messageId: claim.messageId,
@@ -322,17 +324,34 @@ export function createEmailClassificationHandler(input: {
           urgencyReason: result.urgencyReason,
           now: input.now?.(),
         });
+        // Most of the ways this lane stays quiet are not throws. A missing
+        // attention ledger and a failure of banner, text and board together
+        // both return normally, so the recovery below never ran for the two
+        // cases where nobody was told at all. Reaching the interruption budget
+        // is different: that is the policy working, and it already puts a line
+        // on the board.
+        if (outcome?.status === "suppressed" && outcome.reason !== "budget") {
+          urgentDetail = outcome.reason === "no_ledger"
+            ? "Cove's attention records are not set up on this install, so no alert could be raised."
+            : "The alert could not be delivered to your Mac, your phone or the board.";
+          urgentDiagnostic = `urgent email suppressed: ${outcome.reason ?? "unknown"}`;
+        }
       } catch (error) {
+        urgentDetail = "Cove hit an error while raising the alert.";
+        urgentDiagnostic = error instanceof Error ? error.message : String(error);
+      }
+      if (urgentDetail) {
         // An urgent email that fails to alert is the exact drop this system
         // exists to prevent, so it goes to the Failure Inbox, not just stderr.
-        const detail = error instanceof Error ? error.message : String(error);
-        console.error("Urgent email attention handling failed:", detail);
+        // The raw diagnostic stays in the details for investigation; the person
+        // reads a sentence that tells them what to do.
+        console.error("Urgent email attention handling failed:", urgentDiagnostic ?? urgentDetail);
         try {
           recordFailure({
             source: "urgent-email",
             sourceId: claim.messageId,
-            message: `Cove judged an email urgent but could not alert: ${detail}`,
-            details: { messageId: claim.messageId, emailItemId: claim.emailItemId },
+            message: `Cove found an email that needed you today but could not get your attention. ${urgentDetail} Check your inbox.`,
+            details: { messageId: claim.messageId, emailItemId: claim.emailItemId, error: urgentDiagnostic },
             dbPath: input.dbPath,
           });
         } catch (recordError) {
