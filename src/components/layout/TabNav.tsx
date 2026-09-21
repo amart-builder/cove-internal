@@ -177,7 +177,7 @@ export default function TabNav() {
         if (!event.currentTarget.contains(event.relatedTarget)) scheduleHide(700);
       }}
     >
-      <div className="flex h-full min-w-0 items-center gap-1">
+      <div className="flex h-full items-center gap-1">
       <span className="mr-4 flex items-center gap-2 text-[13.5px] font-[650] tracking-[-0.012em] text-foreground sm:mr-7">
         <span className="quiet-cove-mark" aria-hidden="true" />
         Cove
