@@ -105,6 +105,23 @@ export function diagnosticCause(diagnostic: string): { cause: string; remedy: st
   return { cause, remedy };
 }
 
+// A 500 with an empty body is the one answer a screen cannot use: the client
+// parses before it checks the status, so the person reads "Unexpected end of
+// JSON input" where the page should be. Routes whose body a screen renders
+// build it here -- product copy in `error`, the raw text in `detail` for
+// whoever is helping, which is the shape /api/health already uses.
+export function routeFailureBody(
+  impact: string,
+  error: unknown,
+): { error: string; detail?: string } {
+  const diagnostic = error instanceof Error ? error.message : String(error);
+  const { cause, remedy } = diagnosticCause(diagnostic);
+  return {
+    error: impact + cause + remedy,
+    ...(diagnostic ? { detail: diagnostic } : {}),
+  };
+}
+
 // Issues supplies a safe cause and recovery step. Keep raw diagnostics in the
 // stored details for investigation, never interpolate them into product copy.
 export function jobFailureDetail(type: string, diagnostic: string, retrying = false): string {
