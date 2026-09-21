@@ -138,7 +138,14 @@ test("installer readiness fails when the new worker heartbeat is missing", (t) =
   const runner = path.join(root, "readiness.sh");
   writeFileSync(runner, `#!/bin/bash
 set -euo pipefail
-curl() { printf '200'; }
+curl() {
+  # The readiness loop now asks /api/health whether the thing answering is
+  # actually Cove, so the stub has to answer as Cove would.
+  case "$*" in
+    *"/api/health"*) printf '{"snapshot":null,"readiness":{"checkedAt":"2026-09-21T00:00:00.000Z"}}' ;;
+    *) printf '200' ;;
+  esac
+}
 stat() { printf '%s' "$COVE_TEST_HEARTBEAT"; }
 sleep() { :; }
 LANE_DATA_DIR="$COVE_TEST_ROOT"

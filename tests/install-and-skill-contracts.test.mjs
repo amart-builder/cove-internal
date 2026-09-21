@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import http from "node:http";
+import { promisify } from "node:util";
 import { copyFileSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -13,6 +15,7 @@ import { POST } from "../src/app/api/cove-rest/[table]/route.ts";
 import { getQuietCurrentCsrfToken } from "../src/lib/quiet-current/store.ts";
 
 const ROOT = process.cwd();
+const execFileAsync = promisify(execFile);
 
 test("meeting and progress plists render the absolute Node executable", async (t) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "cove-plist-"));
@@ -535,4 +538,73 @@ test("the distributed meeting example is disabled and the live config stays igno
   assert.equal(example.window, "newer_than:4d");
   assert.doesNotMatch(ignore, /!\/data\/cove-meetings\.json(?:\n|$)/);
   assert.match(ignore, /!\/data\/cove-meetings\.example\.json/);
+});
+
+
+// The installer's readiness probe decides whether an install is reported as
+// successful. It used to accept any 200 on /tasks, so another program holding
+// port 3200 meant `next start` exited EADDRINUSE, launchd restarted it every
+// ten seconds forever, and the installer printed "Cove is running at ...".
+// Extract the real loop and drive it against two servers to prove the
+// difference is now detected.
+async function runReadinessProbe(respond) {
+  const server = http.createServer(respond);
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const installer = readFileSync(path.join(ROOT, "scripts/install-cove-local.sh"), "utf8");
+  const start = installer.indexOf('echo "Starting Cove..."');
+  const end = installer.indexOf('if [ -n "$UP" ]; then');
+  assert.ok(start > 0 && end > start, "install-cove-local.sh no longer has a readiness loop to extract");
+  const loop = installer.slice(start, end);
+  const dir = await mkdtemp(path.join(os.tmpdir(), "cove-probe-"));
+  try {
+    const harness = path.join(dir, "probe.sh");
+    // `sleep` is stubbed so a probe that never succeeds costs no wall clock.
+    await writeFile(harness, [
+      "set -uo pipefail",
+      "sleep() { :; }",
+      `COVE_BRIEF_WEB_BASE=${base}`,
+      loop,
+      'printf "UP=%s FOREIGN=%s\\n" "$UP" "$FOREIGN_SERVER"',
+    ].join("\n"));
+    // Async on purpose: the stub server above shares this process's event
+    // loop, so a synchronous child would block it and curl would never be
+    // answered.
+    const { stdout } = await execFileAsync("bash", [harness], { encoding: "utf8" });
+    return stdout.trim().split("\n").pop();
+  } finally {
+    server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test("a program squatting on Cove's port is not mistaken for a working install", async () => {
+  const result = await runReadinessProbe((request, response) => {
+    if (request.url.startsWith("/api/health")) {
+      response.writeHead(404).end("not found");
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/html" }).end("<h1>not cove</h1>");
+  });
+  assert.equal(result, "UP= FOREIGN=yes");
+});
+
+test("Cove answering its own health endpoint is what counts as started", async () => {
+  const result = await runReadinessProbe((request, response) => {
+    if (request.url.startsWith("/api/health")) {
+      response.writeHead(200, { "content-type": "application/json" })
+        .end(JSON.stringify({ snapshot: null, readiness: { checkedAt: "2026-09-21T00:00:00.000Z" } }));
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/html" }).end("<h1>cove</h1>");
+  });
+  assert.equal(result, "UP=yes FOREIGN=");
+});
+
+test("the installer says what to do when another program holds the port", () => {
+  const installer = readFileSync(path.join(ROOT, "scripts/install-cove-local.sh"), "utf8");
+  assert.match(installer, /Something other than Cove is already using port \$WEB_PORT/);
+  assert.match(installer, /lsof -nP -iTCP:\$WEB_PORT -sTCP:LISTEN/);
+  assert.match(installer, /COVE_BRIEF_WEB_BASE=http:\/\/127\.0\.0\.1:3201/);
+  assert.match(installer, /grep -q 'EADDRINUSE'/);
 });
