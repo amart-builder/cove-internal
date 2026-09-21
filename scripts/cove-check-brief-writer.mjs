@@ -8,15 +8,32 @@ import { configuredJobBackend } from "../src/lib/model-runner-runtime.mjs";
 
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
+const NO_BRIEF_YET = "No successful Morning Brief exists yet.";
+
+// day_plan_briefs is created by the day-plan store the first time it runs, so
+// on an install that has not produced a brief yet the table is simply absent
+// and SQLite's own words are what SETUP.md's check prints: "no such table:
+// day_plan_briefs". At Step 5, where having no brief yet is the expected
+// state, that reads like a broken migration and invites someone to repair a
+// database that is fine. The sentence below is the one the code already meant
+// to print in that case.
+function requireBriefTable(db) {
+  const present = db.prepare(
+    "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'day_plan_briefs'",
+  ).get();
+  if (!present) throw new Error(NO_BRIEF_YET);
+}
+
 export function latestSuccessfulBriefWriter(dbPath) {
   const db = new Database(dbPath, { readonly: true, fileMustExist: true });
   try {
+    requireBriefTable(db);
     const row = db.prepare(`
       SELECT brief_json FROM day_plan_briefs
       WHERE status = 'succeeded'
       ORDER BY COALESCE(finished_at, updated_at) DESC, id DESC LIMIT 1
     `).get();
-    if (!row) throw new Error("No successful Morning Brief exists yet.");
+    if (!row) throw new Error(NO_BRIEF_YET);
     let brief;
     try {
       brief = JSON.parse(row.brief_json);
@@ -35,12 +52,13 @@ export function latestSuccessfulBriefWriter(dbPath) {
 export function latestSuccessfulBriefLocalSources(dbPath, dataDir) {
   const db = new Database(dbPath, { readonly: true, fileMustExist: true });
   try {
+    requireBriefTable(db);
     const row = db.prepare(`
       SELECT source_manifest_json FROM day_plan_briefs
       WHERE status = 'succeeded'
       ORDER BY COALESCE(finished_at, updated_at) DESC, id DESC LIMIT 1
     `).get();
-    if (!row) throw new Error("No successful Morning Brief exists yet.");
+    if (!row) throw new Error(NO_BRIEF_YET);
     let manifest;
     try {
       manifest = JSON.parse(row.source_manifest_json);
