@@ -365,6 +365,22 @@ test("stopping Cove covers every service the installer can load", () => {
   assert.match(readme, /scripts\/cove-stop\.sh/);
 });
 
+test("nothing in a local-first install phones home to Next.js", () => {
+  const installer = readFileSync(path.join(ROOT, "scripts", "install-cove-local.sh"), "utf8");
+  const verify = readFileSync(path.join(ROOT, "scripts", "cove-verify.mjs"), "utf8");
+
+  // `next build` and `next start` both report anonymous telemetry unless this
+  // is set. Cove's documentation names the places data leaves the Mac, and
+  // Vercel is not one of them, so the two commands a person actually runs --
+  // the release gate and the web app agent -- have to turn it off.
+  assert.match(
+    installerPlistBlock(installer, "com.cove.local"),
+    /<key>NEXT_TELEMETRY_DISABLED<\/key>\s*<string>1<\/string>/,
+    "the web app agent must disable Next telemetry",
+  );
+  assert.match(verify, /NEXT_TELEMETRY_DISABLED: "1"/);
+});
+
 test("stopping Cove reports and disables what is actually on the Mac", async (t) => {
   // A stub launchctl standing in for the real one, so the stop script can be
   // run rather than only read. Everything with a plist is loaded except

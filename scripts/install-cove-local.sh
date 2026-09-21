@@ -726,6 +726,11 @@ $RUNTIME_PLIST_ENTRY
     <string>$NODE_BIN:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
     <key>NODE_ENV</key>
     <string>production</string>
+    <!-- Next.js phones home anonymously on every start unless this is set.
+         Cove is local-first and names what leaves the machine; this was not
+         on that list, so it does not leave. -->
+    <key>NEXT_TELEMETRY_DISABLED</key>
+    <string>1</string>
     <key>COVE_DAY_PLAN_ACCESS_MODE</key>
     <string>loopback</string>
     <key>COVE_BUDDY_DEEPLINKS</key>
