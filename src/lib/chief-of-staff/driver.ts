@@ -1,6 +1,7 @@
 import { createDayPlanStore } from "../day-plan/store";
 import { morningBriefModelConfig } from "../claude-execution/brief-commands";
 import { PLANNING_QUESTIONS } from "./planning-contract";
+import { localDateLabel } from "./planning-dates";
 import {
   dailyPlanningSchema,
   dailyPlanningPrompt,
@@ -375,9 +376,21 @@ function priority(value: unknown): "low" | "medium" | "high" {
   return value;
 }
 
-function validateDueAt(value: string | null | undefined, field: string): void {
+// The two halves of the old check were joined by OR, so anything shaped like
+// YYYY-MM-DD got in without ever being parsed: "2026-13-45" and "9999-99-99"
+// were accepted and stored, and "Dec 25" passed the other half as the year
+// 2001. These are deadlines written onto the person's real tasks, so they have
+// to be dates the rest of Cove can read. localDateLabel is the same oracle the
+// planning contract already uses (daily-planning.ts:213); it answers "Invalid"
+// for a day the calendar does not have and "Unlabelled" for a format Cove does
+// not support.
+export function validateChiefOfStaffDueAt(
+  value: string | null | undefined,
+  field: string,
+): void {
   if (value === undefined || value === null || value === "") return;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isNaN(Date.parse(value))) {
+  const label = localDateLabel(value, "UTC") ?? "";
+  if (!label || /^(Invalid|Unlabelled)/.test(label)) {
     throw new Error(`${field} must be a calendar date or timestamp.`);
   }
 }
@@ -525,7 +538,7 @@ function applyDatabaseAction(input: {
     if (action.details !== null && Object.hasOwn(action, "details")) add("description", optionalActionText(action, "details", 5_000) ?? "");
     const dueAt = action.due_at === null ? undefined : nullableText(action, "due_at", 40);
     if (dueAt !== undefined) {
-      validateDueAt(dueAt, "due_at");
+      validateChiefOfStaffDueAt(dueAt, "due_at");
       add("due_at", dueAt);
       add("due_date", dueAt);
     }
@@ -750,7 +763,7 @@ function applyChiefOfStaffActionsWithDetails(input: {
           if(action.status!=null && action.status!=="open")throw new Error("task_create status must be open.");
           const title=requiredActionText(action,"title",500);
           if(existingTaskWithTitle(db,title,now))throw new Error("A task with this title already exists. Read the current task.");
-          const due=optionalActionText(action,"due_at",40);validateDueAt(due,"due_at");
+          const due=optionalActionText(action,"due_at",40);validateChiefOfStaffDueAt(due,"due_at");
           const description=[optionalActionText(action,"details",4000),due?`Proposed deadline, not yet confirmed: ${due}`:null].filter(Boolean).join("\n");
           createWorkSuggestion({kind:"create_task",title,description,reason:requiredActionText(action,"why",200),source:"chief-of-staff",priority:priority(action.priority),
             claimKey:`cos:proposed:${createHash("sha256").update(normalizedTaskTitle(title)).digest("hex").slice(0,24)}`,dataDir:input.dataDir});
