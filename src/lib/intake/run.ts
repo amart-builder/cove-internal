@@ -190,11 +190,20 @@ function signalChild(
   }
 }
 
+// The contract this lane has to meet is not the JSON Schema alone: the project
+// must come from the person's own vocabulary, the dates must be dates the
+// calendar has, and a scheduled item must carry its time. Those are checked
+// inside the runner rather than after it, so a model that breaks one is told
+// which rule it broke and gets the same second attempt the chief-of-staff and
+// sweep lanes already get. Checked afterwards, a single bad field sent the
+// whole capture to the raw-text fallback card with nothing the model got right
+// carried over, on the lane a new person uses most.
 function runTriageCommand(
   prompt: string,
+  projects: readonly string[],
   options: CoveIntakeOptions,
-): Promise<string> {
-  return runJob({
+): Promise<TriageOutput> {
+  return runJob<TriageOutput>({
     lane: "intake-triage",
     kind: "structured",
     prompt,
@@ -207,9 +216,13 @@ function runTriageCommand(
     cwd: options.repoDir ?? MODULE_REPO_DIR,
     claudeMcpConfigPath: options.emptyMcpConfigPath,
     claudeMaxBudgetUsd: "1.50",
+    validate: (_text, value) => validateTriageOutput(value, projects),
   }).then((result) => {
     if (!result.ok) throw new Error(`${result.error.code}:${result.error.message}`);
-    return JSON.stringify(result.value);
+    // The runner types `value` as optional because a text job has none. A
+    // structured job that passed validation always carries one.
+    if (!result.value) throw new Error("triage_output_missing");
+    return result.value;
   });
 }
 
@@ -561,12 +574,8 @@ export async function triageRecordedEvent(
     board: await boardContext(runtimeOptions),
     now,
   });
-  const raw = await runTriageCommand(prompt, runtimeOptions);
   const policy = enforceSurfacePolicy(
-    validateTriageOutput(
-      JSON.parse(raw) as unknown,
-      projects,
-    ),
+    await runTriageCommand(prompt, projects, runtimeOptions),
     event.source,
   );
   writeScheduledReminder(
