@@ -32,6 +32,10 @@ export function renderBuddyInstructionDoc(options: {
     ? workspaceRoot()
     : options.workspaceRoot;
   const template = readFileSync(BUDDY_TEMPLATE_PATH, "utf8");
+  // The installer picks the web port and writes COVE_BRIEF_WEB_BASE. Buddy tells
+  // the operator where Cove is, so a hardcoded 3200 sends them to a dead page on
+  // any install that took another port.
+  const appUrl = (coveEnv("BRIEF_WEB_BASE") ?? "http://localhost:3200").replace(/\/$/, "");
   const policyText = readOperatorPolicy({ dataDir: coveDataDir(options.dataDir) });
   const operatorPolicy = policyText ? formatOperatorPolicy(policyText) : "";
   const operatorPolicySection = operatorPolicy
@@ -44,6 +48,8 @@ export function renderBuddyInstructionDoc(options: {
     .update("\0")
     .update(configuredWorkspace ?? "")
     .update("\0")
+    .update(appUrl)
+    .update("\0")
     .update(operatorPolicySection)
     .digest("hex");
   const renderedDir = path.join(coveDataDir(options.dataDir), "buddy-home");
@@ -51,6 +57,7 @@ export function renderBuddyInstructionDoc(options: {
   const hashHeader = `<!-- COVE_BUDDY_TEMPLATE_HASH:${templateHash} -->`;
   let body = template
     .replaceAll("{{COVE_REPO_ROOT}}", BUDDY_REPO_ROOT)
+    .replaceAll("{{COVE_APP_URL}}", appUrl)
     .replaceAll("{{OPERATOR_POLICY_SECTION}}", operatorPolicySection);
   body = configuredWorkspace
     ? body
@@ -58,7 +65,8 @@ export function renderBuddyInstructionDoc(options: {
         .replaceAll("<!--SPAWN-->", "")
         .replaceAll("<!--/SPAWN-->", "")
     : body.replace(SPAWN_BLOCK_RE, "");
-  if (body.includes("{{COVE_REPO_ROOT}}") || body.includes("{{WORKSPACE_ROOT}}") || body.includes("{{OPERATOR_POLICY_SECTION}}")) {
+  if (body.includes("{{COVE_REPO_ROOT}}") || body.includes("{{WORKSPACE_ROOT}}") ||
+    body.includes("{{OPERATOR_POLICY_SECTION}}") || body.includes("{{COVE_APP_URL}}")) {
     throw new Error("Buddy instruction template contains unresolved placeholders.");
   }
   const expected = `${hashHeader}\n${body}`;
