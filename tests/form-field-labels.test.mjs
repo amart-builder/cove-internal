@@ -39,6 +39,7 @@ test('the task editor ties every caption to its field', () => {
         taskEditorDraft: (task) => task,
         taskEditorPatch: () => ({}),
         taskEditorExpected: () => ({}),
+        taskSaveUnavailableReason: () => undefined,
       },
     },
   });
