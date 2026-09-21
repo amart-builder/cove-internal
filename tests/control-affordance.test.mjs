@@ -58,3 +58,29 @@ test('the acknowledge controls are big enough to hit', () => {
     }
   }
 });
+
+test('a disabled control also looks disabled', () => {
+  // On a closed day Today disables its three focus-card checks. They kept
+  // their full blue, their glow and their pointer, so the three largest,
+  // most inviting buttons on the screen looked exactly as pressable as they
+  // had all day and did nothing when pressed. Today's own day-ritual links,
+  // two inches above them, already dim to .38 with not-allowed.
+  const selector = '.today2-focus-card:not(.is-completing) .today2-check-orb:disabled';
+  const at = css.indexOf(selector);
+  assert.notEqual(at, -1, 'the disabled focus-card check no longer has a rule of its own');
+  const block = css.slice(at, css.indexOf('}', at));
+  assert.match(block, /opacity:\s*\.38/, 'the disabled check is no longer dimmed, so it reads as pressable');
+  assert.match(block, /box-shadow:\s*none/, 'the disabled check keeps its glow, which is what made it look live');
+  assert.match(block, /cursor:\s*not-allowed/, 'the disabled check no longer says it cannot be pressed');
+});
+
+test('the check stays whole while its card is completing', () => {
+  // The orb is disabled for the length of the completion animation too. That
+  // card is already running its own fade, so dimming the orb underneath it
+  // would show through as a flicker at the moment of the one reward on the
+  // screen. The :not(.is-completing) in the rule above is what prevents it.
+  assert.match(css, /\.today2-focus-card:not\(\.is-completing\)\s+\.today2-check-orb:disabled/,
+    'the dim rule now also catches the card that is completing');
+  assert.match(css, /\.today2-focus-card\.is-completing\s*\{[^}]*animation:\s*today2-complete-fade/,
+    'the completing card no longer runs its own fade, so re-check what the dim rule should exclude');
+});
