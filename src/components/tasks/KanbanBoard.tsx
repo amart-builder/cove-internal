@@ -25,6 +25,7 @@ import type {
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { getRuntimeMode } from '@/lib/runtime/mode';
 import { originDate } from '@/lib/tasks/origin';
+import { taskSaveUnavailableReason } from '@/lib/tasks/editor-patch';
 import {
   createTask as createSupabaseTask,
   createTaskColumn as createSupabaseTaskColumn,
@@ -996,6 +997,8 @@ function KanbanBoardContent({
     return <RecentlyDeleted onClose={() => setShowRecentlyDeleted(false)} />;
   }
 
+  const addTaskUnavailableReason = taskSaveUnavailableReason({ title: newTask.title });
+
   return (
     <div className="water-workspace all-work-surface flex h-full flex-col">
       <header className="water-toolbar all-work-toolbar border-b px-5 pt-[62px]">
@@ -1163,7 +1166,9 @@ function KanbanBoardContent({
             <div className="flex gap-1.5 shrink-0">
               <button
                 type="submit"
-                disabled={!newTask.title.trim()}
+                disabled={Boolean(addTaskUnavailableReason)}
+                title={addTaskUnavailableReason}
+                aria-describedby={addTaskUnavailableReason ? 'add-task-availability' : undefined}
                 className="water-primary-button px-4 py-2 disabled:opacity-40"
               >
                 Add Task
@@ -1204,6 +1209,11 @@ function KanbanBoardContent({
               />
             </div>
           </div>
+          {addTaskUnavailableReason && (
+            <p id="add-task-availability" className="mt-2 text-xs text-muted-foreground">
+              {addTaskUnavailableReason}
+            </p>
+          )}
         </form>
       )}
 
