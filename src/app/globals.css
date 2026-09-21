@@ -2527,6 +2527,10 @@ input, textarea, select {
 .water-card-title {
   font-weight: 550;
   letter-spacing: -.012em;
+  /* Titles are whatever he typed, and a pasted link or file path is one
+     unbreakable word. Without this it runs straight out of the card, over the
+     complete button and into the next column. */
+  overflow-wrap: anywhere;
 }
 
 .water-task-card.is-overlay {
