@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -16,10 +16,24 @@ function fixture(t) {
   mkdirSync(path.join(dir, 'brief'), { recursive: true });
   writeFileSync(path.join(dir, 'brief', 'goals.md'), '# Goals\nGrow the business.');
   const prior = {
+    path: process.env.PATH,
     db: process.env.COVE_DB_PATH,
     runtime: process.env.NEXT_PUBLIC_COVE_RUNTIME,
     timezone: process.env.COVE_TIMEZONE,
   };
+  // The client release line refuses to start a Codex job until it has verified
+  // that the inherited password-manager connector is off, and it asks the real
+  // binary. Answer that probe the way the line's own intake fixture does, so
+  // this test means the same thing on both lines.
+  const bin = path.join(dir, 'bin');
+  mkdirSync(bin);
+  const codex = path.join(bin, 'codex');
+  writeFileSync(codex, `#!/bin/sh
+if [ "$1" = "mcp" ]; then echo '{"name":"1password"}'; exit 0; fi
+exit 99
+`);
+  chmodSync(codex, 0o700);
+  process.env.PATH = `${bin}${path.delimiter}${prior.path ?? ''}`;
   const priorDb = globalThis.__coveDb;
   delete globalThis.__coveDb;
   process.env.COVE_DB_PATH = path.join(dir, 'cove.db');
@@ -30,6 +44,7 @@ function fixture(t) {
     if (priorDb === undefined) delete globalThis.__coveDb;
     else globalThis.__coveDb = priorDb;
     for (const [key, value] of [
+      ['PATH', prior.path],
       ['COVE_DB_PATH', prior.db],
       ['NEXT_PUBLIC_COVE_RUNTIME', prior.runtime],
       ['COVE_TIMEZONE', prior.timezone],
