@@ -394,6 +394,9 @@ function FocusCard({
       >
         <button
           type="button"
+          // The edit modal returns focus here by id, since the card it was
+          // opened from is closed by then and cannot be focused.
+          id={`today2-focus-open-${task.id}`}
           className="today2-focus-open"
           aria-label={`Open details for ${task.title}`}
           aria-expanded={detailOpen}

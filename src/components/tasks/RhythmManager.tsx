@@ -63,13 +63,15 @@ export default function RhythmManager({
     <div className="relative">
       <button
         type="button"
+        aria-expanded={open}
+        aria-controls="second-current-rhythms"
         onClick={() => setOpen((current) => !current)}
         className="rounded-full border border-border/60 bg-background/70 px-2.5 py-1 text-[12px] font-medium normal-case tracking-normal text-muted-foreground hover:text-foreground"
       >
         Rhythms
       </button>
       {open && (
-        <div className="absolute right-0 top-8 z-30 w-80 rounded-xl border bg-card p-3 text-left shadow-lg">
+        <div id="second-current-rhythms" className="absolute right-0 top-8 z-30 w-80 rounded-xl border bg-card p-3 text-left shadow-lg">
           <div className="mb-2">
             <strong className="text-[21px] font-[650] tracking-[-0.018em] text-foreground">Rhythms</strong>
             <p className="mt-0.5 text-[13.5px] leading-[1.55] normal-case tracking-normal text-muted-foreground">
