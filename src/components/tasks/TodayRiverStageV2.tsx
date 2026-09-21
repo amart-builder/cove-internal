@@ -244,17 +244,23 @@ function SessionState({
   }
   if (run.status === 'failed') {
     const mode = run.permissionMode === 'plan' ? 'Planning' : 'Auto';
+    // The run records why it stopped and what to do about it, and until now
+    // that only ever reached a title attribute, so "Stopped" sat above a Retry
+    // that fails the same way. The open card has room to print it.
     return (
       <span className={`today2-session-failed ${compact ? 'is-compact' : ''}`}>
         <SessionLink className="press-scale" run={run}>
           {compact ? 'Stopped' : `${mode} stopped`} · Open
         </SessionLink>
-        <button type="button" onClick={(event) => {
+        <button type="button" title={run.hint} onClick={(event) => {
           event.stopPropagation();
           onRetry(run.permissionMode === 'plan' ? 'planning' : 'auto', run.provider);
         }}>
           Retry
         </button>
+        {!compact && run.hint && (
+          <span className="today2-session-hint">{run.hint}</span>
+        )}
       </span>
     );
   }
