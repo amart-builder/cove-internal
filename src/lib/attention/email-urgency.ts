@@ -36,6 +36,11 @@ function shadowSetting(dataDir: string): boolean {
 
 export type EmailUrgencyResult = {
   status: "not_urgent" | "deduped" | "stale" | "shadow" | "live" | "suppressed";
+  // Why nothing was sent. "budget" is the interruption policy working, and the
+  // suppression already reaches the board. The other two mean nobody was told
+  // at all, which is the drop this lane exists to prevent, so the caller turns
+  // them into a visible failure.
+  reason?: "budget" | "no_ledger" | "delivery_failed";
   row?: AttentionLedgerRow;
 };
 
@@ -71,7 +76,7 @@ export function handleUrgentEmail(input: {
   const db = new Database(input.dbPath, { fileMustExist: true });
   db.pragma("busy_timeout = 5000");
   try {
-    if (!hasAttentionLedger(db)) return { status: "suppressed" };
+    if (!hasAttentionLedger(db)) return { status: "suppressed", reason: "no_ledger" };
     // A shadow row alerted nobody, so it must not block a later real alert for
     // the same message. Only a shadow run treats an earlier shadow row as a
     // duplicate, which keeps the shadow log itself free of repeats.
@@ -119,7 +124,7 @@ export function handleUrgentEmail(input: {
         // The ledger remains the source of truth if the file-backed board is busy.
       }
     }
-    if (!allocation.row) return { status: "suppressed" };
+    if (!allocation.row) return { status: "suppressed", reason: "budget" };
 
     // Classification nominates the message. Re-read the canonical thread row
     // immediately before transport so a newer or completed thread wins.
@@ -163,7 +168,7 @@ export function handleUrgentEmail(input: {
           suppressedReason: "quiet_current_failed",
           now,
         });
-        return { status: "suppressed", row: allocation.row };
+        return { status: "suppressed", reason: "budget", row: allocation.row };
       }
       return { status: "shadow", row: allocation.row };
     }
@@ -219,6 +224,7 @@ export function handleUrgentEmail(input: {
     });
     return {
       status: deliveredLevel === "suppressed" ? "suppressed" : "live",
+      ...(deliveredLevel === "suppressed" ? { reason: "delivery_failed" as const } : {}),
       row: allocation.row,
     };
   } finally {
