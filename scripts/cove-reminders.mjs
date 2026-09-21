@@ -524,7 +524,15 @@ function recordDeliveryFailure(db, input) {
   const occurredAt = new Date().toISOString();
   const source = "reminder-delivery";
   const sourceId = `${input.kind}:${input.id}`.slice(0, 240);
-  const title = String(input.title).slice(0, 1000);
+  // What reaches the person is the labelled, sanitized title -- the same string
+  // that went on the banner. The Issues screen renders this through
+  // reminderFailureMessage (src/lib/reliability/failures.ts:35), so a raw title
+  // here puts an email's own words on one of Cove's screens, in quotation marks
+  // and nothing else, which is the gap findings 46-51 closed everywhere but on
+  // the path that only runs once delivery has already failed. Nothing is lost
+  // for investigation: details carries the task id, and the task row keeps its
+  // own title.
+  const title = String(input.bannerTitle ?? input.title).slice(0, 1000);
   const failure = String(input.error).slice(0, 4000);
   const deliveryLabel = input.channel === "native" ? "Native reminder" : "Text reminder";
   const message = `${deliveryLabel} failed for "${title}": ${failure}`
@@ -614,6 +622,7 @@ function recordNativeOnlyFailure(db, input) {
       kind: input.kind,
       id: input.id,
       title: input.title,
+      bannerTitle: input.bannerTitle,
       channel: "native",
       error: input.error,
     });
@@ -735,6 +744,7 @@ function fireScheduledReminders(db, config, token, now = attentionNow()) {
           kind: "scheduled",
           id: entry.id ?? name,
           title,
+          bannerTitle,
           error: nativeFailure,
         });
       }
@@ -891,6 +901,9 @@ async function firePredeadlineNudges(db, dueTaskIds, now) {
         kind: "nudge",
         id: task.id,
         title,
+        bannerTitle: provenance.direct
+          ? title
+          : sanitizedNonDirectText(title, provenance.prefix),
         error: errorMessage(error),
       });
     }
@@ -924,7 +937,8 @@ async function main() {
   // would strand them.
   try { drainNotificationReminders({db, dataDir:path.dirname(dbPath), now,
     notify:task=>notifyNative(sanitizedNonDirectText(plainAttentionText(task.title), "your requested reminder"),task.id),
-    onFailure:failure=>recordNativeOnlyFailure(db,{kind:"notification-repeat",...failure}),
+    onFailure:failure=>recordNativeOnlyFailure(db,{kind:"notification-repeat",...failure,
+      bannerTitle:sanitizedNonDirectText(plainAttentionText(failure.title), "your requested reminder")}),
   }); } catch (error) { console.error("Requested reminder check failed:", errorMessage(error)); }
   // Only explicit new agent settings activate the additional native checks.
   // Existing installs keep their reminder behavior until their setup is changed.
@@ -1024,6 +1038,9 @@ async function main() {
         kind: "task",
         id: task.id,
         title,
+        bannerTitle: provenance.direct
+          ? title
+          : sanitizedNonDirectText(title, provenance.prefix),
         error: nativeFailure,
       });
     }
