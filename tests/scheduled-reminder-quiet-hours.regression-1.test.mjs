@@ -66,7 +66,7 @@ function schedule(files, name, entry) {
   return file;
 }
 
-function runReminders(files, now) {
+function runReminders(files, now, zones = {}) {
   const result = spawnSync(process.execPath, ["--import", "tsx", "scripts/cove-reminders.mjs"], {
     cwd: process.cwd(),
     encoding: "utf8",
@@ -79,8 +79,8 @@ function runReminders(files, now) {
       COVE_TEST_CALLS: files.calls,
       COVE_NOTIFICATION_APP: "/nonexistent",
       COVE_ATTENTION_NOW: now,
-      COVE_TIMEZONE: TIMEZONE,
-      TZ: TIMEZONE,
+      COVE_TIMEZONE: zones.operator ?? TIMEZONE,
+      TZ: zones.machine ?? TIMEZONE,
     },
   });
   assert.equal(result.status, 0, result.stderr);
@@ -160,4 +160,45 @@ test("an entry with no recorded surface is treated as scheduled", (t) => {
 
   assert.doesNotMatch(runReminders(files, NIGHT), /Legacy entry/);
   assert.equal(existsSync(file), true);
+});
+
+test("the window is the operator's hour, not the machine's", (t) => {
+  // A Mac set to one zone and an operator profile set to another is the
+  // ordinary case for anyone who travels, and the whole point of
+  // operatorTimezone(). At this instant it is noon in Tokyo and 20:00 in Los
+  // Angeles, so the two zones disagree about whether the window is open.
+  const files = fixture(t);
+  const file = schedule(files, "task-6", {
+    title: "Tokyo morning item",
+    surface_at: "2026-09-22T00:00:00Z",
+  });
+
+  const text = runReminders(files, "2026-09-22T03:00:00Z", {
+    operator: "Asia/Tokyo",
+    machine: "America/Los_Angeles",
+  });
+  assert.match(text, /Tokyo morning item/, "the operator's noon is inside the window");
+  assert.equal(existsSync(file), false);
+});
+
+test("an unusable timezone must not silently mute every reminder", (t) => {
+  // localHour returns NaN for a zone Intl cannot read, and
+  // insideNudgeDeliveryWindow answers false for NaN -- which would defer every
+  // scheduled reminder forever, with nothing failing and nothing logged.
+  // operatorTimezone() is what stops that: it validates through Intl and falls
+  // back to UTC. This pins that guarantee, because the cost of losing it is
+  // every reminder silently disabled rather than one arriving late.
+  const files = fixture(t);
+  const file = schedule(files, "task-7", {
+    title: "Still delivered",
+    surface_at: "2026-09-22T00:00:00Z",
+  });
+
+  // 19:30 UTC, inside the window once the fallback lands on UTC.
+  const text = runReminders(files, "2026-09-22T19:30:00Z", {
+    operator: "Not/AZone",
+    machine: "Not/AZone",
+  });
+  assert.match(text, /Still delivered/);
+  assert.equal(existsSync(file), false);
 });
