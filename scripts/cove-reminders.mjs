@@ -620,7 +620,13 @@ function dueTime(raw) {
 }
 
 function fireScheduledReminders(db, config, token) {
-  const directory = path.join(path.dirname(dbPath), "reminders");
+  // These files are written by the intake lane, which resolves its directory
+  // as COVE_DATA_DIR first and the database's directory only as a fallback.
+  // Reading from the database's directory meant that on an install where the
+  // two differ — a configuration this repo's own tests cover — every scheduled
+  // reminder was written somewhere nothing ever looked, and a commitment Cove
+  // had accepted simply never came back.
+  const directory = path.join(dataDir, "reminders");
   if (!existsSync(directory)) return;
   for (const name of readdirSync(directory).filter((value) =>
     /^scheduled-.*\.json$/.test(value)
@@ -844,6 +850,10 @@ async function main() {
   fireScheduledReminders(db, config, token);
   if (!db) return;
   const now = attentionNow();
+  // Deliberately the database's directory, not dataDir: the "remind me later"
+  // button writes these through /api/notifications, which resolves the same
+  // way (dirname of the local database). Both sides agree; changing one alone
+  // would strand them.
   try { drainNotificationReminders({db, dataDir:path.dirname(dbPath), now,
     notify:task=>notifyNative(sanitizedNonDirectText(plainAttentionText(task.title), "your requested reminder"),task.id),
     onFailure:failure=>recordNativeOnlyFailure(db,{kind:"notification-repeat",...failure}),
@@ -855,7 +865,7 @@ async function main() {
     await runFollowThrough({ db, now, timezone: operatorTimezone(),
       calendar: async () => {
         const { createGoogleWorkspaceGateway } = await import("../src/lib/workspace/google/gateway.ts");
-        return createGoogleWorkspaceGateway({ dataDir: path.dirname(dbPath) }).calendar ?? null;
+        return createGoogleWorkspaceGateway({ dataDir }).calendar ?? null;
       },
       notify: ({ id, message, taskId }) => {
         const command = nativeNotificationCommand(message, { title: "Cove", subtitle: "On your radar", group: `follow-through-${id}`,
