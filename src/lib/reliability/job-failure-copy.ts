@@ -57,6 +57,19 @@ export function jobFailureDetail(type: string, diagnostic: string, retrying = fa
   // underscore, and authentication_error is exactly what a CLI prints.
   } else if (/background_usage|usage[_.]denied|(?<![a-z])(?:budget|allowance)(?![a-z])/i.test(diagnostic)) {
     cause = " Cove had used up its allowance for background work.";
+  } else if (/invalid_grant|needs to be connected again|Google Workspace is not connected|did not allow the requested Workspace access/i.test(diagnostic)) {
+    // Google's refresh tokens are the connection most likely to lapse, and an
+    // OAuth client still in Testing publishing status expires them after seven
+    // days -- so this is the first failure a new install is likely to file.
+    // Every shape it arrives in (the gateway's own safeMessage, a bare
+    // invalid_grant, a refused scope) carries none of the words the branch
+    // below looks for, so all of them produced no cause at all and ended on
+    // "ask your Cove setup agent to diagnose the failure" -- for something the
+    // person could have named in one sentence. This sits above the sign-in
+    // branch because both describe a lapsed credential and this one says
+    // which. It needs no anchoring: every alternative here is a phrase or an
+    // underscored provider code, not a word that hides inside other words.
+    cause = " The Google Workspace connection needs renewing.";
   // The alternation carries the strings the Claude and Codex CLIs actually
   // print when a sign-in lapses; src/lib/buddy/errors.ts matches the same set
   // for Buddy's sign-in card. An expired sign-in is the likeliest reason a

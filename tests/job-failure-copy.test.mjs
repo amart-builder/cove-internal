@@ -81,3 +81,44 @@ test("a lapsed sign-in still wins over the network wording", () => {
   assert.match(detail, /sign-in checked/);
   assert.doesNotMatch(detail, /could not reach the internet/);
 });
+
+test("a lapsed Google connection is named, in every shape it arrives in", () => {
+  // Finding 18: an OAuth client left in Testing publishing status expires its
+  // refresh tokens after seven days, so this is the failure a new install is
+  // most likely to file first. Each string below is what actually reaches this
+  // function -- WorkspaceGatewayError's message is its safeMessage, and the
+  // bare provider code arrives when the refresh response is logged raw. None
+  // of them carries a word the sign-in branch looks for, so all of them used
+  // to produce no cause at all.
+  for (const diagnostic of [
+    "Google Workspace needs to be connected again.",
+    "WorkspaceGatewayError: Google Workspace needs to be connected again.",
+    "invalid_grant",
+    "oauth_refresh failed: invalid_grant",
+    "Google Workspace is not connected.",
+    "Google did not allow the requested Workspace access.",
+  ]) {
+    assert.match(
+      jobFailureDetail("email-classify", diagnostic),
+      /Google Workspace connection needs renewing/,
+      `no Google cause for: ${diagnostic}`,
+    );
+  }
+});
+
+test("the Google cause is more specific than the generic sign-in wording", () => {
+  // Both describe a lapsed credential, and a message can carry both signals.
+  // The one that names which account is the one worth showing.
+  const detail = jobFailureDetail(
+    "email-classify",
+    "unauthorized: Google Workspace needs to be connected again.",
+  );
+  assert.match(detail, /Google Workspace connection needs renewing/);
+  assert.doesNotMatch(detail, /sign-in checked/);
+});
+
+test("a CLI sign-in lapse is not relabelled as a Google problem", () => {
+  const detail = jobFailureDetail("morning-brief", "Invalid API key · Please run /login");
+  assert.match(detail, /sign-in checked/);
+  assert.doesNotMatch(detail, /Google Workspace/);
+});
