@@ -273,7 +273,13 @@ async function boardContext(options: CoveIntakeOptions): Promise<BoardContext> {
   return { tasks, columns };
 }
 
-function goalsText(dataDir?: string): string {
+// Goals sharpen a triage; their absence must not cancel it. Throwing here sent
+// every captured item to the raw-text fallback card, so on an install whose
+// goals file had not been written yet the one feature the person notices first,
+// Cove working out what a thing is, was off for every item with no way to tell.
+// The meeting analyst already reads the same file this way. An empty GOALS slot
+// is honest: the model is told it has none rather than shown stale ones.
+export function goalsText(dataDir?: string): string {
   const root = workspaceRoot();
   const candidates = [
     root ? path.join(root, "brain", "GOALS.md") : undefined,
@@ -286,7 +292,7 @@ function goalsText(dataDir?: string): string {
       // Try the portable install path.
     }
   }
-  throw new Error("triage_goals_unavailable");
+  return "";
 }
 
 export function buildTriagePrompt(input: {
