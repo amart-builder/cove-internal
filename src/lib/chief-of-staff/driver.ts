@@ -778,7 +778,7 @@ function applyChiefOfStaffActionsWithDetails(input: {
           const title=requiredActionText(action,"title",500);
           if(existingTaskWithTitle(db,title,now))throw new Error("A task with this title already exists. Read the current task.");
           const due=optionalActionText(action,"due_at",40);validateChiefOfStaffDueAt(due,"due_at");
-          const description=[optionalActionText(action,"details",4000),due?`Proposed deadline, not yet confirmed: ${proposedDeadlineLabel(due)}`:null].filter(Boolean).join("\n");
+          const description=[optionalActionText(action,"details",5000),due?`Proposed deadline, not yet confirmed: ${proposedDeadlineLabel(due)}`:null].filter(Boolean).join("\n");
           createWorkSuggestion({kind:"create_task",title,description,reason:requiredActionText(action,"why",200),source:"chief-of-staff",priority:priority(action.priority),
             claimKey:`cos:proposed:${createHash("sha256").update(normalizedTaskTitle(title)).digest("hex").slice(0,24)}`,dataDir:input.dataDir});
           action.downgraded_to="suggest";
