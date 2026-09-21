@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { runJob, type ModelRunnerBackend } from "../model-runner";
+import { localDateLabel } from "../chief-of-staff/planning-dates";
 import { operatorName } from "../operator";
 import type { EmailBucket } from "./state-machine";
 
@@ -96,6 +97,7 @@ export function buildEmailClassifierPrompt(input: {
     "Never insert manual line breaks inside a sentence. Let sentences flow naturally within each paragraph.",
     "Never use markdown syntax in draft_body: no asterisks, underscores, backticks, or heading marks. The body is rendered as plain prose exactly as written, so markdown characters would appear literally to the recipient.",
     "Extract only explicit follow-up or waiting-on commitments. source_quote must be exact evidence from the email.",
+    "A commitment's due_at must be an RFC 3339 timestamp with an explicit offset, or a bare YYYY-MM-DD date, or null. Never a phrase such as \"next Friday\" or \"end of week\": Cove stores this as a deadline and cannot read one. If the email states a relative time and you cannot resolve it, use null and say the timing in the title.",
     "Set record_correspondence true only for meaningful human relationship history, never noise or routine automation.",
     ...(input.urgency === false ? [] : [
       "Set urgent true only for genuinely time-sensitive, human-written mail from a real correspondent, such as a same-day client ask, a meeting moved today, or an emergency.",
@@ -121,6 +123,24 @@ export function buildEmailClassifierPrompt(input: {
     input.text.slice(0, 80000),
     "</untrusted_email>",
   ].filter(Boolean).join("\n");
+}
+
+/**
+ * The schema types due_at as a bounded string, and nothing between here and
+ * the commitments table parses it, so "next Friday" used to be stored as a
+ * deadline. Everything that reads that column does parse it: the brief's
+ * ordering, and the detector that decides which follow-ups are due. An
+ * unreadable value makes a dated commitment behave like an undated one without
+ * saying so, which means Cove never chases it. Null says the same thing
+ * honestly. localDateLabel is the oracle the rest of Cove already uses for
+ * whether a date can be read at all.
+ */
+function readableDueAt(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const due = value.trim().slice(0, 80);
+  if (!due) return null;
+  const label = localDateLabel(due, "UTC");
+  return label && !/^(Invalid|Unlabelled)/.test(label) ? due : null;
 }
 
 export function validateEmailClassification(
@@ -167,9 +187,7 @@ export function validateEmailClassification(
         kind: candidate.kind,
         title: candidate.title.trim().slice(0, 240),
         sourceQuote: candidate.source_quote.trim().slice(0, 1_000),
-        dueAt: typeof candidate.due_at === "string"
-          ? candidate.due_at.trim().slice(0, 80) || null
-          : null,
+        dueAt: readableDueAt(candidate.due_at),
       }];
     })
     : [];
