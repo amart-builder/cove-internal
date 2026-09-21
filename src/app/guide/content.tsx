@@ -142,7 +142,7 @@ export default function GuidePage({ dataFolder }: { dataFolder?: string }) {
               </p>
               {copy.showFeedback && (
                 <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                  To share a bug or idea, say: “Send feedback: the text on this card is hard to read.” Buddy makes a Gmail draft. You review and send it yourself.
+                  To share a bug or idea, say: “Send feedback: the text on this card is hard to read.” Buddy makes a Gmail draft when your email is connected and a feedback address is set, and otherwise hands you the message to copy. Either way you send it yourself.
                 </p>
               )}
             </article>
