@@ -27,6 +27,12 @@
  * all write an offset timestamp or a bare calendar date. So the lanes now read
  * it as what it is: a day, treated exactly like the bare `YYYY-MM-DD` form
  * they already understood, which means 9am in the operator's own morning.
+ *
+ * A fifth reader, found by sweeping the rule rather than by the symptom:
+ * `taskDueToday` in the progress reconciler, which runs on its own LaunchAgent
+ * every thirty minutes. It already handled the bare form and not this one, so
+ * a project whose only signal was "something is due today" was reconciled on
+ * the day before the deadline and not on the day of it.
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -183,4 +189,28 @@ test("a deadline with a real time of day is untouched", (t) => {
     /Here's your reminder/,
     "15:30, just after",
   );
+});
+
+test("the progress reconciler asks about the day the board shows", async () => {
+  const { taskDueToday, shouldProcessProject } = await import(
+    "../scripts/cove-progress-reconcile.mjs"
+  );
+  const picked = { due_at: PICKED_OCTOBER_2 };
+
+  assert.equal(taskDueToday(picked, "2026-10-01", TIMEZONE), false);
+  assert.equal(taskDueToday(picked, "2026-10-02", TIMEZONE), true);
+
+  // Its gate is what the bug actually cost: a project with no other signal was
+  // looked at on the wrong day, and skipped on the day the deadline landed.
+  const noPings = { pings: [] };
+  assert.equal(shouldProcessProject(noPings, [picked], "2026-10-01", TIMEZONE), false);
+  assert.equal(shouldProcessProject(noPings, [picked], "2026-10-02", TIMEZONE), true);
+
+  // The two forms it already read correctly still read the same way.
+  assert.equal(taskDueToday({ due_at: "2026-10-02" }, "2026-10-02", TIMEZONE), true);
+  assert.equal(
+    taskDueToday({ due_at: "2026-10-02T15:00:00" }, "2026-10-02", TIMEZONE),
+    true,
+  );
+  assert.equal(taskDueToday({ due_at: null }, "2026-10-02", TIMEZONE), false);
 });
