@@ -646,6 +646,27 @@ function safeRead(file: string, maximum = 50_000): string {
   }
 }
 
+// Offsets are compared by value, never by spelling. RFC 3339 writes a zero
+// offset both as "Z" and as "+00:00", localOffset below always picks "Z", and a
+// model writes either. Comparing the two as strings rejected a correct due date
+// for every operator at UTC, and for London between October and March, then
+// asked the retry for a synonym of what it had just sent, so both attempts were
+// lost to a distinction Cove never states in the prompt. validateTaskTiming in
+// ../local/db.ts already folds "+00:00" to "Z" before comparing; this lane did
+// not. NaN for an unparseable offset is deliberate: it equals nothing, so a
+// malformed value still fails.
+function offsetMinutes(offset: string): number {
+  if (offset === "Z") return 0;
+  const match = /^([+-])(\d{2}):(\d{2})$/.exec(offset);
+  if (!match) return Number.NaN;
+  const magnitude = Number(match[2]) * 60 + Number(match[3]);
+  return match[1] === "-" ? -magnitude : magnitude;
+}
+
+function sameOffset(supplied: string | undefined, wanted: string): boolean {
+  return supplied !== undefined && offsetMinutes(supplied) === offsetMinutes(wanted);
+}
+
 function localOffset(value: string, timezoneName: string): string {
   const part = new Intl.DateTimeFormat("en-US", {
     timeZone: timezoneName,
@@ -673,7 +694,7 @@ export function validateMeetingAnalystArtifact(
     // falls on the other side of a daylight-saving change from the meeting.
     const suppliedDueOffset = /(Z|[+-]\d{2}:\d{2})$/.exec(task.due_at)?.[1];
     const wantedDueOffset = localOffset(task.due_at, timezoneName);
-    if (suppliedDueOffset !== wantedDueOffset) {
+    if (!sameOffset(suppliedDueOffset, wantedDueOffset)) {
       throw new Error(
         `Task due_at must use ${wantedDueOffset}, the ${timezoneName} offset in effect on that date, not ${suppliedDueOffset ?? "a missing offset"}: ${task.title}`,
       );
@@ -685,7 +706,7 @@ export function validateMeetingAnalystArtifact(
       }
       const suppliedOffset = /(Z|[+-]\d{2}:\d{2})$/.exec(task.remind_at)?.[1];
       const wantedOffset = localOffset(task.remind_at, timezoneName);
-      if (suppliedOffset !== wantedOffset) {
+      if (!sameOffset(suppliedOffset, wantedOffset)) {
         throw new Error(
           `Task remind_at must use ${wantedOffset}, the ${timezoneName} offset in effect on that date, not ${suppliedOffset ?? "a missing offset"}: ${task.title}`,
         );
