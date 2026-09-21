@@ -712,7 +712,7 @@ function ContactDetailPanel({
 
       <div className="space-y-4 px-5 py-4">
         <div>
-          <label className="mb-1.5 block">
+          <label className="mb-1.5 block" htmlFor="contact-detail-notes">
             Notes
           </label>
           <textarea
@@ -722,6 +722,7 @@ function ContactDetailPanel({
               markDraftDirty('notes');
             }}
             onBlur={commitNotes}
+            id="contact-detail-notes"
             rows={4}
             placeholder="What should you remember about this person?"
             className="w-full resize-y px-2.5 py-2 text-foreground"
@@ -730,12 +731,13 @@ function ContactDetailPanel({
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1.5 block">
+            <label className="mb-1.5 block" htmlFor="contact-detail-tier">
               Tier
             </label>
             <select
               value={tier}
               onChange={(e) => commitTier(e.target.value)}
+              id="contact-detail-tier"
               className="w-full px-2.5 py-2 text-foreground"
             >
               <option value="A">Tier A</option>
@@ -744,7 +746,7 @@ function ContactDetailPanel({
             </select>
           </div>
           <div>
-            <label className="mb-1.5 block">
+            <label className="mb-1.5 block" htmlFor="contact-detail-location">
               Location
             </label>
             <input
@@ -755,6 +757,7 @@ function ContactDetailPanel({
                 markDraftDirty('location');
               }}
               onBlur={commitLocation}
+              id="contact-detail-location"
               placeholder="City, region"
               className="w-full px-2.5 py-2 text-foreground"
             />
@@ -762,7 +765,7 @@ function ContactDetailPanel({
         </div>
 
         <div>
-          <label className="mb-1.5 block">
+          <label className="mb-1.5 block" htmlFor="contact-detail-how-we-met">
             How we met
           </label>
           <input
@@ -773,13 +776,14 @@ function ContactDetailPanel({
               markDraftDirty('howWeMet');
             }}
             onBlur={commitHowWeMet}
+            id="contact-detail-how-we-met"
             placeholder="Where the relationship started"
             className="w-full px-2.5 py-2 text-foreground"
           />
         </div>
 
         <div>
-          <label className="mb-1.5 block">
+          <label className="mb-1.5 block" htmlFor="contact-detail-tags">
             Tags (comma-separated)
           </label>
           <input
@@ -790,6 +794,7 @@ function ContactDetailPanel({
               markDraftDirty('tags');
             }}
             onBlur={commitTags}
+            id="contact-detail-tags"
             placeholder="investor, warm intro, roofing"
             className="w-full px-2.5 py-2 text-foreground"
           />
@@ -892,6 +897,7 @@ function ActivityTimeline({
           <select
             value={activityType}
             onChange={(e) => setActivityType(e.target.value)}
+            aria-label="Kind of activity"
             className="px-2 py-1.5 text-foreground"
           >
             {ACTIVITY_TYPES.map((t) => (
@@ -907,6 +913,7 @@ function ActivityTimeline({
               setTitle(e.target.value);
               if (error) setError(undefined);
             }}
+            aria-label="What happened"
             placeholder="Title"
             className="min-w-0 flex-1 px-2.5 py-1.5 text-foreground"
           />
@@ -915,6 +922,7 @@ function ActivityTimeline({
           value={content}
           onChange={(e) => setContent(e.target.value)}
           rows={2}
+          aria-label="Details of what happened, optional"
           placeholder="Details (optional)"
           className="w-full resize-y px-2.5 py-1.5 text-foreground"
         />
