@@ -1371,8 +1371,11 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
           defaultProvider={model.defaultProvider}
           connectedProviders={model.connectedProviders}
           onClose={() => {
+            // The inline detail card stays open. It holds the More button this
+            // sheet was opened from, and the scrim returns focus there;
+            // collapsing it hides that button, so the focus return lands on
+            // nothing and a keyboard reader is dropped at the top of the page.
             setRichTaskId(undefined);
-            setDetailTaskId(undefined);
           }}
           onEdit={() => {
             const taskId = richTaskId;
