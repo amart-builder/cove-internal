@@ -365,6 +365,86 @@ test("stopping Cove covers every service the installer can load", () => {
   assert.match(readme, /scripts\/cove-stop\.sh/);
 });
 
+test("stopping Cove reports and disables what is actually on the Mac", async (t) => {
+  // A stub launchctl standing in for the real one, so the stop script can be
+  // run rather than only read. Everything with a plist is loaded except
+  // voice-review, which stands for a lane someone stopped by hand.
+  const dir = await mkdtemp(path.join(os.tmpdir(), "cove-stop-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const home = path.join(dir, "home");
+  const agents = path.join(home, "Library", "LaunchAgents");
+  const bin = path.join(dir, "bin");
+  mkdirSync(agents, { recursive: true });
+  mkdirSync(bin, { recursive: true });
+
+  const present = [
+    "com.cove.local",
+    "com.cove.jobs",
+    "com.cove.claude-worker",
+    "com.cove.chief-of-staff-nightly",
+    "com.cove.voice-review",
+  ];
+  for (const label of present) {
+    await writeFile(path.join(agents, `${label}.plist`), "<plist/>\n");
+  }
+  const actions = path.join(dir, "actions.log");
+  await writeFile(
+    path.join(bin, "launchctl"),
+    [
+      "#!/usr/bin/env bash",
+      `AGENTS=${JSON.stringify(agents)}`,
+      `LOG=${JSON.stringify(actions)}`,
+      'case "$1" in',
+      "  list)",
+      '    for f in "$AGENTS"/*.plist; do',
+      '      b=$(basename "$f" .plist)',
+      '      [ "$b" = "com.cove.voice-review" ] && continue',
+      `      printf '1\\t0\\t%s\\n' "$b"`,
+      "    done",
+      "    ;;",
+      "  print)",
+      '    lbl="${2##*/}"',
+      '    [ "$lbl" = "com.cove.voice-review" ] && exit 1',
+      '    [ -e "$AGENTS/$lbl.plist" ] && exit 0',
+      "    exit 1",
+      "    ;;",
+      '  bootout|disable) printf "%s %s\\n" "$1" "${2##*/}" >> "$LOG" ;;',
+      "esac",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  const env = {
+    ...process.env,
+    HOME: home,
+    PATH: `${bin}:${process.env.PATH}`,
+  };
+
+  const status = execFileSync("bash", [path.join(ROOT, "scripts/cove-stop.sh"), "--status"], {
+    encoding: "utf8",
+    env,
+  });
+  // Only what exists on this Mac. The known-label list carries every label the
+  // installer has ever written, and printing the retired and pre-rename ones
+  // buried the lanes that are actually running.
+  for (const label of present) assert.match(status, new RegExp(label.replace(/\./g, "\\.")));
+  assert.doesNotMatch(status, /com\.forge\./);
+  assert.doesNotMatch(status, /com\.cove\.wake-canary/);
+  assert.match(status, /com\.cove\.voice-review\s+not loaded\s+starts at login/);
+
+  execFileSync("bash", [path.join(ROOT, "scripts/cove-stop.sh"), "--disable"], {
+    encoding: "utf8",
+    env,
+  });
+  const log = await readFile(actions, "utf8");
+  // A lane that is stopped but still has its plist comes back at the next
+  // login, so --disable has to cover it even though there was nothing to boot
+  // out. Four loaded, five disabled.
+  assert.equal(log.match(/^bootout /gm)?.length, 4, log);
+  assert.equal(log.match(/^disable /gm)?.length, 5, log);
+  assert.match(log, /^disable com\.cove\.voice-review$/m);
+});
+
 test("task and contact skills authenticate every documented generic mutation", () => {
   const task = readFileSync(path.join(ROOT, "skills", "cove-task", "SKILL.md"), "utf8");
   const contact = readFileSync(path.join(ROOT, "skills", "cove-contact", "SKILL.md"), "utf8");
