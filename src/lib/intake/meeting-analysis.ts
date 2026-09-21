@@ -28,6 +28,7 @@ import {
   type IngestionDoor,
 } from "./message-ingestion";
 import { writeWaitingCommitment } from "./meeting-pipeline";
+import { inboundAckState } from "./meeting-followups.mjs";
 import { createAnalystInboundTask } from "./task-writer";
 import { originDate, originQuote } from "../tasks/origin";
 
@@ -1121,6 +1122,15 @@ async function executeAction(
       rawText: `${task.title}\n\n${task.description}`,
       createdAt: primary.receivedAt,
     }, { dataDir: context.options.dataDir, spoolOnFailure: false });
+    // recordEvent reports a write failure by returning a synthetic event, not
+    // by throwing. Creating the task anyway leaves one the resolve step below
+    // can never mark triaged, and the retry cannot heal it: the task exists by
+    // then and the event still does not, so the job fails its way to dead with
+    // the rest of the meeting unwritten. The job row is durable, so failing
+    // here simply retries the whole action once the database answers again.
+    if (inboundAckState(eventReceipt) !== "db") {
+      throw new Error("Meeting analysis could not record the inbound event for this task.");
+    }
     const event = eventReceipt.event as InboundEvent;
     const taskId = await createAnalystInboundTask(event, {
       title: task.title,
