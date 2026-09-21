@@ -1915,6 +1915,20 @@ input, textarea, select {
 }
 .today2-focus-card.is-compact .today2-check-orb { flex-basis: 44px; width: 44px; height: 44px; }
 .today2-check-orb:active { transform: scale(.94); }
+
+/* A closed day disables every focus card's check, and until now that was
+   invisible: the orb kept its full blue, its glow and its pointer, so three
+   of the largest, most inviting buttons on Today looked exactly as pressable
+   as they had all day and did nothing when pressed. Today's own day-ritual
+   links two inches above already dim to .38 with `not-allowed` when they are
+   unavailable, so the check now says the same thing the same way. The card
+   that is completing is left out, because it is running its own fade at that
+   moment and the orb is only disabled for the length of that animation. */
+.today2-focus-card:not(.is-completing) .today2-check-orb:disabled {
+  opacity: .38;
+  box-shadow: none;
+  cursor: not-allowed;
+}
 .today2-check-orb svg { width: 24px; height: 24px; overflow: visible; }
 .today2-focus-card.is-compact .today2-check-orb svg { width: 22px; height: 22px; }
 .today2-check-orb path { fill: none; stroke: #fff; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
