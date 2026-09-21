@@ -38,9 +38,22 @@ curl -s -X POST 'http://localhost:3200/api/quiet-current' \
     "description": "Confirm whether Tuesday still works.",
     "reason": "Jordan asked for confirmation in the latest thread.",
     "source": "Gmail thread with Jordan",
-    "priority": "medium"
+    "priority": "medium",
+    "dueDate": "2026-09-24"
   }'
 ```
+
+Always send a `dueDate`. An accepted proposal goes straight into the board's
+"Must happen today" column and carries that date onto the card, and the date is
+the only thing that can bring the card back: the due reminder, the attention
+floor, the follow-through checks and the pre-deadline nudge all skip a task
+without one. A proposal accepted with no date therefore sits in "Must happen
+today" saying that every day, including the days it is not true, and
+no reminder ever comes for it — the stale-task watchdog that rescues forgotten
+cards does not look at that column. Take the day from the evidence when it names one, and
+otherwise choose the day you would give the person if they asked, and say why in
+`reason`. A bare `YYYY-MM-DD` means that morning; give a full local timestamp
+(`2026-09-24T15:00:00`) only when the work is tied to a time of day.
 
 Cove expires untouched proposals after three days. Later returns once at the next morning seam, then follows the normal expiry window; do not recreate that loop. Do not recreate an expired proposal unless new evidence changes the reason.
 
