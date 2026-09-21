@@ -82,11 +82,20 @@ export default function TabNav() {
 
   useEffect(() => {
     try {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setDark(preferredDarkTheme(
+      const prefersDark = preferredDarkTheme(
         localStorage.getItem('theme'),
         matchMedia('(prefers-color-scheme: dark)').matches,
-      ));
+      );
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setDark(prefersDark);
+      // The pre-paint script sets this class and on every real screen it stays
+      // set. On a page that does not exist, React reconciles <html> during
+      // hydration and takes it off again: measured in a browser, the class was
+      // there at paint and gone 150ms later, so a mistyped address turned a
+      // dark install stark light under a dark nav bar. Writing the same value
+      // the script computed puts it back, and changes nothing anywhere else
+      // because everywhere else it already agrees.
+      document.documentElement.classList.toggle('dark', prefersDark);
     } catch {
       // localStorage throws in some privacy modes; the light default stands.
     }
