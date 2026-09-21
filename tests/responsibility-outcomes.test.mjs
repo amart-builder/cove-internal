@@ -244,6 +244,12 @@ test("capacity merges overlapping meetings, rejects impossible days and labels u
     assessCapacity({ ...base, events: null }).availableMinutes,
     null,
   );
+  // The overview prints the availability sentence itself, directly above the
+  // conclusion, so the conclusion saying it again showed it twice.
+  assert.equal(
+    assessCapacity({ ...base, events: null }).conclusion,
+    "This plan is not verified to fit.",
+  );
   assert.match(
     assessCapacity({
       ...base,
