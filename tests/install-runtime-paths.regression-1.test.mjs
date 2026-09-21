@@ -71,6 +71,7 @@ function fixture(t) {
     "cove-backup.sh", "cove-restore-backup.sh", "cove-verify-sqlite.mjs", "cove-jobs.ts",
     "lib/load-local-env.mjs", "lib/cove-runtime-paths.mjs",
     "lib/cove-install-runtime.mjs", "lib/cove-serving.sh",
+    "lib/cove-clear-stale-leases.mjs",
   ]) copyFileSync(path.join(sourceRoot, "scripts", name), path.join(root, "scripts", name));
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
     !/^(?:COVE_|FORGE_|NEXT_PUBLIC_COVE_|NEXT_PUBLIC_FORGE_)/.test(key)));

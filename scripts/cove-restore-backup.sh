@@ -60,7 +60,9 @@ loaded_cove_services() {
 # Cove's own health route is the cheap way to know a server is live right now.
 # The body test keeps an unrelated program on the same port from blocking a
 # restore.
+# shellcheck disable=SC2034  # both are read by scripts/lib/cove-serving.sh
 COVE_SERVING_REPO_DIR="$REPO_DIR"
+# shellcheck disable=SC2034  # ditto
 COVE_SERVING_NODE="$NODE_REAL"
 SERVING_PROBE="$REPO_DIR/scripts/lib/cove-serving.sh"
 if [ -r "$SERVING_PROBE" ]; then
@@ -150,6 +152,20 @@ if ! VERIFY_OUT="$("$NODE_REAL" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$TEM
   echo "Nothing was changed. Try an older snapshot from $BACKUP_DIR." >&2
   exit 1
 fi
+
+# A snapshot is written by the backup job while that job holds its lease, so its
+# own row inside the file is always mid-flight. Restoring it hands Cove a job
+# whose worker no longer exists, and the next tick recovers the expired lease --
+# correctly -- and files "Cove couldn't create a fresh backup" on the Issues
+# page, minutes after somebody restored a backup. After a restore nobody holds a
+# lease on anything, so this says so, on the copy, before it becomes the
+# database. Deliberately not fatal: a recovery must never fail over tidying, and
+# the worst case is the message this avoids.
+if ! LEASE_OUT="$("$NODE_REAL" "$REPO_DIR/scripts/lib/cove-clear-stale-leases.mjs" "$TEMP" 2>&1)"; then
+  echo "Could not clear the snapshot's stale job leases; restoring anyway." >&2
+  echo "  ${LEASE_OUT%%$'\n'*}" >&2
+fi
+rm -f "$TEMP-wal" "$TEMP-shm"
 
 STAMP="$(date +%Y%m%d-%H%M%S)-$$"
 if [ -f "$DB" ]; then
