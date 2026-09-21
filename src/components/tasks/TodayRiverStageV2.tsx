@@ -394,6 +394,9 @@ function FocusCard({
       >
         <button
           type="button"
+          // The edit modal returns focus here by id, since the card it was
+          // opened from is closed by then and cannot be focused.
+          id={`today2-focus-open-${task.id}`}
           className="today2-focus-open"
           aria-label={`Open details for ${task.title}`}
           aria-expanded={detailOpen}
@@ -1267,18 +1270,30 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
               const point = beadPoints[index];
               if (!point) return null;
               return (
-                <circle
+                // The bead paints at 11x13px on screen, well under the 24px
+                // WCAG 2.2 asks of a target, and the river stretches its own
+                // coordinates unevenly so the bead cannot simply be drawn
+                // larger without changing how the river looks. The press
+                // lives on an invisible circle around it instead, which puts
+                // the target over 24px in both directions and leaves every
+                // painted pixel exactly where it was.
+                <g
                   key={task.id}
-                  className={`today2-bead is-${index + 1}`}
-                  cx={point.x}
-                  cy={point.y}
-                  r="7"
+                  className="today2-bead-target"
                   role="button"
                   tabIndex={0}
                   aria-label={`Open Focus Grid for ${task.title}`}
                   onClick={(event) => openGridFrom(event.currentTarget)}
                   onKeyDown={(event) => onKeyboardActivate(event, () => openGridFrom(event.currentTarget))}
-                />
+                >
+                  <circle className="today2-bead-hit" cx={point.x} cy={point.y} r="16" />
+                  <circle
+                    className={`today2-bead is-${index + 1}`}
+                    cx={point.x}
+                    cy={point.y}
+                    r="7"
+                  />
+                </g>
               );
             })}
           </svg>
@@ -1293,9 +1308,13 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
             <span className="today2-done-dots" aria-hidden="true"><i /><i /><i /></span>
             <span ref={doneLabelRef} className="today2-done-label">{displayDoneCount} done today</span>
           </button>
-          {wakeOpen && model.doneTitles.length > 0 && (
+          {wakeOpen && (
+            // The marker says it is expanded either way, so on a day with
+            // nothing finished it used to open onto nothing at all.
             <div className="today2-done-list">
-              {model.doneTitles.slice(0, 5).map((title) => <p key={title}>{title}</p>)}
+              {model.doneTitles.length > 0
+                ? model.doneTitles.slice(0, 5).map((title) => <p key={title}>{title}</p>)
+                : <p>Nothing finished yet today.</p>}
             </div>
           )}
 

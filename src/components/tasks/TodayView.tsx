@@ -3120,7 +3120,13 @@ function TodayExperience({
       {detailTask && (
         <TaskDetail
           taskId={detailTask._id}
-          returnFocusId={suggestionDetailTaskId === detailTask._id ? "quiet-current-review-trigger" : undefined}
+          returnFocusId={suggestionDetailTaskId === detailTask._id
+            ? "quiet-current-review-trigger"
+            // Editing from Today closes the card the editor was opened from, so
+            // the task's own row on Today is what focus comes back to. If the
+            // task is not on Today the id finds nothing and the old behaviour
+            // stands.
+            : `today2-focus-open-${detailTask._id}`}
           task={detailTask}
           columns={columns}
           onClose={() => { setDetailTaskId(null); setSuggestionDetailTaskId(null); }}

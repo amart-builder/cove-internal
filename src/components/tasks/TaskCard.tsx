@@ -132,10 +132,16 @@ export default function TaskCard({
           title has to keep clear of it. It mattered less while long words
           simply overflowed the card; now that they wrap, the first line fills
           the full width and would run under the button. */}
+      {/* Three lines holds every seeded title whole and stops one long one
+          from growing its card tall enough to push the rest of the column off
+          the board. The line under this one has clamped to a single line since
+          it was written; the title never clamped at all. The full text is on
+          the element's title attribute, so nothing is lost. */}
       <p
-        className={`water-card-title text-[15.5px] leading-snug text-foreground ${
+        className={`water-card-title line-clamp-3 text-[15.5px] leading-snug text-foreground ${
           showCompleteButton ? 'pr-7' : ''
         }`}
+        title={task.title}
       >
         {task.title}
       </p>

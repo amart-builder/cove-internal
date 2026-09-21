@@ -12,7 +12,7 @@ import ModalScrim from './arrival/ModalScrim';
 import { TaskSessionLauncher } from './TaskSessionLauncher';
 import { visibleTags } from '@/lib/tasks/tags';
 import { taskEditError, type TaskEditGuard } from '@/lib/tasks/edit-conflict';
-import { taskEditorDraft, taskEditorPatch, taskEditorExpected } from '@/lib/tasks/editor-patch';
+import { taskEditorDraft, taskEditorPatch, taskEditorExpected, taskSaveUnavailableReason } from '@/lib/tasks/editor-patch';
 
 interface ColumnData {
   _id: string;
@@ -205,15 +205,23 @@ export default function TaskDetail({
     );
   }
 
+  const saveUnavailableReason = taskSaveUnavailableReason({ title, saving });
+
   return (
     <ModalScrim labelledBy="task-detail-title" returnFocus={returnFocus} onClose={onClose}
       panelClassName="bg-card rounded-lg border w-full max-w-lg p-5 max-h-[90vh] overflow-y-auto transition-colors duration-200">
         <div className="flex items-start justify-between mb-4">
           <h2 id="task-detail-title" className="text-sm font-semibold">Edit Task</h2>
+          {/* The other two task sheets in Cove -- the one Morning Arrival opens
+              and the one Close My Day opens -- both give this same X a 36px
+              circle to sit in. This one had nothing around it and measured
+              15x18, the smallest target in the app, on the sheet a person
+              opens most. The negative margin keeps the glyph exactly where it
+              was so only the pressable area changes. */}
           <button
             type="button" data-modal-initial-focus aria-label="Close task"
             onClick={onClose}
-            className="text-muted-foreground hover:text-foreground text-lg leading-none"
+            className="-mr-2.5 -my-2 grid size-9 place-items-center rounded-full text-lg leading-none text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             &times;
           </button>
@@ -382,9 +390,12 @@ export default function TaskDetail({
         )}
 
         <div className="flex items-center justify-between mt-5 pt-3 border-t">
+          {/* Measured at 69x18. It sits at the far end of its row from Cancel
+              and Save, so the padding cannot bring it closer to either; the
+              negative margin keeps the row the height it already was. */}
           <button
             onClick={handleDelete}
-            className="text-[12px] font-medium text-accent-red hover:underline"
+            className="-my-1.5 py-1.5 text-[12px] font-medium text-accent-red hover:underline"
           >
             Delete task
           </button>
@@ -397,13 +408,20 @@ export default function TaskDetail({
             </button>
             <button
               onClick={handleSave}
-              disabled={saving || !title.trim()}
+              disabled={Boolean(saveUnavailableReason) || saving}
+              title={saveUnavailableReason}
+              aria-describedby={saveUnavailableReason ? 'task-detail-save-availability' : undefined}
               className="px-3 py-1.5 text-xs font-medium bg-accent-blue text-white rounded-md hover:opacity-90 transition-opacity duration-150 disabled:opacity-50"
             >
               {saving ? 'Saving...' : 'Save'}
             </button>
           </div>
         </div>
+        {saveUnavailableReason && (
+          <p id="task-detail-save-availability" className="mt-2 text-right text-[12px] text-muted-foreground">
+            {saveUnavailableReason}
+          </p>
+        )}
     </ModalScrim>
   );
 }

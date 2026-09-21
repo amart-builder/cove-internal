@@ -8,12 +8,12 @@
   --card: #FFFFFF;
   --border: #E8E5E0;
   --muted: #F3F1EE;
-  --muted-foreground: #8A8580;
-  --accent-blue: #2C6FEF;
-  --accent-green: #2FA668;
-  --accent-red: #E5534B;
-  --accent-orange: #D4842C;
-  --accent-yellow: #C4971A;
+  --muted-foreground: #736E6A;
+  --accent-blue: #255FCF;
+  --accent-green: #237D4F;
+  --accent-red: #BE453E;
+  --accent-orange: #9B6020;
+  --accent-yellow: #896A12;
   --quiet-water: #6f918b;
   --quiet-water-soft: #dce8e3;
   --quiet-ink: #26312f;
@@ -26,7 +26,7 @@
   --current-water-blue: #b8ddf4;
   --current-water-deep: #86bde1;
   --current-sun: #b97832;
-  --current-kicker: #2d7fc0;
+  --current-kicker: #276EA7;
   --current-title-ink: #172126;
   --orb-blue-1: #45a7e8;
   --orb-blue-2: #2585cf;
@@ -93,6 +93,19 @@ body {
 
 * {
   border-color: var(--border);
+}
+
+/* A pointer over anything you can press. A <button> keeps the browser's own
+   cursor unless a rule says otherwise, and out of fifty-three on the six main
+   screens only eight had one: the main tabs, the theme toggle, "Close My Day",
+   "Open Focus Grid" and the complete buttons on Today all felt like text to a
+   mouse. Links were never affected, since a browser points at those already.
+
+   Scoped to the element rather than [role='button'], because the Focus Grid's
+   cards carry that role from the drag library and have to keep `grab`. Every
+   disabled control keeps the cursor its own rule gives it. */
+button:not(:disabled) {
+  cursor: pointer;
 }
 
 ::selection {
@@ -1604,7 +1617,7 @@ input, textarea, select {
 .today2-quiet-actions button {
   border: 0;
   padding: 3px 0;
-  color: rgba(23,33,38,.48);
+  color: rgba(23,33,38,.64);
   background: none;
   font-size: 12px;
   font-weight: 500;
@@ -1615,7 +1628,7 @@ input, textarea, select {
 .today2-quiet-actions button:disabled { opacity: .38; cursor: not-allowed; }
 .today2-weekend-gate { display: flex; align-items: center; gap: 10px; margin-top: 9px; color: var(--today2-muted); font-size: 12px; font-weight: 500; }
 .today2-weekend-gate p { margin: 0; }
-.today2-weekend-gate button { border: 0; padding: 3px 0; color: rgba(23,33,38,.58); background: none; font-size: 12px; font-weight: 500; }
+.today2-weekend-gate button { border: 0; padding: 3px 0; color: rgba(23,33,38,.64); background: none; font-size: 12px; font-weight: 500; }
 .today2-weekend-gate button:hover:not(:disabled) { color: rgba(23,33,38,.82); }
 .today2-weekend-gate button:disabled { opacity: .4; cursor: not-allowed; }
 .today2-header .quiet-readiness-strip { margin-top: 10px; }
@@ -1680,7 +1693,7 @@ input, textarea, select {
 .today2-second-current-card:active { transform: scale(.97); }
 .today2-second-current-card > span:first-child {
   display: block;
-  color: rgba(45,127,192,.8);
+  color: var(--current-kicker);
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
@@ -1691,7 +1704,7 @@ input, textarea, select {
 .today2-second-current-card svg { display: block; width: 100%; height: 22px; margin: 6px 0 3px; overflow: visible; }
 .today2-mini-glow { fill: none; stroke: url(#today2-mini-gradient); stroke-width: 6; opacity: .12; filter: blur(3px); }
 .today2-mini-path { fill: none; stroke: url(#today2-mini-gradient); stroke-width: 2; stroke-linecap: round; opacity: .55; }
-.today2-second-current-card small { display: block; color: rgba(23,33,38,.5); font-size: 12px; font-weight: 500; line-height: 1.25; white-space: nowrap; }
+.today2-second-current-card small { display: block; color: rgba(23,33,38,.64); font-size: 12px; font-weight: 500; line-height: 1.25; white-space: nowrap; }
 
 .today2-second-current-column {
   position: absolute;
@@ -1768,12 +1781,15 @@ input, textarea, select {
 .today2-river-shimmer { fill: none; stroke: rgba(255,255,255,.72); stroke-width: 1.4; stroke-linecap: round; stroke-dasharray: 42 38; opacity: .48; animation: today2-river-shimmer 14s linear infinite; }
 @keyframes today2-river-shimmer { to { stroke-dashoffset: -188; } }
 
+/* The press is on the invisible circle, not the painted one -- see the
+   comment beside the bead in TodayRiverStageV2. */
+.today2-bead-target { cursor: pointer; }
+.today2-bead-hit { fill: transparent; stroke: none; pointer-events: all; }
 .today2-bead {
   fill: var(--node-dot);
   stroke: rgba(255,255,255,.78);
   stroke-width: 2;
-  pointer-events: auto;
-  cursor: pointer;
+  pointer-events: none;
   filter: drop-shadow(0 0 6px rgba(119,172,209,.55));
   opacity: .45;
 }
@@ -1790,7 +1806,7 @@ input, textarea, select {
   gap: 6px;
   border: 0;
   padding: 6px 8px;
-  color: rgba(23,33,38,.55);
+  color: rgba(23,33,38,.64);
   background: transparent;
   font-size: 12px;
   font-weight: 500;
@@ -1879,7 +1895,7 @@ input, textarea, select {
 .today2-focus-card.is-compact h2 { margin: 8px 0 10px; font-size: 15.5px; font-weight: 550; letter-spacing: -.012em; }
 .today2-card-footer { display: flex; min-height: 25px; align-items: center; justify-content: space-between; gap: 7px; margin-top: auto; }
 .today2-card-session-slot { min-width: 0; height: 25px; display: flex; flex: 1; align-items: center; justify-content: flex-end; overflow: hidden; }
-.today2-owner-chip { display: inline-flex; min-height: 18px; align-items: center; border: 1px solid rgba(72,98,96,.1); border-radius: 999px; padding: 0 7px; color: rgba(23,33,38,.61); background: rgba(255,255,255,.5); font-size: 12px; font-weight: 500; white-space: nowrap; }
+.today2-owner-chip { display: inline-flex; min-height: 18px; align-items: center; border: 1px solid rgba(72,98,96,.1); border-radius: 999px; padding: 0 7px; color: rgba(23,33,38,.64); background: rgba(255,255,255,.5); font-size: 12px; font-weight: 500; white-space: nowrap; }
 .today2-focus-card.is-compact .today2-owner-chip { padding-inline: 6px; font-size: 11px; }
 .today2-owner-chip[data-owner='Together'] { color: #6a6c56; background: rgba(246,238,201,.5); }
 .today2-owner-chip[data-owner='Claude'] { color: #316f98; background: rgba(130,200,242,.14); }
@@ -1902,6 +1918,20 @@ input, textarea, select {
 }
 .today2-focus-card.is-compact .today2-check-orb { flex-basis: 44px; width: 44px; height: 44px; }
 .today2-check-orb:active { transform: scale(.94); }
+
+/* A closed day disables every focus card's check, and until now that was
+   invisible: the orb kept its full blue, its glow and its pointer, so three
+   of the largest, most inviting buttons on Today looked exactly as pressable
+   as they had all day and did nothing when pressed. Today's own day-ritual
+   links two inches above already dim to .38 with `not-allowed` when they are
+   unavailable, so the check now says the same thing the same way. The card
+   that is completing is left out, because it is running its own fade at that
+   moment and the orb is only disabled for the length of that animation. */
+.today2-focus-card:not(.is-completing) .today2-check-orb:disabled {
+  opacity: .38;
+  box-shadow: none;
+  cursor: not-allowed;
+}
 .today2-check-orb svg { width: 24px; height: 24px; overflow: visible; }
 .today2-focus-card.is-compact .today2-check-orb svg { width: 22px; height: 22px; }
 .today2-check-orb path { fill: none; stroke: #fff; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
@@ -1978,16 +2008,16 @@ input, textarea, select {
 .today2-focus-detail-card.is-open { opacity: 1; visibility: visible; transform: translateY(0); pointer-events: auto; transition-delay: 0s; }
 .today2-focus-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .today2-focus-detail-head p { margin: 0; color: rgba(45,127,192,.75); font-size: 10.5px; font-weight: 650; letter-spacing: .24em; line-height: 1; text-transform: uppercase; }
-.today2-focus-detail-head button { border: 0; padding: 2px 0; color: rgba(23,33,38,.48); background: none; font-size: 12px; font-weight: 500; }
+.today2-focus-detail-head button { border: 0; padding: 2px 0; color: rgba(23,33,38,.64); background: none; font-size: 12px; font-weight: 500; }
 .today2-focus-detail-head button:hover { color: rgba(23,33,38,.8); }
 .today2-focus-detail-description { display: -webkit-box; margin: 13px 0 0; overflow: hidden; color: rgba(23,33,38,.67); font-size: 13.5px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
-.today2-focus-detail-meta { margin: 11px 0 17px; color: rgba(23,33,38,.44); font-size: 12px; font-weight: 500; }
+.today2-focus-detail-meta { margin: 11px 0 17px; color: rgba(23,33,38,.64); font-size: 12px; font-weight: 500; }
 .today2-session-footer { min-height: 53px; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 8px; margin-inline: -22px; padding: 12px 22px; border-top: 1px solid rgba(32,46,51,.09); text-align: left; }
-.today2-session-footer-label { flex: 1 1 100%; min-width: 0; color: rgba(23,33,38,.48); font-size: 12px; font-weight: 500; }
+.today2-session-footer-label { flex: 1 1 100%; min-width: 0; color: rgba(23,33,38,.64); font-size: 12px; font-weight: 500; }
 .today2-session-footer.has-state { flex-wrap: wrap; row-gap: 8px; }
 .today2-session-footer-state { flex: 1 1 100%; min-width: 0; }
 .today2-session-footer-actions { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 7px; }
-.today2-session-footer-actions > button { min-height: 30px; border: 1px solid rgba(32,46,51,.11); border-radius: 999px; padding: 5px 12px; color: rgba(23,33,38,.58); background: rgba(255,255,255,.55); font-size: 12px; font-weight: 500; transition: transform .1s var(--ease-out-cove), background .14s ease; }
+.today2-session-footer-actions > button { min-height: 30px; border: 1px solid rgba(32,46,51,.11); border-radius: 999px; padding: 5px 12px; color: rgba(23,33,38,.64); background: rgba(255,255,255,.55); font-size: 12px; font-weight: 500; transition: transform .1s var(--ease-out-cove), background .14s ease; }
 .today2-session-footer-actions > button.is-planning { border-color: #2f7fbd; color: #fff; background: #2f7fbd; box-shadow: 0 4px 12px rgba(47,127,189,.2); }
 .today2-session-footer-actions > button:hover:not(:disabled) { transform: translateY(-1px); background: rgba(255,255,255,.94); }
 .today2-session-footer-actions > button.is-planning:hover:not(:disabled) { background: #276fa7; }
@@ -1997,14 +2027,14 @@ input, textarea, select {
 .today2-rich-sheet { position: relative; width: min(620px, calc(100vw - 32px)); max-height: min(680px, calc(100vh - 32px)); overflow: hidden; border: 1px solid rgba(255,255,255,.78); border-radius: 24px; color: #172126; background: #fffdf9; box-shadow: 0 36px 110px rgba(20,31,36,.28); outline: none; }
 .today2-rich-sheet > .today2-rich-eyebrow { margin: 44px 48px 0; color: #2f7fbd; font-size: 10.5px; font-weight: 650; letter-spacing: .24em; line-height: 1; text-transform: uppercase; }
 .today2-rich-sheet > h2 { margin: 12px 72px 0 48px; color: #172126; font-size: 23px; font-weight: 650; letter-spacing: -.018em; line-height: 1.2; }
-.today2-rich-meta { margin: 10px 48px 0; color: rgba(23,33,38,.48); font-size: 12px; font-weight: 500; }
+.today2-rich-meta { margin: 10px 48px 0; color: rgba(23,33,38,.64); font-size: 12px; font-weight: 500; }
 .today2-rich-description { max-height: min(320px, 40vh); margin: 26px 48px 34px; overflow: hidden auto; color: rgba(23,33,38,.76); font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; }
 .today2-rich-footer { min-height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 48px; border-top: 1px solid rgba(32,46,51,.09); background: rgba(249,247,242,.72); }
-.today2-rich-edit { flex: 0 0 auto; border: 0; padding: 4px 0; color: rgba(23,33,38,.5); background: none; font-size: 12px; font-weight: 500; }
+.today2-rich-edit { flex: 0 0 auto; border: 0; padding: 4px 0; color: rgba(23,33,38,.64); background: none; font-size: 12px; font-weight: 500; }
 .today2-rich-edit:hover { color: rgba(23,33,38,.82); }
 .today2-rich-footer .today2-session-footer { min-height: 0; margin: 0; padding: 0; border: 0; }
 .today2-rich-footer .today2-session-footer-label { display: none; }
-.today2-round-close { position: relative; width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid rgba(32,46,51,.1); border-radius: 50%; color: rgba(23,33,38,.5); background: rgba(247,244,238,.85); font-size: 21px; font-weight: 500; line-height: 1; }
+.today2-round-close { position: relative; width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid rgba(32,46,51,.1); border-radius: 50%; color: rgba(23,33,38,.64); background: rgba(247,244,238,.85); font-size: 21px; font-weight: 500; line-height: 1; }
 .today2-round-close::before { content: ''; position: absolute; inset: -8px; }
 .today2-rich-sheet > .today2-round-close { position: absolute; top: 20px; right: 20px; }
 .today2-round-close:hover { color: rgba(23,33,38,.82); background: #f0ece5; }
@@ -2024,7 +2054,7 @@ input, textarea, select {
   height: 44px;
   border: 1px solid rgba(255,255,255,.66);
   border-radius: 10px;
-  color: rgba(23,33,38,.6);
+  color: rgba(23,33,38,.64);
   background: rgba(255,255,255,.66);
   box-shadow: 0 9px 22px rgba(44,59,55,.11), inset 0 1px 0 rgba(255,255,255,.74);
   backdrop-filter: blur(14px) saturate(160%);
@@ -2050,7 +2080,12 @@ input, textarea, select {
 
 .today2-root [data-day-ritual-layer] {
   padding: 4vh 3.2vw;
-  background: rgba(23,52,66,.35);
+  /* The Focus Grid panel is a dark sheet in both themes, and it is translucent
+     on purpose. At .35 a light page showed straight through it and lifted the
+     panel's own surface far enough that twelve of its eighteen text elements
+     fell under AA, the focus dial worst at 3.25:1. Deepening the scrim settles
+     light mode onto the same surface dark mode already had. */
+  background: rgba(23,52,66,.80);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -2082,7 +2117,8 @@ input, textarea, select {
 .today2-grid-header { display: flex; min-height: 58px; align-items: center; justify-content: space-between; gap: 18px; padding: 0 22px; border-bottom: 1px solid rgba(255,255,255,.08); }
 .today2-grid-heading { display: flex; align-items: baseline; gap: 10px; }
 .today2-grid-heading h2 { margin: 0; color: #82c8f2; font-size: 10.5px; font-weight: 650; letter-spacing: .24em; line-height: 1; text-transform: uppercase; outline: none; }
-.today2-grid-heading span { color: rgba(238,246,248,.55); font-size: 12px; font-weight: 500; }
+/* Reads anywhere in the panel, including over its most see-through stop. */
+.today2-grid-heading span { color: rgba(238,246,248,.64); font-size: 12px; font-weight: 500; }
 .today2-grid-tools { display: flex; align-items: center; gap: 13px; }
 .today2-grid-header, .today2-grid-footer { flex-shrink: 0; }
 .today2-grid-footer { padding: 12px 22px; border-top: 1px solid rgba(255,255,255,.08); }
@@ -2090,11 +2126,16 @@ input, textarea, select {
 .today2-grid-footer button:hover { color: #eef6f8; }
 .today2-grid-footer button:focus-visible { outline: 2px solid #82c8f2; outline-offset: 4px; border-radius: 2px; }
 .today2-grid-footer button:disabled { opacity: .45; cursor: default; }
-.today2-grid-tools > p { margin: 0; color: rgba(238,246,248,.35); font-size: 12px; font-weight: 500; }
+/* The grid's only instruction line. At .35 it read 3.0:1 on the panel. */
+.today2-grid-tools > p { margin: 0; color: rgba(238,246,248,.64); font-size: 12px; font-weight: 500; }
 .today2-focus-dial { position: relative; width: 84px; height: 24px; display: grid; grid-template-columns: repeat(3, 1fr); padding: 2px; border-radius: 999px; background: rgba(255,255,255,.08); }
 .today2-dial-thumb { position: absolute; z-index: 0; top: 2px; left: 2px; width: calc((100% - 4px) / 3); height: 20px; border-radius: 999px; background: rgba(130,200,242,.18); transition: transform .12s var(--ease-out-cove); }
-.today2-focus-dial button { position: relative; z-index: 1; border: 0; padding: 0; color: rgba(238,246,248,.45); background: transparent; font-size: 12px; font-weight: 500; transition: color .12s ease, transform .12s var(--ease-out-cove); }
-.today2-focus-dial button.is-active { color: #82c8f2; }
+/* The two focus counts you are not on read 3.7:1 at .45, and they are the
+   control, not decoration. The dial's own pill lightens what they sit on. */
+.today2-focus-dial button { position: relative; z-index: 1; border: 0; padding: 0; color: rgba(238,246,248,.70); background: transparent; font-size: 12px; font-weight: 500; transition: color .12s ease, transform .12s var(--ease-out-cove); }
+/* #82c8f2 read 4.0:1 over the dial's own pill, on the control that says
+   which focus you are looking at. */
+.today2-focus-dial button.is-active { color: #a5d8f7; }
 .today2-focus-dial button:active { transform: scale(.97); }
 .today2-focus-dial button:disabled { opacity: .45; }
 .today2-grid-close { flex: 0 0 28px; border-color: rgba(255,255,255,.12); color: rgba(238,246,248,.62); background: rgba(255,255,255,.07); }
@@ -2107,12 +2148,16 @@ input, textarea, select {
 .today2-grid-card { min-height: 78px; display: flex; flex-direction: column; padding: 11px; overflow: hidden; border: 1px solid rgba(255,255,255,.08); border-radius: 13px; color: #eef6f8; background: rgba(255,255,255,.07); box-shadow: 0 8px 22px rgba(4,16,21,.08); cursor: grab; user-select: none; touch-action: none; transition: background .18s ease, border-color .18s ease, box-shadow .22s var(--ease-out-cove), transform .22s var(--ease-out-cove), opacity .18s ease; }
 .today2-grid-card:hover { background: rgba(255,255,255,.11); border-color: rgba(255,255,255,.13); }
 .today2-grid-card.is-focus { min-height: 86px; border: 1.5px solid rgba(45,127,192,.7); background: rgba(255,255,255,.14); box-shadow: 0 0 0 1px rgba(130,200,242,.12), inset 0 0 27px rgba(90,182,235,.08), 0 11px 26px rgba(4,16,21,.1); }
-.today2-grid-kicker { color: #82c8f2; font-size: 10.5px; font-weight: 650; letter-spacing: .24em; }
+/* 10.5px needs the full 4.5:1, and on a focused card's lighter fill
+   #82c8f2 read 4.47:1. */
+.today2-grid-kicker { color: #a5d8f7; font-size: 10.5px; font-weight: 650; letter-spacing: .24em; }
 .today2-grid-card h3 { display: -webkit-box; margin: 0 0 7px; overflow: hidden; color: #eef6f8; font-size: 15.5px; font-weight: 550; letter-spacing: -.012em; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .today2-grid-card.is-focus .today2-grid-kicker + h3 { margin-top: 6px; font-size: 15.5px; font-weight: 550; letter-spacing: -.012em; }
 .today2-grid-card-bottom { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: auto; }
 .today2-grid-card .today2-owner-chip { color: rgba(238,246,248,.66); background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.08); }
-.today2-grid-card .today2-owner-chip[data-owner='You'] { color: rgba(238,246,248,.82); background: rgba(255,255,255,.12); }
+/* The chip keeps its lighter fill, so the ink has to be full strength: at
+   .82 it read 4.34:1 on a focused card. */
+.today2-grid-card .today2-owner-chip[data-owner='You'] { color: #eef6f8; background: rgba(255,255,255,.12); }
 .today2-grid-card .today2-owner-chip[data-owner='Together'] { color: #e4dfba; background: rgba(210,199,127,.1); }
 .today2-grid-state { min-width: 0; flex: 1; overflow: hidden; color: rgba(238,246,248,.45); font-size: 11.5px; font-weight: 500; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .today2-focus-grid li.is-dragging .today2-grid-card { opacity: .78; transform: rotate(1deg) scale(1.04); box-shadow: 0 22px 56px rgba(2,14,20,.38); cursor: grabbing; }
@@ -2154,7 +2199,9 @@ input, textarea, select {
 .dark .today2-root .today2-focus-open:focus-visible { outline-color: rgba(130,200,242,.88); box-shadow: 0 0 0 4px rgba(130,200,242,.22); }
 .dark .today2-focus-card:hover { box-shadow: 0 28px 82px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.12); }
 .dark .today2-owner-chip { border-color: rgba(255,255,255,.08); color: rgba(238,246,248,.72); background: rgba(255,255,255,.08); }
-.dark .today2-owner-chip[data-owner='You'] { color: rgba(238,246,248,.82); background: rgba(255,255,255,.12); }
+/* Same chip, same fill, and this rule wins in dark mode. See the grid card's
+   copy of it above: .82 read 4.46:1. */
+.dark .today2-owner-chip[data-owner='You'] { color: #eef6f8; background: rgba(255,255,255,.12); }
 .dark .today2-owner-chip[data-owner='Together'] { color: #e4dfba; background: rgba(210,199,127,.1); }
 .dark .today2-focus-detail-head button,
 .dark .today2-session-footer-label { color: rgba(238,246,248,.58); }
@@ -2164,11 +2211,11 @@ input, textarea, select {
 .dark .today2-session-footer { border-color: rgba(255,255,255,.1); }
 .dark .today2-session-footer-actions > button { border-color: rgba(255,255,255,.11); color: rgba(238,246,248,.68); background: rgba(255,255,255,.07); }
 .dark .today2-session-footer-actions > button:hover:not(:disabled) { background: rgba(255,255,255,.13); }
-.dark .today2-session-footer-actions > button.is-planning { border-color: #4c9bd2; color: #fff; background: #397fae; }
+.dark .today2-session-footer-actions > button.is-planning { border-color: #4c9bd2; color: #fff; background: #33739e; }
 .dark .today2-session-footer-actions > button.is-planning:hover:not(:disabled) { background: #438dbc; }
 .dark .today2-rich-sheet { border-color: rgba(255,255,255,.12); color: #eef6f8; background: #202c31; box-shadow: 0 36px 110px rgba(0,0,0,.5); }
 .dark .today2-rich-sheet > h2 { color: #eef6f8; }
-.dark .today2-rich-meta { color: rgba(238,246,248,.5); }
+.dark .today2-rich-meta { color: rgba(238,246,248,.58); }
 .dark .today2-rich-description { color: rgba(238,246,248,.78); }
 .dark .today2-rich-footer { border-color: rgba(255,255,255,.1); background: rgba(19,30,35,.58); }
 .dark .today2-rich-edit { color: rgba(238,246,248,.58); }
@@ -3179,3 +3226,30 @@ input, textarea, select {
 .notification-buddy-access button { display:flex; align-items:center; gap:10px; min-height:44px; font-weight:600; color:var(--accent-blue); }
 .notification-buddy-access p { margin-top:6px; font-size:13px; color:var(--muted-foreground); }
 @media(max-width:600px) { .notification-buddy-access { padding:0 20px 24px; } }
+
+/* Dark mode, where a light-theme colour was left behind.
+
+   Each of these reads under 4.5:1 against what it actually sits on in dark
+   mode, measured in the browser rather than guessed at. */
+
+/* The Second Current's own name, and each item's eyebrow, hard-code the light
+   theme's blue. On the dark card that is 3.1:1, and 2.4:1 once the panel is
+   open and the card takes its gradient. The dark theme already has a blue for
+   this, it just never reached here. */
+.dark .today2-second-current-card > span:first-child { color: rgba(130,200,242,.92); }
+.dark .today2-second-current-item span { color: rgba(130,200,242,.86); }
+
+/* The Rhythms pill keeps a white 45% fill in dark mode, which lands grey text
+   on a light grey pill at 1.2:1 — very nearly invisible. */
+.dark .today2-rhythm-entry > div > button {
+  border-color: rgba(255,255,255,.14);
+  background: rgba(255,255,255,.06);
+  color: rgba(238,246,248,.76);
+}
+
+/* Solid accent-blue buttons carry white text. The dark theme lightens
+   --accent-blue so it can be read as text on a dark background, which leaves
+   white on it at 2.8:1 — the primary action in every dialog. Only the solid
+   fill is moved; the tints (bg-accent-blue/10 and friends) sit behind dark
+   text and are already fine, and text-accent-blue is untouched. */
+.dark .bg-accent-blue { background-color: #2F6FD0; }

@@ -160,7 +160,16 @@ export default function LocalCRMView() {
         <div className="water-empty-state max-w-lg p-6">
           <p className="water-eyebrow">Relationships</p>
           <h1 className="water-workspace-title mt-2">People could not load.</h1>
-          <p className="mt-2 text-[13.5px] leading-[1.55] text-muted-foreground">{error}</p>
+          <p className="mt-2 text-[13.5px] leading-[1.55] text-muted-foreground">
+            Cove could not reach your contacts. Nothing has been lost. Try again
+            in a moment.
+          </p>
+          <details className="mt-2">
+            <summary className="cursor-pointer text-xs text-muted-foreground">
+              What went wrong
+            </summary>
+            <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">{error}</p>
+          </details>
           <button
             onClick={() => void load(search)}
             className="water-primary-button mt-4 px-4 py-2"
@@ -209,7 +218,12 @@ export default function LocalCRMView() {
             <input
               type="search"
               aria-label="Search people"
-              placeholder="Search name, company, email, tags..."
+              placeholder={
+                // The field is 278px wide, and narrower still under 900px. The
+                // longer hint was cut mid-word at every width, which reads as a
+                // half-finished screen; email and tags are still searched.
+                'Search name or company'
+              }
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="water-control w-full py-2 pl-8 pr-3 text-[13.5px] placeholder:text-muted-foreground"
@@ -371,7 +385,8 @@ function AddContactForm({
       });
       onCreated(contact, createdCompany);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : String(err));
+      console.error('Cove could not add a contact', err);
+      setFormError('That could not be saved. Nothing was lost. Try again in a moment.');
       setSaving(false);
     }
   }
@@ -494,6 +509,9 @@ function AddContactForm({
   );
 }
 
+/** Reads inside "Could not save notes: …. Your text is still here". */
+const FIELD_SAVE_REASON = 'the change did not reach your Mac';
+
 function ContactDetailPanel({
   contact,
   companyName,
@@ -582,7 +600,8 @@ function ContactDetailPanel({
         saveStatusField.current = undefined;
         setSaveStatus('idle');
       }
-      setFieldErrors(current => ({ ...current, [field]: err instanceof Error ? err.message : String(err) }));
+      console.error(`Cove could not save the ${field} field`, err);
+      setFieldErrors(current => ({ ...current, [field]: FIELD_SAVE_REASON }));
     }
   }
 
@@ -627,7 +646,8 @@ function ContactDetailPanel({
       setSaveError(undefined);
       await onDeleteContact();
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : String(err));
+      console.error('Cove could not delete a contact', err);
+      setSaveError('That could not be deleted. Nothing has changed. Try again in a moment.');
     }
   }
 
@@ -707,7 +727,7 @@ function ContactDetailPanel({
 
       <div className="space-y-4 px-5 py-4">
         <div>
-          <label className="mb-1.5 block">
+          <label className="mb-1.5 block" htmlFor="contact-detail-notes">
             Notes
           </label>
           <textarea
@@ -717,6 +737,7 @@ function ContactDetailPanel({
               markDraftDirty('notes');
             }}
             onBlur={commitNotes}
+            id="contact-detail-notes"
             rows={4}
             placeholder="What should you remember about this person?"
             className="w-full resize-y px-2.5 py-2 text-foreground"
@@ -725,12 +746,13 @@ function ContactDetailPanel({
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1.5 block">
+            <label className="mb-1.5 block" htmlFor="contact-detail-tier">
               Tier
             </label>
             <select
               value={tier}
               onChange={(e) => commitTier(e.target.value)}
+              id="contact-detail-tier"
               className="w-full px-2.5 py-2 text-foreground"
             >
               <option value="A">Tier A</option>
@@ -739,7 +761,7 @@ function ContactDetailPanel({
             </select>
           </div>
           <div>
-            <label className="mb-1.5 block">
+            <label className="mb-1.5 block" htmlFor="contact-detail-location">
               Location
             </label>
             <input
@@ -750,6 +772,7 @@ function ContactDetailPanel({
                 markDraftDirty('location');
               }}
               onBlur={commitLocation}
+              id="contact-detail-location"
               placeholder="City, region"
               className="w-full px-2.5 py-2 text-foreground"
             />
@@ -757,7 +780,7 @@ function ContactDetailPanel({
         </div>
 
         <div>
-          <label className="mb-1.5 block">
+          <label className="mb-1.5 block" htmlFor="contact-detail-how-we-met">
             How we met
           </label>
           <input
@@ -768,13 +791,14 @@ function ContactDetailPanel({
               markDraftDirty('howWeMet');
             }}
             onBlur={commitHowWeMet}
+            id="contact-detail-how-we-met"
             placeholder="Where the relationship started"
             className="w-full px-2.5 py-2 text-foreground"
           />
         </div>
 
         <div>
-          <label className="mb-1.5 block">
+          <label className="mb-1.5 block" htmlFor="contact-detail-tags">
             Tags (comma-separated)
           </label>
           <input
@@ -785,6 +809,7 @@ function ContactDetailPanel({
               markDraftDirty('tags');
             }}
             onBlur={commitTags}
+            id="contact-detail-tags"
             placeholder="investor, warm intro, roofing"
             className="w-full px-2.5 py-2 text-foreground"
           />
@@ -828,7 +853,8 @@ function ActivityTimeline({
       const rows = await listContactActivities(contactId);
       setActivities(rows);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      console.error('Cove could not load contact activity', err);
+      setError('Cove could not load this history. Try again in a moment.');
     }
   }, [contactId]);
 
@@ -863,14 +889,14 @@ function ActivityTimeline({
       try {
         await onActivityAdded({ last_interaction_at: new Date().toISOString() });
       } catch (touchErr) {
+        console.error('Cove could not touch last_interaction_at', touchErr);
         setTouchWarning(
-          `Activity saved, but the last-contact time did not update: ${
-            touchErr instanceof Error ? touchErr.message : String(touchErr)
-          }`,
+          'Activity saved. The last-contact time did not update.',
         );
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      console.error('Cove could not save contact activity', err);
+      setError('That could not be saved. Nothing was lost. Try again in a moment.');
     } finally {
       setSaving(false);
     }
@@ -887,6 +913,7 @@ function ActivityTimeline({
           <select
             value={activityType}
             onChange={(e) => setActivityType(e.target.value)}
+            aria-label="Kind of activity"
             className="px-2 py-1.5 text-foreground"
           >
             {ACTIVITY_TYPES.map((t) => (
@@ -902,6 +929,7 @@ function ActivityTimeline({
               setTitle(e.target.value);
               if (error) setError(undefined);
             }}
+            aria-label="What happened"
             placeholder="Title"
             className="min-w-0 flex-1 px-2.5 py-1.5 text-foreground"
           />
@@ -910,6 +938,7 @@ function ActivityTimeline({
           value={content}
           onChange={(e) => setContent(e.target.value)}
           rows={2}
+          aria-label="Details of what happened, optional"
           placeholder="Details (optional)"
           className="w-full resize-y px-2.5 py-1.5 text-foreground"
         />

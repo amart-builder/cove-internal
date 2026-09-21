@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   updateRecurringTemplate,
 } from '@/lib/data/recurrence';
@@ -42,6 +42,36 @@ export default function RhythmManager({
   const [open, setOpen] = useState(false);
   const [busyId, setBusyId] = useState<string>();
   const [error, setError] = useState<string>();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // The panel opens over the Today screen and covers a focus card while it is
+  // there, so it has to close the way everything else on that screen closes.
+  // Escape closes the panel and leaves the Second Current drawer open, which is
+  // why this listens in the capture phase and stops the event: the drawer's own
+  // Escape handler is on window and would otherwise take the pair down at once.
+  // A pointer press outside closes the panel too, including the press that
+  // closes the drawer -- without that the panel stayed open behind the hidden
+  // drawer and came back over the card the next time the drawer was opened.
+  useEffect(() => {
+    if (!open) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      setOpen(false);
+      triggerRef.current?.focus();
+    }
+    function closeOnOutsidePress(event: Event) {
+      if (wrapperRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
+    }
+    document.addEventListener('keydown', closeOnEscape, true);
+    document.addEventListener('pointerdown', closeOnOutsidePress);
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape, true);
+      document.removeEventListener('pointerdown', closeOnOutsidePress);
+    };
+  }, [open]);
 
   async function change(
     id: string,
@@ -60,16 +90,19 @@ export default function RhythmManager({
   }
 
   return (
-    <div className="relative">
+    <div ref={wrapperRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
+        aria-expanded={open}
+        aria-controls="second-current-rhythms"
         onClick={() => setOpen((current) => !current)}
         className="rounded-full border border-border/60 bg-background/70 px-2.5 py-1 text-[12px] font-medium normal-case tracking-normal text-muted-foreground hover:text-foreground"
       >
         Rhythms
       </button>
       {open && (
-        <div className="absolute right-0 top-8 z-30 w-80 rounded-xl border bg-card p-3 text-left shadow-lg">
+        <div id="second-current-rhythms" className="absolute right-0 top-8 z-30 w-80 rounded-xl border bg-card p-3 text-left shadow-lg">
           <div className="mb-2">
             <strong className="text-[21px] font-[650] tracking-[-0.018em] text-foreground">Rhythms</strong>
             <p className="mt-0.5 text-[13.5px] leading-[1.55] normal-case tracking-normal text-muted-foreground">

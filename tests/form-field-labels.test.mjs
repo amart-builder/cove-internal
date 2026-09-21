@@ -39,6 +39,7 @@ test('the task editor ties every caption to its field', () => {
         taskEditorDraft: (task) => task,
         taskEditorPatch: () => ({}),
         taskEditorExpected: () => ({}),
+        taskSaveUnavailableReason: () => undefined,
       },
     },
   });
@@ -71,4 +72,42 @@ test('the pipeline deal and add-lead panels tie every caption to its field', () 
     assert.deepEqual(result.dangling, [], `${exportName} names a field that is not there`);
     assert.equal(result.named, result.total, `${exportName} has an unnamed control`);
   }
+});
+
+test('the contact detail ties every caption to its field', () => {
+  const harness = componentHarness('src/components/crm/LocalCRMView.tsx', {
+    exportName: 'ContactDetailPanel',
+    mocks: {
+      '@/lib/data/crm': {},
+      '@/lib/data/refresh-bus': { useDataChanged: () => {} },
+      './CrmSubNav': {},
+    },
+  });
+  const result = labelling(harness.render({
+    contact: { id: 'person-a', name: 'Dana', notes: '', location: '', how_we_met: '', tier: 'C', tags: [] },
+    companyName: 'Acme',
+    onSaveContact: async () => ({}),
+    onDeleteContact: async () => {},
+    onClose: () => {},
+  }));
+  assert.equal(result.unattached, 0, 'a caption on the contact detail names no field');
+  assert.deepEqual(result.dangling, []);
+  assert.equal(result.named, result.total, 'a field on the contact detail has no name');
+  assert.ok(result.total >= 5, `expected the detail's fields, saw ${result.total}`);
+});
+
+test('the activity form names its fields even with no captions to tie', () => {
+  // Kind, title and details show placeholders only, so each carries its own
+  // name rather than a caption; a placeholder is not a label.
+  const harness = componentHarness('src/components/crm/LocalCRMView.tsx', {
+    exportName: 'ActivityTimeline',
+    mocks: {
+      '@/lib/data/crm': { listContactActivities: async () => [] },
+      '@/lib/data/refresh-bus': { useDataChanged: () => {} },
+      './CrmSubNav': {},
+    },
+  });
+  const result = labelling(harness.render({ contactId: 'person-a', onActivityAdded: () => {} }));
+  assert.equal(result.named, result.total, 'an activity field has no name');
+  assert.ok(result.total >= 3, `expected the activity fields, saw ${result.total}`);
 });

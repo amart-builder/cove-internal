@@ -117,9 +117,12 @@ export default function ResponsibilityOverview() {
   }
   return (
     <main className="mx-auto h-full max-w-3xl overflow-y-auto px-6 pb-8 pt-16">
+      {/* Standing on its own above the heading, not inside a sentence, so the
+          24px WCAG 2.2 asks of a target applies to it. text-sm gives a 16px
+          line box; the padding is what carries it the rest of the way. */}
       <Link
         href="/tasks"
-        className="text-sm text-muted-foreground hover:text-foreground"
+        className="inline-block py-1 text-sm text-muted-foreground hover:text-foreground"
       >
         Back to Today
       </Link>
@@ -236,7 +239,7 @@ export default function ResponsibilityOverview() {
                   disabled={busy !== null}
                   onClick={() => void acknowledge(item)}
                   aria-label={`On my radar: ${item.title}. Check back in an hour.`}
-                  className="mt-2 text-xs text-accent-blue disabled:opacity-50"
+                  className="mt-1 py-1 text-xs text-accent-blue disabled:opacity-50"
                 >
                   {busy === item.ref_id
                     ? "Saving..."
@@ -276,7 +279,7 @@ export default function ResponsibilityOverview() {
                     {draft.content}
                   </p>
                   <button
-                    className="mt-3 text-xs text-accent-blue disabled:opacity-50"
+                    className="mt-2 py-1 text-xs text-accent-blue disabled:opacity-50"
                     disabled={copyStatus?.state === "copying"}
                     onClick={() => void copyDraft(draft)}
                   >

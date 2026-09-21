@@ -25,6 +25,7 @@ import type {
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { getRuntimeMode } from '@/lib/runtime/mode';
 import { originDate } from '@/lib/tasks/origin';
+import { taskSaveUnavailableReason } from '@/lib/tasks/editor-patch';
 import {
   createTask as createSupabaseTask,
   createTaskColumn as createSupabaseTaskColumn,
@@ -455,7 +456,39 @@ function KanbanBoardContent({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all');
+  const filterRef = useRef<HTMLDetailsElement>(null);
+
+  // The Filter popover floats over the board and covers a task card while it is
+  // open. A native <details> closes only when its own summary is pressed again,
+  // so Escape and a press anywhere else on the board both left it hanging there
+  // over the card. Every other floating panel in Cove closes on both, so this
+  // gives the Filter the same two ways out, and Escape hands the keyboard back
+  // to the Filter button when the keyboard was inside the popover.
+  useEffect(() => {
+    function closeFilter(event: Event) {
+      const details = filterRef.current;
+      if (!details?.open) return;
+      if (event.type === 'pointerdown') {
+        if (details.contains(event.target as Node)) return;
+      } else if ((event as KeyboardEvent).key !== 'Escape') {
+        return;
+      } else if (details.contains(document.activeElement)) {
+        details.querySelector('summary')?.focus();
+      }
+      details.open = false;
+    }
+    document.addEventListener('keydown', closeFilter);
+    document.addEventListener('pointerdown', closeFilter);
+    return () => {
+      document.removeEventListener('keydown', closeFilter);
+      document.removeEventListener('pointerdown', closeFilter);
+    };
+  }, []);
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  // Completing a task has been guarded against a second click since it was
+  // written (see completingTaskId below); adding one was not, so a double
+  // click on Add Task made two of it.
+  const [addingTask, setAddingTask] = useState(false);
   const [showRecentlyDeleted, setShowRecentlyDeleted] = useState(false);
   const [operationError, setOperationError] = useState<{
     message: string;
@@ -834,8 +867,9 @@ function KanbanBoardContent({
 
   async function handleAddTask(e: React.FormEvent) {
     e.preventDefault();
-    if (!newTask.title.trim() || !notStartedColumn) return;
+    if (!newTask.title.trim() || !notStartedColumn || addingTask) return;
 
+    setAddingTask(true);
     try {
       const tags = newTask.tags
         .split(',')
@@ -860,6 +894,8 @@ function KanbanBoardContent({
       setOperationError({
         message: "Cove couldn't add that task. Your draft is still here.",
       });
+    } finally {
+      setAddingTask(false);
     }
   }
 
@@ -979,7 +1015,16 @@ function KanbanBoardContent({
       <div className="water-workspace flex h-full items-center justify-center p-6">
         <div className="water-empty-state max-w-lg p-5 text-sm">
           <p className="font-medium text-foreground">Tasks could not load.</p>
-          <p className="mt-1 text-muted-foreground">{error}</p>
+          <p className="mt-1 text-muted-foreground">
+            Cove could not reach your task list. Nothing has been lost. Try
+            again in a moment.
+          </p>
+          <details className="mt-2">
+            <summary className="cursor-pointer text-xs text-muted-foreground">
+              What went wrong
+            </summary>
+            <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">{error}</p>
+          </details>
           <button
             type="button"
             className="water-text-button mt-3 px-3 py-2"
@@ -995,6 +1040,8 @@ function KanbanBoardContent({
   if (showRecentlyDeleted && onRestoreTask) {
     return <RecentlyDeleted onClose={() => setShowRecentlyDeleted(false)} />;
   }
+
+  const addTaskUnavailableReason = taskSaveUnavailableReason({ title: newTask.title });
 
   return (
     <div className="water-workspace all-work-surface flex h-full flex-col">
@@ -1017,7 +1064,7 @@ function KanbanBoardContent({
             />
           </div>
 
-          <details className="all-work-filter relative ml-auto">
+          <details ref={filterRef} className="all-work-filter relative ml-auto">
             <summary className="water-secondary-button flex cursor-pointer list-none items-center gap-2 px-4 py-2">
               Filter
               {(statusFilter !== 'all' || priorityFilter !== 'all') && (
@@ -1163,10 +1210,12 @@ function KanbanBoardContent({
             <div className="flex gap-1.5 shrink-0">
               <button
                 type="submit"
-                disabled={!newTask.title.trim()}
+                disabled={Boolean(addTaskUnavailableReason) || addingTask}
+                title={addTaskUnavailableReason}
+                aria-describedby={addTaskUnavailableReason ? 'add-task-availability' : undefined}
                 className="water-primary-button px-4 py-2 disabled:opacity-40"
               >
-                Add Task
+                {addingTask ? 'Adding…' : 'Add Task'}
               </button>
               <button
                 type="button"
@@ -1204,6 +1253,11 @@ function KanbanBoardContent({
               />
             </div>
           </div>
+          {addTaskUnavailableReason && (
+            <p id="add-task-availability" className="mt-2 text-xs text-muted-foreground">
+              {addTaskUnavailableReason}
+            </p>
+          )}
         </form>
       )}
 

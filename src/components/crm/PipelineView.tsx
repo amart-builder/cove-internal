@@ -650,7 +650,8 @@ function DealDetailPanel({
     } catch (error) {
       if (id !== latestRequestByField.current[field]) return;
       if (id === requestId.current) setSaveStatus('idle');
-      setFieldErrors(current => ({ ...current, [field]: error instanceof Error ? error.message : String(error) }));
+      console.error(`Cove could not save the ${field} field`, error);
+      setFieldErrors(current => ({ ...current, [field]: 'the change did not reach your Mac' }));
     }
   }
 
