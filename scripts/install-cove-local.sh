@@ -204,6 +204,24 @@ if [ -n "$CODEX_BIN" ]; then
     "$CODEX_XML_BIN"
 fi
 
+# Buddy, replan, spawn-session and /login all run inside the web app, and they
+# resolve the CLI as COVE_CLAUDE_BIN or, failing that, the literal path
+# $HOME/.local/bin/claude. Neither spelling consults PATH. The worker plist
+# carries the resolved path; without the same entry here, a Claude installed
+# anywhere else (Homebrew, an npm global bin, which is what the `command -v`
+# above expects) leaves the worker able to run Claude and Buddy not, failing
+# with "Buddy was interrupted." and a Retry that fails identically.
+CLAUDE_PLIST_ENTRY=""
+if [ -n "$CLAUDE_BIN" ]; then
+  CLAUDE_XML_BIN="$(printf '%s' "$CLAUDE_BIN" | sed \
+    -e 's/&/\&amp;/g' \
+    -e 's/</\&lt;/g' \
+    -e 's/>/\&gt;/g')"
+  printf -v CLAUDE_PLIST_ENTRY \
+    '    <key>COVE_CLAUDE_BIN</key>\n    <string>%s</string>' \
+    "$CLAUDE_XML_BIN"
+fi
+
 # Build Cove's tiny local notification sender. macOS chooses a notification's
 # icon from the sender app, so a real app bundle is the only reliable branded
 # path across supported macOS releases. AppleScript remains the runtime fallback
@@ -721,6 +739,7 @@ $RUNTIME_PLIST_ENTRY
     <key>COVE_JOB_RUNNER</key>
     <string>$JOB_RUNNER</string>
 $CODEX_PLIST_ENTRY
+$CLAUDE_PLIST_ENTRY
     <key>COVE_PROGRESS_RELAY_CONSUMER</key>
     <string>1</string>
 $NOTIFICATION_PLIST_ENTRY

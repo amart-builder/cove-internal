@@ -302,6 +302,44 @@ test("a first install without a saved agent is told to choose one, not to instal
   assert.match(block, /COVE_CODEX_BIN/);
 });
 
+function installerPlistBlock(installer, label) {
+  const start = installer.indexOf(`<string>${label}</string>`);
+  assert.ok(start > 0, `${label} is not written by the installer`);
+  const next = installer.indexOf("<key>Label</key>", start);
+  return installer.slice(start, next === -1 ? installer.length : next);
+}
+
+test("the web app's LaunchAgent carries the resolved Claude executable", () => {
+  const installer = readFileSync(path.join(ROOT, "scripts", "install-cove-local.sh"), "utf8");
+
+  // Buddy, replan, spawn-session and /login all run inside the web app process
+  // and resolve the CLI as COVE_CLAUDE_BIN or the literal $HOME/.local/bin/claude.
+  // Neither spelling consults PATH, so a Claude installed anywhere else leaves
+  // the worker (whose plist does carry the path) able to run Claude while Buddy
+  // fails with "Buddy was interrupted." -- the one surface a stuck person is
+  // told to ask for help.
+  const local = installerPlistBlock(installer, "com.cove.local");
+  assert.match(
+    local,
+    /\$CLAUDE_PLIST_ENTRY/,
+    "com.cove.local must receive the installer's resolved Claude path",
+  );
+  assert.match(
+    installer,
+    /<key>COVE_CLAUDE_BIN<\/key>\\n    <string>%s<\/string>/,
+    "the Claude plist entry has to be built from the resolved binary",
+  );
+
+  // Every service that can start Claude gets the same treatment.
+  for (const label of ["com.cove.claude-worker", "com.cove.morning-brief"]) {
+    assert.match(
+      installerPlistBlock(installer, label),
+      /COVE_CLAUDE_BIN/,
+      `${label} must receive the resolved Claude path`,
+    );
+  }
+});
+
 test("stopping Cove covers every service the installer can load", () => {
   const installer = readFileSync(path.join(ROOT, "scripts", "install-cove-local.sh"), "utf8");
   const stop = readFileSync(path.join(ROOT, "scripts", "cove-stop.sh"), "utf8");
