@@ -4,7 +4,7 @@ import { getQuietCurrentCsrfToken } from "@/lib/quiet-current/store";
 import { isTrustedCoveRequest } from "@/lib/request-security";
 import { getRuntimeMode } from "@/lib/runtime/mode";
 import { listRecentReceiptActivity } from "@/lib/reliability/receipts";
-import { routeFailureBody } from "@/lib/reliability/job-failure-copy";
+import { routeFailureBody } from "@/lib/reliability/route-failure";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

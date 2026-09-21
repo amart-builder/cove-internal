@@ -5,6 +5,8 @@ import path from 'node:path';
 import test from 'node:test';
 import { NextRequest } from 'next/server';
 
+import { jobFailureDetail } from '../src/lib/reliability/job-failure-copy.ts';
+
 // Issues is the page somebody opens because something is already wrong. On a
 // full disk it answered 500 with a zero-byte body; the client parses before it
 // checks the status, so the whole page read "Unexpected end of JSON input".
@@ -43,4 +45,15 @@ test('Issues answers with a sentence rather than an empty body', async (t) => {
   assert.match(body.error, /database file could not be read/);
   assert.doesNotMatch(body.error, /not a database|SQLITE/, 'this string reaches the screen');
   assert.match(body.detail, /not a database/);
+  // Which database, which is the other half of a diagnosis from another city.
+  assert.equal(body.dbPath, path.join(dir, 'cove.db'));
+});
+
+test('a data folder Cove cannot open is named, and still retries', () => {
+  // Measured on a read-only bind mount: SQLite says CANTOPEN, not EROFS. It
+  // also says it when an external volume is asleep, which does clear on its
+  // own, so this one keeps the retry sentence.
+  const text = jobFailureDetail('backup', 'SQLITE_CANTOPEN: unable to open database file', true);
+  assert.match(text, /could not open its database file/);
+  assert.match(text, /try again automatically/, 'a sleeping volume comes back');
 });
