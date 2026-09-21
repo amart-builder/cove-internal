@@ -48,7 +48,7 @@ export function guideCopyForRuntime(mode: RuntimeMode) {
   };
 }
 
-export default function GuidePage() {
+export default function GuidePage({ dataFolder }: { dataFolder?: string }) {
   const copy = guideCopyForRuntime(getRuntimeMode());
   return (
     <div className="h-full overflow-y-auto bg-background">
@@ -105,6 +105,25 @@ export default function GuidePage() {
           </div>
 
           <div className="space-y-5">
+            {dataFolder && (
+              <article className="rounded-2xl border border-border bg-card/75 p-5">
+                <h2 className="text-base font-semibold text-foreground">
+                  Where your work is kept
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Everything Cove knows sits in one folder on this Mac:{" "}
+                  <span className="break-all font-mono text-xs text-foreground">{dataFolder}</span>. There is no Cove
+                  account and no Cove server holding a copy, and Cove is installed to answer only on this Mac, so
+                  nothing else on your network can open it.
+                </p>
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                  Two things do leave the Mac, and only for the features you turn on: the model provider you chose is
+                  sent the text it needs to write your brief and sort your inbox, and Google is sent the requests Cove
+                  makes for your mail and calendar.
+                </p>
+              </article>
+            )}
+
             <article className="rounded-2xl border border-border bg-card/75 p-5">
               <h2 className="text-base font-semibold text-foreground">
                 When your Mac is closed
