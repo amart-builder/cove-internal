@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import {
   GOOGLE_SCOPES,
@@ -407,4 +411,33 @@ test("reply MIME base64 wrapping preserves a 2000-character logical line", () =>
   assert.equal(decoded.parts[0].text, body);
   assert.ok(decoded.parts[0].encodedLines.length > 20);
   assert.ok(decoded.parts[0].encodedLines.every((line) => line.length <= 76));
+});
+
+test("connecting Google reads the configured data directory, not <repo>/data", () => {
+  // CONFIGURATION.md offers COVE_DATA_DIR and the installer writes the resolved
+  // directory into every LaunchAgent, so an operator who moved Cove's private
+  // data has services reading one place. The connect script used to hard-code
+  // <repo>/data: the browser consent succeeded, the Keychain entries were
+  // written, and Cove still reported no email connected, with nothing saying why.
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), "cove-google-connect-"));
+  try {
+    copyFileSync(
+      path.join(process.cwd(), "data", "cove-workspace.example.json"),
+      path.join(dataDir, "cove-workspace.json"),
+    );
+    const result = spawnSync(
+      process.execPath,
+      ["--import", "tsx", path.join(process.cwd(), "scripts", "cove-google-connect.ts"), "status"],
+      { cwd: process.cwd(), env: { ...process.env, COVE_DATA_DIR: dataDir }, encoding: "utf8" },
+    );
+    const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+    // "not connected" means it never found the config that is sitting right there.
+    assert.doesNotMatch(
+      output,
+      /Google Workspace is not connected\./,
+      `the connect script ignored COVE_DATA_DIR: ${output.trim()}`,
+    );
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
 });
