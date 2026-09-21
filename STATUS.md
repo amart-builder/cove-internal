@@ -24,7 +24,7 @@
 
 ---
 
-## 2026-09-20 Client release pushed for the 2026-09-21 install (PR OPEN, NOT MERGED)
+## 2026-09-20 Client release merged to main for the 2026-09-21 install
 
 - Decisions from Alex: publish from this branch (his call was "whatever you
   suggest"); `amart-builder/cove` stays PRIVATE, client-only; the inert
@@ -40,8 +40,10 @@
   local clone at `/private/tmp/cove-client-release-20260920` (based on client
   `main` c8c9c94, which was 9 commits behind the last release branch). Alex
   ran safe-push himself; the branch is on `amart-builder/cove` at `1e7e8dd`
-  and PR https://github.com/amart-builder/cove/pull/5 to `main` is open.
-  Merge it before the install so Gary's setup agent clones the default branch. SETUP.md no longer names a branch and
+  and PR https://github.com/amart-builder/cove/pull/5 was merged by Alex on
+  2026-09-20 (client `main` = 7556ee8, merge commit). Gary's setup agent can
+  clone the default branch. Internal branch `fable/jev-w0-w1` is pushed to
+  cove-internal. SETUP.md no longer names a branch and
   README says a private repo needs a working signed-in clone first.
 - Still unverified: installer end to end on a fresh Mac, LaunchAgent restart
   persistence, live account steps. Evidence:
