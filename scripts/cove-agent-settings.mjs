@@ -8,6 +8,21 @@ import { readBackgroundUsage } from "../src/lib/background-usage.mjs";
 import { loadLocalEnv } from "./lib/load-local-env.mjs";
 import { runJob } from "../src/lib/model-runner-runtime.mjs";
 
+const CLI_NAMES = { claude: "Claude CLI", codex: "Codex CLI" };
+
+// A CLI that is not installed yet arrives here as a raw spawn failure --
+// "spawn /Users/someone/.local/bin/claude ENOENT" -- at the one step of setup
+// where not having installed it is the expected state. SETUP.md calls a failed
+// access check a real blocker, so the sentence it prints has to say which thing
+// is missing. Every other failure keeps the runner's own words: those name a
+// cause, and a lapsed sign-in must not be reported as a missing program.
+export function accessCheckDetail(provider, error) {
+  const message = typeof error?.message === "string" ? error.message : String(error ?? "");
+  const missing = /^spawn (.+) ENOENT$/.exec(message);
+  if (!missing) return message;
+  return `${CLI_NAMES[provider] ?? provider} is not installed at ${missing[1]}. Install it and sign in, then run this command again.`;
+}
+
 export async function configureAgent({ provider, model, effort, makePrimary = true, env = process.env, runner = runJob }) {
   const recommendation = RECOMMENDED_AGENTS[provider];
   if (!recommendation) throw new Error("Choose --provider claude or --provider codex.");
@@ -30,7 +45,7 @@ export async function configureAgent({ provider, model, effort, makePrimary = tr
       claudeTools: "", claudeNoChrome: true, claudeDisableSlashCommands: true,
       timeoutMs: 60_000,
     });
-    if (!result.ok) throw new Error(`Model access check failed. Settings were not changed. ${result.error.message}`);
+    if (!result.ok) throw new Error(`Model access check failed. Settings were not changed. ${accessCheckDetail(provider, result.error)}`);
     const providers = { ...connectedAgents(current), [provider]: { provider, model: selection.model, effort: selection.effort } };
     const primary = makePrimary || current.provider === provider ? selection : current;
     return saveAgentSettings({ ...primary, providers }, original, env);
