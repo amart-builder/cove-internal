@@ -52,10 +52,6 @@ export function loadOperatorProfile(dataDir, env = process.env) {
  * being retyped as a literal in each of them.
  */
 export const OPERATOR_NAME_FALLBACK = "the operator";
-// "Atlas" is the folder name on the machine Cove was built on. It stays the
-// fallback so an existing install keeps filing work exactly where it always
-// has, but a new person gets to use a word that means something to them.
-export const DEFAULT_PROJECT_FALLBACK = "Atlas";
 
 export function operatorName(dataDir, env = process.env) {
   const envName = coveEnvTrimmed("OPERATOR_NAME", env);
@@ -64,15 +60,6 @@ export function operatorName(dataDir, env = process.env) {
   return typeof profileName === "string" && profileName.trim()
     ? profileName.trim()
     : OPERATOR_NAME_FALLBACK;
-}
-
-export function operatorDefaultProject(dataDir, env = process.env) {
-  const configured = coveEnvTrimmed("DEFAULT_PROJECT", env);
-  if (configured) return configured;
-  const profileProject = loadOperatorProfile(dataDir, env)?.defaultProject;
-  return typeof profileProject === "string" && profileProject.trim()
-    ? profileProject.trim()
-    : DEFAULT_PROJECT_FALLBACK;
 }
 
 function usableTimezone(value) {
