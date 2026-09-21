@@ -42,11 +42,15 @@ export function jobFailureDetail(type: string, diagnostic: string, retrying = fa
   let cause = "";
   if (/timed? out|timeout|time limit/i.test(diagnostic)) {
     cause = " The check reached its time limit.";
-  } else if (/background_usage|usage.denied|budget|allowance/i.test(diagnostic)) {
-    cause = " The model call allowance was unavailable.";
-  } else if (/unauthorized|authentication|not logged in|sign.in/i.test(diagnostic)) {
+  // Anchored on purpose. These ran unanchored with bare dots, so "Please try
+  // again later" (a rate-limited provider) was read as a stopped worker, and
+  // "redesign in progress" sent the person to re-authenticate a working
+  // account. A wrong cause is worse than none: it is what they act on.
+  } else if (/background_usage|usage[_.]denied|\bbudget\b|\ballowance\b/i.test(diagnostic)) {
+    cause = " Cove had used up its allowance for background work.";
+  } else if (/\bunauthorized\b|\bauthentication\b|\bnot logged in\b|\bsign[-\s]?in\b/i.test(diagnostic)) {
     cause = " The connected account needs its sign-in checked.";
-  } else if (/lease/i.test(diagnostic)) {
+  } else if (/\blease\b/i.test(diagnostic)) {
     cause = " The background worker stopped before finishing.";
   }
   if (retrying) return impact + "." + cause + " Cove will try again automatically.";
