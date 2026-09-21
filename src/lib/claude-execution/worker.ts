@@ -26,6 +26,7 @@ import type { DayPlanStore } from "../day-plan/store";
 import {
   assembleMorningBriefContext,
   localDateInTimezone,
+  missingBriefSourceSentence,
   morningBriefInputHash,
   settlementReconciliationComplete,
   stripMorningBriefDateClaim,
@@ -1146,7 +1147,7 @@ export function morningBriefWritingMandate(): string {
 
 export function morningBriefFailureMessage(code: string): string {
   if (code.startsWith("required_source_missing:")) {
-    return "Cove could not load all the information needed to write your morning brief. Your plan is still here. Try again.";
+    return missingBriefSourceSentence(code);
   }
   if (code.includes("unavailable")) {
     return "Cove could not reach the morning brief writer. Check that Codex or Claude is signed in, then try again.";
