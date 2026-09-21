@@ -42,12 +42,33 @@ export function jobFailureCopy(type: string, retrying = false): { title: string;
   }
 }
 
-// Issues supplies a safe cause and recovery step. Keep raw diagnostics in the
-// stored details for investigation, never interpolate them into product copy.
-export function jobFailureDetail(type: string, diagnostic: string, retrying = false): string {
-  const impact = jobFailureCopy(type).body.split(". ")[0];
+// The cause ladder, shared by the scheduler's Issues copy and by any route that
+// has to tell somebody why a request failed. `cause` is a safe sentence naming
+// what went wrong; `remedy`, when present, means retrying cannot clear this and
+// names what the person has to do instead.
+export function diagnosticCause(diagnostic: string): { cause: string; remedy: string } {
   let cause = "";
-  if (/timed? out|timeout|time limit/i.test(diagnostic)) {
+  // Two failures retrying never clears: every attempt fails the same way until
+  // somebody changes something about the Mac. For those, `remedy` replaces the
+  // reassurance, which is otherwise technically true and practically wrong --
+  // a person reading "Cove will try again automatically" about a full disk
+  // waits for a retry that cannot succeed. Both match on the exact strings
+  // SQLite and Node emit, not on loose words.
+  let remedy = "";
+  if (/SQLITE_NOTADB|file is not a database|database disk image is malformed|SQLITE_CORRUPT/i.test(diagnostic)) {
+    cause = " Cove's database file could not be read.";
+    remedy = " Cove cannot continue until it is restored from a backup.";
+  } else if (/database or disk is full|ENOSPC|no space left on device/i.test(diagnostic)) {
+    cause = " The disk is full.";
+    remedy = " Free up space on this Mac; Cove cannot finish this until then.";
+  // Deliberately only the codes an operating system emits. "Permission denied"
+  // in plain words is what a Google 403 says too, and sending somebody to
+  // chmod their data folder over a revoked Gmail scope is the wrong-cause
+  // failure the comment below is about.
+  } else if (/EACCES|EPERM|EROFS|SQLITE_READONLY|readonly database|read-only file system/i.test(diagnostic)) {
+    cause = " Cove could not write to its own files.";
+    remedy = " Check the permissions on Cove's data folder; Cove cannot finish this until then.";
+  } else if (/timed? out|timeout|time limit/i.test(diagnostic)) {
     cause = " The check reached its time limit.";
   } else if (/background_usage|usage.denied|budget|allowance/i.test(diagnostic)) {
     cause = " The model call allowance was unavailable.";
@@ -81,7 +102,15 @@ export function jobFailureDetail(type: string, diagnostic: string, retrying = fa
   } else if (/lease/i.test(diagnostic)) {
     cause = " The background worker stopped before finishing.";
   }
-  if (retrying) return impact + "." + cause + " Cove will try again automatically.";
+  return { cause, remedy };
+}
+
+// Issues supplies a safe cause and recovery step. Keep raw diagnostics in the
+// stored details for investigation, never interpolate them into product copy.
+export function jobFailureDetail(type: string, diagnostic: string, retrying = false): string {
+  const impact = jobFailureCopy(type).body.split(". ")[0];
+  const { cause, remedy } = diagnosticCause(diagnostic);
+  if (retrying) return impact + "." + cause + (remedy || " Cove will try again automatically.");
   const immediate = type === "chief-of-staff-wake"
     ? " Review Today for time-sensitive commitments."
     : ["gmail-operation", "email-classify", "email-artifacts"].includes(type)
@@ -89,6 +118,7 @@ export function jobFailureDetail(type: string, diagnostic: string, retrying = fa
       : type === "backup"
         ? " A fresh backup has not been confirmed."
         : type === "morning-brief" ? " Open Today to write it now." : "";
+  if (remedy) return impact + "." + cause + " This check has stopped retrying." + immediate + remedy;
   return impact + "." + cause + " This check has stopped retrying." + immediate
     + " Ask your Cove setup agent to diagnose the failure and restore this check.";
 }
