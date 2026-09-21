@@ -7,10 +7,42 @@ import {
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openLocalDatabase } from "../src/lib/local/database.ts";
+import { defaultLocalDatabasePath, localDatabasePath, openLocalDatabase } from "../src/lib/local/database.ts";
 import { loadCoveRuntimePaths } from "../scripts/lib/cove-runtime-paths.mjs";
 
 const sourceRoot = path.resolve(import.meta.dirname, "..");
+
+test("every default database path is the one COVE_DATA_DIR controls", (t) => {
+  // CONFIGURATION.md documents COVE_DB_PATH as defaulting to <data>/cove.db,
+  // where <data> is COVE_DATA_DIR. Four stores used to default to
+  // process.cwd()/data/cove.db instead, so setting COVE_DATA_DIR on its own --
+  // which the table invites -- put tasks, contacts and email in one database
+  // while the day plan, briefs, Buddy turns and task sessions went to another.
+  // Two databases, no error, and a Morning Brief that cannot see the tasks.
+  const previous = process.env.COVE_DATA_DIR;
+  const previousDb = process.env.COVE_DB_PATH;
+  const relocated = mkdtempSync(path.join(os.tmpdir(), "cove-relocated-data-"));
+  t.after(() => {
+    if (previous === undefined) delete process.env.COVE_DATA_DIR;
+    else process.env.COVE_DATA_DIR = previous;
+    if (previousDb === undefined) delete process.env.COVE_DB_PATH;
+    else process.env.COVE_DB_PATH = previousDb;
+    rmSync(relocated, { recursive: true, force: true });
+  });
+  delete process.env.COVE_DB_PATH;
+  process.env.COVE_DATA_DIR = relocated;
+  assert.equal(defaultLocalDatabasePath(), path.join(relocated, "cove.db"));
+  assert.equal(localDatabasePath(), path.join(relocated, "cove.db"));
+
+  // And the stores have to reach it through that one function rather than
+  // rebuilding the path from the working directory.
+  const libRoot = path.join(sourceRoot, "src", "lib");
+  const offenders = readdirSync(libRoot, { recursive: true })
+    .filter((entry) => typeof entry === "string" && /\.(ts|tsx|mjs)$/.test(entry))
+    .filter((entry) => /process\.cwd\(\)\s*,\s*"data"\s*,\s*"cove\.db"/
+      .test(readFileSync(path.join(libRoot, entry), "utf8")));
+  assert.deepEqual(offenders, [], `these resolve a database without COVE_DATA_DIR: ${offenders.join(", ")}`);
+});
 
 function fixture(t) {
   const root = mkdtempSync(path.join(os.tmpdir(), "cove-install-recovery-"));
