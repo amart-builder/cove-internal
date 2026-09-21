@@ -209,7 +209,12 @@ export default function LocalCRMView() {
             <input
               type="search"
               aria-label="Search people"
-              placeholder="Search name, company, email, tags..."
+              placeholder={
+                // The field is 278px wide, and narrower still under 900px. The
+                // longer hint was cut mid-word at every width, which reads as a
+                // half-finished screen; email and tags are still searched.
+                'Search name or company'
+              }
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="water-control w-full py-2 pl-8 pr-3 text-[13.5px] placeholder:text-muted-foreground"
