@@ -7,7 +7,12 @@ import {
 } from "../intake/notification-transport.mjs";
 
 const OSASCRIPT = "/usr/bin/osascript";
-const COVE_BOARD_URL = "http://127.0.0.1:3200/tasks";
+// The installer picks the port and writes COVE_BRIEF_WEB_BASE, so a link that
+// hardcodes 3200 opens a dead page on any install that took another one.
+const DEFAULT_WEB_BASE = "http://127.0.0.1:3200";
+function coveBoardUrl(env: NodeJS.ProcessEnv): string {
+  return `${(coveEnv("BRIEF_WEB_BASE", env) ?? DEFAULT_WEB_BASE).replace(/\/$/, "")}/tasks`;
+}
 const DELIVERY_TIMEOUT_MS = 3_000;
 const PROCESS_STARTED_AT = new Date(Date.now() - process.uptime() * 1_000);
 export const MAX_NOTIFICATION_DEDUPE_ENTRIES = 500;
@@ -190,7 +195,7 @@ export function createExecutionNotifier(dependencies: ExecutionNotifierDependenc
 
     const openUrl = input.claudeSessionId
       ? `claude://resume?session=${encodeURIComponent(input.claudeSessionId)}`
-      : COVE_BOARD_URL;
+      : coveBoardUrl(env);
     try {
       const child = spawnNativeNotification({
         title: copy.title,
