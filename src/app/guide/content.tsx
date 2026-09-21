@@ -21,6 +21,8 @@ const BASE_MOMENTS = [
 const words = [
   ["Today", "Your main view for the work in front of you."],
   ["The current", "The flow of work on Today. The middle is your main focus."],
+  ["Second Current", "The side panel on Today that holds email and recurring work, so it stays beside your main focus rather than in it. Tap it to open."],
+  ["Rhythms", "Work that comes back on a schedule. Cove keeps them in the Second Current."],
   ["Arrival", "The short morning start."],
   ["The brief", "A morning note about what matters and what changed."],
   ["Still open", "Work or promises that are not done yet."],
