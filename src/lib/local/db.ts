@@ -14,7 +14,7 @@ import { taskEditMatches, TASK_EDIT_CONFLICT } from "../tasks/edit-conflict";
 import { randomUUID } from "node:crypto";
 import { COVE_REST_TABLES } from "../data/cove-tables";
 import { operatorTimezone } from "../operator";
-import { TASK_COLUMNS } from "../tasks/columns";
+import { TASK_COLUMNS, taskColumnKeyForName } from "../tasks/columns";
 import { syncRecurringOccurrenceForTask } from "../tasks/recurrence";
 import { recordFailureInDatabase } from "../reliability/failures";
 import { localDatabasePath, openLocalDatabase } from "./database";
@@ -452,6 +452,29 @@ function updateRows(
         ) {
           row.notified_at = null;
         }
+      }
+      // Every reminder lane selects status = 'open'; the board reads column_id.
+      // KanbanBoard adds the derived status to any patch that moves a column
+      // (KanbanBoard.tsx:531), so a person dragging a card keeps the two in
+      // step. Anyone sending "only the fields that need changing" -- which is
+      // what skills/cove-task/SKILL.md tells the agent to do, and what the
+      // Apple Reminders bridge does -- did not, and a card parked in Done went
+      // on ringing its deadline at someone who had already finished it.
+      //
+      // An explicit status in the same patch always wins: a caller that says
+      // what it means is not guessing. And an archived card stays archived,
+      // because a column move is not a restore; the restore paths set status
+      // themselves.
+      if (
+        requestedKeys.includes("column_id") &&
+        !requestedKeys.includes("status") &&
+        typeof row.column_id === "string" &&
+        matchedRows.every((matched) => matched.status === "open" || matched.status === "done")
+      ) {
+        const columnName = db.prepare("SELECT name FROM task_columns WHERE id = ?")
+          .pluck().get(row.column_id) as string | undefined;
+        const key = taskColumnKeyForName(columnName);
+        if (key) row.status = key === "done" ? "done" : "open";
       }
       if (
         requestedKeys.includes("remind_at") &&
