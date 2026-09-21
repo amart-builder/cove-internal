@@ -221,6 +221,11 @@ test('a failed scheduled text is finalized, surfaced natively, and recorded', (t
     id: 'task-3',
     task_id: 'task-3',
     title: 'Remote delivery must settle this',
+    // writeScheduledReminder always records the source, and a banner for a
+    // capture the owner did not write is now labelled with it. This case is
+    // about what happens when the text fails, not about the label, so the
+    // fixture states the source it would really carry.
+    source: 'chat',
     surface_at: '2020-01-01T09:00:00.000Z',
   }));
   const result = spawnSync(process.execPath, ['scripts/cove-reminders.mjs'], {
