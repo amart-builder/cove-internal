@@ -6,6 +6,38 @@ Follow `SETUP.md`. The installer renders absolute Node paths into LaunchAgents, 
 
 The supported app URL is `http://127.0.0.1:3200` (or `http://localhost:3200`). Logs live in `~/Library/Logs/` with `cove` in the filename.
 
+## Stopping Cove
+
+A full install loads more than a dozen LaunchAgents. Stopping `com.cove.local`
+stops the website and nothing else: the supervised worker, the reliability
+scheduler, reminders, email triage, the meeting watcher and drain, the progress
+reconciler, the weekly voice review, the four chief-of-staff lanes and the daily
+backup all keep running, and the chief-of-staff lanes call the selected model and
+can notify. Telling a person Cove is off after stopping only the website is wrong.
+
+```bash
+bash scripts/cove-stop.sh --status   # what is loaded, and what starts at login
+bash scripts/cove-stop.sh            # stop every Cove service now
+bash scripts/cove-stop.sh --disable  # stop them and keep them stopped
+bash scripts/install-cove-local.sh   # start them again
+```
+
+`launchctl bootout` unloads a service until the next login; macOS loads every
+plist still in `~/Library/LaunchAgents` when the person logs in again. Only
+`--disable` (`launchctl disable`) survives a restart, and the installer's own
+`launchctl enable` calls clear it on the next install, which is what makes the
+install/stop pair symmetric.
+
+Stopping never touches data. The database, `data/backups/`, the profile, goals,
+mandate, connector settings and Keychain entries are all left in place, and
+`install-cove-local.sh` resumes the same installation. There is no uninstaller:
+removing Cove means stopping it with `--disable`, deleting the checkout once its
+data has been copied somewhere safe, and removing `~/Applications/Cove
+Notifications.app`, the `~/.claude/skills/cove-*` and Codex `cove-*` skill
+folders, and the `SessionStart` hook entry the installer added to
+`~/.claude/settings.json`. Google credentials live in the macOS Keychain and are
+removed there.
+
 ## Health
 
 The Current displays live readiness for email, the brief writer, and the background worker. Empty and unavailable are different states. `/api/health` exposes the same read model to trusted local requests, plus the latest periodic health snapshot.
