@@ -33,6 +33,7 @@ import {
  */
 import Database from "better-sqlite3";
 import { unseenFloorCandidates, recordFloorNotice, releaseFloorNotice } from "../src/lib/attention/floor-state.mjs";
+import { dueCalendarDay, dueInstant } from "../src/lib/attention/due-date.mjs";
 import { localDateKey as dateInZone } from "../src/lib/local-time.mjs";
 import { loadCoveRuntimePaths } from "./lib/cove-runtime-paths.mjs";
 import { readAgentSettings } from "../src/lib/agent-settings.mjs";
@@ -356,8 +357,8 @@ async function runDeterministicFloor(db, config, token, now = new Date()) {
         AND tasks.due_at IS NOT NULL
       ORDER BY tasks.due_at, tasks.position, tasks.id`,
   ).all().filter(row => {
-    const day = /^\d{4}-\d{2}-\d{2}$/.test(row.due_at) ? row.due_at :
-      Number.isFinite(Date.parse(row.due_at)) ? localDateKey(new Date(row.due_at)) : null;
+    const day = dueCalendarDay(row.due_at) ??
+      (Number.isFinite(Date.parse(row.due_at)) ? localDateKey(new Date(row.due_at)) : null);
     return day !== null && day <= today;
   });
   const commitments = db.prepare(
@@ -371,8 +372,8 @@ async function runDeterministicFloor(db, config, token, now = new Date()) {
         AND trim(counterparty) <> ''
       ORDER BY due_at, id`,
   ).all().filter(row => {
-    const day = /^\d{4}-\d{2}-\d{2}$/.test(row.due_at) ? row.due_at :
-      Number.isFinite(Date.parse(row.due_at)) ? localDateKey(new Date(row.due_at)) : null;
+    const day = dueCalendarDay(row.due_at) ??
+      (Number.isFinite(Date.parse(row.due_at)) ? localDateKey(new Date(row.due_at)) : null);
     return day !== null && day <= today;
   });
   const candidates = [
@@ -457,7 +458,7 @@ async function runDeterministicFloor(db, config, token, now = new Date()) {
 
   for (const candidate of unseenFloorCandidates(db, open)) {
     const title = plainAttentionText(candidate.nextAction || candidate.title) || "Item";
-    const dueDay = /^\d{4}-\d{2}-\d{2}$/.test(candidate.dueAt) ? candidate.dueAt : localDateKey(new Date(candidate.dueAt));
+    const dueDay = dueCalendarDay(candidate.dueAt) ?? localDateKey(new Date(candidate.dueAt));
     const dueLabel = dueDay < today ? "Overdue and still open in Cove" : "Due today and still open in Cove";
     const reason = `${dueLabel}: ${title}. Choose the next step or a new date in Cove.`;
     const allocation = allocateAttention(db, {
@@ -624,10 +625,31 @@ function recordNativeOnlyFailure(db, input) {
   }
 }
 
-/** Parse a due_at into a Date, treating date-only values as 9am LOCAL (not UTC). */
+/**
+ * Parse a due_at into a Date, treating a calendar day as 9am LOCAL (not UTC).
+ *
+ * dueCalendarDay decides which values are a day. Both forms count: a bare
+ * YYYY-MM-DD, and the YYYY-MM-DDT00:00:00.000Z that Cove's own date pickers
+ * write. Reading the second as the instant it literally is rang the card on
+ * the evening before the day the board showed.
+ */
 function dueTime(raw) {
-  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T09:00:00` : raw;
-  return new Date(normalized);
+  return dueInstant(raw);
+}
+
+/**
+ * When a scheduled reminder is owed.
+ *
+ * surface_at is always a moment, never a calendar day: the triage model emits
+ * a timestamp and intake falls back to the instant of capture. So the UTC
+ * midnight that dueTime reads as a day is a real midnight here, and must not
+ * be moved to 9am. Only the bare YYYY-MM-DD form, which carries no time at
+ * all, gets an hour put on it -- the behaviour this lane has always had.
+ */
+function surfaceTime(raw) {
+  return new Date(
+    /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T09:00:00` : raw,
+  );
 }
 
 function fireScheduledReminders(db, config, token, now = attentionNow()) {
@@ -650,7 +672,7 @@ function fireScheduledReminders(db, config, token, now = attentionNow()) {
       console.error(`Scheduled reminder ${name} is unreadable:`, error.message);
       continue;
     }
-    const when = dueTime(entry.surface_at);
+    const when = surfaceTime(entry.surface_at);
     if (Number.isNaN(when.getTime()) || when.getTime() > now.getTime()) continue;
     // Cove holds its own automatic notifications to daytime everywhere else:
     // firePredeadlineNudges below, the Apple Reminders bridge, and the meeting
@@ -788,6 +810,12 @@ async function firePredeadlineNudges(db, dueTaskIds, now) {
           CASE
             WHEN length(tasks.due_at) = 10
               THEN julianday(tasks.due_at || 'T09:00:00', 'utc')
+            -- The other calendar-day form, written by Cove's own date pickers.
+            -- See src/lib/attention/due-date.mjs; read as the instant it
+            -- literally is, this gate closed a day early.
+            WHEN tasks.due_at LIKE '____-__-__T00:00:00Z'
+              OR tasks.due_at LIKE '____-__-__T00:00:00.000Z'
+              THEN julianday(substr(tasks.due_at, 1, 10) || 'T09:00:00', 'utc')
             ELSE julianday(tasks.due_at)
           END > julianday(?)
         )
