@@ -791,3 +791,80 @@ test("the closing summary names no lane the installer does not install", () => {
     );
   }
 });
+
+test("--status says a disabled lane will not start, instead of 'starts at login'", async (t) => {
+  // `launchctl disable` is a persistent override that outlives a restart and
+  // the plist itself, so after this script's own --disable the plists are
+  // still on disk and the old --status called them "starts at login" — about
+  // services that will not start at all. A disabled lane also files no
+  // failure anywhere, because it never runs, so --status is the only place
+  // this can show up.
+  const dir = await mkdtemp(path.join(os.tmpdir(), "cove-stop-disabled-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const home = path.join(dir, "home");
+  const agents = path.join(home, "Library", "LaunchAgents");
+  const bin = path.join(dir, "bin");
+  mkdirSync(agents, { recursive: true });
+  mkdirSync(bin, { recursive: true });
+  for (const label of [
+    "com.cove.local", "com.cove.local.backup", "com.cove.reminders",
+    "com.cove.jobs", "com.cove.email-triage",
+  ]) {
+    await writeFile(path.join(agents, `${label}.plist`), "<plist/>\n");
+  }
+  // Both shapes macOS has printed for this, plus the two negatives that must
+  // not be read as disabled.
+  await writeFile(path.join(bin, "launchctl"), [
+    "#!/usr/bin/env bash",
+    'case "$1" in',
+    '  print) [ "${2##*/}" = "com.cove.local" ] && exit 0; exit 1 ;;',
+    "  print-disabled)",
+    `    printf 'disabled services = {\\n\\t"com.cove.local.backup" => true\\n\\t"com.cove.reminders" => disabled\\n\\t"com.cove.jobs" => false\\n\\t"com.cove.email-triage" => enabled\\n}\\n' ;;`,
+    "  *) exit 0 ;;",
+    "esac",
+    "",
+  ].join("\n"), { mode: 0o755 });
+
+  const status = execFileSync("bash", [path.join(ROOT, "scripts/cove-stop.sh"), "--status"], {
+    encoding: "utf8",
+    env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}` },
+  });
+  assert.match(status, /com\.cove\.local\.backup\s+not loaded\s+disabled: will not start/);
+  assert.match(status, /com\.cove\.reminders\s+not loaded\s+disabled: will not start/);
+  assert.match(status, /com\.cove\.jobs\s+not loaded\s+starts at login/);
+  assert.match(status, /com\.cove\.email-triage\s+not loaded\s+starts at login/);
+  assert.match(status, /com\.cove\.local\s+loaded\s+starts at login/);
+  assert.match(status, /stays stopped through a restart/);
+  assert.match(status, /install-cove-local\.sh/);
+});
+
+test("--status is unchanged on a Mac where nothing is disabled", async (t) => {
+  // A launchctl that does not answer print-disabled at all stands in for an
+  // older macOS or a command that fails: the report has to fall back to what
+  // it always said rather than calling every lane blocked.
+  const dir = await mkdtemp(path.join(os.tmpdir(), "cove-stop-nodisable-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const home = path.join(dir, "home");
+  const agents = path.join(home, "Library", "LaunchAgents");
+  const bin = path.join(dir, "bin");
+  mkdirSync(agents, { recursive: true });
+  mkdirSync(bin, { recursive: true });
+  await writeFile(path.join(agents, "com.cove.local.backup.plist"), "<plist/>\n");
+  await writeFile(path.join(bin, "launchctl"), [
+    "#!/usr/bin/env bash",
+    'case "$1" in',
+    "  print-disabled) exit 1 ;;",
+    "  print) exit 1 ;;",
+    "  *) exit 0 ;;",
+    "esac",
+    "",
+  ].join("\n"), { mode: 0o755 });
+
+  const status = execFileSync("bash", [path.join(ROOT, "scripts/cove-stop.sh"), "--status"], {
+    encoding: "utf8",
+    env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}` },
+  });
+  assert.match(status, /com\.cove\.local\.backup\s+not loaded\s+starts at login/);
+  assert.doesNotMatch(status, /disabled: will not start/);
+  assert.doesNotMatch(status, /stays stopped through a restart/);
+});
