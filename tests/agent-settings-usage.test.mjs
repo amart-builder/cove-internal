@@ -155,6 +155,36 @@ test('competing processes cannot reserve past a shared cap', async (t) => {
   assert.equal(readBackgroundUsage(env).windows.day.calls, 3);
 });
 
+test('a provider CLI that is not installed is named, and every other failure keeps its own words', async (t) => {
+  const { env } = fixture(t);
+  // Step 0 of SETUP.md runs this command before the person has installed the
+  // CLI, so the state this reports is the expected one at that moment. What it
+  // used to print was Node's spawn error, which names ENOENT and nothing else.
+  await assert.rejects(
+    configureAgent({ provider: 'claude', env,
+      runner: async () => ({ ok: false, error: new Error('spawn /Users/someone/.local/bin/claude ENOENT') }) }),
+    /Claude CLI is not installed at \/Users\/someone\/\.local\/bin\/claude\. Install it and sign in/,
+  );
+  await assert.rejects(
+    configureAgent({ provider: 'codex', env,
+      runner: async () => ({ ok: false, error: new Error('spawn /opt/homebrew/bin/codex ENOENT') }) }),
+    /Codex CLI is not installed at \/opt\/homebrew\/bin\/codex\./,
+  );
+  // A lapsed sign-in is a different problem with a different remedy, and the
+  // runner already says so. Reporting it as a missing program would send
+  // someone to reinstall a CLI that is sitting right there.
+  await assert.rejects(
+    configureAgent({ provider: 'claude', env,
+      runner: async () => ({ ok: false, error: { message: 'Invalid API key \u00b7 Please run /login' } }) }),
+    /Invalid API key \u00b7 Please run \/login/,
+  );
+  await assert.rejects(
+    configureAgent({ provider: 'claude', env,
+      runner: async () => ({ ok: false, error: { message: 'Invalid API key \u00b7 Please run /login' } }) }),
+    (error) => !/is not installed/.test(error.message),
+  );
+});
+
 test('setup saves a verified model and preserves settings after a failed check or conflict', async (t) => {
   const { dir, env } = fixture(t);
   const original = readAgentSettings(env);

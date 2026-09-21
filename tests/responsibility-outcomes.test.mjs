@@ -72,8 +72,16 @@ test("engagement and reminder stamps preserve a reviewed plan while actual edits
   assert.equal(after.state, "ready");
   db.prepare("UPDATE tasks SET title='Changed action' WHERE id='work'").run();
   reconcileResponsibilities(db, now);
-  assert.notEqual(listResponsibilities(db)[0].source_version, before.source_version);
-  assert.equal(listResponsibilities(db)[0].state, "blocked");
+  const edited = listResponsibilities(db)[0];
+  assert.notEqual(edited.source_version, before.source_version);
+  assert.equal(edited.revision, before.revision + 1);
+  // Invalidation is the reviewed plan being cleared, not a state change. The
+  // state used to be forced to 'blocked' here, which the Follow-through page
+  // prints as a bare "Blocked"; since sourceVersion covers the whole row, that
+  // labelled an ordinary board drag as an obstruction.
+  assert.equal(edited.last_reviewed_at, null);
+  assert.equal(edited.next_check_at, now.toISOString());
+  assert.equal(edited.state, "ready");
 });
 test("original deadline, source quote and next check survive restart, planning and source edits", (t) => {
   const { db, dbPath } = fixture(t);
@@ -243,6 +251,12 @@ test("capacity merges overlapping meetings, rejects impossible days and labels u
   assert.equal(
     assessCapacity({ ...base, events: null }).availableMinutes,
     null,
+  );
+  // The overview prints the availability sentence itself, directly above the
+  // conclusion, so the conclusion saying it again showed it twice.
+  assert.equal(
+    assessCapacity({ ...base, events: null }).conclusion,
+    "This plan is not verified to fit.",
   );
   assert.match(
     assessCapacity({

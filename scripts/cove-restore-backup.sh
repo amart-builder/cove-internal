@@ -41,14 +41,86 @@ database_is_open() {
     lsof -t -- "$DB-wal" >/dev/null 2>&1
 }
 
+# Cove's own processes open the database per operation and close it again, so
+# an idle moment reads as "nobody has it open" while the server, the worker and
+# the five-minute job tick are all running and about to write. The open-handle
+# check below is a race backstop, not the gate: the gate is that no Cove service
+# is loaded at all.
+loaded_cove_services() {
+  command -v launchctl >/dev/null 2>&1 || return 0
+  launchctl list 2>/dev/null |
+    awk '{ print $3 }' |
+    grep -E '^com\.(cove|forge)\.' || true
+}
+
+# The launchctl gate above only sees Cove started the way the installer starts
+# it. During setup, and any time someone is debugging, the app is a hand-started
+# `npm start` that no LaunchAgent knows about -- and an idle moment still reads
+# as "nobody has the database open", so neither existing check refuses. Asking
+# Cove's own health route is the cheap way to know a server is live right now.
+# The body test keeps an unrelated program on the same port from blocking a
+# restore.
+# shellcheck disable=SC2034  # both are read by scripts/lib/cove-serving.sh
+COVE_SERVING_REPO_DIR="$REPO_DIR"
+# shellcheck disable=SC2034  # ditto
+COVE_SERVING_NODE="$NODE_REAL"
+SERVING_PROBE="$REPO_DIR/scripts/lib/cove-serving.sh"
+if [ -r "$SERVING_PROBE" ]; then
+  # shellcheck source=scripts/lib/cove-serving.sh
+  . "$SERVING_PROBE"
+elif [ "${COVE_RESTORE_ALLOW_RUNNING:-0}" != "1" ]; then
+  # A restore that cannot run its own safety check refuses rather than guesses.
+  echo "Missing $SERVING_PROBE, so this script cannot tell whether Cove is running." >&2
+  echo "Restore the file, or set COVE_RESTORE_ALLOW_RUNNING=1 once every Cove writer is stopped." >&2
+  exit 1
+else
+  cove_is_serving() { return 1; }
+fi
+
+if [ "${COVE_RESTORE_ALLOW_RUNNING:-0}" != "1" ]; then
+  RUNNING="$(loaded_cove_services | tr '\n' ' ')"
+  if [ -n "${RUNNING// /}" ]; then
+    echo "Cove is still running, so a restore could be overwritten by a live writer." >&2
+    echo "Loaded: $RUNNING" >&2
+    echo "Stop everything first, then retry:" >&2
+    echo "  bash scripts/cove-stop.sh" >&2
+    echo "(Set COVE_RESTORE_ALLOW_RUNNING=1 only if you have already stopped every Cove writer another way.)" >&2
+    exit 1
+  fi
+  if cove_is_serving; then
+    echo "Cove is answering on http://127.0.0.1:$COVE_WEB_PORT, so it is running and would overwrite a restore." >&2
+    echo "Stop everything first, then retry:" >&2
+    echo "  bash scripts/cove-stop.sh" >&2
+    echo "(Set COVE_RESTORE_ALLOW_RUNNING=1 only if you have already stopped every Cove writer another way.)" >&2
+    exit 1
+  fi
+fi
+
 # A live SQLite writer may replay the old WAL after replacement. Refuse when
 # lsof can cheaply prove that any process has the database or WAL open.
 if database_is_open; then
-  echo "Cove still has $DB open. Stop the Cove server and workers, then retry." >&2
+  echo "Cove still has $DB open. Stop the Cove server and workers with 'bash scripts/cove-stop.sh', then retry." >&2
   exit 1
 fi
 
-"$NODE_REAL" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$BACKUP"
+# A damaged snapshot is caught here, before anything is touched. The verifier
+# throws, so Node prints an eight-line stack and its own version banner, which
+# is the right level of detail for a diagnostic and the wrong one for someone
+# restoring a backup because their data is already in trouble. Keep the stack
+# out of their terminal and keep the one line of it that says what is wrong.
+verify_reason() {
+  printf '%s\n' "$1" | grep -m1 -oE '(SqliteError|Error): .*' | sed 's/^[A-Za-z]*Error: //'
+}
+if ! VERIFY_OUT="$("$NODE_REAL" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$BACKUP" 2>&1 >/dev/null)"; then
+  REASON="$(verify_reason "$VERIFY_OUT" || true)"
+  echo >&2
+  echo "That backup file is damaged, so Cove did not restore it: $BACKUP" >&2
+  if [ -n "$REASON" ]; then
+    echo "  $REASON" >&2
+  fi
+  echo "Nothing was changed. Try an older snapshot from $BACKUP_DIR." >&2
+  exit 1
+fi
 
 if [ "$ASSUME_YES" != "1" ]; then
   if [ ! -t 0 ]; then
@@ -68,7 +140,32 @@ TEMP="$DB.restore.$$"
 trap 'rm -f "$TEMP"' EXIT
 cp "$BACKUP" "$TEMP"
 chmod 600 "$TEMP"
-"$NODE_REAL" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$TEMP"
+# The same check on the copy, so a snapshot damaged between the check above and
+# this point cannot reach the database.
+if ! VERIFY_OUT="$("$NODE_REAL" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$TEMP" 2>&1 >/dev/null)"; then
+  REASON="$(verify_reason "$VERIFY_OUT" || true)"
+  echo >&2
+  echo "The copy of that backup did not verify, so Cove did not restore it." >&2
+  if [ -n "$REASON" ]; then
+    echo "  $REASON" >&2
+  fi
+  echo "Nothing was changed. Try an older snapshot from $BACKUP_DIR." >&2
+  exit 1
+fi
+
+# A snapshot is written by the backup job while that job holds its lease, so its
+# own row inside the file is always mid-flight. Restoring it hands Cove a job
+# whose worker no longer exists, and the next tick recovers the expired lease --
+# correctly -- and files "Cove couldn't create a fresh backup" on the Issues
+# page, minutes after somebody restored a backup. After a restore nobody holds a
+# lease on anything, so this says so, on the copy, before it becomes the
+# database. Deliberately not fatal: a recovery must never fail over tidying, and
+# the worst case is the message this avoids.
+if ! LEASE_OUT="$("$NODE_REAL" "$REPO_DIR/scripts/lib/cove-clear-stale-leases.mjs" "$TEMP" 2>&1)"; then
+  echo "Could not clear the snapshot's stale job leases; restoring anyway." >&2
+  echo "  ${LEASE_OUT%%$'\n'*}" >&2
+fi
+rm -f "$TEMP-wal" "$TEMP-shm"
 
 STAMP="$(date +%Y%m%d-%H%M%S)-$$"
 if [ -f "$DB" ]; then
@@ -84,7 +181,7 @@ fi
 # The prompt and archive copy can take time. Re-check immediately before the
 # atomic replacement, then ignore termination signals for the tiny swap window.
 if database_is_open; then
-  echo "Cove reopened $DB during restore. Stop the server and workers, then retry." >&2
+  echo "Cove reopened $DB during restore. Stop the server and workers with 'bash scripts/cove-stop.sh', then retry." >&2
   exit 1
 fi
 trap '' HUP INT TERM

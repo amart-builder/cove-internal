@@ -67,8 +67,8 @@ export default function FollowThrough({ compact = false }: { compact?: boolean }
       <p className="mt-1 text-xs text-muted-foreground">{noticeDescription(n)}</p>
       <p className="mt-1 text-xs text-muted-foreground">{n.refKind === "meeting" ? "Meeting time" : "Due"}: {responsibilityDate(n.dueAt)}</p>
       <div className="mt-2 flex flex-wrap gap-4">
-        {["pending", "delivered", "uncertain", "failed"].includes(n.status) && <button type="button" disabled={!!busy} className="text-xs text-accent-blue disabled:opacity-50" onClick={() => void update(n, "snooze")}>Snooze 1h</button>}
-        <button type="button" disabled={!!busy} className="text-xs text-accent-blue disabled:opacity-50" onClick={() => void update(n, "acknowledge")}>{busy === n.id ? "Saving..." : "On my radar"}</button>
+        {["pending", "delivered", "uncertain", "failed"].includes(n.status) && <button type="button" disabled={!!busy} className="py-1 text-xs text-accent-blue disabled:opacity-50" aria-label={`Snooze 1 hour: ${n.title}`} onClick={() => void update(n, "snooze")}>Snooze 1h</button>}
+        <button type="button" disabled={!!busy} className="py-1 text-xs text-accent-blue disabled:opacity-50" aria-label={`On my radar: ${n.title}`} onClick={() => void update(n, "acknowledge")}>{busy === n.id ? "Saving..." : "On my radar"}</button>
       </div>
     </div>;
   }

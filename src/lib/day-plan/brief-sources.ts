@@ -1724,6 +1724,15 @@ export function closeoutTimestampHeader(input: {
     parts.push(
       `${gap} working day${gap === 1 ? "" : "s"} (${skipped.join(", ")}) went by without a closeout, so anything time-bound in it may have moved since.`,
     );
+  } else if (input.closeoutLocalDate && input.closeoutLocalDate < input.targetLocalDate) {
+    // closeoutGapWeekdays only counts inside a ten-weekday window, so an older
+    // closeout has no number to report. Saying nothing put the stalest closeout
+    // in the same silence as yesterday's, which is backwards: the further back
+    // it is, the less of it still holds. No count, because past two working
+    // weeks the exact figure stops changing how anyone reads it.
+    parts.push(
+      "It covers a working day more than two working weeks before this one, so treat anything time-bound in it as out of date.",
+    );
   }
   return parts.join(" ");
 }

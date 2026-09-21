@@ -65,10 +65,14 @@ export default function RecentlyDeleted({ onClose }: { onClose: () => void }) {
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
       <div className="flex items-center gap-3 border-b px-5 pb-3 pt-[60px]">
+        {/* Standing on its own beside the heading rather than inside a
+            sentence, so the 24px WCAG 2.2 asks of a target applies. Measured
+            at 63x16; the row is set by the taller heading block next to it,
+            so the padding does not move anything. */}
         <button
           type="button"
           onClick={onClose}
-          className="text-xs text-muted-foreground hover:text-foreground"
+          className="py-1.5 text-xs text-muted-foreground hover:text-foreground"
         >
           ← All Work
         </button>
@@ -114,7 +118,7 @@ export default function RecentlyDeleted({ onClose }: { onClose: () => void }) {
                   type="button"
                   disabled={busyId === task.id}
                   onClick={() => void permanentlyDelete(task)}
-                  className="text-[12px] text-accent-red hover:underline disabled:opacity-50"
+                  className="-my-1.5 py-1.5 text-[12px] text-accent-red hover:underline disabled:opacity-50"
                 >
                   Delete forever
                 </button>

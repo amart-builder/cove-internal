@@ -112,7 +112,7 @@ test('feedback with no configured support address never attempts a Gmail draft',
   assert.equal(feedback.fallbackReason, 'support_not_configured');
   assert.equal(
     buddyFeedbackAssistantText(feedback),
-    'No feedback address is set up, so here is the message to copy.',
+    'No feedback address is set up, so here is the message to copy. Your Cove setup agent can set one so this drafts itself next time.',
   );
 });
 

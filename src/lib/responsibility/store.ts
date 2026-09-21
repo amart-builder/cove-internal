@@ -228,6 +228,25 @@ function boundedCheck(source: Source, check: Date, now: Date): Date {
 }
 
 /** Reconcile every active source before selecting a bounded model view. */
+// What a responsibility's state should be once its source record has changed.
+//
+// This used to be the literal string 'blocked' in both places below, which
+// conflated two different things: "the source moved, look at this again" and
+// "this work cannot proceed". The Follow-through page prints the state as a
+// bare "Blocked" with no blocker, and sourceVersion covers the whole row, so
+// dragging a card between board columns reported the person's own tidying as
+// an obstruction and fed it to the model's desk as one. The review is still
+// forced by clearing last_reviewed_at and next_check_at; only the label is
+// left alone. A source that reopens after being resolved has no plan state to
+// keep, so it starts again the way a fresh capture would.
+function stateAfterSourceChange(
+  priorState: string,
+  source: Source,
+): string {
+  if (priorState !== "resolved") return priorState;
+  return source.kind === "waiting_on" ? "waiting" : "ready";
+}
+
 export function reconcileResponsibilities(
   db: Database.Database,
   now = new Date(),
@@ -271,9 +290,16 @@ export function reconcileResponsibilities(
           prior.state === "resolved"
         ) {
           db.prepare(
-            `UPDATE cove_responsibilities SET source_version=?, state='blocked',
+            `UPDATE cove_responsibilities SET source_version=?, state=?,
        next_check_at=?, last_reviewed_at=NULL, revision=revision+1, updated_at=? WHERE ref_kind=? AND ref_id=?`,
-          ).run(version, now.toISOString(), now.toISOString(), kind, source.id);
+          ).run(
+            version,
+            stateAfterSourceChange(prior.state, source),
+            now.toISOString(),
+            now.toISOString(),
+            kind,
+            source.id,
+          );
           event(
             db,
             kind,
@@ -314,7 +340,9 @@ export function reconcileResponsibilities(
             "UPDATE cove_responsibilities SET source_version=?,state=?,next_check_at=?,last_reviewed_at=NULL,revision=revision+1,updated_at=?,parent_version=? WHERE ref_kind=? AND ref_id=?",
           ).run(
             sourceVersion(source),
-            parentChanged || prior.source_version !== sourceVersion(source) ? "blocked" : prior.state,
+            parentChanged || prior.source_version !== sourceVersion(source)
+              ? stateAfterSourceChange(prior.state, source)
+              : prior.state,
             now.toISOString(),
             now.toISOString(),
             prior.parent_kind ? (parent ? sourceVersion(parent) : "missing") : null,

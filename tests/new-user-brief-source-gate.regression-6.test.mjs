@@ -4,11 +4,47 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { checkLatestBriefWriter } from '../scripts/cove-check-brief-writer.mjs';
+import {
+  checkLatestBriefWriter,
+  latestSuccessfulBriefLocalSources,
+  latestSuccessfulBriefWriter,
+} from '../scripts/cove-check-brief-writer.mjs';
 
 function source(id, note) {
   return { id, freshness: 'current', chars: 20, note };
 }
+
+test('a fresh install that has not written a brief yet is told that, not a SQL error', (t) => {
+  // Step 5 of SETUP.md triggers the first Morning Brief and checks it. Run
+  // before that brief exists -- by an agent working the steps in order, or on
+  // any install that has not reached Step 5 -- the day-plan store has not
+  // created day_plan_briefs yet, and what the check used to print was
+  // "no such table: day_plan_briefs".
+  const root = path.join(
+    os.tmpdir(),
+    `cove-fresh-brief-check-${process.pid}-${Date.now()}-${Math.random()}`,
+  );
+  const dataDir = path.join(root, 'data');
+  const dbPath = path.join(dataDir, 'cove.db');
+  mkdirSync(dataDir, { recursive: true });
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  new Database(dbPath).close();
+
+  assert.throws(
+    () => latestSuccessfulBriefWriter(dbPath),
+    /^Error: No successful Morning Brief exists yet\.$/,
+  );
+  assert.throws(
+    () => latestSuccessfulBriefLocalSources(dbPath, dataDir),
+    /^Error: No successful Morning Brief exists yet\.$/,
+  );
+  for (const check of [
+    () => latestSuccessfulBriefWriter(dbPath),
+    () => latestSuccessfulBriefLocalSources(dbPath, dataDir),
+  ]) {
+    assert.throws(check, (error) => !/no such table/i.test(error.message));
+  }
+});
 
 test('the setup gate rejects a brief built from another installation', (t) => {
   const root = path.join(

@@ -14,6 +14,7 @@ import type { ArrivalTask } from '@/lib/quiet-current/arrival-cache';
 import type { Task } from './TaskFieldsEditor';
 import {
   arrivalDateLabel,
+  arrivalStartDayUnavailableReason,
   isMorningBriefWriting,
   morningArrivalGreeting,
 } from '@/lib/day-plan/presentation';
@@ -156,6 +157,12 @@ export default function MorningArrival({
   const buddyActive = buddyBusy || Boolean(streamingTurn);
   const currentStepIndex = availableSteps.indexOf(step);
   const isFinalStep = step === 'plan';
+  const startDayUnavailableReason = arrivalStartDayUnavailableReason({
+    finalStep: isFinalStep,
+    busy,
+    buddyActive,
+    plannedCount: visibleItems.length,
+  });
 
   useLayoutEffect(() => {
     onPlanCanvasChange?.(true);
@@ -313,7 +320,9 @@ export default function MorningArrival({
               <button
                 type="button"
                 data-ritual-primary={isFinalStep ? '' : undefined}
-                disabled={isFinalStep && (busy || buddyActive || visibleItems.length === 0)}
+                disabled={Boolean(startDayUnavailableReason)}
+                title={startDayUnavailableReason}
+                aria-describedby={startDayUnavailableReason ? 'arrival-start-day-availability' : undefined}
                 className="min-h-11 w-full rounded-[13px] bg-foreground px-6 text-[14.5px] font-semibold tracking-[-0.005em] text-background shadow-lg outline-none transition-[transform,box-shadow,opacity] duration-150 hover:-translate-y-px hover:shadow-xl focus-visible:ring-2 focus-visible:ring-accent-blue/40 active:translate-y-0 active:shadow-md disabled:opacity-40 motion-reduce:transform-none sm:w-auto"
                 onClick={() => {
                   if (isFinalStep) void onStartDay();
@@ -329,6 +338,17 @@ export default function MorningArrival({
                       : 'Start my day'
                   : 'Continue'}
               </button>
+              {/* The ritual covers the screen, so a dimmed button here is the
+                  only thing a person can see. Say what would un-dim it, in
+                  print as well as to a screen reader. */}
+              {startDayUnavailableReason && (
+                <p
+                  id="arrival-start-day-availability"
+                  className="max-w-xs text-[12.5px] leading-snug text-muted-foreground sm:text-right"
+                >
+                  {startDayUnavailableReason}
+                </p>
+              )}
             </div>
           </div>
         </footer>

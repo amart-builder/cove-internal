@@ -124,9 +124,15 @@ export function arrivalDateLabel(localDate: string): string {
   }).format(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))));
 }
 
-export function formatArrivalDueDate(dueAt: string): string {
+export function formatArrivalDueDate(dueAt: string): string | undefined {
   const calendarDate = /^(\d{4}-\d{2}-\d{2})(?:T00:00:00(?:\.000)?Z)?$/.exec(dueAt)?.[1];
   const date = new Date(calendarDate ? `${calendarDate}T00:00:00Z` : dueAt);
+  // Nothing validates due_at on the way in, and Buddy and the task skill write
+  // it through the same REST endpoint a person does. A model that writes
+  // "next Tuesday" instead of an ISO datetime used to put the literal words
+  // "Invalid Date" on the Arrival card -- the first screen of the day. Drop the
+  // date chip instead, the way realTimeLabel already does for the same case.
+  if (Number.isNaN(date.getTime())) return undefined;
   return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -275,6 +281,47 @@ export function canStartDayPlanSettlement(plan: DayPlan): boolean {
       plan.arrivalState === 'snoozed');
 }
 
+// Why "Close My Day" is unavailable, or undefined when it is available. A
+// dimmed control with no stated reason is the opposite of what this screen
+// promises, so the reason is written for him to read, not for a log.
+export function dayCloseUnavailableReason(input: {
+  plan?: Pick<DayPlan, 'state' | 'arrivalState' | 'settlementState'>;
+  busy?: boolean;
+  weekendWeekday?: string;
+}): string | undefined {
+  if (!input.plan) {
+    return input.weekendWeekday
+      ? `Closing is paused on ${input.weekendWeekday}. Choose Plan today anyway to open it.`
+      : "Closing your day is available once today's plan is ready.";
+  }
+  if (input.busy) return "Cove is updating today's plan.";
+  if (input.plan.state === 'settled') return 'Today is already closed.';
+  if (!canStartDayPlanSettlement(input.plan as DayPlan)) {
+    return 'Start your day in Morning Arrival first, then you can close it.';
+  }
+  return undefined;
+}
+
+/**
+ * Why the Morning Arrival's final button is dimmed, or `undefined` when it is
+ * not. The ritual is modal and its last step is the only way out that keeps the
+ * plan, so a button that does nothing there has to say what would make it work.
+ */
+export function arrivalStartDayUnavailableReason(input: {
+  finalStep: boolean;
+  busy?: boolean;
+  buddyActive?: boolean;
+  plannedCount: number;
+}): string | undefined {
+  if (!input.finalStep) return undefined;
+  if (input.busy) return 'Cove is setting your day.';
+  if (input.buddyActive) return 'Buddy is still working. This is ready in a moment.';
+  if (input.plannedCount === 0) {
+    return "Put at least one task in today's plan first. If you have nothing to plan yet, choose Continue to Today.";
+  }
+  return undefined;
+}
+
 export function reorderDayPlanItems<T extends DayPlanItem>(
   items: readonly T[],
   activeId: string,
@@ -329,6 +376,19 @@ export function firstContinuingItem<T extends DayPlanItem>(
     items.find((item) => decisions[item.id] === 'carry');
 }
 
+/**
+ * What the settlement says about an open item whose task is not there any more.
+ *
+ * Delete a task during the day and it leaves the board but stays on the day's
+ * plan, so the settlement asks what should happen to it next — carry it, defer
+ * it, drop it — about something already in Recently deleted, and used to offer
+ * a dead link to it as well. The plan still needs an outcome recorded before
+ * the day can close (`settlement_commit` in the store refuses without one), so
+ * the row says what happened and points at the answer that fits.
+ */
+export const SETTLEMENT_ITEM_GONE_NOTE =
+  'You deleted this task today. Choose Drop to close it out.';
+
 export function allSettlementDecisionsMade<T extends DayPlanItem>(
   items: readonly T[],
   decisions: Readonly<Record<string, SettlementDecision | undefined>>,
@@ -344,8 +404,27 @@ export function shouldAutoPostProgress(input: {
   return input.workedToday && !input.hasDecision && input.attempts < 2;
 }
 
+/**
+ * Browsers word a dead connection as "Failed to fetch", "NetworkError when
+ * attempting to fetch resource" or "Load failed", and those went to the screen
+ * exactly as thrown, in front of Cove's own sentence. A person who closes the
+ * laptop and opens it again reads the browser's words, not Cove's.
+ */
+const NETWORK_ERROR = /^(typeerror:\s*)?(failed to fetch|load failed|network ?error.*|fetch failed|err_[a-z_]+)$/i;
+
+export function readableSurfaceError(message: string): string {
+  return NETWORK_ERROR.test(message.trim())
+    ? 'Cove could not reach its own service. It may still be starting up, so wait a moment and try again.'
+    : message;
+}
+
 export function combineSurfaceErrors(...errors: Array<string | undefined>): string | undefined {
-  const messages = [...new Set(errors.map((error) => error?.trim()).filter(Boolean))];
+  const messages = [...new Set(
+    errors
+      .map((error) => error?.trim())
+      .filter((error): error is string => Boolean(error))
+      .map(readableSurfaceError),
+  )];
   return messages.length > 0 ? messages.join(' ') : undefined;
 }
 
@@ -733,4 +812,44 @@ export function shouldAttemptLateBriefAttach(input: {
   // waits for fresh candidates, preserving the evidence boundary for tasks.
   if (!input.hasConsumedBrief && input.generationState === 'succeeded') return true;
   return input.candidatesReady && input.candidateCount > 0;
+}
+
+/** Where a task was picked up from and which column it was dropped on. */
+export type ArrivalDropZone = 'priority' | 'also-today' | 'not-today';
+
+/**
+ * What a drop on the arrival plan grid actually does.
+ *
+ * The spoken announcement and the visible note used to be worked out
+ * separately, so a refused drop was announced as "Dropped X in Initial
+ * priorities." and then contradicted by the note beside it. Both now read this.
+ */
+export function arrivalDropOutcome(input: {
+  origin: 'today' | 'not-today';
+  startedInFocus: boolean;
+  over: ArrivalDropZone | undefined;
+  focusCount: number;
+}): { kind: 'moved'; zone: ArrivalDropZone } | { kind: 'unchanged' } | { kind: 'refused'; note: string } {
+  const { origin, startedInFocus, over, focusCount } = input;
+  if (!over) return { kind: 'unchanged' };
+
+  if (origin === 'not-today') {
+    if (over === 'not-today') return { kind: 'unchanged' };
+    if (over === 'priority' && focusCount >= 3) {
+      return { kind: 'refused', note: 'Initial priorities are full at three. Move one down first.' };
+    }
+    return { kind: 'moved', zone: over };
+  }
+
+  if (over === 'not-today') return { kind: 'moved', zone: over };
+  if (over === 'priority') {
+    if (startedInFocus) return { kind: 'unchanged' };
+    if (focusCount >= 3) {
+      return { kind: 'refused', note: 'Initial priorities are full at three. Move one down first.' };
+    }
+    return { kind: 'moved', zone: over };
+  }
+  if (!startedInFocus) return { kind: 'unchanged' };
+  if (focusCount <= 1) return { kind: 'refused', note: 'Keep at least one initial priority.' };
+  return { kind: 'moved', zone: over };
 }

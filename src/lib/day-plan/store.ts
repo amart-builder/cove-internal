@@ -23,15 +23,13 @@ import {
  * plan rows, items, events, task mutations, and receipts.
  */
 import { createHash, randomUUID } from "node:crypto";
-import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type Database from "better-sqlite3";
 import { resolveProjectDirectory } from "../atlas-projects";
 import { normalizeBuddyReceipts } from "../buddy/receipts";
 import { morningBriefModelConfig } from "../claude-execution/brief-commands";
 import { hasPlanExecutionResultSubstance } from "../claude-execution/commands";
-import { coveEnv } from "../env";
-import { openSqliteDatabase } from "../local/database";
+import { localDatabasePath, openSqliteDatabase } from "../local/database";
 import { getRuntimeMode } from "../runtime/mode";
 import { operatorTimezone } from "../operator";
 import { recordFailureInDatabase } from "../reliability/failures";
@@ -3799,6 +3797,21 @@ export function createDayPlanStore(options: {
       .run(now().toISOString(), now().toISOString(), staleBefore).changes;
   }
 
+  // Only the "brief me anyway" path calls this. A queued row nothing ever
+  // claimed would otherwise make enqueueMorningBrief hand back that same dead
+  // row, so the button would render and do nothing. The worker's own sweep
+  // deliberately leaves queued rows alone, because a worker starting late still
+  // owes him that brief; this runs only when he has asked again himself.
+  function abandonStaleQueuedMorningBriefs(staleBefore: string): number {
+    return db
+      .prepare(
+        `UPDATE day_plan_briefs
+         SET status = 'failed', error_code = 'never_claimed', finished_at = ?, updated_at = ?
+         WHERE status = 'queued' AND created_at < ?`,
+      )
+      .run(now().toISOString(), now().toISOString(), staleBefore).changes;
+  }
+
   function listRecentSnapshots(limit = 3): DaySnapshot[] {
     return (db
       .prepare(
@@ -5524,6 +5537,7 @@ export function createDayPlanStore(options: {
     deferMorningBrief,
     importMorningBrief,
     interruptStaleMorningBriefs,
+    abandonStaleQueuedMorningBriefs,
     close: () => {
       if (db.open) db.close();
     },
@@ -5550,8 +5564,7 @@ export function getDayPlanStore(): DayPlanStore {
   const global = globalThis as unknown as DayPlanGlobal;
   if (!global.__coveDayPlanStore) {
     global.__coveDayPlanStore = createDayPlanStore({
-      dbPath:
-        coveEnv("DB_PATH") ?? path.join(process.cwd(), "data", "cove.db"),
+      dbPath: localDatabasePath(),
       focusCount: configuredFocusCountFromTaskSettings,
     });
   }

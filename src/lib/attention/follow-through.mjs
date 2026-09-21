@@ -3,6 +3,7 @@
 import { createHash } from 'node:crypto';
 import { allocateAttention, finalizeAttentionDelivery } from './ledger.mjs';
 import { cleanAttentionText, sanitizeAttentionContent } from './safety.mjs';
+import { dueCalendarDay } from './due-date.mjs';
 
 export const FOLLOW_THROUGH_SCHEMA = `
 CREATE TABLE IF NOT EXISTS cove_follow_through_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
@@ -14,10 +15,15 @@ CREATE TABLE IF NOT EXISTS cove_follow_through_notices (
 );`;
 const MINUTE = 60_000;
 const POLICY_HOLD = 'Reminder held by the attention allowance or a prior alert. Review this item in Cove.';
+const SNOOZE_LAPSED = 'Snoozed reminder never came back: quiet hours arrived first. Review this item in Cove.';
 // Routine backlog holds are normal attention policy. A held imminent deadline,
 // missed meeting or actual delivery failure still needs to be visible.
+// Expired counts too: a notice the sweep retires still carries the reason it
+// never reached anyone, and losing the window is not the same as being handled.
+// An ordinary expiry -- the person finished the work -- records no reason and
+// so stays out of this, and acknowledging any notice clears the reason with it.
 const NEEDS_ATTENTION = `(status IN ('uncertain','failed','missed') OR
- (status='pending' AND error IS NOT NULL AND
+ (status IN ('pending','expired') AND error IS NOT NULL AND
  (error <> '${POLICY_HOLD}' OR attempts > 0 OR stage IN ('meeting','advance','preparation'))))`;
 function preparationSourceOpen(db, ref, now) {
   if (ref.kind === "task") return Boolean(db.prepare("SELECT 1 FROM tasks WHERE id=? AND status='open' AND archived_at IS NULL AND remind_native=1 AND (notification_policy IS NULL OR notification_policy <> 'none')").get(ref.id));
@@ -25,6 +31,11 @@ function preparationSourceOpen(db, ref, now) {
   const stores = db.prepare("SELECT state_json FROM cove_quiet_current").all();
   const suggestion = stores.flatMap(s => JSON.parse(s.state_json).suggestions ?? []).find(s => s.id === ref.id);
   return Boolean(suggestion && ["proposed", "refined", "deferred"].includes(suggestion.state) && Date.parse(suggestion.expiresAt) > +now);
+}
+function stillOpen(db, kind, id) {
+  if (kind === 'task') return Boolean(db.prepare("SELECT 1 FROM tasks WHERE id=? AND status='open' AND archived_at IS NULL").get(id));
+  if (kind === 'commitment') return Boolean(db.prepare("SELECT 1 FROM commitments WHERE id=? AND status='open'").get(id));
+  return false;
 }
 function state(db, key) { const row = db.prepare('SELECT value, updated_at FROM cove_follow_through_state WHERE key = ?').get(key); return row ? { ...JSON.parse(row.value), updatedAt: row.updated_at } : null; }
 function put(db, key, value, now) { db.prepare('INSERT INTO cove_follow_through_state VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at').run(key, JSON.stringify(value), now.toISOString()); }
@@ -137,22 +148,26 @@ export async function runFollowThrough({ db, now = new Date(), timezone, calenda
  const tasks = db.prepare("SELECT id,title,due_at,notification_policy,engaged_at,remind_native,remind_at FROM tasks WHERE status='open' AND archived_at IS NULL AND due_at IS NOT NULL AND remind_native=1 AND (notification_policy IS NULL OR notification_policy <> 'none')").all();
  for (const task of tasks) {
   if (task.engaged_at && now-new Date(task.engaged_at)<60*MINUTE) continue;
-  const dateOnly=/^\d{4}-\d{2}-\d{2}$/.test(task.due_at); const due=Date.parse(task.due_at);
+  // dueCalendarDay covers both forms a calendar date is stored in; see
+  // due-date.mjs. Read as the instant it literally is, the date picker's UTC
+  // midnight staged a card a day early for every operator west of UTC, and
+  // previousDate below needs the day on its own rather than the whole string.
+  const dueDay=dueCalendarDay(task.due_at); const dateOnly=dueDay!==null; const due=Date.parse(task.due_at);
   if (!Number.isFinite(due)) continue;
   let stage;
   // Date-only means a day, never a made-up 9am deadline. Offer prep at 3pm on
   // the preceding local day; explicit remind_at keeps its existing owner.
-  if (task.notification_policy !== 'due' && !task.remind_at && (dateOnly ? local.date===previousDate(task.due_at) && local.hour>=15 : +now>=due-60*MINUTE && +now<due)) stage='advance';
-  if (task.notification_policy !== 'predeadline' && (dateOnly ? local.date>task.due_at : +now>=due+86400000)) stage=`overdue:${local.date}`;
+  if (task.notification_policy !== 'due' && !task.remind_at && (dateOnly ? local.date===previousDate(dueDay) && local.hour>=15 : +now>=due-60*MINUTE && +now<due)) stage='advance';
+  if (task.notification_policy !== 'predeadline' && (dateOnly ? local.date>dueDay : +now>=due+86400000)) stage=`overdue:${local.date}`;
   if (stage) candidates.push({kind:'task',ref:task.id,due:task.due_at,stage,title:safeTitle(task.title)});
  }
  // Accepted promises and waiting-on commitments also need deterministic
  // coverage; they need not first be copied into the task board.
  for(const commitment of db.prepare("SELECT id,title,due_at FROM commitments WHERE status='open' AND confirmed=1 AND kind<>'idea' AND due_at IS NOT NULL").all()) {
-  const dateOnly=/^\d{4}-\d{2}-\d{2}$/.test(commitment.due_at);const due=Date.parse(commitment.due_at);if(!Number.isFinite(due))continue;
+  const dueDay=dueCalendarDay(commitment.due_at);const dateOnly=dueDay!==null;const due=Date.parse(commitment.due_at);if(!Number.isFinite(due))continue;
   let stage;
-  if(dateOnly?local.date===previousDate(commitment.due_at)&&local.hour>=15:+now>=due-60*MINUTE&&+now<due)stage='advance';
-  if(dateOnly?local.date>commitment.due_at:+now>=due)stage=`overdue:${local.date}`;
+  if(dateOnly?local.date===previousDate(dueDay)&&local.hour>=15:+now>=due-60*MINUTE&&+now<due)stage='advance';
+  if(dateOnly?local.date>dueDay:+now>=due)stage=`overdue:${local.date}`;
   if(stage)candidates.push({kind:'commitment',ref:commitment.id,due:commitment.due_at,stage,title:safeTitle(commitment.title)});
  }
  const cached=state(db,'calendar');
@@ -249,12 +264,18 @@ export async function runFollowThrough({ db, now = new Date(), timezone, calenda
  }
  // Obsolete pending notices are historical evidence, not actionable UI work.
  const active = new Set(candidates.map((c) =>noticeId(c.kind,c.ref,c.due,c.stage)));
- for (const row of db.prepare("SELECT id,ref_kind,due_at FROM cove_follow_through_notices WHERE status='pending'").all()) if (!active.has(row.id)) {
+ for (const row of db.prepare("SELECT id,ref_kind,ref_id,due_at,snoozed_until FROM cove_follow_through_notices WHERE status='pending'").all()) if (!active.has(row.id)) {
   // Unavailable calendar data does not prove a meeting was cancelled. Retain
   // its pending reminder until fresh evidence or the recorded start time.
   if (row.ref_kind==='meeting' && Date.parse(row.due_at)>+now && cached?.status!=='ready') continue;
   const missed=row.ref_kind==='meeting' && Date.parse(row.due_at)<=+now;
-  db.prepare("UPDATE cove_follow_through_notices SET status=?,error=?,updated_at=? WHERE id=?").run(missed?'missed':'expired',missed?'Meeting reminder was not delivered before its start.':null,nowIso,row.id);
+  // A pending row that carries a snooze was snoozed and never came back: a
+  // later delivery would have moved it off pending. Say so, but only while the
+  // work is still open, so finishing something cannot raise a reminder about it.
+  const lapsedSnooze = !missed && row.snoozed_until && stillOpen(db,row.ref_kind,row.ref_id);
+  // Retiring a notice must not erase why it never reached anyone; only a new
+  // reason may replace an old one.
+  db.prepare("UPDATE cove_follow_through_notices SET status=?,error=COALESCE(?,error),updated_at=? WHERE id=?").run(missed?'missed':'expired',missed?'Meeting reminder was not delivered before its start.':lapsedSnooze?SNOOZE_LAPSED:null,nowIso,row.id);
  }
  put(db,'heartbeat',{status:'ready'},now);
  return followThroughStatus(db,now);

@@ -1,4 +1,5 @@
 import { notificationUrl } from "../attention/notification-links.mjs";
+import { cleanAttentionText, sanitizeNonDirectBanner } from "../attention/safety.mjs";
 /**
  * Source-to-task intake coordinator.
  *
@@ -190,11 +191,20 @@ function signalChild(
   }
 }
 
+// The contract this lane has to meet is not the JSON Schema alone: the project
+// must come from the person's own vocabulary, the dates must be dates the
+// calendar has, and a scheduled item must carry its time. Those are checked
+// inside the runner rather than after it, so a model that breaks one is told
+// which rule it broke and gets the same second attempt the chief-of-staff and
+// sweep lanes already get. Checked afterwards, a single bad field sent the
+// whole capture to the raw-text fallback card with nothing the model got right
+// carried over, on the lane a new person uses most.
 function runTriageCommand(
   prompt: string,
+  projects: readonly string[],
   options: CoveIntakeOptions,
-): Promise<string> {
-  return runJob({
+): Promise<TriageOutput> {
+  return runJob<TriageOutput>({
     lane: "intake-triage",
     kind: "structured",
     prompt,
@@ -207,9 +217,13 @@ function runTriageCommand(
     cwd: options.repoDir ?? MODULE_REPO_DIR,
     claudeMcpConfigPath: options.emptyMcpConfigPath,
     claudeMaxBudgetUsd: "1.50",
+    validate: (_text, value) => validateTriageOutput(value, projects),
   }).then((result) => {
     if (!result.ok) throw new Error(`${result.error.code}:${result.error.message}`);
-    return JSON.stringify(result.value);
+    // The runner types `value` as optional because a text job has none. A
+    // structured job that passed validation always carries one.
+    if (!result.value) throw new Error("triage_output_missing");
+    return result.value;
   });
 }
 
@@ -273,7 +287,13 @@ async function boardContext(options: CoveIntakeOptions): Promise<BoardContext> {
   return { tasks, columns };
 }
 
-function goalsText(dataDir?: string): string {
+// Goals sharpen a triage; their absence must not cancel it. Throwing here sent
+// every captured item to the raw-text fallback card, so on an install whose
+// goals file had not been written yet the one feature the person notices first,
+// Cove working out what a thing is, was off for every item with no way to tell.
+// The meeting analyst already reads the same file this way. An empty GOALS slot
+// is honest: the model is told it has none rather than shown stale ones.
+export function goalsText(dataDir?: string): string {
   const root = workspaceRoot();
   const candidates = [
     root ? path.join(root, "brain", "GOALS.md") : undefined,
@@ -286,7 +306,7 @@ function goalsText(dataDir?: string): string {
       // Try the portable install path.
     }
   }
-  throw new Error("triage_goals_unavailable");
+  return "";
 }
 
 export function buildTriagePrompt(input: {
@@ -407,13 +427,52 @@ function runBestEffort(
   });
 }
 
+/**
+ * What an immediate capture is allowed to put on the screen.
+ *
+ * The rule is the one scripts/cove-reminders.mjs states at its own
+ * notifyNative call: a title written by someone else is sanitized and labelled
+ * before it borrows Cove's credibility. A banner carries Cove's name, so an
+ * unlabelled one reads as Cove speaking.
+ *
+ * enforceSurfacePolicy already gets the harder half right -- an email or
+ * meeting capture marked `surface: "now"` never reaches the phone. This is the
+ * banner it does still produce. `triage.title` is the model's wording of the
+ * capture, and under an email capture the words beneath it are a stranger's,
+ * so "Confirm your account at pay.example" used to appear over Cove's name
+ * with nothing to say otherwise.
+ *
+ * A direct source keeps its words; it is only cleaned, the way the reminder
+ * runner cleans a title the owner wrote.
+ */
+export function urgentBannerText(title: string, source: string): string {
+  if (DIRECT_AUTHOR_SOURCES.has(source as IntakeSource)) {
+    return cleanAttentionText(title) || "Open Cove to review this item.";
+  }
+  const prefix = source === "email"
+    ? "from email"
+    : source === "meeting"
+      ? "from meeting"
+      : source
+        ? `from ${source}`
+        : "from unknown source";
+  return sanitizeNonDirectBanner(title, prefix);
+}
+
 async function defaultNotifyNow(
   title: string,
   options: CoveIntakeOptions,
   taskId: string,
 ): Promise<void> {
   const repoDir = options.repoDir ?? MODULE_REPO_DIR;
-  const notificationCommand = nativeNotificationCommand(title, {
+  // Only a direct source reaches this function: enforceSurfacePolicy turns an
+  // email or meeting capture marked "now" into a board item before it gets
+  // here, so these are the owner's own words and keep their content. They are
+  // still cleaned, the way the reminder runner cleans a title the owner wrote:
+  // an invisible or bidi character makes what Cove stored and what the person
+  // reads two different strings whoever typed it.
+  const banner = cleanAttentionText(title) || "Open Cove to review this item.";
+  const notificationCommand = nativeNotificationCommand(banner, {
     title: "Cove",
     subtitle: "Needs attention",
     openUrl: notificationUrl({ taskId }),
@@ -423,7 +482,7 @@ async function defaultNotifyNow(
   const [channelDelivered, nativeDelivered] = await Promise.all([
     runBestEffort(
       process.execPath,
-      [path.join(repoDir, "scripts", "cove-notify.mjs"), `Cove: ${title}`],
+      [path.join(repoDir, "scripts", "cove-notify.mjs"), `Cove: ${banner}`],
       options,
     ),
     process.platform === "darwin"
@@ -442,11 +501,12 @@ async function defaultNotifyNow(
 
 async function notifyNativeOnly(
   title: string,
+  source: string,
   options: CoveIntakeOptions,
   taskId: string,
 ): Promise<void> {
   if (process.platform !== "darwin") return;
-  const command = nativeNotificationCommand(title, {
+  const command = nativeNotificationCommand(urgentBannerText(title, source), {
     title: "Cove",
     subtitle: "Needs attention",
     openUrl: notificationUrl({ taskId }),
@@ -555,12 +615,8 @@ export async function triageRecordedEvent(
     board: await boardContext(runtimeOptions),
     now,
   });
-  const raw = await runTriageCommand(prompt, runtimeOptions);
   const policy = enforceSurfacePolicy(
-    validateTriageOutput(
-      JSON.parse(raw) as unknown,
-      projects,
-    ),
+    await runTriageCommand(prompt, projects, runtimeOptions),
     event.source,
   );
   writeScheduledReminder(
@@ -577,7 +633,7 @@ export async function triageRecordedEvent(
   );
   await surfaceTriage(taskId, policy.triage, runtimeOptions);
   if (policy.nativeOnly) {
-    await notifyNativeOnly(policy.triage.title, runtimeOptions, taskId);
+    await notifyNativeOnly(policy.triage.title, event.source, runtimeOptions, taskId);
   }
   return true;
 }

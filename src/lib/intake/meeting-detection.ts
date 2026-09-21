@@ -113,7 +113,19 @@ export function loadMeetingDetectionConfig(
   if (!existsSync(file)) {
     throw new Error(`Meeting config does not exist: ${file}`);
   }
-  const parsed = objectValue(JSON.parse(readFileSync(file, "utf8")));
+  // Every other message this loader raises is written for the person who has
+  // to fix the file. An unguarded parse breaks that: a trailing comma in a
+  // hand-edited config raised `Unexpected token }` at the same place, and the
+  // meeting lane records what it was given.
+  let contents: unknown;
+  try {
+    contents = JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    throw new Error(
+      `cove-meetings.json could not be read as JSON. Check ${file} for a stray comma or quote.`,
+    );
+  }
+  const parsed = objectValue(contents);
   if (!parsed || typeof parsed.enabled !== "boolean") {
     throw new Error("cove-meetings.json is missing enabled.");
   }

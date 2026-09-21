@@ -52,7 +52,13 @@ for (const [command, args, stepEnv] of steps) {
   process.stdout.write(`\n[cove-verify] ${command} ${args.join(" ")}\n`);
   const result = spawnSync(command, args, {
     cwd: process.cwd(),
-    env: { ...process.env, PATH: childPath, ...stepEnv },
+    // Next.js collects anonymous telemetry by default, so the release gate on
+    // a person's own laptop reported the build to Vercel. Nothing sensitive
+    // goes, but Cove tells people it is local-first and names the places data
+    // leaves the machine, and this was not one of them.
+    // `stepEnv` comes last so a step can pin its own value -- the timezone the
+    // suite's fixtures were written in is exactly that.
+    env: { ...process.env, PATH: childPath, NEXT_TELEMETRY_DISABLED: "1", ...stepEnv },
     shell: false,
     stdio: "inherit",
   });

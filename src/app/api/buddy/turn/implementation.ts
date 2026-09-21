@@ -35,6 +35,7 @@ import { coveEnv } from "../../../../lib/env";
 import { detectBuddyCommandIntent } from "@/lib/buddy/router";
 import { getRuntimeMode } from "@/lib/runtime/mode";
 import { getDayPlanStore } from "@/lib/day-plan/store";
+import { isProviderMissing, isProviderNotSignedIn } from "@/lib/buddy/errors";
 import {
   buildReplanCommand,
   parseReplanProposal,
@@ -79,8 +80,26 @@ export function attachBuddyRun(input: {
   let streamedText = "";
   const authoritativeChanges: ReceiptChange[] = [];
   const authoritativeSessions: SpawnedSessionReceipt[] = [];
+  // Everything the provider said about why it stopped arrives here as the
+  // rejection message -- a spawn ENOENT before the CLI is installed, or the
+  // CLI's own stderr behind `missing_result:`. Collapsing all of it to
+  // "interrupted" left the person with "Buddy was interrupted." and a Retry
+  // that could not work, and left the log with nothing to diagnose from.
   const failExecution = (error: unknown) => {
-    const code = error instanceof Error && error.message === "timeout" ? "timeout" : "interrupted";
+    const detail = error instanceof Error ? error.message : String(error);
+    const code = detail === "timeout"
+      ? "timeout"
+      : isProviderNotSignedIn(input.turn.provider, detail)
+      ? "not_signed_in"
+      : isProviderMissing(detail)
+      ? "provider_missing"
+      : "interrupted";
+    console.error("Buddy turn failed.", {
+      turnId: input.turn.id,
+      provider: input.turn.provider ?? "claude",
+      code,
+      error: detail,
+    });
     const receipts = reconcileBuddyReceipts(undefined, authoritativeChanges, authoritativeSessions);
     input.store.finishTurn(input.turn.id, {
       state: "failed",

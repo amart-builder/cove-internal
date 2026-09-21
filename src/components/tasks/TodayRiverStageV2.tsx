@@ -101,6 +101,7 @@ export type TodayRiverStageV2Model = {
   morningArrivalDisabled?: boolean;
   morningArrivalTitle?: string;
   closeDayDisabled?: boolean;
+  closeDayTitle?: string;
   dayClosed?: boolean;
   weekendGate?: {
     weekday: string;
@@ -243,17 +244,23 @@ function SessionState({
   }
   if (run.status === 'failed') {
     const mode = run.permissionMode === 'plan' ? 'Planning' : 'Auto';
+    // The run records why it stopped and what to do about it, and until now
+    // that only ever reached a title attribute, so "Stopped" sat above a Retry
+    // that fails the same way. The open card has room to print it.
     return (
       <span className={`today2-session-failed ${compact ? 'is-compact' : ''}`}>
         <SessionLink className="press-scale" run={run}>
           {compact ? 'Stopped' : `${mode} stopped`} · Open
         </SessionLink>
-        <button type="button" onClick={(event) => {
+        <button type="button" title={run.hint} onClick={(event) => {
           event.stopPropagation();
           onRetry(run.permissionMode === 'plan' ? 'planning' : 'auto', run.provider);
         }}>
           Retry
         </button>
+        {!compact && run.hint && (
+          <span className="today2-session-hint">{run.hint}</span>
+        )}
       </span>
     );
   }
@@ -387,6 +394,9 @@ function FocusCard({
       >
         <button
           type="button"
+          // The edit modal returns focus here by id, since the card it was
+          // opened from is closed by then and cannot be focused.
+          id={`today2-focus-open-${task.id}`}
           className="today2-focus-open"
           aria-label={`Open details for ${task.title}`}
           aria-expanded={detailOpen}
@@ -1134,13 +1144,26 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
               type="button"
               disabled={model.morningArrivalDisabled}
               title={model.morningArrivalTitle}
+              aria-describedby="today2-morning-arrival-availability"
               onClick={callbacks.onOpenMorningArrival}
             >
               Morning Arrival
             </button>
-            <button type="button" disabled={model.closeDayDisabled} onClick={callbacks.onOpenCloseDay}>
+            <span id="today2-morning-arrival-availability" className="sr-only">
+              {model.morningArrivalTitle ?? 'Open or revisit Morning Arrival.'}
+            </span>
+            <button
+              type="button"
+              disabled={model.closeDayDisabled}
+              title={model.closeDayTitle}
+              aria-describedby="today2-close-day-availability"
+              onClick={callbacks.onOpenCloseDay}
+            >
               Close My Day
             </button>
+            <span id="today2-close-day-availability" className="sr-only">
+              {model.closeDayTitle ?? 'Close today and settle what is still open.'}
+            </span>
           </div>
           {model.weekendGate && (
             <div className="today2-weekend-gate">
@@ -1247,18 +1270,30 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
               const point = beadPoints[index];
               if (!point) return null;
               return (
-                <circle
+                // The bead paints at 11x13px on screen, well under the 24px
+                // WCAG 2.2 asks of a target, and the river stretches its own
+                // coordinates unevenly so the bead cannot simply be drawn
+                // larger without changing how the river looks. The press
+                // lives on an invisible circle around it instead, which puts
+                // the target over 24px in both directions and leaves every
+                // painted pixel exactly where it was.
+                <g
                   key={task.id}
-                  className={`today2-bead is-${index + 1}`}
-                  cx={point.x}
-                  cy={point.y}
-                  r="7"
+                  className="today2-bead-target"
                   role="button"
                   tabIndex={0}
                   aria-label={`Open Focus Grid for ${task.title}`}
                   onClick={(event) => openGridFrom(event.currentTarget)}
                   onKeyDown={(event) => onKeyboardActivate(event, () => openGridFrom(event.currentTarget))}
-                />
+                >
+                  <circle className="today2-bead-hit" cx={point.x} cy={point.y} r="16" />
+                  <circle
+                    className={`today2-bead is-${index + 1}`}
+                    cx={point.x}
+                    cy={point.y}
+                    r="7"
+                  />
+                </g>
               );
             })}
           </svg>
@@ -1273,9 +1308,13 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
             <span className="today2-done-dots" aria-hidden="true"><i /><i /><i /></span>
             <span ref={doneLabelRef} className="today2-done-label">{displayDoneCount} done today</span>
           </button>
-          {wakeOpen && model.doneTitles.length > 0 && (
+          {wakeOpen && (
+            // The marker says it is expanded either way, so on a day with
+            // nothing finished it used to open onto nothing at all.
             <div className="today2-done-list">
-              {model.doneTitles.slice(0, 5).map((title) => <p key={title}>{title}</p>)}
+              {model.doneTitles.length > 0
+                ? model.doneTitles.slice(0, 5).map((title) => <p key={title}>{title}</p>)
+                : <p>Nothing finished yet today.</p>}
             </div>
           )}
 
@@ -1319,6 +1358,7 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
               <button
                 type="button"
                 disabled={model.closeDayDisabled}
+                title={model.closeDayTitle}
                 onClick={callbacks.onOpenCloseDay}
               >
                 Close My Day
@@ -1350,8 +1390,11 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
           defaultProvider={model.defaultProvider}
           connectedProviders={model.connectedProviders}
           onClose={() => {
+            // The inline detail card stays open. It holds the More button this
+            // sheet was opened from, and the scrim returns focus there;
+            // collapsing it hides that button, so the focus return lands on
+            // nothing and a keyboard reader is dropped at the top of the page.
             setRichTaskId(undefined);
-            setDetailTaskId(undefined);
           }}
           onEdit={() => {
             const taskId = richTaskId;

@@ -284,6 +284,20 @@ function promptManifest(manifest: MorningBriefSourceManifest): string {
   });
 }
 
+// RETIRED LANE. Nothing in production calls this or buildMorningBriefCommand
+// below. The live Morning Brief is composed by dailyPlanningPrompt
+// (chief-of-staff/daily-planning.ts) out of PLANNING_QUESTIONS and
+// morningBriefSourcePrompt (claude-execution/worker.ts); this is the standalone
+// pass it replaced. The only callers left are scripts/brief-backtest.mjs and
+// the tests, and `/cove-morning-brief` below is the one place the skill file at
+// .claude/skills/cove-morning-brief/ is ever named, so that file does not reach
+// a model either.
+//
+// Editing the text here therefore changes nothing an operator will read, while
+// bumping MORNING_BRIEF_PROMPT_VERSION alongside it does have an effect, because
+// the live path hashes that constant into morningBriefInputHash and will discard
+// every cached brief artifact. Change the live prompt instead, and leave this
+// one alone unless you are changing the backtest with it.
 export function buildMorningBriefPrompt(input: {
   targetLocalDate: string;
   targetTimezone: string;

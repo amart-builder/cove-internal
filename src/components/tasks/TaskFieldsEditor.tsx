@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { ArrivalTask } from '@/lib/quiet-current/arrival-cache';
 import { visibleTags } from '@/lib/tasks/tags';
 import { type TaskEditGuard } from '@/lib/tasks/edit-conflict';
-import { taskEditorDraft, taskEditorPatch, taskEditorExpected } from '@/lib/tasks/editor-patch';
+import { taskEditorDraft, taskEditorPatch, taskEditorExpected, taskSaveUnavailableReason } from '@/lib/tasks/editor-patch';
 
 export type Task = Omit<ArrivalTask, 'dueDate'> & TaskEditGuard & {
   dueDate?: string | null;
@@ -23,6 +23,9 @@ export default function TaskFieldsEditor({
   onSave: (patch: Partial<Task>) => Promise<void>;
   onCancel: () => void;
 }) {
+  // One editor is open at a time: a settlement row or an arrival sheet, never
+  // both, so a fixed prefix is enough to tie each label to its field.
+  const fieldId = 'task-fields';
   const [baseline] = useState(() => taskEditorDraft(task));
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? '');
@@ -50,16 +53,18 @@ export default function TaskFieldsEditor({
     await onSave({ ...patch, _expected: taskEditorExpected(baseline, patch, task.tags) });
   }
 
+  const saveUnavailableReason = taskSaveUnavailableReason({ title, saving });
   const fieldClass = 'min-h-11 w-full rounded-xl border bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-accent-blue/40 disabled:opacity-50';
 
   return (
     <div className="mt-5 space-y-3 border-t pt-5">
       <div>
-        <label className="mb-1 block text-[10.5px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+        <label htmlFor={`${fieldId}-title`} className="mb-1 block text-[10.5px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
           Title
         </label>
         <input
           type="text"
+          id={`${fieldId}-title`}
           value={title}
           disabled={saving}
           onChange={(event) => setTitle(event.target.value)}
@@ -67,10 +72,11 @@ export default function TaskFieldsEditor({
         />
       </div>
       <div>
-        <label className="mb-1 block text-[10.5px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+        <label htmlFor={`${fieldId}-description`} className="mb-1 block text-[10.5px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
           Description
         </label>
         <textarea
+          id={`${fieldId}-description`}
           value={description}
           rows={4}
           disabled={saving}
@@ -80,10 +86,11 @@ export default function TaskFieldsEditor({
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <label className="mb-1 block text-[10.5px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+          <label htmlFor={`${fieldId}-priority`} className="mb-1 block text-[10.5px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
             Priority
           </label>
           <select
+            id={`${fieldId}-priority`}
             value={priority}
             disabled={saving}
             onChange={(event) => setPriority(event.target.value as Task['priority'])}
@@ -95,11 +102,12 @@ export default function TaskFieldsEditor({
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-[10.5px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+          <label htmlFor={`${fieldId}-due`} className="mb-1 block text-[10.5px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
             Due date
           </label>
           <input
             type="date"
+            id={`${fieldId}-due`}
             value={dueDate}
             disabled={saving}
             onChange={(event) => setDueDate(event.target.value)}
@@ -108,11 +116,12 @@ export default function TaskFieldsEditor({
         </div>
       </div>
       <div>
-        <label className="mb-1 block text-[10.5px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+        <label htmlFor={`${fieldId}-tags`} className="mb-1 block text-[10.5px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
           Tags (comma-separated)
         </label>
         <input
           type="text"
+          id={`${fieldId}-tags`}
           value={tagsText}
           disabled={saving}
           onChange={(event) => setTagsText(event.target.value)}
@@ -120,10 +129,11 @@ export default function TaskFieldsEditor({
         />
       </div>
       <div>
-        <label className="mb-1 block text-[10.5px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+        <label htmlFor={`${fieldId}-origin`} className="mb-1 block text-[10.5px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
           Reason this task was added
         </label>
         <textarea
+          id={`${fieldId}-origin`}
           value={origin}
           rows={3}
           disabled={saving}
@@ -133,6 +143,11 @@ export default function TaskFieldsEditor({
         />
       </div>
       {error && <p role="alert" className="text-xs text-accent-red">{error}</p>}
+      {saveUnavailableReason && (
+        <p id={`${fieldId}-save-availability`} className="text-xs text-muted-foreground">
+          {saveUnavailableReason}
+        </p>
+      )}
       <div className="flex justify-end gap-2 pt-1">
         <button
           type="button"
@@ -144,7 +159,9 @@ export default function TaskFieldsEditor({
         </button>
         <button
           type="button"
-          disabled={saving || !title.trim()}
+          disabled={Boolean(saveUnavailableReason) || saving}
+          title={saveUnavailableReason}
+          aria-describedby={saveUnavailableReason ? `${fieldId}-save-availability` : undefined}
           onClick={() => void save()}
           className="min-h-11 rounded-xl bg-foreground px-4 text-sm font-medium text-background outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-50"
         >
