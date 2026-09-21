@@ -58,6 +58,15 @@ export function jobFailureDetail(type: string, diagnostic: string, retrying = fa
     // without this the person is told only that "some background work did not
     // finish", which names nothing they can act on.
     cause = " The connected account needs its sign-in checked.";
+  } else if (/fetch failed|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ENETDOWN|ENETUNREACH|socket hang up|connection error|network error|offline/i.test(diagnostic)) {
+    // A laptop that was asleep, on a hotel network, or simply off wifi is the
+    // most common reason an overnight lane fails, and the only one the person
+    // can fix without help. Unnamed, it fell to the default wording and ended
+    // on "ask your Cove setup agent to diagnose the failure" — a phone call
+    // about a wifi drop. This sits above the worker branch because a network
+    // error usually carries "please try again later", and "lease" is inside
+    // "Please".
+    cause = " Cove could not reach the internet when it ran.";
   } else if (/lease/i.test(diagnostic)) {
     cause = " The background worker stopped before finishing.";
   }
