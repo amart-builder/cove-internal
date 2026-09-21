@@ -52,3 +52,11 @@ test('the guide says where work is kept and what leaves the Mac', () => {
   assert.match(source, /the model provider you chose/);
   assert.match(source, /Google is sent the requests Cove/);
 });
+
+// On a fresh install there is no feedback address and no connected email, so
+// the draft the guide promised is the one thing Buddy cannot do.
+test('the guide promises the Gmail draft only where Buddy can make one', () => {
+  const source = readFileSync(new URL('../src/app/guide/content.tsx', import.meta.url), 'utf8');
+  assert.match(source, /hands you the message to copy/);
+  assert.doesNotMatch(source, /Buddy makes a Gmail draft\. /);
+});
