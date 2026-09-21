@@ -73,12 +73,20 @@ if database_is_open; then
 fi
 
 # A damaged snapshot is caught here, before anything is touched. The verifier
-# prints a SqliteError and a stack, which is the right level of detail for a
-# diagnostic and the wrong one for someone restoring a backup because their
-# data is already in trouble. Say what happened and what to do instead.
-if ! "$NODE_REAL" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$BACKUP"; then
+# throws, so Node prints an eight-line stack and its own version banner, which
+# is the right level of detail for a diagnostic and the wrong one for someone
+# restoring a backup because their data is already in trouble. Keep the stack
+# out of their terminal and keep the one line of it that says what is wrong.
+verify_reason() {
+  printf '%s\n' "$1" | grep -m1 -oE '(SqliteError|Error): .*' | sed 's/^[A-Za-z]*Error: //'
+}
+if ! VERIFY_OUT="$("$NODE_REAL" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$BACKUP" 2>&1 >/dev/null)"; then
+  REASON="$(verify_reason "$VERIFY_OUT" || true)"
   echo >&2
   echo "That backup file is damaged, so Cove did not restore it: $BACKUP" >&2
+  if [ -n "$REASON" ]; then
+    echo "  $REASON" >&2
+  fi
   echo "Nothing was changed. Try an older snapshot from $BACKUP_DIR." >&2
   exit 1
 fi
@@ -103,9 +111,13 @@ cp "$BACKUP" "$TEMP"
 chmod 600 "$TEMP"
 # The same check on the copy, so a snapshot damaged between the check above and
 # this point cannot reach the database.
-if ! "$NODE_REAL" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$TEMP"; then
+if ! VERIFY_OUT="$("$NODE_REAL" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$TEMP" 2>&1 >/dev/null)"; then
+  REASON="$(verify_reason "$VERIFY_OUT" || true)"
   echo >&2
   echo "The copy of that backup did not verify, so Cove did not restore it." >&2
+  if [ -n "$REASON" ]; then
+    echo "  $REASON" >&2
+  fi
   echo "Nothing was changed. Try an older snapshot from $BACKUP_DIR." >&2
   exit 1
 fi
