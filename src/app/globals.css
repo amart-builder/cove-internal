@@ -2050,7 +2050,12 @@ input, textarea, select {
 
 .today2-root [data-day-ritual-layer] {
   padding: 4vh 3.2vw;
-  background: rgba(23,52,66,.35);
+  /* The Focus Grid panel is a dark sheet in both themes, and it is translucent
+     on purpose. At .35 a light page showed straight through it and lifted the
+     panel's own surface far enough that twelve of its eighteen text elements
+     fell under AA, the focus dial worst at 3.25:1. Deepening the scrim settles
+     light mode onto the same surface dark mode already had. */
+  background: rgba(23,52,66,.80);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -2082,7 +2087,8 @@ input, textarea, select {
 .today2-grid-header { display: flex; min-height: 58px; align-items: center; justify-content: space-between; gap: 18px; padding: 0 22px; border-bottom: 1px solid rgba(255,255,255,.08); }
 .today2-grid-heading { display: flex; align-items: baseline; gap: 10px; }
 .today2-grid-heading h2 { margin: 0; color: #82c8f2; font-size: 10.5px; font-weight: 650; letter-spacing: .24em; line-height: 1; text-transform: uppercase; outline: none; }
-.today2-grid-heading span { color: rgba(238,246,248,.55); font-size: 12px; font-weight: 500; }
+/* Reads anywhere in the panel, including over its most see-through stop. */
+.today2-grid-heading span { color: rgba(238,246,248,.64); font-size: 12px; font-weight: 500; }
 .today2-grid-tools { display: flex; align-items: center; gap: 13px; }
 .today2-grid-header, .today2-grid-footer { flex-shrink: 0; }
 .today2-grid-footer { padding: 12px 22px; border-top: 1px solid rgba(255,255,255,.08); }
@@ -2090,11 +2096,16 @@ input, textarea, select {
 .today2-grid-footer button:hover { color: #eef6f8; }
 .today2-grid-footer button:focus-visible { outline: 2px solid #82c8f2; outline-offset: 4px; border-radius: 2px; }
 .today2-grid-footer button:disabled { opacity: .45; cursor: default; }
-.today2-grid-tools > p { margin: 0; color: rgba(238,246,248,.35); font-size: 12px; font-weight: 500; }
+/* The grid's only instruction line. At .35 it read 3.0:1 on the panel. */
+.today2-grid-tools > p { margin: 0; color: rgba(238,246,248,.64); font-size: 12px; font-weight: 500; }
 .today2-focus-dial { position: relative; width: 84px; height: 24px; display: grid; grid-template-columns: repeat(3, 1fr); padding: 2px; border-radius: 999px; background: rgba(255,255,255,.08); }
 .today2-dial-thumb { position: absolute; z-index: 0; top: 2px; left: 2px; width: calc((100% - 4px) / 3); height: 20px; border-radius: 999px; background: rgba(130,200,242,.18); transition: transform .12s var(--ease-out-cove); }
-.today2-focus-dial button { position: relative; z-index: 1; border: 0; padding: 0; color: rgba(238,246,248,.45); background: transparent; font-size: 12px; font-weight: 500; transition: color .12s ease, transform .12s var(--ease-out-cove); }
-.today2-focus-dial button.is-active { color: #82c8f2; }
+/* The two focus counts you are not on read 3.7:1 at .45, and they are the
+   control, not decoration. The dial's own pill lightens what they sit on. */
+.today2-focus-dial button { position: relative; z-index: 1; border: 0; padding: 0; color: rgba(238,246,248,.70); background: transparent; font-size: 12px; font-weight: 500; transition: color .12s ease, transform .12s var(--ease-out-cove); }
+/* #82c8f2 read 4.0:1 over the dial's own pill, on the control that says
+   which focus you are looking at. */
+.today2-focus-dial button.is-active { color: #a5d8f7; }
 .today2-focus-dial button:active { transform: scale(.97); }
 .today2-focus-dial button:disabled { opacity: .45; }
 .today2-grid-close { flex: 0 0 28px; border-color: rgba(255,255,255,.12); color: rgba(238,246,248,.62); background: rgba(255,255,255,.07); }
@@ -2107,12 +2118,16 @@ input, textarea, select {
 .today2-grid-card { min-height: 78px; display: flex; flex-direction: column; padding: 11px; overflow: hidden; border: 1px solid rgba(255,255,255,.08); border-radius: 13px; color: #eef6f8; background: rgba(255,255,255,.07); box-shadow: 0 8px 22px rgba(4,16,21,.08); cursor: grab; user-select: none; touch-action: none; transition: background .18s ease, border-color .18s ease, box-shadow .22s var(--ease-out-cove), transform .22s var(--ease-out-cove), opacity .18s ease; }
 .today2-grid-card:hover { background: rgba(255,255,255,.11); border-color: rgba(255,255,255,.13); }
 .today2-grid-card.is-focus { min-height: 86px; border: 1.5px solid rgba(45,127,192,.7); background: rgba(255,255,255,.14); box-shadow: 0 0 0 1px rgba(130,200,242,.12), inset 0 0 27px rgba(90,182,235,.08), 0 11px 26px rgba(4,16,21,.1); }
-.today2-grid-kicker { color: #82c8f2; font-size: 10.5px; font-weight: 650; letter-spacing: .24em; }
+/* 10.5px needs the full 4.5:1, and on a focused card's lighter fill
+   #82c8f2 read 4.47:1. */
+.today2-grid-kicker { color: #a5d8f7; font-size: 10.5px; font-weight: 650; letter-spacing: .24em; }
 .today2-grid-card h3 { display: -webkit-box; margin: 0 0 7px; overflow: hidden; color: #eef6f8; font-size: 15.5px; font-weight: 550; letter-spacing: -.012em; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .today2-grid-card.is-focus .today2-grid-kicker + h3 { margin-top: 6px; font-size: 15.5px; font-weight: 550; letter-spacing: -.012em; }
 .today2-grid-card-bottom { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: auto; }
 .today2-grid-card .today2-owner-chip { color: rgba(238,246,248,.66); background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.08); }
-.today2-grid-card .today2-owner-chip[data-owner='You'] { color: rgba(238,246,248,.82); background: rgba(255,255,255,.12); }
+/* The chip keeps its lighter fill, so the ink has to be full strength: at
+   .82 it read 4.34:1 on a focused card. */
+.today2-grid-card .today2-owner-chip[data-owner='You'] { color: #eef6f8; background: rgba(255,255,255,.12); }
 .today2-grid-card .today2-owner-chip[data-owner='Together'] { color: #e4dfba; background: rgba(210,199,127,.1); }
 .today2-grid-state { min-width: 0; flex: 1; overflow: hidden; color: rgba(238,246,248,.45); font-size: 11.5px; font-weight: 500; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .today2-focus-grid li.is-dragging .today2-grid-card { opacity: .78; transform: rotate(1deg) scale(1.04); box-shadow: 0 22px 56px rgba(2,14,20,.38); cursor: grabbing; }
@@ -2154,7 +2169,9 @@ input, textarea, select {
 .dark .today2-root .today2-focus-open:focus-visible { outline-color: rgba(130,200,242,.88); box-shadow: 0 0 0 4px rgba(130,200,242,.22); }
 .dark .today2-focus-card:hover { box-shadow: 0 28px 82px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.12); }
 .dark .today2-owner-chip { border-color: rgba(255,255,255,.08); color: rgba(238,246,248,.72); background: rgba(255,255,255,.08); }
-.dark .today2-owner-chip[data-owner='You'] { color: rgba(238,246,248,.82); background: rgba(255,255,255,.12); }
+/* Same chip, same fill, and this rule wins in dark mode. See the grid card's
+   copy of it above: .82 read 4.46:1. */
+.dark .today2-owner-chip[data-owner='You'] { color: #eef6f8; background: rgba(255,255,255,.12); }
 .dark .today2-owner-chip[data-owner='Together'] { color: #e4dfba; background: rgba(210,199,127,.1); }
 .dark .today2-focus-detail-head button,
 .dark .today2-session-footer-label { color: rgba(238,246,248,.58); }
