@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { operatorDefaultProject } from "../operator";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -112,6 +113,7 @@ function isoTimestamp(value: unknown, name: string): string {
 export function validateTriageOutput(
   value: unknown,
   projectNames: readonly string[],
+  defaultProject: string = operatorDefaultProject(),
 ): TriageOutput {
   const input = record(value);
   const expected = new Set([
@@ -134,7 +136,9 @@ export function validateTriageOutput(
     throw new Error("triage_invalid_fields");
   }
   const project = boundedString(input.project, "project", 160);
-  const allowedProjects = new Set(["Atlas", ...projectNames]);
+  // The default project is the person's, not a name from the machine Cove was
+  // built on, so a capture never lands in a project they have never seen.
+  const allowedProjects = new Set([defaultProject, ...projectNames]);
   if (!allowedProjects.has(project)) throw new Error("triage_project_invalid");
   const priority = input.priority;
   if (priority !== "low" && priority !== "medium" && priority !== "high") {

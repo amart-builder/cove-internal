@@ -30,6 +30,13 @@ export function operatorName(
   return runtime.operatorName(dataDir, env);
 }
 
+export function operatorDefaultProject(
+  dataDir?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return runtime.operatorDefaultProject(dataDir, env);
+}
+
 export function operatorTimezone(): string {
   return runtime.operatorTimezone();
 }
