@@ -35,7 +35,7 @@ test('the recovery notes describe the gate the restore actually has', () => {
   // say which processes the refusal will and will not catch.
   const bullet = operations.match(/- Use `bash scripts\/cove-restore-backup\.sh[^\n]*/);
   assert.ok(bullet, 'OPERATIONS.md no longer documents the restore command');
-  for (const phrase of ['com.cove.*', 'cove-stop.sh', 'started by hand', 'backstop']) {
+  for (const phrase of ['com.cove.*', 'cove-stop.sh', 'started by hand', 'backstop', 'reports success']) {
     assert.ok(bullet[0].includes(phrase), `the restore note must mention ${phrase}`);
   }
 
