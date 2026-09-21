@@ -72,7 +72,16 @@ if database_is_open; then
   exit 1
 fi
 
-"$NODE_REAL" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$BACKUP"
+# A damaged snapshot is caught here, before anything is touched. The verifier
+# prints a SqliteError and a stack, which is the right level of detail for a
+# diagnostic and the wrong one for someone restoring a backup because their
+# data is already in trouble. Say what happened and what to do instead.
+if ! "$NODE_REAL" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$BACKUP"; then
+  echo >&2
+  echo "That backup file is damaged, so Cove did not restore it: $BACKUP" >&2
+  echo "Nothing was changed. Try an older snapshot from $BACKUP_DIR." >&2
+  exit 1
+fi
 
 if [ "$ASSUME_YES" != "1" ]; then
   if [ ! -t 0 ]; then
@@ -92,7 +101,14 @@ TEMP="$DB.restore.$$"
 trap 'rm -f "$TEMP"' EXIT
 cp "$BACKUP" "$TEMP"
 chmod 600 "$TEMP"
-"$NODE_REAL" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$TEMP"
+# The same check on the copy, so a snapshot damaged between the check above and
+# this point cannot reach the database.
+if ! "$NODE_REAL" "$REPO_DIR/scripts/cove-verify-sqlite.mjs" "$TEMP"; then
+  echo >&2
+  echo "The copy of that backup did not verify, so Cove did not restore it." >&2
+  echo "Nothing was changed. Try an older snapshot from $BACKUP_DIR." >&2
+  exit 1
+fi
 
 STAMP="$(date +%Y%m%d-%H%M%S)-$$"
 if [ -f "$DB" ]; then
