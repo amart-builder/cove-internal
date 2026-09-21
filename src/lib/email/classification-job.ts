@@ -288,6 +288,11 @@ export function createEmailClassificationHandler(input: {
       const quote = normalizedEvidence(commitment.sourceQuote);
       return Boolean(quote) && sourceEvidence.includes(quote);
     });
+    // A quote that is not in the mail is a commitment nobody agreed to, so
+    // dropping it is the point of this filter. It is still worth counting on
+    // the receipt: a lane that quietly discards what the model found gives
+    // nothing to look at when the person says a commitment never appeared.
+    const droppedCommitments = (result.commitments?.length ?? 0) - groundedCommitments.length;
     const applied = applyEmailClassification({
       messageId: claim.messageId,
       emailItemId: claim.emailItemId,
@@ -440,6 +445,8 @@ export function createEmailClassificationHandler(input: {
         cause: applied.cause,
         bucket: result.bucket,
         operationId: applied.operationId,
+        commitments: groundedCommitments.length,
+        commitmentsDropped: droppedCommitments,
       },
     };
   };

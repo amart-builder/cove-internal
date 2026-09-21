@@ -154,14 +154,37 @@ export function draftBodyToHtml(normalized: string, signatureHtml?: string): str
   return `<div dir="ltr">${body}${signature}</div>`;
 }
 
-function decodeEntities(text: string): string {
+/**
+ * Shared with the Google gateway, which strips the tags off an HTML-only email
+ * and needs the same decoding afterwards. Kept here because this is the module
+ * that already owns Cove's HTML-to-text handling.
+ */
+export function decodeHtmlEntities(text: string): string {
+  // The punctuation a mail composer emits for ordinary typing, plus the five
+  // structural entities. Anything outside this list is left as written;
+  // numeric references below already cover the rest.
   const named: Record<string, string> = {
     amp: "&",
     apos: "'",
+    bull: "\u2022",
+    copy: "\u00a9",
+    deg: "\u00b0",
+    euro: "\u20ac",
     gt: ">",
+    hellip: "\u2026",
+    ldquo: "\u201c",
+    lsquo: "\u2018",
     lt: "<",
+    mdash: "\u2014",
+    middot: "\u00b7",
     nbsp: " ",
+    ndash: "\u2013",
+    pound: "\u00a3",
     quot: '"',
+    rdquo: "\u201d",
+    reg: "\u00ae",
+    rsquo: "\u2019",
+    trade: "\u2122",
   };
   return text.replace(/&(#(?:x[0-9a-f]+|\d+)|[a-z]+);/gi, (entity, key: string) => {
     if (key[0] !== "#") return named[key.toLowerCase()] ?? entity;
@@ -177,7 +200,7 @@ function decodeEntities(text: string): string {
 }
 
 export function signatureHtmlToText(signatureHtml: string): string {
-  return decodeEntities(
+  return decodeHtmlEntities(
     signatureHtml
       .replace(/<!--[^]*?-->/g, "")
       .replace(/<(?:script|style)\b[^>]*>[^]*?<\/(?:script|style)>/gi, "")
