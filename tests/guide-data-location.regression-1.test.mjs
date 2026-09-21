@@ -36,6 +36,13 @@ test('a hosted runtime is told nothing about a local folder', () => {
   }
 });
 
+// A prerendered guide would name the folder the build ran in, not the one the
+// install opens, and would look right on the machine that built it.
+test('the guide is rendered when it is asked for, not when it was built', () => {
+  const route = typeof guideRoute.default === 'function' ? guideRoute : guideRoute.default;
+  assert.equal(route.dynamic ?? guideRoute.dynamic, 'force-dynamic');
+});
+
 test('the guide says where work is kept and what leaves the Mac', () => {
   const source = readFileSync(new URL('../src/app/guide/content.tsx', import.meta.url), 'utf8');
   assert.match(source, /Where your work is kept/);
