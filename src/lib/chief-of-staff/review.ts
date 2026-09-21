@@ -217,6 +217,13 @@ export async function runChiefOfStaffReview(input: {
     reason: "The weekly fresh-context review is ready for you.",
     source: "chief-of-staff-review",
     reviewMaterial: file,
+    // Accepting this files the card into "Must happen today", and a card there
+    // with no due_at is one no reminder lane can select and the stale watchdog
+    // does not cover. The day is not invented: it is the day Cove has already
+    // chosen by putting the card in that column, on the operator's clock rather
+    // than the machine's, since a review written on Sunday evening in Los
+    // Angeles is already Monday in UTC.
+    dueDate: localDateInTimezone(now, timezone),
     claimKey: `cos-review:${week}`,
     dataDir: input.dataDir,
   });

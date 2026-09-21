@@ -1,4 +1,5 @@
 import { notificationUrl } from "../attention/notification-links.mjs";
+import { cleanAttentionText, sanitizeNonDirectBanner } from "../attention/safety.mjs";
 /**
  * Source-to-task intake coordinator.
  *
@@ -426,13 +427,52 @@ function runBestEffort(
   });
 }
 
+/**
+ * What an immediate capture is allowed to put on the screen.
+ *
+ * The rule is the one scripts/cove-reminders.mjs states at its own
+ * notifyNative call: a title written by someone else is sanitized and labelled
+ * before it borrows Cove's credibility. A banner carries Cove's name, so an
+ * unlabelled one reads as Cove speaking.
+ *
+ * enforceSurfacePolicy already gets the harder half right -- an email or
+ * meeting capture marked `surface: "now"` never reaches the phone. This is the
+ * banner it does still produce. `triage.title` is the model's wording of the
+ * capture, and under an email capture the words beneath it are a stranger's,
+ * so "Confirm your account at pay.example" used to appear over Cove's name
+ * with nothing to say otherwise.
+ *
+ * A direct source keeps its words; it is only cleaned, the way the reminder
+ * runner cleans a title the owner wrote.
+ */
+export function urgentBannerText(title: string, source: string): string {
+  if (DIRECT_AUTHOR_SOURCES.has(source as IntakeSource)) {
+    return cleanAttentionText(title) || "Open Cove to review this item.";
+  }
+  const prefix = source === "email"
+    ? "from email"
+    : source === "meeting"
+      ? "from meeting"
+      : source
+        ? `from ${source}`
+        : "from unknown source";
+  return sanitizeNonDirectBanner(title, prefix);
+}
+
 async function defaultNotifyNow(
   title: string,
   options: CoveIntakeOptions,
   taskId: string,
 ): Promise<void> {
   const repoDir = options.repoDir ?? MODULE_REPO_DIR;
-  const notificationCommand = nativeNotificationCommand(title, {
+  // Only a direct source reaches this function: enforceSurfacePolicy turns an
+  // email or meeting capture marked "now" into a board item before it gets
+  // here, so these are the owner's own words and keep their content. They are
+  // still cleaned, the way the reminder runner cleans a title the owner wrote:
+  // an invisible or bidi character makes what Cove stored and what the person
+  // reads two different strings whoever typed it.
+  const banner = cleanAttentionText(title) || "Open Cove to review this item.";
+  const notificationCommand = nativeNotificationCommand(banner, {
     title: "Cove",
     subtitle: "Needs attention",
     openUrl: notificationUrl({ taskId }),
@@ -442,7 +482,7 @@ async function defaultNotifyNow(
   const [channelDelivered, nativeDelivered] = await Promise.all([
     runBestEffort(
       process.execPath,
-      [path.join(repoDir, "scripts", "cove-notify.mjs"), `Cove: ${title}`],
+      [path.join(repoDir, "scripts", "cove-notify.mjs"), `Cove: ${banner}`],
       options,
     ),
     process.platform === "darwin"
@@ -461,11 +501,12 @@ async function defaultNotifyNow(
 
 async function notifyNativeOnly(
   title: string,
+  source: string,
   options: CoveIntakeOptions,
   taskId: string,
 ): Promise<void> {
   if (process.platform !== "darwin") return;
-  const command = nativeNotificationCommand(title, {
+  const command = nativeNotificationCommand(urgentBannerText(title, source), {
     title: "Cove",
     subtitle: "Needs attention",
     openUrl: notificationUrl({ taskId }),
@@ -592,7 +633,7 @@ export async function triageRecordedEvent(
   );
   await surfaceTriage(taskId, policy.triage, runtimeOptions);
   if (policy.nativeOnly) {
-    await notifyNativeOnly(policy.triage.title, runtimeOptions, taskId);
+    await notifyNativeOnly(policy.triage.title, event.source, runtimeOptions, taskId);
   }
   return true;
 }

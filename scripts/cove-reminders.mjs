@@ -2,6 +2,16 @@
 import { executeNotificationDelivery } from "../src/lib/notifications/delivery-receipts.mjs";
 import { drainNotificationReminders } from "../src/lib/notifications/reminders.mjs";
 import { notificationUrl } from "../src/lib/attention/notification-links.mjs";
+// The two names below used to be local copies of these functions, byte for
+// byte. That is how the invisible-character bypass stayed open here after it
+// was closed in safety.mjs: a fix to one copy was invisible to the other, and
+// this is the copy that runs every minute from com.cove.reminders and feeds
+// Telegram and iMessage as well as the Mac banner. Importing rather than
+// re-copying is what stops them drifting apart again.
+import {
+  cleanAttentionText as plainAttentionText,
+  sanitizeNonDirectBanner as sanitizedNonDirectText,
+} from "../src/lib/attention/safety.mjs";
 /**
  * Cove reminder helper. Run every minute by the com.cove.reminders LaunchAgent.
  *
@@ -23,6 +33,7 @@ import { notificationUrl } from "../src/lib/attention/notification-links.mjs";
  */
 import Database from "better-sqlite3";
 import { unseenFloorCandidates, recordFloorNotice, releaseFloorNotice } from "../src/lib/attention/floor-state.mjs";
+import { dueCalendarDay, dueInstant } from "../src/lib/attention/due-date.mjs";
 import { localDateKey as dateInZone } from "../src/lib/local-time.mjs";
 import { loadCoveRuntimePaths } from "./lib/cove-runtime-paths.mjs";
 import { readAgentSettings } from "../src/lib/agent-settings.mjs";
@@ -213,26 +224,6 @@ function attentionNow() {
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 }
 
-function plainAttentionText(value) {
-  return String(value ?? "")
-    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
-    .replace(/[\u2013\u2014]/g, ":")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function sanitizedNonDirectText(value, provenance) {
-  const sanitized = plainAttentionText(value)
-    .replace(/\b(?:https?:\/\/|www\.)\S+/gi, "")
-    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "")
-    .replace(/(?:\+?\d[\d().\s-]{6,}\d)/g, "")
-    .replace(/\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?\b/gi, "")
-    .replace(/\s+/g, " ")
-    .replace(/\s+([,.;:!?])/g, "$1")
-    .trim();
-  return `${provenance}: ${sanitized || "Open Cove to review this item."}`.slice(0, 180);
-}
-
 function taskProvenance(task) {
   if (DIRECT_AUTHOR_SOURCES.has(task.inbound_source)) {
     return { direct: true, prefix: "from you" };
@@ -255,6 +246,27 @@ function taskProvenance(task) {
     direct: false,
     prefix: task.inbound_source ? `from ${task.inbound_source}` : "from unknown source",
   };
+}
+
+// The scheduled-reminder equivalent of taskProvenance. It reads a JSON entry
+// rather than a row, and it deliberately differs on one case: an entry with no
+// recorded source is treated as outside words, where a task with no inbound
+// event is treated as the owner's. A task row proves the absence -- it joined
+// against inbound_events and found nothing. An entry only fails to carry a
+// field, which older files do, and the safe reading of a missing field is the
+// one that labels rather than the one that vouches. It also matches what the
+// text branch of fireScheduledReminders has always done with the same value.
+function scheduledProvenance(entry) {
+  const source = entry.source;
+  if (DIRECT_AUTHOR_SOURCES.has(source)) return { direct: true, prefix: "from you" };
+  if (source === "email") return { direct: false, prefix: "from email" };
+  if (isMeetingDerivedScheduled(entry)) return { direct: false, prefix: "from meeting" };
+  return { direct: false, prefix: source ? `from ${source}` : "from unknown source" };
+}
+
+function isMeetingDerivedScheduled(entry) {
+  return String(entry.source ?? "").toLowerCase() === "meeting" ||
+    String(entry.source_type ?? "").toLowerCase().startsWith("meeting");
 }
 
 function isMeetingDerivedTask(task) {
@@ -345,8 +357,8 @@ async function runDeterministicFloor(db, config, token, now = new Date()) {
         AND tasks.due_at IS NOT NULL
       ORDER BY tasks.due_at, tasks.position, tasks.id`,
   ).all().filter(row => {
-    const day = /^\d{4}-\d{2}-\d{2}$/.test(row.due_at) ? row.due_at :
-      Number.isFinite(Date.parse(row.due_at)) ? localDateKey(new Date(row.due_at)) : null;
+    const day = dueCalendarDay(row.due_at) ??
+      (Number.isFinite(Date.parse(row.due_at)) ? localDateKey(new Date(row.due_at)) : null);
     return day !== null && day <= today;
   });
   const commitments = db.prepare(
@@ -360,8 +372,8 @@ async function runDeterministicFloor(db, config, token, now = new Date()) {
         AND trim(counterparty) <> ''
       ORDER BY due_at, id`,
   ).all().filter(row => {
-    const day = /^\d{4}-\d{2}-\d{2}$/.test(row.due_at) ? row.due_at :
-      Number.isFinite(Date.parse(row.due_at)) ? localDateKey(new Date(row.due_at)) : null;
+    const day = dueCalendarDay(row.due_at) ??
+      (Number.isFinite(Date.parse(row.due_at)) ? localDateKey(new Date(row.due_at)) : null);
     return day !== null && day <= today;
   });
   const candidates = [
@@ -446,7 +458,7 @@ async function runDeterministicFloor(db, config, token, now = new Date()) {
 
   for (const candidate of unseenFloorCandidates(db, open)) {
     const title = plainAttentionText(candidate.nextAction || candidate.title) || "Item";
-    const dueDay = /^\d{4}-\d{2}-\d{2}$/.test(candidate.dueAt) ? candidate.dueAt : localDateKey(new Date(candidate.dueAt));
+    const dueDay = dueCalendarDay(candidate.dueAt) ?? localDateKey(new Date(candidate.dueAt));
     const dueLabel = dueDay < today ? "Overdue and still open in Cove" : "Due today and still open in Cove";
     const reason = `${dueLabel}: ${title}. Choose the next step or a new date in Cove.`;
     const allocation = allocateAttention(db, {
@@ -512,7 +524,15 @@ function recordDeliveryFailure(db, input) {
   const occurredAt = new Date().toISOString();
   const source = "reminder-delivery";
   const sourceId = `${input.kind}:${input.id}`.slice(0, 240);
-  const title = String(input.title).slice(0, 1000);
+  // What reaches the person is the labelled, sanitized title -- the same string
+  // that went on the banner. The Issues screen renders this through
+  // reminderFailureMessage (src/lib/reliability/failures.ts:35), so a raw title
+  // here puts an email's own words on one of Cove's screens, in quotation marks
+  // and nothing else, which is the gap findings 46-51 closed everywhere but on
+  // the path that only runs once delivery has already failed. Nothing is lost
+  // for investigation: details carries the task id, and the task row keeps its
+  // own title.
+  const title = String(input.bannerTitle ?? input.title).slice(0, 1000);
   const failure = String(input.error).slice(0, 4000);
   const deliveryLabel = input.channel === "native" ? "Native reminder" : "Text reminder";
   const message = `${deliveryLabel} failed for "${title}": ${failure}`
@@ -602,6 +622,7 @@ function recordNativeOnlyFailure(db, input) {
       kind: input.kind,
       id: input.id,
       title: input.title,
+      bannerTitle: input.bannerTitle,
       channel: "native",
       error: input.error,
     });
@@ -613,14 +634,41 @@ function recordNativeOnlyFailure(db, input) {
   }
 }
 
-/** Parse a due_at into a Date, treating date-only values as 9am LOCAL (not UTC). */
+/**
+ * Parse a due_at into a Date, treating a calendar day as 9am LOCAL (not UTC).
+ *
+ * dueCalendarDay decides which values are a day. Both forms count: a bare
+ * YYYY-MM-DD, and the YYYY-MM-DDT00:00:00.000Z that Cove's own date pickers
+ * write. Reading the second as the instant it literally is rang the card on
+ * the evening before the day the board showed.
+ */
 function dueTime(raw) {
-  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T09:00:00` : raw;
-  return new Date(normalized);
+  return dueInstant(raw);
 }
 
-function fireScheduledReminders(db, config, token) {
-  const directory = path.join(path.dirname(dbPath), "reminders");
+/**
+ * When a scheduled reminder is owed.
+ *
+ * surface_at is always a moment, never a calendar day: the triage model emits
+ * a timestamp and intake falls back to the instant of capture. So the UTC
+ * midnight that dueTime reads as a day is a real midnight here, and must not
+ * be moved to 9am. Only the bare YYYY-MM-DD form, which carries no time at
+ * all, gets an hour put on it -- the behaviour this lane has always had.
+ */
+function surfaceTime(raw) {
+  return new Date(
+    /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T09:00:00` : raw,
+  );
+}
+
+function fireScheduledReminders(db, config, token, now = attentionNow()) {
+  // These files are written by the intake lane, which resolves its directory
+  // as COVE_DATA_DIR first and the database's directory only as a fallback.
+  // Reading from the database's directory meant that on an install where the
+  // two differ — a configuration this repo's own tests cover — every scheduled
+  // reminder was written somewhere nothing ever looked, and a commitment Cove
+  // had accepted simply never came back.
+  const directory = path.join(dataDir, "reminders");
   if (!existsSync(directory)) return;
   for (const name of readdirSync(directory).filter((value) =>
     /^scheduled-.*\.json$/.test(value)
@@ -633,13 +681,39 @@ function fireScheduledReminders(db, config, token) {
       console.error(`Scheduled reminder ${name} is unreadable:`, error.message);
       continue;
     }
-    const when = dueTime(entry.surface_at);
-    if (Number.isNaN(when.getTime()) || when.getTime() > Date.now()) continue;
-    const title = entry.title || "Task";
+    const when = surfaceTime(entry.surface_at);
+    if (Number.isNaN(when.getTime()) || when.getTime() > now.getTime()) continue;
+    // Cove holds its own automatic notifications to daytime everywhere else:
+    // firePredeadlineNudges below, the Apple Reminders bridge, and the meeting
+    // analyst's remind_at rule. This path had no window, and com.cove.reminders
+    // runs every 60 seconds around the clock, so a scheduled reminder that came
+    // due at 3am rang at 3am -- a Mac banner and a phone text.
+    //
+    // surface_at is not a time the operator chose. The triage prompt asks the
+    // model when the card should surface and its only timestamp is NOW in UTC,
+    // so a late hour is a reasonable answer and 3am is what a misread offset
+    // costs. surface: "now" is exempt: it is written at the moment of capture,
+    // so the person is already at the machine.
+    //
+    // The file is left in place rather than consumed, so the next pass inside
+    // the window delivers it. Waiting must not mean discarded.
+    if (entry.surface !== "now" && !insideNudgeDeliveryWindow(now)) continue;
+    const provenance = scheduledProvenance(entry);
+    const title = plainAttentionText(entry.title) || "Task";
+    // The rule the due lane and the attention floor both state at their own
+    // notifyNative calls: a title written by someone else is sanitized and
+    // labelled before it borrows Cove's credibility. This lane was the one
+    // that did neither. entry.title is the triage model's wording of a
+    // capture, and under an email capture the words are a stranger's, so an
+    // unlabelled banner reading "Here's your reminder: confirm your account
+    // at pay.example" arrived over Cove's name with nothing to say otherwise.
+    const bannerTitle = provenance.direct
+      ? title
+      : sanitizedNonDirectText(entry.title, provenance.prefix);
     try {
       let nativeFailure = null;
       try {
-        notifyNative(title, entry.task_id ?? entry.id);
+        notifyNative(bannerTitle, entry.task_id ?? entry.id);
       } catch (error) {
         nativeFailure = errorMessage(error);
         console.error(
@@ -651,14 +725,17 @@ function fireScheduledReminders(db, config, token) {
       const meetingDerived = String(entry.source ?? "").toLowerCase() === "meeting" ||
         String(entry.source_type ?? "").toLowerCase().startsWith("meeting");
       if (textExpected && !meetingDerived) {
-        const directAuthor = DIRECT_AUTHOR_SOURCES.has(entry.source);
         deliverTextReminder(db, config, token, {
           kind: "scheduled",
           id: entry.id ?? name,
           taskId: entry.task_id,
           nativeDelivered: nativeFailure === null,
           title,
-          message: directAuthor
+          // notifyTextFailure falls back to input.title when no bannerTitle is
+          // given, so without this the raw title reached a banner by the other
+          // door: the one a failed text opens.
+          bannerTitle,
+          message: provenance.direct
             ? `Cove reminder: ${title}`
             : CONTENT_FREE_REMINDER,
         });
@@ -667,6 +744,7 @@ function fireScheduledReminders(db, config, token) {
           kind: "scheduled",
           id: entry.id ?? name,
           title,
+          bannerTitle,
           error: nativeFailure,
         });
       }
@@ -742,6 +820,12 @@ async function firePredeadlineNudges(db, dueTaskIds, now) {
           CASE
             WHEN length(tasks.due_at) = 10
               THEN julianday(tasks.due_at || 'T09:00:00', 'utc')
+            -- The other calendar-day form, written by Cove's own date pickers.
+            -- See src/lib/attention/due-date.mjs; read as the instant it
+            -- literally is, this gate closed a day early.
+            WHEN tasks.due_at LIKE '____-__-__T00:00:00Z'
+              OR tasks.due_at LIKE '____-__-__T00:00:00.000Z'
+              THEN julianday(substr(tasks.due_at, 1, 10) || 'T09:00:00', 'utc')
             ELSE julianday(tasks.due_at)
           END > julianday(?)
         )
@@ -817,6 +901,9 @@ async function firePredeadlineNudges(db, dueTaskIds, now) {
         kind: "nudge",
         id: task.id,
         title,
+        bannerTitle: provenance.direct
+          ? title
+          : sanitizedNonDirectText(title, provenance.prefix),
         error: errorMessage(error),
       });
     }
@@ -841,12 +928,17 @@ async function main() {
     // Scheduled native notifications can still fire before Cove has a database.
   }
   if (db) db.pragma("busy_timeout = 5000");
-  fireScheduledReminders(db, config, token);
-  if (!db) return;
   const now = attentionNow();
+  fireScheduledReminders(db, config, token, now);
+  if (!db) return;
+  // Deliberately the database's directory, not dataDir: the "remind me later"
+  // button writes these through /api/notifications, which resolves the same
+  // way (dirname of the local database). Both sides agree; changing one alone
+  // would strand them.
   try { drainNotificationReminders({db, dataDir:path.dirname(dbPath), now,
     notify:task=>notifyNative(sanitizedNonDirectText(plainAttentionText(task.title), "your requested reminder"),task.id),
-    onFailure:failure=>recordNativeOnlyFailure(db,{kind:"notification-repeat",...failure}),
+    onFailure:failure=>recordNativeOnlyFailure(db,{kind:"notification-repeat",...failure,
+      bannerTitle:sanitizedNonDirectText(plainAttentionText(failure.title), "your requested reminder")}),
   }); } catch (error) { console.error("Requested reminder check failed:", errorMessage(error)); }
   // Only explicit new agent settings activate the additional native checks.
   // Existing installs keep their reminder behavior until their setup is changed.
@@ -855,7 +947,7 @@ async function main() {
     await runFollowThrough({ db, now, timezone: operatorTimezone(),
       calendar: async () => {
         const { createGoogleWorkspaceGateway } = await import("../src/lib/workspace/google/gateway.ts");
-        return createGoogleWorkspaceGateway({ dataDir: path.dirname(dbPath) }).calendar ?? null;
+        return createGoogleWorkspaceGateway({ dataDir }).calendar ?? null;
       },
       notify: ({ id, message, taskId }) => {
         const command = nativeNotificationCommand(message, { title: "Cove", subtitle: "On your radar", group: `follow-through-${id}`,
@@ -946,6 +1038,9 @@ async function main() {
         kind: "task",
         id: task.id,
         title,
+        bannerTitle: provenance.direct
+          ? title
+          : sanitizedNonDirectText(title, provenance.prefix),
         error: nativeFailure,
       });
     }

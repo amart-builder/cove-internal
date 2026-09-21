@@ -3,6 +3,7 @@
 import { createHash } from 'node:crypto';
 import { allocateAttention, finalizeAttentionDelivery } from './ledger.mjs';
 import { cleanAttentionText, sanitizeAttentionContent } from './safety.mjs';
+import { dueCalendarDay } from './due-date.mjs';
 
 export const FOLLOW_THROUGH_SCHEMA = `
 CREATE TABLE IF NOT EXISTS cove_follow_through_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
@@ -147,22 +148,26 @@ export async function runFollowThrough({ db, now = new Date(), timezone, calenda
  const tasks = db.prepare("SELECT id,title,due_at,notification_policy,engaged_at,remind_native,remind_at FROM tasks WHERE status='open' AND archived_at IS NULL AND due_at IS NOT NULL AND remind_native=1 AND (notification_policy IS NULL OR notification_policy <> 'none')").all();
  for (const task of tasks) {
   if (task.engaged_at && now-new Date(task.engaged_at)<60*MINUTE) continue;
-  const dateOnly=/^\d{4}-\d{2}-\d{2}$/.test(task.due_at); const due=Date.parse(task.due_at);
+  // dueCalendarDay covers both forms a calendar date is stored in; see
+  // due-date.mjs. Read as the instant it literally is, the date picker's UTC
+  // midnight staged a card a day early for every operator west of UTC, and
+  // previousDate below needs the day on its own rather than the whole string.
+  const dueDay=dueCalendarDay(task.due_at); const dateOnly=dueDay!==null; const due=Date.parse(task.due_at);
   if (!Number.isFinite(due)) continue;
   let stage;
   // Date-only means a day, never a made-up 9am deadline. Offer prep at 3pm on
   // the preceding local day; explicit remind_at keeps its existing owner.
-  if (task.notification_policy !== 'due' && !task.remind_at && (dateOnly ? local.date===previousDate(task.due_at) && local.hour>=15 : +now>=due-60*MINUTE && +now<due)) stage='advance';
-  if (task.notification_policy !== 'predeadline' && (dateOnly ? local.date>task.due_at : +now>=due+86400000)) stage=`overdue:${local.date}`;
+  if (task.notification_policy !== 'due' && !task.remind_at && (dateOnly ? local.date===previousDate(dueDay) && local.hour>=15 : +now>=due-60*MINUTE && +now<due)) stage='advance';
+  if (task.notification_policy !== 'predeadline' && (dateOnly ? local.date>dueDay : +now>=due+86400000)) stage=`overdue:${local.date}`;
   if (stage) candidates.push({kind:'task',ref:task.id,due:task.due_at,stage,title:safeTitle(task.title)});
  }
  // Accepted promises and waiting-on commitments also need deterministic
  // coverage; they need not first be copied into the task board.
  for(const commitment of db.prepare("SELECT id,title,due_at FROM commitments WHERE status='open' AND confirmed=1 AND kind<>'idea' AND due_at IS NOT NULL").all()) {
-  const dateOnly=/^\d{4}-\d{2}-\d{2}$/.test(commitment.due_at);const due=Date.parse(commitment.due_at);if(!Number.isFinite(due))continue;
+  const dueDay=dueCalendarDay(commitment.due_at);const dateOnly=dueDay!==null;const due=Date.parse(commitment.due_at);if(!Number.isFinite(due))continue;
   let stage;
-  if(dateOnly?local.date===previousDate(commitment.due_at)&&local.hour>=15:+now>=due-60*MINUTE&&+now<due)stage='advance';
-  if(dateOnly?local.date>commitment.due_at:+now>=due)stage=`overdue:${local.date}`;
+  if(dateOnly?local.date===previousDate(dueDay)&&local.hour>=15:+now>=due-60*MINUTE&&+now<due)stage='advance';
+  if(dateOnly?local.date>dueDay:+now>=due)stage=`overdue:${local.date}`;
   if(stage)candidates.push({kind:'commitment',ref:commitment.id,due:commitment.due_at,stage,title:safeTitle(commitment.title)});
  }
  const cached=state(db,'calendar');

@@ -779,7 +779,13 @@ function applyChiefOfStaffActionsWithDetails(input: {
           if(existingTaskWithTitle(db,title,now))throw new Error("A task with this title already exists. Read the current task.");
           const due=optionalActionText(action,"due_at",40);validateChiefOfStaffDueAt(due,"due_at");
           const description=[optionalActionText(action,"details",5000),due?`Proposed deadline, not yet confirmed: ${proposedDeadlineLabel(due)}`:null].filter(Boolean).join("\n");
-          createWorkSuggestion({kind:"create_task",title,description,reason:requiredActionText(action,"why",200),source:"chief-of-staff",priority:priority(action.priority),
+          // The deadline travels as a value as well as a sentence. Accepting is
+          // the confirmation this downgrade was waiting for, and an accepted
+          // card with no due_at is one no reminder lane can select: the person
+          // would be left holding a card that names its own deadline in prose
+          // and has none. The suggest branch below carries its own date the
+          // same way.
+          createWorkSuggestion({kind:"create_task",title,description,reason:requiredActionText(action,"why",200),source:"chief-of-staff",priority:priority(action.priority),dueDate:due,
             claimKey:`cos:proposed:${createHash("sha256").update(normalizedTaskTitle(title)).digest("hex").slice(0,24)}`,dataDir:input.dataDir});
           action.downgraded_to="suggest";
           downgrades.push({kind:"task_create",reason:"new_work_requires_confirmation"});

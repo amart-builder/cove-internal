@@ -33,13 +33,21 @@ export const TRIAGE_JSON_SCHEMA = JSON.stringify({
     "offer",
   ],
   properties: {
-    title: { type: "string", maxLength: 240 },
-    description: { type: "string", maxLength: 4000 },
-    project: { type: "string", maxLength: 160 },
+    // minLength is not decoration. validateTriageOutput rejects an empty or
+    // whitespace-only string outright, and a schema that permits one lets the
+    // model spend an attempt on an answer the contract will refuse.
+    title: { type: "string", minLength: 1, maxLength: 240 },
+    description: { type: "string", minLength: 1, maxLength: 4000 },
+    project: { type: "string", minLength: 1, maxLength: 160 },
     priority: { enum: ["low", "medium", "high"] },
     due_at: { type: "string", format: "date-time", maxLength: 64 },
     autonomy: { enum: ["none", "groundwork", "nearly_done"] },
-    groundwork_notes: { type: ["string", "null"], maxLength: 2000 },
+    groundwork_notes: {
+      anyOf: [
+        { type: "string", minLength: 1, maxLength: 2000 },
+        { type: "null" },
+      ],
+    },
     surface: { enum: ["now", "scheduled", "board"] },
     surface_at: {
       anyOf: [
@@ -47,8 +55,8 @@ export const TRIAGE_JSON_SCHEMA = JSON.stringify({
         { type: "null" },
       ],
     },
-    urgency_reason: { type: "string", maxLength: 600 },
-    offer: { type: "string", maxLength: 600 },
+    urgency_reason: { type: "string", minLength: 1, maxLength: 600 },
+    offer: { type: "string", minLength: 1, maxLength: 600 },
   },
 });
 

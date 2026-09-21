@@ -108,7 +108,7 @@ export function diagnosticCause(diagnostic: string): { cause: string; remedy: st
     // "Please". The anchors below now catch that too, and the order is the
     // cheaper of the two guards.
     cause = " Cove could not reach the internet when it ran.";
-  } else if (/\blease\b/i.test(diagnostic)) {
+  } else if (/(?<![a-z])lease(?![a-z])/i.test(diagnostic)) {
     cause = " The background worker stopped before finishing.";
   }
   return { cause, remedy };
