@@ -62,6 +62,11 @@ test("a scheduled reminder in the configured data directory still fires", (t) =>
       COVE_REMINDER_CONFIG_PATH: path.join(files.dir, "missing-reminders.json"),
       COVE_TEST_CALLS: files.calls,
       COVE_NOTIFICATION_APP: "/nonexistent",
+      // The runner holds a scheduled reminder outside 08:00-20:00 operator
+      // time. This case is about which directory is read, not the window, so
+      // its clock is pinned rather than left to read the wall clock.
+      COVE_ATTENTION_NOW: "2026-09-22T19:30:00Z",
+      COVE_TIMEZONE: "America/Los_Angeles",
     },
   });
 
