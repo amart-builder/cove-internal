@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { parseColor, over, contrast } from './helpers/contrast.mjs';
 
 // Dark mode had three places where a light-theme colour was left behind, and
 // each of them put text under the 4.5:1 that WCAG AA asks for small text. They
@@ -8,44 +9,6 @@ import { readFileSync } from 'node:fs';
 // person to reach for a colour here finds out before a user does.
 
 const css = readFileSync(new URL('../src/app/globals.css', import.meta.url), 'utf8');
-
-function parseColor(value) {
-  const text = value.trim();
-  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(text);
-  if (hex) {
-    const d = hex[1].length === 3 ? [...hex[1]].map((c) => c + c) : hex[1].match(/../g);
-    return { r: parseInt(d[0], 16), g: parseInt(d[1], 16), b: parseInt(d[2], 16), a: 1 };
-  }
-  const fn = /^rgba?\(([^)]+)\)$/i.exec(text);
-  if (fn) {
-    const parts = fn[1].split(/[\s,/]+/).filter(Boolean).map(Number);
-    return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 };
-  }
-  throw new Error(`cannot read colour ${value}`);
-}
-
-function over(fg, bg) {
-  return {
-    r: fg.a * fg.r + (1 - fg.a) * bg.r,
-    g: fg.a * fg.g + (1 - fg.a) * bg.g,
-    b: fg.a * fg.b + (1 - fg.a) * bg.b,
-    a: 1,
-  };
-}
-
-function luminance({ r, g, b }) {
-  const channel = (v) => {
-    const s = v / 255;
-    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-}
-
-function contrast(fg, bg) {
-  const l1 = luminance(fg);
-  const l2 = luminance(bg);
-  return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
-}
 
 /** The value a rule declares for one property, read out of the stylesheet. */
 function declaration(selector, property, { nth = 0 } = {}) {
