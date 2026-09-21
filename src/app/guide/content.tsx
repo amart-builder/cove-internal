@@ -111,10 +111,11 @@ export default function GuidePage({ dataFolder }: { dataFolder?: string }) {
                   Where your work is kept
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Everything Cove knows sits in one folder on this Mac:{" "}
-                  <span className="break-all font-mono text-xs text-foreground">{dataFolder}</span>. There is no Cove
-                  account and no Cove server holding a copy, and Cove is installed to answer only on this Mac, so
-                  nothing else on your network can open it.
+                  Your work — tasks, plans, briefs, people — lives in one folder on this Mac:{" "}
+                  <span className="break-all font-mono text-xs text-foreground">{dataFolder}</span>. Cove keeps its own
+                  logs in your Library folder, and any account you connect keeps its sign-in in the Mac&rsquo;s Keychain.
+                  There is no Cove account and no Cove server holding a copy, and Cove is installed to answer only on
+                  this Mac, so nothing else on your network can open it.
                 </p>
                 <p className="mt-3 text-sm leading-6 text-muted-foreground">
                   Two things do leave the Mac, and only for the features you turn on: the model provider you chose is
