@@ -65,6 +65,9 @@ test('backup and restore round trip preserves rows and schema', async (t) => {
         ...process.env,
         COVE_DB_PATH: dbPath,
         COVE_BACKUP_DIR: backupDir,
+        // This restore targets a scratch database, not the installed one, so the
+        // script's "is any Cove service loaded" gate does not apply.
+        COVE_RESTORE_ALLOW_RUNNING: '1',
       },
       encoding: 'utf8',
     },
@@ -180,6 +183,9 @@ test('restore refuses while another process has the database open', async (t) =>
         ...process.env,
         COVE_DB_PATH: dbPath,
         COVE_BACKUP_DIR: backupDir,
+        // This restore targets a scratch database, not the installed one, so the
+        // script's "is any Cove service loaded" gate does not apply.
+        COVE_RESTORE_ALLOW_RUNNING: '1',
       },
       encoding: 'utf8',
     },
@@ -221,6 +227,9 @@ test('restore refuses while another process has the WAL open', async (t) => {
         ...process.env,
         COVE_DB_PATH: dbPath,
         COVE_BACKUP_DIR: backupDir,
+        // This restore targets a scratch database, not the installed one, so the
+        // script's "is any Cove service loaded" gate does not apply.
+        COVE_RESTORE_ALLOW_RUNNING: '1',
       },
       encoding: 'utf8',
     },
@@ -271,6 +280,9 @@ exit 1
         PATH: `${fakeBin}:${process.env.PATH}`,
         COVE_DB_PATH: dbPath,
         COVE_BACKUP_DIR: backupDir,
+        // This restore targets a scratch database, not the installed one, so the
+        // script's "is any Cove service loaded" gate does not apply.
+        COVE_RESTORE_ALLOW_RUNNING: '1',
       },
       encoding: 'utf8',
     },
@@ -340,7 +352,9 @@ test('restore rejects a non-SQLite input before replacing the database', (t) => 
     ['scripts/cove-restore-backup.sh', '--yes', invalid],
     {
       cwd: path.resolve('.'),
-      env: { ...process.env, COVE_DB_PATH: dbPath },
+      // Scratch database, so the "is any Cove service loaded" gate does not
+      // apply; this case is about rejecting a non-SQLite input.
+      env: { ...process.env, COVE_DB_PATH: dbPath, COVE_RESTORE_ALLOW_RUNNING: '1' },
       encoding: 'utf8',
     },
   );
@@ -479,4 +493,74 @@ test('backup command does not recover or notify about unrelated expired leases',
   try { assert.equal(reader.getJob(unrelated.job.id).status, 'leased'); }
   finally { reader.close(); }
   assert.equal(listRecentReceipts({ dbPath: fixture.dbPath, source: 'gmail-operation' }).length, 0);
+});
+
+test('restore refuses while any Cove service is still loaded', async (t) => {
+  // Cove's processes open the database per operation and close it again, so an
+  // idle moment looks unlocked to lsof while the server, the worker and the
+  // five-minute job tick are all running. The loaded-service check is the
+  // actual gate; the open-handle check only closes the remaining race.
+  const root = path.join(
+    os.tmpdir(),
+    `cove-restore-running-${process.pid}-${Date.now()}-${Math.random()}`,
+  );
+  const dbPath = path.join(root, 'cove.db');
+  const backupDir = path.join(root, 'backups');
+  const fakeBin = path.join(root, 'bin');
+  mkdirSync(fakeBin, { recursive: true });
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const db = openLocalDatabase(dbPath);
+  db.close();
+  const backup = await createSqliteBackup({
+    dbPath,
+    backupDir,
+    now: new Date('2026-07-28T15:00:00.000Z'),
+  });
+
+  // launchctl list prints "PID Status Label"; only the label column is read.
+  writeFileSync(
+    path.join(fakeBin, 'launchctl'),
+    '#!/bin/sh\nif [ "$1" = "list" ]; then\n  printf "PID\\tStatus\\tLabel\\n"\n  printf "421\\t0\\tcom.cove.claude-worker\\n"\nfi\nexit 0\n',
+  );
+  chmodSync(path.join(fakeBin, 'launchctl'), 0o755);
+
+  const refused = spawnSync(
+    '/bin/bash',
+    ['scripts/cove-restore-backup.sh', '--yes', backup.path],
+    {
+      cwd: path.resolve('.'),
+      env: {
+        ...process.env,
+        PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+        COVE_DB_PATH: dbPath,
+        COVE_BACKUP_DIR: backupDir,
+        COVE_RESTORE_ALLOW_RUNNING: '0',
+      },
+      encoding: 'utf8',
+    },
+  );
+  assert.equal(refused.status, 1, `stdout:\n${refused.stdout}\nstderr:\n${refused.stderr}`);
+  assert.match(refused.stderr, /com\.cove\.claude-worker/);
+  assert.match(refused.stderr, /scripts\/cove-stop\.sh/);
+
+  // The same restore goes through once nothing is loaded.
+  writeFileSync(path.join(fakeBin, 'launchctl'), '#!/bin/sh\nexit 0\n');
+  chmodSync(path.join(fakeBin, 'launchctl'), 0o755);
+  const allowed = spawnSync(
+    '/bin/bash',
+    ['scripts/cove-restore-backup.sh', '--yes', backup.path],
+    {
+      cwd: path.resolve('.'),
+      env: {
+        ...process.env,
+        PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+        COVE_DB_PATH: dbPath,
+        COVE_BACKUP_DIR: backupDir,
+        COVE_RESTORE_ALLOW_RUNNING: '0',
+      },
+      encoding: 'utf8',
+    },
+  );
+  assert.equal(allowed.status, 0, `stdout:\n${allowed.stdout}\nstderr:\n${allowed.stderr}`);
 });

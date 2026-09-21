@@ -29,6 +29,9 @@ function fixture(t) {
     HOME: path.join(root, "home"),
     PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin:/usr/sbin:/sbin`,
     COVE_NODE_PATH: process.execPath,
+    // Scratch databases under a scratch HOME, so the restore script's "is any
+    // Cove service loaded" gate is about somebody else's installation here.
+    COVE_RESTORE_ALLOW_RUNNING: "1",
   });
   return { root, env };
 }
@@ -111,8 +114,14 @@ test("runtime path resolution preserves explicit settings and canonical/legacy d
   const explicit = path.join(root, "override.db");
   assert.equal(loadCoveRuntimePaths(root, { COVE_DB_PATH: explicit }).dbPath, explicit);
   // Check parity with the app without modifying the caller's environment.
+  // package.json has no "type": "module", so tsx hands a .ts module to a bare
+  // --input-type=module eval as CommonJS: a static named import of a real
+  // export fails with "does not provide an export named". Go through a dynamic
+  // import and accept either shape rather than asserting the interop.
   const check = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e",
-    `import { defaultLocalDatabasePath } from ${JSON.stringify(path.join(sourceRoot, "src/lib/local/database.ts"))}; process.stdout.write(defaultLocalDatabasePath(${JSON.stringify(root)}));`,
+    `const m = await import(${JSON.stringify(path.join(sourceRoot, "src/lib/local/database.ts"))});`
+    + ` const resolve = m.defaultLocalDatabasePath ?? m.default?.defaultLocalDatabasePath;`
+    + ` process.stdout.write(resolve(${JSON.stringify(root)}));`,
   ], { cwd: sourceRoot, env: { PATH: process.env.PATH, COVE_DATA_DIR: privateDir }, encoding: "utf8" });
   assert.equal(check.status, 0, check.stderr);
   assert.equal(check.stdout, canonical);
