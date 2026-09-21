@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
 import http from "node:http";
 import { promisify } from "node:util";
-import { copyFileSync, mkdirSync, readFileSync, readdirSync, symlinkSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync } from "node:fs";
 import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -670,4 +670,201 @@ test("every agent the installer can load is also enabled, before it is loaded", 
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+// The block is extracted and run rather than pattern-matched, so this fails if
+// the guard stops narrowing the file for any reason, not just if a line moves.
+async function runEnvLocalGuard(prepare) {
+  const installer = readFileSync(path.join(ROOT, "scripts/install-cove-local.sh"), "utf8");
+  const start = installer.indexOf('if [ ! -e "$REPO_DIR/.env.local" ]; then');
+  const end = installer.indexOf("local_env_value() {");
+  assert.ok(start > 0 && end > start, "install-cove-local.sh no longer has an .env.local block to extract");
+  const block = installer.slice(start, end);
+  const dir = await mkdtemp(path.join(os.tmpdir(), "cove-envlocal-"));
+  try {
+    await prepare(dir);
+    const harness = path.join(dir, "guard.sh");
+    await writeFile(harness, ["set -euo pipefail", `REPO_DIR=${JSON.stringify(dir)}`, block].join("\n"));
+    await execFileAsync("bash", [harness], { encoding: "utf8" });
+    return (statSync(path.join(dir, ".env.local")).mode & 0o777).toString(8);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test("the installer creates .env.local private", async () => {
+  assert.equal(await runEnvLocalGuard(async () => {}), "600");
+});
+
+test("the installer narrows an .env.local someone wrote by hand first", async () => {
+  // SECURITY_AND_INTEGRATIONS.md promises a mode-0600 .env.local and tells
+  // people to put a Granola API key in it. The setup playbook also has you
+  // write COVE_CHIEF_OF_STAFF or COVE_BRIEF_WEB_BASE into it before the
+  // install, which creates it with the author's umask — normally 0644.
+  const mode = await runEnvLocalGuard(async (dir) => {
+    await writeFile(path.join(dir, ".env.local"), "COVE_CHIEF_OF_STAFF=0\n", { mode: 0o644 });
+    chmodSync(path.join(dir, ".env.local"), 0o644);
+  });
+  assert.equal(mode, "600");
+});
+
+test("the installer leaves an already-private .env.local and its contents alone", async () => {
+  let contents;
+  const mode = await runEnvLocalGuard(async (dir) => {
+    await writeFile(path.join(dir, ".env.local"), "COVE_BRIEF_WEB_BASE=http://127.0.0.1:3201\n", { mode: 0o600 });
+    contents = readFileSync(path.join(dir, ".env.local"), "utf8");
+  });
+  assert.equal(mode, "600");
+  assert.equal(contents, "COVE_BRIEF_WEB_BASE=http://127.0.0.1:3201\n");
+});
+
+test("the installer makes the data directory private, whatever the clone left", async () => {
+  // Every JSON store under data/ is written 0600 into a directory its writer
+  // would create 0700 — but data/ ships in the checkout, so it already exists
+  // at the clone's mode, and cove.db is created by SQLite under the umask.
+  // Measured on a fresh path: the database opener leaves data/ at 755 and
+  // cove.db at 644, while a JSON writer reaching it first leaves it at 700.
+  const installer = readFileSync(path.join(ROOT, "scripts/install-cove-local.sh"), "utf8");
+  const start = installer.indexOf('mkdir -p "$COVE_DATA_DIR"');
+  const end = installer.indexOf("BUDDY_APP_URL=", start);
+  assert.ok(start > 0 && end > start, "install-cove-local.sh no longer narrows the data directory");
+  const block = installer.slice(start, end);
+  const dir = await mkdtemp(path.join(os.tmpdir(), "cove-datadir-"));
+  try {
+    const data = path.join(dir, "data");
+    mkdirSync(data, { recursive: true });
+    chmodSync(data, 0o755);
+    await writeFile(path.join(data, "cove.db"), "");
+    const harness = path.join(dir, "narrow.sh");
+    await writeFile(harness, ["set -euo pipefail", `COVE_DATA_DIR=${JSON.stringify(data)}`, block].join("\n"));
+    await execFileAsync("bash", [harness], { encoding: "utf8" });
+    assert.equal((statSync(data).mode & 0o777).toString(8), "700");
+    assert.ok(readdirSync(data).includes("cove.db"), "narrowing the directory must not disturb what is in it");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("the closing summary names no lane the installer does not install", () => {
+  // AGENTS.md makes "the user has been told exactly which background lanes are
+  // active" a condition of a finished setup, and this summary is where the
+  // operator reads that list. It used to name the attention sweep at 11:30 and
+  // 16:00 unconditionally: com.cove.attention-sweep is retired and deleted by
+  // this same script, and the 11:30/16:00 sweep is com.cove.chief-of-staff-sweep,
+  // which is not installed when the chief of staff is off.
+  const installer = readFileSync(path.join(ROOT, "scripts/install-cove-local.sh"), "utf8");
+  const start = installer.indexOf('echo "Cove is running at $COVE_BRIEF_WEB_BASE');
+  const end = installer.indexOf('elif [ -n "$FOREIGN_SERVER" ]', start);
+  assert.ok(start > 0 && end > start, "install-cove-local.sh no longer has a closing summary to check");
+  // Only what the operator actually reads: the echoed lines, not the comments
+  // around them, which name the retired lanes on purpose.
+  const summary = installer.slice(start, end)
+    .split("\n")
+    .filter(line => !line.trim().startsWith("#"))
+    .join("\n");
+
+  for (const retired of ["attention-sweep", "wake-canary"]) {
+    assert.ok(
+      installer.includes(`rm -f "$LA_DIR/com.cove.${retired}.plist"`),
+      `${retired} is expected to be a lane the installer removes`,
+    );
+    // The lane label, not the word: data/attention-sweep.json outlived
+    // com.cove.attention-sweep and is still read, so the summary may name the
+    // file while never claiming the lane.
+    assert.ok(
+      !summary.includes(`com.cove.${retired}`),
+      `the closing summary still names the retired com.cove.${retired} lane`,
+    );
+  }
+
+  // Every schedule the summary quotes for the chief of staff has to come from
+  // its plists, and the whole claim has to sit behind the install flag.
+  const sweep = readFileSync(path.join(ROOT, "scripts/launchd/com.cove.chief-of-staff-sweep.plist"), "utf8");
+  assert.match(sweep, /<key>Hour<\/key><integer>11<\/integer><key>Minute<\/key><integer>30<\/integer>/);
+  assert.match(sweep, /<key>Hour<\/key><integer>16<\/integer><key>Minute<\/key><integer>0<\/integer>/);
+  const guard = summary.indexOf('if [ "$INSTALL_CHIEF_OF_STAFF_LANE" = "1" ]; then');
+  assert.ok(guard >= 0, "the chief-of-staff summary must be conditional on the lane being installed");
+  for (const time of ["11:30", "16:00"]) {
+    assert.ok(
+      summary.indexOf(time) > guard,
+      `the summary claims ${time} outside the chief-of-staff guard, and nothing runs then without that lane`,
+    );
+  }
+});
+
+test("--status says a disabled lane will not start, instead of 'starts at login'", async (t) => {
+  // `launchctl disable` is a persistent override that outlives a restart and
+  // the plist itself, so after this script's own --disable the plists are
+  // still on disk and the old --status called them "starts at login" — about
+  // services that will not start at all. A disabled lane also files no
+  // failure anywhere, because it never runs, so --status is the only place
+  // this can show up.
+  const dir = await mkdtemp(path.join(os.tmpdir(), "cove-stop-disabled-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const home = path.join(dir, "home");
+  const agents = path.join(home, "Library", "LaunchAgents");
+  const bin = path.join(dir, "bin");
+  mkdirSync(agents, { recursive: true });
+  mkdirSync(bin, { recursive: true });
+  for (const label of [
+    "com.cove.local", "com.cove.local.backup", "com.cove.reminders",
+    "com.cove.jobs", "com.cove.email-triage",
+  ]) {
+    await writeFile(path.join(agents, `${label}.plist`), "<plist/>\n");
+  }
+  // Both shapes macOS has printed for this, plus the two negatives that must
+  // not be read as disabled.
+  await writeFile(path.join(bin, "launchctl"), [
+    "#!/usr/bin/env bash",
+    'case "$1" in',
+    '  print) [ "${2##*/}" = "com.cove.local" ] && exit 0; exit 1 ;;',
+    "  print-disabled)",
+    `    printf 'disabled services = {\\n\\t"com.cove.local.backup" => true\\n\\t"com.cove.reminders" => disabled\\n\\t"com.cove.jobs" => false\\n\\t"com.cove.email-triage" => enabled\\n}\\n' ;;`,
+    "  *) exit 0 ;;",
+    "esac",
+    "",
+  ].join("\n"), { mode: 0o755 });
+
+  const status = execFileSync("bash", [path.join(ROOT, "scripts/cove-stop.sh"), "--status"], {
+    encoding: "utf8",
+    env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}` },
+  });
+  assert.match(status, /com\.cove\.local\.backup\s+not loaded\s+disabled: will not start/);
+  assert.match(status, /com\.cove\.reminders\s+not loaded\s+disabled: will not start/);
+  assert.match(status, /com\.cove\.jobs\s+not loaded\s+starts at login/);
+  assert.match(status, /com\.cove\.email-triage\s+not loaded\s+starts at login/);
+  assert.match(status, /com\.cove\.local\s+loaded\s+starts at login/);
+  assert.match(status, /stays stopped through a restart/);
+  assert.match(status, /install-cove-local\.sh/);
+});
+
+test("--status is unchanged on a Mac where nothing is disabled", async (t) => {
+  // A launchctl that does not answer print-disabled at all stands in for an
+  // older macOS or a command that fails: the report has to fall back to what
+  // it always said rather than calling every lane blocked.
+  const dir = await mkdtemp(path.join(os.tmpdir(), "cove-stop-nodisable-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const home = path.join(dir, "home");
+  const agents = path.join(home, "Library", "LaunchAgents");
+  const bin = path.join(dir, "bin");
+  mkdirSync(agents, { recursive: true });
+  mkdirSync(bin, { recursive: true });
+  await writeFile(path.join(agents, "com.cove.local.backup.plist"), "<plist/>\n");
+  await writeFile(path.join(bin, "launchctl"), [
+    "#!/usr/bin/env bash",
+    'case "$1" in',
+    "  print-disabled) exit 1 ;;",
+    "  print) exit 1 ;;",
+    "  *) exit 0 ;;",
+    "esac",
+    "",
+  ].join("\n"), { mode: 0o755 });
+
+  const status = execFileSync("bash", [path.join(ROOT, "scripts/cove-stop.sh"), "--status"], {
+    encoding: "utf8",
+    env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}` },
+  });
+  assert.match(status, /com\.cove\.local\.backup\s+not loaded\s+starts at login/);
+  assert.doesNotMatch(status, /disabled: will not start/);
+  assert.doesNotMatch(status, /stays stopped through a restart/);
 });

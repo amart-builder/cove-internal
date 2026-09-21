@@ -93,9 +93,17 @@ case "$NODE_REAL" in
     echo "Note: Node is managed by a version manager. If Cove stops starting after you switch Node versions, re-run this script." ;;
 esac
 
+# SECURITY_AND_INTEGRATIONS.md promises a "mode-0600 .env.local" and sends
+# people there to put a Granola API key. That was only true of a file this
+# script created: one written by hand first -- which the setup playbook asks
+# for, to set COVE_CHIEF_OF_STAFF or COVE_BRIEF_WEB_BASE before the install --
+# kept its author's umask, normally 0644, and nothing here narrowed it. This
+# only ever tightens, and only a file Cove already owns.
 if [ ! -e "$REPO_DIR/.env.local" ]; then
   install -m 600 /dev/null "$REPO_DIR/.env.local"
   echo "Created a private empty .env.local. Add optional Cove settings there when needed."
+else
+  chmod 600 "$REPO_DIR/.env.local"
 fi
 local_env_value() {
   "$NODE_REAL" --input-type=module -e '
@@ -115,6 +123,16 @@ COVE_BRIEF_WEB_BASE="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" webBase)"
 WEB_HOST="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" host)"
 WEB_PORT="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" port)"
 export COVE_DATA_DIR COVE_DB_PATH COVE_BRIEF_WEB_BASE
+
+# Every JSON store under here is written 0600 into a directory its writer
+# creates 0700 -- but data/ ships in the checkout with three example files, so
+# it already exists at whatever the clone gave it, normally 0755, and none of
+# those writers ever narrows it. cove.db is the other half: SQLite creates it
+# under the umask, 0644, and it holds the tasks, commitments, contacts and
+# triage records that the 0600 files around it are being careful about.
+# Narrowing the directory covers both, and every Cove lane runs as this user.
+mkdir -p "$COVE_DATA_DIR"
+chmod 700 "$COVE_DATA_DIR"
 BUDDY_APP_URL="$(local_env_value COVE_BUDDY_APP_URL)"
 BUDDY_APP_URL="${BUDDY_APP_URL:-$COVE_BRIEF_WEB_BASE}"
 AGENT_PROVIDER="$("$NODE_REAL" --input-type=module -e '
@@ -1188,6 +1206,17 @@ if [ -n "$UP" ]; then
   echo "Server logs: $LOG_DIR/cove.log"
   echo "Daily database backups: $COVE_BACKUP_DIR"
   echo "Reliability jobs: bounded scheduler supervised by com.cove.jobs"
+  # AGENTS.md makes "the user has been told exactly which background lanes are
+  # active" a condition of a finished setup, so this summary has to be true.
+  # The four chief-of-staff lanes were installed and then named nowhere in it.
+  # The shadow-switches line below stays as it is: data/attention-sweep.json
+  # outlived com.cove.attention-sweep, which this script boots out and deletes,
+  # and src/lib/attention/delivery.ts and email-urgency.ts still read it.
+  if [ "$INSTALL_CHIEF_OF_STAFF_LANE" = "1" ]; then
+    echo "Chief of staff: sweeps at 11:30 and 16:00, a nightly pass at 21:30, a weekly review Sundays at 18:00, and a drain every 5 minutes"
+  else
+    echo "Chief of staff: not installed, so nothing sweeps at 11:30 or 16:00"
+  fi
   echo "Attention shadow switches: data/attention-sweep.json (shadow = chief-of-staff notify, email_shadow = urgent email)"
   echo "Claude worker: supervised by com.cove.claude-worker"
   echo "Claude worker status: ok"

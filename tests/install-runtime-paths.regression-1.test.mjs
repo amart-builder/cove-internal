@@ -159,6 +159,7 @@ UID_NUM=999
 INSTALL_MEETING_LANE=1
 INSTALL_PROGRESS_LANE=1
 INSTALL_VOICE_REVIEW_LANE=1
+INSTALL_CHIEF_OF_STAFF_LANE=1
 ${installer.slice(start)}`);
   const backupReceipt = path.join(root, "backup-called");
   const missing = spawnSync("/bin/bash", [runner], { encoding: "utf8", env: {
@@ -175,6 +176,11 @@ ${installer.slice(start)}`);
   assert.equal(healthy.status, 0, `${healthy.stdout}\n${healthy.stderr}`);
   assert.equal(readFileSync(backupReceipt, "utf8"), "called");
   assert.match(healthy.stdout, /Claude worker status: ok/);
+  // The closing summary is the lane inventory AGENTS.md has you read back to
+  // the person, so it has to name the chief-of-staff lanes when they are on
+  // and never the retired attention-sweep agent this script deletes.
+  assert.match(healthy.stdout, /Chief of staff: sweeps at 11:30 and 16:00/);
+  assert.doesNotMatch(healthy.stdout, /Attention sweep:/);
 });
 
 test("installer schedules email from the resolved private data root", (t) => {
