@@ -22,6 +22,13 @@ export function jobFailureCopy(type: string, retrying = false): { title: string;
         title: "Your inbox check needs attention",
         body: "Cove couldn't finish processing part of your inbox." + (retrying ? retry : " Check Gmail for anything urgent. Open Issues for details."),
       };
+    case "morning-brief":
+      return {
+        title: "Your morning brief needs attention",
+        body: "Cove couldn't write your brief." + (retrying
+          ? retry
+          : " Open Today to write it now, or Issues for details."),
+      };
     case "health-collector":
       return {
         title: "Cove couldn't check its services",
@@ -44,7 +51,12 @@ export function jobFailureDetail(type: string, diagnostic: string, retrying = fa
     cause = " The check reached its time limit.";
   } else if (/background_usage|usage.denied|budget|allowance/i.test(diagnostic)) {
     cause = " The model call allowance was unavailable.";
-  } else if (/unauthorized|authentication|not logged in|sign.in/i.test(diagnostic)) {
+  } else if (/unauthorized|authentication|not logged in|sign.in|\/login|could not be refreshed|session expired/i.test(diagnostic)) {
+    // These are the strings the CLIs actually print when a sign-in lapses;
+    // src/lib/buddy/errors.ts matches the same set for Buddy's sign-in card.
+    // An expired sign-in is the likeliest reason a scheduled job stops, and
+    // without this the person is told only that "some background work did not
+    // finish", which names nothing they can act on.
     cause = " The connected account needs its sign-in checked.";
   } else if (/lease/i.test(diagnostic)) {
     cause = " The background worker stopped before finishing.";
@@ -54,7 +66,9 @@ export function jobFailureDetail(type: string, diagnostic: string, retrying = fa
     ? " Review Today for time-sensitive commitments."
     : ["gmail-operation", "email-classify", "email-artifacts"].includes(type)
       ? " Check Gmail for anything urgent."
-      : type === "backup" ? " A fresh backup has not been confirmed." : "";
+      : type === "backup"
+        ? " A fresh backup has not been confirmed."
+        : type === "morning-brief" ? " Open Today to write it now." : "";
   return impact + "." + cause + " This check has stopped retrying." + immediate
     + " Ask your Cove setup agent to diagnose the failure and restore this check.";
 }
