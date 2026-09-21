@@ -744,3 +744,50 @@ test("the installer makes the data directory private, whatever the clone left", 
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("the closing summary names no lane the installer does not install", () => {
+  // AGENTS.md makes "the user has been told exactly which background lanes are
+  // active" a condition of a finished setup, and this summary is where the
+  // operator reads that list. It used to name the attention sweep at 11:30 and
+  // 16:00 unconditionally: com.cove.attention-sweep is retired and deleted by
+  // this same script, and the 11:30/16:00 sweep is com.cove.chief-of-staff-sweep,
+  // which is not installed when the chief of staff is off.
+  const installer = readFileSync(path.join(ROOT, "scripts/install-cove-local.sh"), "utf8");
+  const start = installer.indexOf('echo "Cove is running at $COVE_BRIEF_WEB_BASE');
+  const end = installer.indexOf('elif [ -n "$FOREIGN_SERVER" ]', start);
+  assert.ok(start > 0 && end > start, "install-cove-local.sh no longer has a closing summary to check");
+  // Only what the operator actually reads: the echoed lines, not the comments
+  // around them, which name the retired lanes on purpose.
+  const summary = installer.slice(start, end)
+    .split("\n")
+    .filter(line => !line.trim().startsWith("#"))
+    .join("\n");
+
+  for (const retired of ["attention-sweep", "wake-canary"]) {
+    assert.ok(
+      installer.includes(`rm -f "$LA_DIR/com.cove.${retired}.plist"`),
+      `${retired} is expected to be a lane the installer removes`,
+    );
+    // The lane label, not the word: data/attention-sweep.json outlived
+    // com.cove.attention-sweep and is still read, so the summary may name the
+    // file while never claiming the lane.
+    assert.ok(
+      !summary.includes(`com.cove.${retired}`),
+      `the closing summary still names the retired com.cove.${retired} lane`,
+    );
+  }
+
+  // Every schedule the summary quotes for the chief of staff has to come from
+  // its plists, and the whole claim has to sit behind the install flag.
+  const sweep = readFileSync(path.join(ROOT, "scripts/launchd/com.cove.chief-of-staff-sweep.plist"), "utf8");
+  assert.match(sweep, /<key>Hour<\/key><integer>11<\/integer><key>Minute<\/key><integer>30<\/integer>/);
+  assert.match(sweep, /<key>Hour<\/key><integer>16<\/integer><key>Minute<\/key><integer>0<\/integer>/);
+  const guard = summary.indexOf('if [ "$INSTALL_CHIEF_OF_STAFF_LANE" = "1" ]; then');
+  assert.ok(guard >= 0, "the chief-of-staff summary must be conditional on the lane being installed");
+  for (const time of ["11:30", "16:00"]) {
+    assert.ok(
+      summary.indexOf(time) > guard,
+      `the summary claims ${time} outside the chief-of-staff guard, and nothing runs then without that lane`,
+    );
+  }
+});

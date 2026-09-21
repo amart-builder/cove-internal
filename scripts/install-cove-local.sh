@@ -1206,6 +1206,17 @@ if [ -n "$UP" ]; then
   echo "Server logs: $LOG_DIR/cove.log"
   echo "Daily database backups: $COVE_BACKUP_DIR"
   echo "Reliability jobs: bounded scheduler supervised by com.cove.jobs"
+  # AGENTS.md makes "the user has been told exactly which background lanes are
+  # active" a condition of a finished setup, so this summary has to be true.
+  # The four chief-of-staff lanes were installed and then named nowhere in it.
+  # The shadow-switches line below stays as it is: data/attention-sweep.json
+  # outlived com.cove.attention-sweep, which this script boots out and deletes,
+  # and src/lib/attention/delivery.ts and email-urgency.ts still read it.
+  if [ "$INSTALL_CHIEF_OF_STAFF_LANE" = "1" ]; then
+    echo "Chief of staff: sweeps at 11:30 and 16:00, a nightly pass at 21:30, a weekly review Sundays at 18:00, and a drain every 5 minutes"
+  else
+    echo "Chief of staff: not installed, so nothing sweeps at 11:30 or 16:00"
+  fi
   echo "Attention shadow switches: data/attention-sweep.json (shadow = chief-of-staff notify, email_shadow = urgent email)"
   echo "Claude worker: supervised by com.cove.claude-worker"
   echo "Claude worker status: ok"
