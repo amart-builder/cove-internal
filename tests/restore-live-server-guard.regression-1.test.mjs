@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -110,4 +110,53 @@ test('a checkout that was never installed probes nothing', async (t) => {
   const result = restore({ ...install });
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.doesNotMatch(result.stderr, /is running and would overwrite a restore/);
+});
+
+// A copy of the install that is missing the shared probe, to show which way
+// each script fails when it cannot ask the question.
+function installWithoutProbe(t, install) {
+  const repoRoot = path.resolve(import.meta.dirname, '..');
+  const root = path.join(
+    os.tmpdir(),
+    `cove-restore-noprobe-${process.pid}-${Date.now()}-${Math.random()}`,
+  );
+  mkdirSync(path.join(root, 'scripts/lib'), { recursive: true });
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  symlinkSync(path.join(repoRoot, 'node_modules'), path.join(root, 'node_modules'));
+  symlinkSync(path.join(repoRoot, 'src'), path.join(root, 'src'));
+  for (const name of [
+    'cove-restore-backup.sh', 'cove-verify-sqlite.mjs',
+    'lib/load-local-env.mjs', 'lib/cove-runtime-paths.mjs', 'lib/cove-install-runtime.mjs',
+  ]) copyFileSync(path.join(repoRoot, 'scripts', name), path.join(root, 'scripts', name));
+  return (extra = {}) => spawnSync(
+    '/bin/bash',
+    [path.join(root, 'scripts/cove-restore-backup.sh'), '--yes', install.backup.path],
+    {
+      cwd: root,
+      env: {
+        ...process.env,
+        COVE_DB_PATH: install.dbPath,
+        COVE_BACKUP_DIR: install.backupDir,
+        COVE_NODE_PATH: process.execPath,
+        ...extra,
+      },
+      encoding: 'utf8',
+    },
+  );
+}
+
+test('a restore that cannot ask whether Cove is running refuses', async (t) => {
+  const install = await scratchInstall(t);
+  const run = installWithoutProbe(t, install);
+  const result = run();
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /cannot tell whether Cove is running/);
+  assert.match(result.stderr, /COVE_RESTORE_ALLOW_RUNNING=1/);
+});
+
+test('and the escape hatch still gets a recovery through', async (t) => {
+  const install = await scratchInstall(t);
+  const run = installWithoutProbe(t, install);
+  const result = run({ COVE_RESTORE_ALLOW_RUNNING: '1' });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
 });

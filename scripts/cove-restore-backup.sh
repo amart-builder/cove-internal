@@ -60,28 +60,20 @@ loaded_cove_services() {
 # Cove's own health route is the cheap way to know a server is live right now.
 # The body test keeps an unrelated program on the same port from blocking a
 # restore.
-COVE_WEB_PORT=""
-# Only an installed Cove has recorded where it serves -- the installer writes
-# COVE_BRIEF_WEB_BASE into .env.local. A checkout that was never installed has
-# not, and the resolver would fall back to the documented default, so probing it
-# would mean this script's behaviour depended on whatever else happens to answer
-# on that port. Ask only when the install itself said where to ask.
-cove_web_base_configured() {
-  [ -n "${COVE_BRIEF_WEB_BASE:-}" ] && return 0
-  [ -f "$REPO_DIR/.env.local" ] &&
-    grep -qE '^[[:space:]]*COVE_BRIEF_WEB_BASE[[:space:]]*=' "$REPO_DIR/.env.local"
-}
-
-cove_is_serving() {
-  command -v curl >/dev/null 2>&1 || return 1
-  cove_web_base_configured || return 1
-  if [ -z "$COVE_WEB_PORT" ]; then
-    COVE_WEB_PORT="$("$NODE_REAL" "$REPO_DIR/scripts/lib/cove-install-runtime.mjs" "$REPO_DIR" port 2>/dev/null || true)"
-  fi
-  [ -n "$COVE_WEB_PORT" ] || return 1
-  curl -fsS -m 3 "http://127.0.0.1:$COVE_WEB_PORT/api/health" 2>/dev/null |
-    grep -q '"readiness"'
-}
+COVE_SERVING_REPO_DIR="$REPO_DIR"
+COVE_SERVING_NODE="$NODE_REAL"
+SERVING_PROBE="$REPO_DIR/scripts/lib/cove-serving.sh"
+if [ -r "$SERVING_PROBE" ]; then
+  # shellcheck source=scripts/lib/cove-serving.sh
+  . "$SERVING_PROBE"
+elif [ "${COVE_RESTORE_ALLOW_RUNNING:-0}" != "1" ]; then
+  # A restore that cannot run its own safety check refuses rather than guesses.
+  echo "Missing $SERVING_PROBE, so this script cannot tell whether Cove is running." >&2
+  echo "Restore the file, or set COVE_RESTORE_ALLOW_RUNNING=1 once every Cove writer is stopped." >&2
+  exit 1
+else
+  cove_is_serving() { return 1; }
+fi
 
 if [ "${COVE_RESTORE_ALLOW_RUNNING:-0}" != "1" ]; then
   RUNNING="$(loaded_cove_services | tr '\n' ' ')"

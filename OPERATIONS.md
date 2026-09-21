@@ -22,6 +22,13 @@ bash scripts/cove-stop.sh --disable  # stop them and keep them stopped
 bash scripts/install-cove-local.sh   # start them again
 ```
 
+Both modes also name a Cove that launchd never started -- the web app run by
+hand during setup, or by anyone watching a log -- because `launchctl` cannot see
+it and this script has no business killing a process someone is sitting in
+front of. Saying it is still answering is the point: without that line, "no
+service is running" reads as "nothing is running", which is what sends someone
+into a restore over a live writer.
+
 `launchctl bootout` unloads a service until the next login; macOS loads every
 plist still in `~/Library/LaunchAgents` when the person logs in again. Only
 `--disable` (`launchctl disable`) survives a restart, and the installer's own
