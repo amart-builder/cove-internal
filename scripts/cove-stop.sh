@@ -23,7 +23,7 @@ for arg in "$@"; do
     --disable) MODE="disable" ;;
     --status) MODE="status" ;;
     -h|--help)
-      sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -84,17 +84,28 @@ loaded() {
 }
 
 if [ "$MODE" = "status" ]; then
+  # Only report labels that exist on this Mac. The known list carries every
+  # label this installer has ever written, including retired and pre-rename
+  # ones, so printing all of them buried the fourteen that matter under
+  # fifteen rows of "not loaded / no plist".
   any=0
+  shown=0
   while read -r label; do
     [ -n "$label" ] || continue
     state="not loaded"
     if loaded "$label"; then state="loaded"; any=1; fi
-    installed="no plist"
+    installed=""
     if [ -e "$LA_DIR/$label.plist" ]; then installed="starts at login"; fi
+    if [ "$state" = "not loaded" ] && [ -z "$installed" ]; then continue; fi
+    [ -n "$installed" ] || installed="no plist"
     printf '%-38s %-11s %s\n' "$label" "$state" "$installed"
+    shown=$((shown + 1))
   done <<< "$(labels)"
-  if [ "$any" = "0" ]; then
-    echo
+  echo
+  if [ "$shown" = "0" ]; then
+    echo "Cove is not installed on this Mac: no service is running and no"
+    echo "start-at-login file is present."
+  elif [ "$any" = "0" ]; then
     echo "No Cove service is running right now."
   fi
   exit 0
