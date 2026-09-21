@@ -42,6 +42,22 @@ test("every default database path is the one COVE_DATA_DIR controls", (t) => {
     .filter((entry) => /process\.cwd\(\)\s*,\s*"data"\s*,\s*"cove\.db"/
       .test(readFileSync(path.join(libRoot, entry), "utf8")));
   assert.deepEqual(offenders, [], `these resolve a database without COVE_DATA_DIR: ${offenders.join(", ")}`);
+
+  // The private JSON beside the database has to move with it. The execution
+  // registry was reading `<cwd>/data` while the profile and the workspace
+  // config both honoured COVE_DATA_DIR, so a relocated install found no
+  // workspaces and said nothing about why.
+  const configOffenders = readdirSync(libRoot, { recursive: true })
+    .filter((entry) => typeof entry === "string" && /\.(ts|tsx|mjs)$/.test(entry))
+    .filter((entry) => {
+      const source = readFileSync(path.join(libRoot, entry), "utf8");
+      return /coveConfigPath\(\s*path\.join\(\s*process\.cwd\(\)/.test(source);
+    });
+  assert.deepEqual(
+    configOffenders,
+    [],
+    `these resolve a private config file without COVE_DATA_DIR: ${configOffenders.join(", ")}`,
+  );
 });
 
 function fixture(t) {
