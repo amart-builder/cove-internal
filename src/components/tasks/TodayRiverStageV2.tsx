@@ -1296,9 +1296,13 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
             <span className="today2-done-dots" aria-hidden="true"><i /><i /><i /></span>
             <span ref={doneLabelRef} className="today2-done-label">{displayDoneCount} done today</span>
           </button>
-          {wakeOpen && model.doneTitles.length > 0 && (
+          {wakeOpen && (
+            // The marker says it is expanded either way, so on a day with
+            // nothing finished it used to open onto nothing at all.
             <div className="today2-done-list">
-              {model.doneTitles.slice(0, 5).map((title) => <p key={title}>{title}</p>)}
+              {model.doneTitles.length > 0
+                ? model.doneTitles.slice(0, 5).map((title) => <p key={title}>{title}</p>)
+                : <p>Nothing finished yet today.</p>}
             </div>
           )}
 

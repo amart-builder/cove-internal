@@ -385,8 +385,27 @@ export function shouldAutoPostProgress(input: {
   return input.workedToday && !input.hasDecision && input.attempts < 2;
 }
 
+/**
+ * Browsers word a dead connection as "Failed to fetch", "NetworkError when
+ * attempting to fetch resource" or "Load failed", and those went to the screen
+ * exactly as thrown, in front of Cove's own sentence. A person who closes the
+ * laptop and opens it again reads the browser's words, not Cove's.
+ */
+const NETWORK_ERROR = /^(typeerror:\s*)?(failed to fetch|load failed|network ?error.*|fetch failed|err_[a-z_]+)$/i;
+
+export function readableSurfaceError(message: string): string {
+  return NETWORK_ERROR.test(message.trim())
+    ? 'Cove could not reach its own service. It may still be starting up, so wait a moment and try again.'
+    : message;
+}
+
 export function combineSurfaceErrors(...errors: Array<string | undefined>): string | undefined {
-  const messages = [...new Set(errors.map((error) => error?.trim()).filter(Boolean))];
+  const messages = [...new Set(
+    errors
+      .map((error) => error?.trim())
+      .filter((error): error is string => Boolean(error))
+      .map(readableSurfaceError),
+  )];
   return messages.length > 0 ? messages.join(' ') : undefined;
 }
 
