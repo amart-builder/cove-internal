@@ -17,6 +17,28 @@ set -euo pipefail
 
 UID_NUM="$(id -u)"
 LA_DIR="$HOME/Library/LaunchAgents"
+COVE_SERVING_REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+COVE_SERVING_NODE="${COVE_NODE_PATH:-$(command -v node 2>/dev/null || true)}"
+if [ -r "$COVE_SERVING_REPO_DIR/scripts/lib/cove-serving.sh" ]; then
+  # shellcheck source=scripts/lib/cove-serving.sh
+  . "$COVE_SERVING_REPO_DIR/scripts/lib/cove-serving.sh"
+else
+  # Stopping Cove matters more than the extra line this would have printed.
+  cove_is_serving() { return 1; }
+fi
+
+# launchctl cannot stop a Cove nobody asked launchd to start, and this script
+# has no business killing a process someone is watching in their own terminal.
+# Saying it is there is the whole job: the sentence above it would otherwise
+# read as "nothing is running", which is what sends someone into a restore.
+report_hand_started_cove() {
+  cove_is_serving || return 0
+  echo
+  echo "A Cove started by hand is still answering on http://127.0.0.1:$COVE_WEB_PORT."
+  echo "This script cannot stop that one. Stop it in the terminal that started it"
+  echo "(Control-C), then check again."
+}
+
 MODE="stop"
 for arg in "$@"; do
   case "$arg" in
@@ -138,6 +160,7 @@ if [ "$MODE" = "status" ]; then
   elif [ "$any" = "0" ]; then
     echo "No Cove service is running right now."
   fi
+  report_hand_started_cove
   exit 0
 fi
 
@@ -171,3 +194,4 @@ else
   echo "To keep them stopped: bash scripts/cove-stop.sh --disable"
   echo "To start Cove again now: bash scripts/install-cove-local.sh"
 fi
+report_hand_started_cove
