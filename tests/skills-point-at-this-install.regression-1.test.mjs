@@ -20,6 +20,19 @@ function installedSkills(t) {
   return dir;
 }
 
+// Counted, never hardcoded. The shipped client leaves out cove-pipeline, so a
+// fixed threshold passed in the repository and failed in the tree Gary
+// installs -- finding 48's shape again, a test encoding its own environment.
+function filesNamingDefault(dir) {
+  let count = 0;
+  for (const entry of readdirSync(dir, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const file = path.join(entry.parentPath ?? entry.path, entry.name);
+    if (readFileSync(file, "utf8").includes(SKILL_DEFAULT_BASE)) count += 1;
+  }
+  return count;
+}
+
 function skillText(dir) {
   return readdirSync(dir)
     .filter((entry) => entry.startsWith("cove-"))
@@ -30,6 +43,7 @@ function skillText(dir) {
 test("an install that took another port gets skills that point at it", (t) => {
   const dir = installedSkills(t);
   assert.match(skillText(dir), /http:\/\/localhost:3200/, "the repository copy names the default port");
+  const naming = filesNamingDefault(dir);
 
   const result = retargetSkillBaseUrl(dir, "http://127.0.0.1:3201");
 
@@ -38,7 +52,15 @@ test("an install that took another port gets skills that point at it", (t) => {
   assert.match(text, /http:\/\/127\.0\.0\.1:3201\/api\/cove-rest\/tasks/);
   assert.match(text, /http:\/\/127\.0\.0\.1:3201\/api\/crm/);
   assert.match(text, /http:\/\/127\.0\.0\.1:3201\/api\/quiet-current/);
-  assert.ok(result.files >= 4 && result.replacements >= 20, `retargeted ${result.files} files`);
+  assert.equal(
+    result.files,
+    naming,
+    `every file naming the default port should be retargeted; ${result.files} of ${naming} were`,
+  );
+  assert.ok(
+    result.replacements >= result.files,
+    `${result.replacements} replacements across ${result.files} files`,
+  );
 });
 
 test("only the Cove skills are rewritten, and an ordinary install is untouched", (t) => {
