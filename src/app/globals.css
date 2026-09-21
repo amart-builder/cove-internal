@@ -95,6 +95,19 @@ body {
   border-color: var(--border);
 }
 
+/* A pointer over anything you can press. A <button> keeps the browser's own
+   cursor unless a rule says otherwise, and out of fifty-three on the six main
+   screens only eight had one: the main tabs, the theme toggle, "Close My Day",
+   "Open Focus Grid" and the complete buttons on Today all felt like text to a
+   mouse. Links were never affected, since a browser points at those already.
+
+   Scoped to the element rather than [role='button'], because the Focus Grid's
+   cards carry that role from the drag library and have to keep `grab`. Every
+   disabled control keeps the cursor its own rule gives it. */
+button:not(:disabled) {
+  cursor: pointer;
+}
+
 ::selection {
   background: var(--accent-blue);
   color: white;
