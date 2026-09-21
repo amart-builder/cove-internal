@@ -21,6 +21,15 @@ import { hasDayPlanRouteAccess, isLoopbackCoveRequest } from '../src/lib/request
 import { getQuietCurrentCsrfToken } from '../src/lib/quiet-current/store.ts';
 import { openLocalDatabase } from '../src/lib/local/database.ts';
 
+// Every path that falls back to coveDataDir() must land in a scratch directory,
+// never in <cwd>/data: a fresh checkout's verify run must not mint a database,
+// a CSRF token or relay files the setup playbook would then treat as existing.
+import { mkdtempSync as isolatedMkdtemp } from 'node:fs';
+const ISOLATED_DATA_DIR = isolatedMkdtemp(path.join(os.tmpdir(), 'cove-test-data-'));
+process.env.COVE_DATA_DIR = ISOLATED_DATA_DIR;
+delete process.env.COVE_DB_PATH;
+test.after(() => rmSync(ISOLATED_DATA_DIR, { recursive: true, force: true }));
+
 function candidate() {
   return buildDayPlanCandidates({
     localDate: '2026-07-10',
