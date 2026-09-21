@@ -46,11 +46,17 @@ export function jobFailureDetail(type: string, diagnostic: string, retrying = fa
   // again later" (a rate-limited provider) was read as a stopped worker, and
   // "redesign in progress" sent the person to re-authenticate a working
   // account. A wrong cause is worse than none: it is what they act on.
-  } else if (/background_usage|usage[_.]denied|\bbudget\b|\ballowance\b/i.test(diagnostic)) {
+  // Letter boundaries, not word boundaries. \b does not fall between a letter
+  // and an underscore, and an underscore is how these codes are actually
+  // written, so \bauthentication\b missed authentication_error and sent a
+  // lapsed sign-in back to the generic wording. (?<![a-z]) and (?![a-z]) treat
+  // an underscore, a digit, a slash or a space as the edge while still
+  // refusing reauthentication.
+  } else if (/background_usage|usage[_.]denied|(?<![a-z])(?:budget|allowance)(?![a-z])/i.test(diagnostic)) {
     cause = " Cove had used up its allowance for background work.";
-  } else if (/\bunauthorized\b|\bauthentication\b|\bnot logged in\b|\bsign[-\s]?in\b/i.test(diagnostic)) {
+  } else if (/(?<![a-z])(?:unauthorized|authentication|not logged in|sign[-\s]?in|login)(?![a-z])/i.test(diagnostic)) {
     cause = " The connected account needs its sign-in checked.";
-  } else if (/\blease\b/i.test(diagnostic)) {
+  } else if (/(?<![a-z])lease(?![a-z])/i.test(diagnostic)) {
     cause = " The background worker stopped before finishing.";
   }
   if (retrying) return impact + "." + cause + " Cove will try again automatically.";
