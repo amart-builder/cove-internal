@@ -226,6 +226,7 @@ type MeetingJobRow = {
   status: "pending" | "held" | "running" | "succeeded" | "failed" | "dead";
   analyst_json: string | null;
   error: string | null;
+  created_at: string;
 };
 
 type MeetingActionRow = {
@@ -1252,10 +1253,20 @@ async function processClaimedJob(
   const processingTime = clock();
   let artifact: MeetingAnalystArtifact;
   if (job.analyst_json) {
+    // A cached artifact is validated against the job's own creation time, not
+    // against now. It was already checked against the clock the analyst ran
+    // on, and one of those rules is that every due date is in the future: read
+    // against a fresh clock it starts failing the moment a retry lands past
+    // the earliest time the analyst proposed, which a deferred allowance or a
+    // closed laptop makes routine. The job would then fail every remaining
+    // attempt and die with the rest of the meeting's commitments unwritten.
+    // The job exists before its analyst run, so this still rejects a date that
+    // predates the meeting while staying fixed across retries.
+    const created = Date.parse(job.created_at);
     artifact = validateMeetingAnalystArtifact(
       JSON.parse(job.analyst_json) as unknown,
       baseContext.timezone,
-      processingTime,
+      new Date(Number.isFinite(created) ? created : 0),
     );
   } else {
     renewLease();
