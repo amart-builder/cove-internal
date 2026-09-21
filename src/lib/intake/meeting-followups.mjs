@@ -3,7 +3,12 @@ import { runJob } from "../model-runner-runtime.mjs";
 
 export const MEETING_FOLLOWUPS_JSON_SCHEMA = {
   type: "array",
-  maxItems: 8,
+  // The three contracts on this path have to agree, and the only one a person
+  // notices is the strictest. validateMeetingFollowUps accepts 20, the
+  // deterministic parser above caps nothing, and this said 8 — so a long
+  // meeting had the model choose which follow-ups to discard, and the receipt
+  // still reported "N tasks, M waiting-on" as though that were all of them.
+  maxItems: 20,
   items: {
     type: "object",
     additionalProperties: false,
@@ -26,7 +31,7 @@ Rules:
 - Give an item to the person explicitly named as its owner. Everything without another named owner belongs to ${operator}.
 - Keep the title short and imperative.
 - Put useful surrounding context in detail.
-- Return between 0 and 8 items. Return [] when there are no follow-ups.
+- Return between 0 and 20 items. Return [] when there are no follow-ups.
 
 Return ONLY a JSON array:
 [{"owner":"${operator} or another named owner","title":"short imperative task","detail":"useful context"}]
