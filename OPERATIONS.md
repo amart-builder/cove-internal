@@ -32,11 +32,30 @@ Stopping never touches data. The database, `data/backups/`, the profile, goals,
 mandate, connector settings and Keychain entries are all left in place, and
 `install-cove-local.sh` resumes the same installation. There is no uninstaller:
 removing Cove means stopping it with `--disable`, deleting the checkout once its
-data has been copied somewhere safe, and removing `~/Applications/Cove
-Notifications.app`, the `~/.claude/skills/cove-*` and Codex `cove-*` skill
-folders, and the `SessionStart` hook entry the installer added to
-`~/.claude/settings.json`. Google credentials live in the macOS Keychain and are
-removed there.
+data has been copied somewhere safe, and then clearing what the installer wrote
+outside it. That is:
+
+- `~/Library/LaunchAgents/com.cove.*.plist` -- `--disable` deliberately leaves
+  these in place so a reinstall is symmetric, so removal has to delete them.
+- The `launchctl disable` overrides themselves, which outlive the plists and
+  are stored per user account, not per file. A reinstall clears the ones the
+  installer knows about, so this is tidiness rather than a trap -- but it is
+  the one leftover that is invisible unless you look for it:
+  `launchctl print-disabled gui/$(id -u) | grep com.cove`, then
+  `launchctl enable gui/$(id -u)/<label>` for each.
+- `~/Library/Logs/cove*.log` -- one per lane, and the only record of what ran
+  after the checkout is gone. They hold task and job ids, reminder ids and
+  error text rather than the content of the work.
+- `~/Applications/Cove Notifications.app`.
+- The `~/.claude/skills/cove-*` and Codex `cove-*` skill folders.
+- `~/.claude/hooks/cove-orchestrator.sh` and the `SessionStart` entry pointing
+  at it in `~/.claude/settings.json`. Remove both: the entry is what runs the
+  file, at the start of every Claude Code session on that account, Cove's or
+  anyone's.
+- `~/.cove/orchestrator-sessions`, the append-only list of Claude session ids
+  that hook reads.
+
+Google credentials live in the macOS Keychain and are removed there.
 
 ## Health
 
