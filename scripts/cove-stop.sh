@@ -83,6 +83,21 @@ loaded() {
   launchctl print "gui/$UID_NUM/$1" >/dev/null 2>&1
 }
 
+# `launchctl disable` writes a persistent override: it survives a restart, it
+# outlives the plist, and only an `enable` clears it. So after this script's
+# own --disable, the plists are still on disk and the old --status said
+# "starts at login" about services that will not start at all. Read once,
+# because it is a per-user database rather than a per-label lookup.
+#
+# The output has had two shapes across macOS releases -- `"label" => true` and
+# `"label" => disabled` -- so both count, and anything unrecognised counts as
+# not disabled. If the command is missing or fails, DISABLED is empty and this
+# reports exactly what it always did.
+DISABLED="$(launchctl print-disabled "gui/$UID_NUM" 2>/dev/null || true)"
+is_disabled() {
+  printf '%s\n' "$DISABLED" | grep -qE "\"$1\" *=> *(true|disabled)"
+}
+
 if [ "$MODE" = "status" ]; then
   # Only report labels that exist on this Mac. The known list carries every
   # label this installer has ever written, including retired and pre-rename
@@ -90,18 +105,33 @@ if [ "$MODE" = "status" ]; then
   # fifteen rows of "not loaded / no plist".
   any=0
   shown=0
+  any_blocked=0
   while read -r label; do
     [ -n "$label" ] || continue
     state="not loaded"
     if loaded "$label"; then state="loaded"; any=1; fi
     installed=""
-    if [ -e "$LA_DIR/$label.plist" ]; then installed="starts at login"; fi
+    blocked=0
+    if [ -e "$LA_DIR/$label.plist" ]; then
+      if is_disabled "$label"; then
+        installed="disabled: will not start"
+        blocked=1
+        any_blocked=1
+      else
+        installed="starts at login"
+      fi
+    fi
     if [ "$state" = "not loaded" ] && [ -z "$installed" ]; then continue; fi
     [ -n "$installed" ] || installed="no plist"
     printf '%-38s %-11s %s\n' "$label" "$state" "$installed"
     shown=$((shown + 1))
   done <<< "$(labels)"
   echo
+  if [ "$any_blocked" = "1" ]; then
+    echo "A disabled service stays stopped through a restart and through a"
+    echo "reinstall, and files no failure anywhere because it never runs."
+    echo "To clear that: bash scripts/install-cove-local.sh"
+  fi
   if [ "$shown" = "0" ]; then
     echo "Cove is not installed on this Mac: no service is running and no"
     echo "start-at-login file is present."
