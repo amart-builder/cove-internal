@@ -224,9 +224,13 @@ export function resolveLocalInboundEvent(input: {
       recordFailureInDatabase(db, {
         source: "inbound-event",
         sourceId: input.id,
+        // Neither message carries the thrown diagnostic. A parse error from a
+        // model that answered in prose put its own reply on the person's
+        // screen, and none of these strings tells them what happened to their
+        // note. The raw error stays in details for whoever has to fix it.
         message: degraded
           ? `Cove saved your ${String(row.source ?? "inbound")} item but could not sort it out, so it is on your board as you wrote it. Open it to set the deadline and where it belongs.`
-          : `Could not process ${String(row.source ?? "inbound")} item: ${input.error ?? "unknown error"}`,
+          : "Cove could not turn something you captured into a card, and has stopped trying. It is not on your board. Send it again, or ask your Cove setup agent to look into it.",
         details: {
           eventId: input.id,
           eventSource: row.source,
