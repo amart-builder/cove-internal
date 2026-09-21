@@ -236,7 +236,7 @@ export default function ResponsibilityOverview() {
                   disabled={busy !== null}
                   onClick={() => void acknowledge(item)}
                   aria-label={`On my radar: ${item.title}. Check back in an hour.`}
-                  className="mt-2 text-xs text-accent-blue disabled:opacity-50"
+                  className="mt-1 py-1 text-xs text-accent-blue disabled:opacity-50"
                 >
                   {busy === item.ref_id
                     ? "Saving..."
@@ -276,7 +276,7 @@ export default function ResponsibilityOverview() {
                     {draft.content}
                   </p>
                   <button
-                    className="mt-3 text-xs text-accent-blue disabled:opacity-50"
+                    className="mt-2 py-1 text-xs text-accent-blue disabled:opacity-50"
                     disabled={copyStatus?.state === "copying"}
                     onClick={() => void copyDraft(draft)}
                   >
