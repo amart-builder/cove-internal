@@ -605,6 +605,15 @@ test('the shared runner honors termination grace before its timeout kill', async
       timeoutMs: 10,
       terminationGraceMs: 40,
       codexPath: 'codex',
+      // This test is about SIGTERM then SIGKILL, and it never reaches either
+      // without a probe: createCodexJobAttempt runs the password-manager guard
+      // first, which shells out to a real `codex`. On any machine that does
+      // not have the Codex CLI -- which is every machine where Claude is the
+      // chosen provider -- that throws before the runner starts, and the
+      // failure reads as a connector problem rather than a missing binary.
+      // The stub is the shape meeting-analysis.test.mjs already uses for the
+      // same guard: the connector is absent, so there is nothing to disable.
+      codexConfigProbe: () => ({ status: 1, stderr: "Error: No MCP server named '1password' found." }),
       spawnImpl: () => child,
     });
   } finally {
