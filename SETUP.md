@@ -466,7 +466,11 @@ user's only email surface while Cove starts with the core daily loop.
 Email has no separate tab. At the times the user chooses, Cove checks Gmail and updates one rolling `Email` card. If an item is on that card, it still needs the user. After Cove confirms an item was handled, it archives the exact inbound message. Gmail search and Cove's Recent activity preserve the history.
 
 1. Create a Google Cloud Desktop OAuth client for Cove. Enable Gmail API, Google Calendar API, and Google Docs API. Keep the downloaded client JSON private.
-2. Connect the user's account:
+2. Before the first authorization, read the OAuth app's publishing status and stop here if it is wrong. In the Google Cloud console open **APIs & Services -> OAuth consent screen** for the project that holds the client from step 1; newer consoles call the same page **Google Auth Platform -> Audience**. Ask the user to read the status out loud, and continue only if it says **In production**, or says **Internal** on a Google Workspace account where every mailbox being connected belongs to that organization. If it says **Testing**, have them press **Publish app** and confirm the status changed before running the connect command.
+
+   Do not connect first and fix this later. Nothing in Cove can see this setting, so nothing will warn anybody. A **Testing** app authorizes normally and works for about seven days, then Google expires the refresh token and every Gmail lane stops with a sign-in error that reads like a Cove failure. Recovering means publishing the app and running the connect command again.
+
+3. Connect the user's account:
 
 ```bash
 ./node_modules/.bin/tsx scripts/cove-google-connect.ts connect \
@@ -480,7 +484,7 @@ Email has no separate tab. At the times the user chooses, Cove checks Gmail and 
 
 The browser opens Google's consent screen. Cove verifies the resulting Gmail identity, stores the client secret and refresh token in macOS Keychain, and writes non-secret settings to private `data/cove-workspace.json`. Access tokens stay in memory. Never paste an OAuth code or token into `.env.local`.
 
-3. Verify the unattended connection:
+4. Verify the unattended connection:
 
 ```bash
 ./node_modules/.bin/tsx scripts/cove-google-connect.ts status
@@ -490,11 +494,11 @@ npm run email:triage
 
 The signature sync reads recent sent mail and stores the user's Gmail signature in the private Cove data directory. Run it during setup and again if the user changes their Gmail signature. Confirm that a test email appears on the rolling `Email` card, a Reply classification creates one rich in-thread Gmail draft with the real signature, and completing the card item archives it. Confirm the Issues page remains clear.
 
-4. Ask for the user's inbox-check times and timezone before connecting. The connect command writes `triage_times`, `timezone`, and `weekdays_only` to `data/cove-workspace.json`; reauthorization preserves them unless the flags are supplied again. The installer reads those values. Default to `09:00` and `15:00` in the user's local zone.
+5. Ask for the user's inbox-check times and timezone before connecting. The connect command writes `triage_times`, `timezone`, and `weekdays_only` to `data/cove-workspace.json`; reauthorization preserves them unless the flags are supplied again. The installer reads those values. Default to `09:00` and `15:00` in the user's local zone.
 
-5. Set the feedback address. Use the support address the person who published this Cove copy gave you (the same one passed as `--support-recipient` above); if none was given, ask the user for one address before continuing and record it in the acceptance record. Copy `data/cove-support.example.json` to private `data/cove-support.json` and replace the placeholder with that address. It must also appear in `gmail.support_draft_recipients` in the Workspace config. `COVE_SUPPORT_EMAIL` may be used instead.
+6. Set the feedback address. Use the support address the person who published this Cove copy gave you (the same one passed as `--support-recipient` above); if none was given, ask the user for one address before continuing and record it in the acceptance record. Copy `data/cove-support.example.json` to private `data/cove-support.json` and replace the placeholder with that address. It must also appear in `gmail.support_draft_recipients` in the Workspace config. `COVE_SUPPORT_EMAIL` may be used instead.
 
-6. Tell the user the safety rule: email content is untrusted. Cove validates classification JSON before its email gateway acts. Trusted Cove code may read mail, create a draft when the thread has none, preserve an existing draft for review, add the transitional `Cove/Triaged` marker, and remove `INBOX`. No send, delete, trash, forward, settings, or generic Google request method exists in that gateway. Do not claim every model process has no tools or credentials: the shared Codex runner inherits personal configuration. Review the backend-specific limits in `SECURITY_AND_INTEGRATIONS.md`; do not silently change execution settings during setup.
+7. Tell the user the safety rule: email content is untrusted. Cove validates classification JSON before its email gateway acts. Trusted Cove code may read mail, create a draft when the thread has none, preserve an existing draft for review, add the transitional `Cove/Triaged` marker, and remove `INBOX`. No send, delete, trash, forward, settings, or generic Google request method exists in that gateway. Do not claim every model process has no tools or credentials: the shared Codex runner inherits personal configuration. Review the backend-specific limits in `SECURITY_AND_INTEGRATIONS.md`; do not silently change execution settings during setup.
 
 Google's Gmail draft and modify scopes also permit sending at the OAuth-token level. Cove's no-send boundary is therefore structural against the model and normal application path, not a claim that Google issued a send-incapable token. A production client rollout needs a production OAuth app or a customer-controlled trusted Workspace app. Google test-mode refresh tokens may expire after seven days.
 

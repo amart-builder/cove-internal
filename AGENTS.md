@@ -35,6 +35,11 @@ For a person's first Cove install:
 - On a laptop, never use `--mini`.
 - Capture the person's real open work before generating the first real Morning
   Brief. An empty board is not a successful smoke test.
+- Before the first Google authorization, read the OAuth app's publishing status
+  in the Google Cloud console and stop if it says `Testing`. Continue only on
+  `In production`, or on `Internal` when every mailbox being connected is in
+  that Workspace organization. Cove cannot see this setting, and a `Testing` app
+  works for about seven days before Google silently expires the refresh token.
 - Keep the attention and urgent-email model lanes in shadow mode. Do not connect
   email, meeting notes, Telegram, or iMessage unless the user chooses that
   integration and stays for its live acceptance check.
