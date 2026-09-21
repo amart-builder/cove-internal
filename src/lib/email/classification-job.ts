@@ -330,7 +330,11 @@ export function createEmailClassificationHandler(input: {
         // cases where nobody was told at all. Reaching the interruption budget
         // is different: that is the policy working, and it already puts a line
         // on the board.
-        if (outcome?.status === "suppressed" && outcome.reason !== "budget") {
+        // An allowlist rather than a denylist: a reason added later should have
+        // to say that it means nobody was told, not inherit it by omission.
+        if (outcome?.status === "suppressed" &&
+            (outcome.reason === "no_ledger" || outcome.reason === "delivery_failed" ||
+             outcome.reason === undefined)) {
           urgentDetail = outcome.reason === "no_ledger"
             ? "Cove's attention records are not set up on this install, so no alert could be raised."
             : "The alert could not be delivered to your Mac, your phone or the board.";

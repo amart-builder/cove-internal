@@ -45,6 +45,21 @@ test('reaching the interruption budget is the policy working, not a failure',asy
  assert.deepEqual(await classifyUrgent(t,()=>({status:'suppressed',reason:'budget'})),[]);
 });
 
+// A new install runs this lane in shadow mode, so nothing was ever going to be
+// delivered. A failed shadow write loses a log line, not the person's alert.
+test('a shadow run that could not record itself is not a missed alert',async t=>{
+ assert.deepEqual(await classifyUrgent(t,()=>({status:'suppressed',reason:'shadow_only'})),[]);
+});
+
+// The caller decides on an allowlist, so a suppression with no reason at all --
+// an older build, or a path that forgot to say -- is treated as a drop rather
+// than waved through.
+test('a suppression that does not say why is treated as a drop',async t=>{
+ const rows=await classifyUrgent(t,()=>({status:'suppressed'}));
+ assert.equal(rows.length,1);
+ assert.match(rows[0].message,/could not get your attention/);
+});
+
 test('a delivered alert records nothing',async t=>{
  assert.deepEqual(await classifyUrgent(t,()=>({status:'live',row:{id:'row1'}})),[]);
 });

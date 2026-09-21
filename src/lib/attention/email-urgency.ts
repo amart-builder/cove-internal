@@ -36,11 +36,12 @@ function shadowSetting(dataDir: string): boolean {
 
 export type EmailUrgencyResult = {
   status: "not_urgent" | "deduped" | "stale" | "shadow" | "live" | "suppressed";
-  // Why nothing was sent. "budget" is the interruption policy working, and the
-  // suppression already reaches the board. The other two mean nobody was told
-  // at all, which is the drop this lane exists to prevent, so the caller turns
-  // them into a visible failure.
-  reason?: "budget" | "no_ledger" | "delivery_failed";
+  // Why nothing was sent. "budget" is the interruption policy working and the
+  // suppression already reaches the board; "shadow_only" is the lane recording
+  // rather than alerting, where a lost log line is not a missed alert. The
+  // other two mean nobody was told at all, which is the drop this lane exists
+  // to prevent, so the caller turns those into a visible failure.
+  reason?: "budget" | "shadow_only" | "no_ledger" | "delivery_failed";
   row?: AttentionLedgerRow;
 };
 
@@ -168,7 +169,9 @@ export function handleUrgentEmail(input: {
           suppressedReason: "quiet_current_failed",
           now,
         });
-        return { status: "suppressed", reason: "budget", row: allocation.row };
+        // Shadow mode was never going to alert anyone, so a failed shadow
+        // board write loses a log line, not a person's alert.
+        return { status: "suppressed", reason: "shadow_only", row: allocation.row };
       }
       return { status: "shadow", row: allocation.row };
     }
