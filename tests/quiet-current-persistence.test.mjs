@@ -64,7 +64,12 @@ test('separate processes retain every suggestion and deduplicate a shared claim'
   const moduleUrl = pathToFileURL(path.resolve('src/lib/quiet-current/store.ts')).href;
   // Start on a fresh database: this also exercises concurrent migration.
   await Promise.all(Array.from({ length: 4 }, (_, worker) => new Promise((resolve, reject) => {
-    const source = `import {createWorkSuggestion,setQuietCurrentStorePathForTests} from ${JSON.stringify(moduleUrl)};
+    // package.json has no "type": "module", so tsx hands a .ts module to a bare
+    // --input-type=module eval as CommonJS and a static named import of a real
+    // export fails with "does not provide an export named". Import dynamically
+    // and accept either shape; this test is about concurrent writers, not interop.
+    const source = `const store = await import(${JSON.stringify(moduleUrl)});
+      const { createWorkSuggestion, setQuietCurrentStorePathForTests } = store.default ?? store;
       setQuietCurrentStorePathForTests(${JSON.stringify(file)});
       for(let i=0;i<20;i++) createWorkSuggestion({id:${JSON.stringify(`worker-${worker}-`)}+i,title:'Follow up '+i,reason:'Promise',source:'test'});
       createWorkSuggestion({title:'Shared promise',reason:'Promise',source:'test',claimKey:'shared'});`;

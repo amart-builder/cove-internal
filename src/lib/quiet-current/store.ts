@@ -529,7 +529,10 @@ export function acceptWorkSuggestion(id: string, input: { source: "explicit_acce
     if (!targetsTask) {
       const today = (db.prepare("SELECT id,name FROM task_columns ORDER BY position").all() as {id:string;name:string}[]).find(c=>taskColumnKeyForName(c.name)==="today");
       if (!today) throw new Error("Cove needs a Today list before accepting work.");
-      db.prepare("INSERT INTO tasks(id,column_id,title,description,priority,due_at,due_date,tags,project,status,source_type,remind_native,remind_text,created_at,updated_at,origin) VALUES(?,?,?,?,?,?,?,'[]','Cove','open','manual',1,0,?,?,?)")
+      // No project column here: this card belongs to whatever the person is
+      // working on, not to Cove. The tasks table's own default is the stored
+      // "nobody chose a project" sentinel, which the first screen hides.
+      db.prepare("INSERT INTO tasks(id,column_id,title,description,priority,due_at,due_date,tags,status,source_type,remind_native,remind_text,created_at,updated_at,origin) VALUES(?,?,?,?,?,?,?,'[]','open','manual',1,0,?,?,?)")
         .run(taskId,today.id,suggestion.title,suggestion.description,suggestion.priority,suggestion.dueDate??null,suggestion.dueDate??null,stamp,stamp,`Accepted Quiet Current suggestion. Source: ${suggestion.source}. Evidence: ${suggestion.reason}`);
     } else if (suggestion.kind === "returned_work") {
       const tags = JSON.parse(String(taskBefore!.tags ?? "[]"));

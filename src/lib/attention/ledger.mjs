@@ -244,7 +244,16 @@ export function allocateAttention(db, input) {
       "SELECT 1 FROM cove_attention_ledger WHERE kind='floor_nudge' AND level IN ('text','banner') AND delivered_at >= ? AND delivered_at < ? LIMIT 1",
     ).get(start, end));
 
-    const reservedMeetings = input.refKind === "meeting" || input.kind === "urgent_email"
+    // The floor's one daily text is the day's off-machine signal, and its own
+    // cap already holds it to one. Meeting banners only ever land on the Mac,
+    // so they must not reserve it away: a day full of meetings is when the
+    // person is least likely to be looking at the screen. The floor's per-item
+    // banners are ordinary on-Mac work and stay reserved.
+    // Only the day's first floor text is exempt. A later one is ordinary work
+    // again, so it cannot spend a slot a meeting is holding.
+    const floorDailyText = input.kind === "floor_nudge" && finalLevel === "text"
+      && usage.floorTexts < ATTENTION_LIMITS.floorTextsPerDay;
+    const reservedMeetings = input.refKind === "meeting" || input.kind === "urgent_email" || floorDailyText
       ? 0 : upcomingMeetingSlots(db, now);
     const bannerCap = Math.min(
       bannerCapFor(input.kind, floorDelivered, input.refKind, input.deadlineReminder === true),

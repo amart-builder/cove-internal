@@ -1180,10 +1180,28 @@ export function morningBriefRetryAt(code?: string): string | undefined {
   return Number.isFinite(at) && new Date(at).toISOString() === value ? value : undefined;
 }
 
+// A required source that is missing is a file that is not there, so "try again"
+// is advice that fails the same way every morning. The code already names the
+// source; say which one and what would fix it. Goals is the one a fresh
+// install actually hits: it is required, it lives only on disk, and Cove has
+// no screen for editing it.
+export function missingBriefSourceSentence(code: string): string {
+  const ids = code.slice("required_source_missing:".length).split(",").filter(Boolean);
+  // Goals is the one a fresh install actually hits, and the only one a retry
+  // cannot fix: it is required, it lives only on disk, and Cove has no screen
+  // for editing it. Every other required source is a read that can fail once
+  // and succeed next time, so those keep the retry.
+  if (ids.includes("goals")) {
+    return "Cove has no goals to plan your day against, so it could not write your brief. Your plan is still here. Ask your Cove setup agent to add your goals file.";
+  }
+  return "Cove could not load all the information needed to write your brief. Your plan is still here. Try again.";
+}
+
 export function morningBriefFailureDetail(code: string): string {
+  if (code === "never_claimed") return "Cove queued your brief but nothing started writing it. Your plan is still here. Check that Cove's background helper is running, then try again.";
   if (code === "runner_budget_exceeded") return "Cove reached its writing allowance before it could start your brief. Your plan is still here.";
   if (code === "runner_input_too_large") return "Cove could not fit the supplied context into this request. Your plan is still here.";
-  if (code.startsWith("required_source_missing:")) return "Cove could not load all the information needed to write your brief. Your plan is still here. Try again.";
+  if (code.startsWith("required_source_missing:")) return missingBriefSourceSentence(code);
   if (code.includes("unavailable")) return "Cove could not reach your selected writer. Check that Codex or Claude is signed in.";
   if (code.includes("timeout")) return "Your brief writer ran out of time. Your plan is still here, and you can try again.";
   if (code.includes("output_too_large")) return "Your writer returned more data than Cove could safely process. Your plan is still here.";
@@ -1194,6 +1212,24 @@ export function morningBriefFailureDetail(code: string): string {
 // failure is treated as idle: the arrival stays silent and does not imply a
 // brief is on its way.
 export const MORNING_BRIEF_FAILED_WINDOW_HOURS = 6;
+
+// How long a brief may sit queued before the arrival stops presenting it as
+// live. The jobs worker wakes every 5 minutes, so this leaves room for two
+// missed cycles before Cove admits nothing is coming. It deliberately does not
+// fail the row: a worker that starts late still writes the brief it was owed,
+// and the sweep that does fail rows stays the worker's own.
+export const MORNING_BRIEF_QUEUED_STALE_AFTER_MS = 12 * 60 * 1000;
+
+function queuedRowExpired(
+  artifact: MorningBriefArtifact,
+  now: Date,
+  staleAfterMs = MORNING_BRIEF_QUEUED_STALE_AFTER_MS,
+): boolean {
+  if (!Number.isFinite(staleAfterMs) || staleAfterMs <= 0) return false;
+  const queuedAt = Date.parse(artifact.createdAt);
+  if (!Number.isFinite(queuedAt)) return false;
+  return now.getTime() - queuedAt > staleAfterMs;
+}
 
 // Derives the generation state for a target date from its brief rows (pure; the
 // caller supplies now). An active queued/running row wins, running first since
@@ -1213,6 +1249,10 @@ export function selectMorningBriefGeneration(
     // When present and no local row is already active, the arrival stays
     // in-progress until that machine's artifact syncs in and is imported.
     remoteAttempt?: { startedAt?: string };
+    // How long an unclaimed queued row keeps reading as live. Defaults to
+    // MORNING_BRIEF_QUEUED_STALE_AFTER_MS; 0 or a non-finite value disables the
+    // bound entirely, which is what the worker's own accounting wants.
+    queuedStaleAfterMs?: number;
   } = {},
 ): MorningBriefGeneration {
   const forDate = artifacts.filter(
@@ -1242,7 +1282,15 @@ export function selectMorningBriefGeneration(
   if (queued) {
     const retryAt = morningBriefRetryAt(queued.errorCode);
     if (retryAt && Date.parse(retryAt) > now.getTime()) return { state: "deferred", retryAt };
-    return { state: "queued", ...(queued.startedAt ? { startedAt: queued.startedAt } : {}) };
+    // A queued row is only honest while something could still claim it. Nothing
+    // reaps one that is never claimed, so without this bound a queue no worker is
+    // draining reads as "your brief is on the way" forever: the arrival keeps
+    // promising a brief, hides its own retry control, and survives a reload in
+    // that state. Letting the row expire returns the screen to "not written yet"
+    // with the button that starts one, which is the next decision he is owed.
+    if (!queuedRowExpired(queued, now, options.queuedStaleAfterMs)) {
+      return { state: "queued", ...(queued.startedAt ? { startedAt: queued.startedAt } : {}) };
+    }
   }
 
   const succeeded = forDate

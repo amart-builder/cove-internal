@@ -8,10 +8,8 @@
  */
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
-import path from "node:path";
 import type { BuddySpawnedSessionState } from "./spawned-session-state";
-import { coveEnv } from "../env";
-import { openSqliteDatabase } from "../local/database";
+import { localDatabasePath, openSqliteDatabase } from "../local/database";
 import {
   applyLocalMigration,
   type LocalMigration,
@@ -486,7 +484,7 @@ export function getBuddyStore(): BuddyStore {
   }
   if (!global.__coveBuddyStore) {
     global.__coveBuddyStore = createBuddyStore({
-      dbPath: coveEnv("DB_PATH") ?? path.join(process.cwd(), "data", "cove.db"),
+      dbPath: localDatabasePath(),
     });
     global.__coveBuddyStoreVersion = BUDDY_STORE_API_VERSION;
   }

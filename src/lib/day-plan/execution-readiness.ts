@@ -86,7 +86,11 @@ export function loadCoveExecutionEnvironment(
 ): CoveExecutionEnvironment {
   const configPath = options.configPath ??
     coveEnv("EXECUTION_CONFIG") ??
-    coveConfigPath(path.join(process.cwd(), "data"), "execution.json");
+    // Every other private file in this install is found under COVE_DATA_DIR --
+    // the operator profile, the workspace config, the database itself. This
+    // one looked in the checkout, so a relocated install read an execution
+    // registry nobody had written and reported no workspaces.
+    coveConfigPath(coveEnv("DATA_DIR") ?? path.join(process.cwd(), "data"), "execution.json");
   const workspaces = new Map<string, CoveExecutionWorkspace>();
 
   if (existsSync(configPath)) {

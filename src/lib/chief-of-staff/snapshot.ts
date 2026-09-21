@@ -14,6 +14,7 @@ import {
   type AttentionRefKind,
 } from "../attention/ledger.mjs";
 import { cleanAttentionText } from "../attention/safety.mjs";
+import { localDayBounds } from "../local-time.mjs";
 import { buildContactContext, renderContactContext } from "../crm/contact-context";
 import { LocalPipelineStore } from "../crm/pipeline-store";
 import { salesPipelineEnabled } from "../crm/sales-pipeline";
@@ -280,12 +281,12 @@ function quietCurrentSection(dataDir: string): string[] {
   ];
 }
 
-function attentionDayBounds(now: Date): { start: string; end: string } {
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return { start: start.toISOString(), end: end.toISOString() };
+// The usage counters in this section come from dailyAttentionUsage, which
+// bounds the day with the operator's timezone. The rows beneath them must be
+// the same day, or the agent reads a budget it is not being shown. setHours
+// resolved in the machine's zone and was also wrong across a DST change.
+function attentionDayBounds(now: Date, timezone: string): { start: string; end: string } {
+  return localDayBounds(now, timezone);
 }
 
 function cleanSnapshotTitle(value: unknown, maximum = 80): string {
@@ -297,10 +298,11 @@ function attentionSection(input: {
   dataDir: string;
   lastWakeAt: string | null;
   now: Date;
+  timezone: string;
 }): string[] {
   const usage = dailyAttentionUsage(input.db, input.now);
   const shadow = readAttentionShadowSetting(input.dataDir);
-  const { start, end } = attentionDayBounds(input.now);
+  const { start, end } = attentionDayBounds(input.now, input.timezone);
   const recent = input.db.prepare(
     `SELECT kind, ref_kind, ref_id, level,
             COALESCE(delivered_at, created_at) AS occurred_at
@@ -526,6 +528,7 @@ export async function buildChiefOfStaffSnapshot(input: {
         dataDir: input.dataDir,
         lastWakeAt: input.session.lastWakeAt,
         now,
+        timezone,
       }),
         1_600,
       ),

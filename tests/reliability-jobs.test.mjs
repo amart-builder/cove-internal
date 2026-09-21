@@ -251,13 +251,13 @@ test('an unexpected worker error is recorded without abandoning the pool', async
   assert.equal(result.done, 1);
   assert.equal(result.failed, 1);
   assert.deepEqual(effects, ['second']);
-  assert.equal(
-    listFailures({ dbPath }).some((failure) =>
-      failure.source === 'scheduler' &&
-      /unexpected worker failure/.test(failure.message)
-    ),
-    true,
-  );
+  // The diagnostic lives in details, not in the message: the message is what
+  // the person reads on the Issues screen. Recording it is still what this
+  // test is about.
+  const recorded = listFailures({ dbPath }).find((failure) => failure.source === 'scheduler');
+  assert.ok(recorded, 'the worker error must be recorded');
+  assert.match(JSON.stringify(recorded.details), /unexpected worker failure/);
+  assert.doesNotMatch(recorded.message, /unexpected worker failure/);
 });
 
 test('scheduler ticks sweep terminal reliability history by age', async (t) => {

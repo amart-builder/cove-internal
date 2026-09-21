@@ -6,11 +6,102 @@ Follow `SETUP.md`. The installer renders absolute Node paths into LaunchAgents, 
 
 The supported app URL is `http://127.0.0.1:3200` (or `http://localhost:3200`). Logs live in `~/Library/Logs/` with `cove` in the filename.
 
+## Stopping Cove
+
+A full install loads more than a dozen LaunchAgents. Stopping `com.cove.local`
+stops the website and nothing else: the supervised worker, the reliability
+scheduler, reminders, email triage, the meeting watcher and drain, the progress
+reconciler, the weekly voice review, the four chief-of-staff lanes and the daily
+backup all keep running, and the chief-of-staff lanes call the selected model and
+can notify. Telling a person Cove is off after stopping only the website is wrong.
+
+```bash
+bash scripts/cove-stop.sh --status   # what is loaded, and what starts at login
+bash scripts/cove-stop.sh            # stop every Cove service now
+bash scripts/cove-stop.sh --disable  # stop them and keep them stopped
+bash scripts/install-cove-local.sh   # start them again
+```
+
+Both modes also name a Cove that launchd never started -- the web app run by
+hand during setup, or by anyone watching a log -- because `launchctl` cannot see
+it and this script has no business killing a process someone is sitting in
+front of. Saying it is still answering is the point: without that line, "no
+service is running" reads as "nothing is running", which is what sends someone
+into a restore over a live writer.
+
+`launchctl bootout` unloads a service until the next login; macOS loads every
+plist still in `~/Library/LaunchAgents` when the person logs in again. Only
+`--disable` (`launchctl disable`) survives a restart, and the installer's own
+`launchctl enable` calls clear it on the next install, which is what makes the
+install/stop pair symmetric.
+
+Stopping never touches data. The database, `data/backups/`, the profile, goals,
+mandate, connector settings and Keychain entries are all left in place, and
+`install-cove-local.sh` resumes the same installation. There is no uninstaller:
+removing Cove means stopping it with `--disable`, deleting the checkout once its
+data has been copied somewhere safe, and then clearing what the installer wrote
+outside it. That is:
+
+- `~/Library/LaunchAgents/com.cove.*.plist` -- `--disable` deliberately leaves
+  these in place so a reinstall is symmetric, so removal has to delete them.
+- The `launchctl disable` overrides themselves, which outlive the plists and
+  are stored per user account, not per file. A reinstall clears the ones the
+  installer knows about, so this is tidiness rather than a trap -- but it is
+  the one leftover that is invisible unless you look for it:
+  `launchctl print-disabled gui/$(id -u) | grep com.cove`, then
+  `launchctl enable gui/$(id -u)/<label>` for each.
+- `~/Library/Logs/cove*.log` -- one per lane, and the only record of what ran
+  after the checkout is gone. They hold task and job ids, reminder ids and
+  error text rather than the content of the work.
+- `~/Applications/Cove Notifications.app`.
+- The `~/.claude/skills/cove-*` and Codex `cove-*` skill folders.
+- `~/.claude/hooks/cove-orchestrator.sh` and the `SessionStart` entry pointing
+  at it in `~/.claude/settings.json`. Remove both: the entry is what runs the
+  file, at the start of every Claude Code session on that account, Cove's or
+  anyone's.
+- `~/.cove/orchestrator-sessions`, the append-only list of Claude session ids
+  that hook reads.
+
+Google credentials live in the macOS Keychain and are removed there.
+
 ## Health
 
 The Current displays live readiness for email, the brief writer, and the background worker. Empty and unavailable are different states. `/api/health` exposes the same read model to trusted local requests, plus the latest periodic health snapshot.
 
 Failures that need attention are recorded in Cove's Issues surface. A partial receipt means useful work completed but the named remainder needs a later run or operator action.
+
+## When Google says it needs connecting again
+
+The email lane reports `Google Workspace needs to be connected again.` whenever
+the stored refresh token no longer works. Check what Cove thinks it has:
+
+```bash
+./node_modules/.bin/tsx scripts/cove-google-connect.ts status
+```
+
+That prints the connected Gmail address, or says the connection is missing or
+no longer usable. To reconnect, re-run the same `connect` command used during
+setup; `reauthorize` is an alias for it, and the saved inbox-check times,
+timezone and weekday setting are preserved unless those flags are passed again:
+
+```bash
+./node_modules/.bin/tsx scripts/cove-google-connect.ts connect \
+  --client-json /absolute/path/to/client_secret.json
+```
+
+`disconnect` removes the Keychain entries and keeps the old configuration file
+beside its replacement.
+
+**A Google Cloud OAuth client left in Testing publishing status issues refresh
+tokens that expire after seven days.** An install connected with one will report
+exactly this message a week later, on its own, with nothing wrong on the Mac.
+Publish the consent screen, or expect to reconnect weekly. This is the single
+most likely way a working email connection stops working without anyone
+touching it.
+
+These commands read the data directory Cove is configured with, so run them
+from the checkout, with the same `COVE_DATA_DIR` the install uses if it is not
+the default.
 
 ## Morning Brief schedule
 
@@ -28,7 +119,7 @@ of repeatedly spending model capacity. Explicit Brief me anyway remains availabl
 - Failed email archives leave the item open and retryable.
 - Dead jobs appear in Issues rather than disappearing.
 - Create a fresh recovery point with `bash scripts/cove-backup.sh`. A backup failure returns a nonzero exit code; unrelated queued work is not run.
-- Use `bash scripts/cove-restore-backup.sh --yes <backup-file>` for database recovery. Stop the app and database-using workers first.
+- Use `bash scripts/cove-restore-backup.sh --yes <backup-file>` for database recovery. Stop the app and database-using workers first. The restore refuses while any `com.cove.*` or `com.forge.*` service is loaded, which is what `bash scripts/cove-stop.sh` clears. That gate only sees services launchd loaded, so an installed Cove also refuses while it is answering on the address the install recorded -- which covers the web app started by hand, as setup does before the installer runs. Stop that process in its own terminal first. A checkout that was never installed has recorded no address and is not probed at all. Restoring under a live Cove does not fail loudly -- the file is replaced while that process keeps its own connection and cache, so the restore reports success and the app goes on serving the old data. The open-handle check behind the gate is a race backstop, not a substitute, because Cove opens the database per operation and an idle moment looks like nobody has it.
 - Re-run `bash scripts/install-cove-local.sh` after moving the repository or changing the Node installation.
 
 ## Verification

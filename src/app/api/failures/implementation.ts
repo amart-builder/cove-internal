@@ -4,6 +4,7 @@ import { getQuietCurrentCsrfToken } from "@/lib/quiet-current/store";
 import { isTrustedCoveRequest } from "@/lib/request-security";
 import { getRuntimeMode } from "@/lib/runtime/mode";
 import { listRecentReceiptActivity } from "@/lib/reliability/receipts";
+import { routeFailureBody } from "@/lib/reliability/route-failure";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +29,21 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Untrusted request host." }, { status: 403 });
   }
   if (getRuntimeMode() !== "local") return disabledFailuresResponse();
+  try {
+    return listFailuresResponse(request);
+  } catch (error) {
+    // Issues is the page somebody opens because something is already wrong, so
+    // it is the last one that can afford to answer with nothing. An unreadable
+    // or full database made this route return a bare 500 with an empty body,
+    // and the screen showed "Unexpected end of JSON input" where the list
+    // should have been.
+    return NextResponse.json(routeFailureBody("Cove couldn't load your issues.", error), {
+      status: 500,
+    });
+  }
+}
+
+function listFailuresResponse(request: NextRequest) {
   const receiptLimit = Math.max(
     1,
     Math.min(30, Number.parseInt(request.nextUrl.searchParams.get("receiptLimit") ?? "15", 10) || 15),

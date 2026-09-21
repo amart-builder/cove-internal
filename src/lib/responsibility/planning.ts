@@ -104,7 +104,9 @@ export function assessCapacity(input: {
     assumption: `9am to 5pm working window with 30% left for breaks and unexpected work. Estimates are proposals.`,
     conclusion:
       available === null
-        ? "Calendar availability is unknown. This plan is not verified to fit."
+        // The line above this one in the overview already says availability is
+        // unknown, so repeating it here printed the same sentence twice.
+        ? "This plan is not verified to fit."
         : known > available
           ? "This plan needs a tradeoff. Reduce, delegate, defer or renegotiate before adding more."
           : unknown

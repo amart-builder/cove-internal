@@ -177,7 +177,10 @@ export function buddyFeedbackAssistantText(feedback: BuddyFeedbackReceipt): stri
     return "I made a Gmail draft for you. Review it there, then send it yourself.";
   }
   if (feedback.fallbackReason === "support_not_configured") {
-    return "No feedback address is set up, so here is the message to copy.";
+    // A fresh install has no address until SETUP.md's Step 5 sets one, and
+    // "here is the message to copy" on its own leaves the person holding text
+    // with no destination -- the `to` line is empty in exactly this case.
+    return "No feedback address is set up, so here is the message to copy. Your Cove setup agent can set one so this drafts itself next time.";
   }
   if (feedback.fallbackReason === "draft_failed") {
     return "I couldn't create the Gmail draft, so here is the message to copy.";

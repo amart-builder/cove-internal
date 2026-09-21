@@ -299,6 +299,14 @@ async function acknowledgeMeetingItem(
       sourceId: context.sourceId,
       rawText: text,
       machine: options.machine,
+      // Someone else's follow-up becomes a waiting-on commitment, and this
+      // event is only its provenance: there is no triage left to do. Recorded
+      // as a capture instead, a copy that reached the spool came back
+      // `pending`, and the inbound sweep turned it into a task on the
+      // operator's own board half an hour later — one whose text ends
+      // "Named owner: <the other person>". The database path is unchanged:
+      // the row is resolved to `triaged` below either way.
+      state: "dismissed",
     },
     { dataDir: options.dataDir },
   ) as EventReceipt;

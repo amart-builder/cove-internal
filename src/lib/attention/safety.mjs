@@ -3,6 +3,24 @@ import { domainToASCII } from "node:url";
 export function cleanAttentionText(value) {
   return String(value ?? "")
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+    // The C0 and C1 ranges above were stripped; this is the family next door,
+    // and it is the one an attacker reaches for. These characters render as
+    // nothing, so they do two things to a banner built from an email subject.
+    // U+202E and its neighbours flip the text that follows, which makes what
+    // Cove stored and what the person reads two different strings. And a single
+    // U+2060 walked a whole domain past the rule below: it breaks the
+    // label-dot-label shape the pattern matches, the remaining ".example" has
+    // no leading label, and "Visit evil<U+2060>.example now" reached the screen
+    // reading "Visit evil.example now".
+    //
+    // Removed rather than replaced with a space, because a space would be
+    // visible where these are not, and because the domain rule has to see the
+    // characters either side of them join up.
+    //
+    // U+200C and U+200D are deliberately absent: they carry meaning in emoji
+    // sequences and in Persian and Devanagari orthography, and they are not a
+    // bypass, because the domain rule already breaks a domain containing one.
+    .replace(/[\u00ad\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g, "")
     .replace(/[\u2013\u2014]/g, ":")
     .replace(/\s+/g, " ")
     .trim();

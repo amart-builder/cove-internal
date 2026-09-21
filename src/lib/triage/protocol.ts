@@ -33,13 +33,21 @@ export const TRIAGE_JSON_SCHEMA = JSON.stringify({
     "offer",
   ],
   properties: {
-    title: { type: "string", maxLength: 240 },
-    description: { type: "string", maxLength: 4000 },
-    project: { type: "string", maxLength: 160 },
+    // minLength is not decoration. validateTriageOutput rejects an empty or
+    // whitespace-only string outright, and a schema that permits one lets the
+    // model spend an attempt on an answer the contract will refuse.
+    title: { type: "string", minLength: 1, maxLength: 240 },
+    description: { type: "string", minLength: 1, maxLength: 4000 },
+    project: { type: "string", minLength: 1, maxLength: 160 },
     priority: { enum: ["low", "medium", "high"] },
     due_at: { type: "string", format: "date-time", maxLength: 64 },
     autonomy: { enum: ["none", "groundwork", "nearly_done"] },
-    groundwork_notes: { type: ["string", "null"], maxLength: 2000 },
+    groundwork_notes: {
+      anyOf: [
+        { type: "string", minLength: 1, maxLength: 2000 },
+        { type: "null" },
+      ],
+    },
     surface: { enum: ["now", "scheduled", "board"] },
     surface_at: {
       anyOf: [
@@ -47,8 +55,8 @@ export const TRIAGE_JSON_SCHEMA = JSON.stringify({
         { type: "null" },
       ],
     },
-    urgency_reason: { type: "string", maxLength: 600 },
-    offer: { type: "string", maxLength: 600 },
+    urgency_reason: { type: "string", minLength: 1, maxLength: 600 },
+    offer: { type: "string", minLength: 1, maxLength: 600 },
   },
 });
 
@@ -98,11 +106,36 @@ function boundedString(
   return cleaned;
 }
 
+const ISO_TIMESTAMP =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?)?(?:Z|([+-])(\d{2}):(\d{2}))$/;
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+// Date.parse takes a date the calendar does not have and rolls it forward, so
+// "2026-02-30" becomes March 2 and "T24:00" becomes the next day. This is the
+// one free-form value in the contract that decides which column a card lands
+// in and when its reminder fires, so a rolled-over date is a deadline nobody
+// chose. Check the fields the calendar actually allows.
 function isoTimestamp(value: unknown, name: string): string {
   const text = boundedString(value, name, 64);
+  const parts = ISO_TIMESTAMP.exec(text);
+  if (!parts || Number.isNaN(Date.parse(text))) {
+    throw new Error(`triage_${name}_invalid`);
+  }
+  const [, year, month, day, hour, minute, second, , offsetHour, offsetMinute] = parts;
+  const monthNumber = Number(month);
+  if (monthNumber < 1 || monthNumber > 12) throw new Error(`triage_${name}_invalid`);
+  const dayNumber = Number(day);
+  if (dayNumber < 1 || dayNumber > daysInMonth(Number(year), monthNumber)) {
+    throw new Error(`triage_${name}_invalid`);
+  }
   if (
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(text) ||
-    Number.isNaN(Date.parse(text))
+    Number(hour) > 23 ||
+    Number(minute) > 59 ||
+    (second !== undefined && Number(second) > 59) ||
+    (offsetHour !== undefined && (Number(offsetHour) > 14 || Number(offsetMinute) > 59))
   ) {
     throw new Error(`triage_${name}_invalid`);
   }

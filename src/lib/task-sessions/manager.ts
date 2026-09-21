@@ -31,7 +31,7 @@ import { buildCodexTaskCommand, codexTaskResumeCommand, createCodexTaskParser, t
 import { resolveProjectDirectory } from "../atlas-projects";
 import { isClaudeNotSignedIn } from "../buddy/errors";
 import { coveEnv } from "../env";
-import { openLocalDatabase } from "../local/database";
+import { localDatabasePath, openLocalDatabase } from "../local/database";
 import { coveDataDir, operatorName, operatorTimezone } from "../operator";
 import { recordReceipt } from "../reliability/receipts";
 import {
@@ -1388,7 +1388,7 @@ type TaskSessionGlobal = {
 export function getTaskSessionManager(): TaskSessionManager {
   const global = globalThis as unknown as TaskSessionGlobal;
   if (!global.__coveTaskSessionManager) {
-    const dbPath = coveEnv("DB_PATH") ?? path.join(process.cwd(), "data", "cove.db");
+    const dbPath = localDatabasePath();
     const serverGeneration = randomUUID();
     const bootId = currentBootId();
     const manager = createTaskSessionManager({

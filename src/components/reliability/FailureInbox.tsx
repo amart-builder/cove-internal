@@ -2,7 +2,8 @@
 
 import AgentUsage from "./AgentUsage";
 import FollowThrough from "./FollowThrough";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { failureSourceLabel } from "@/lib/reliability/failure-source-label";
 
 type FailureItem = {
   id: string;
@@ -42,23 +43,6 @@ function readableTime(value: string): string {
   }).format(date);
 }
 
-function readableSource(value: string): string {
-  const labels: Record<string, string> = {
-    receipt: "Recent activity",
-    job: "Background work",
-    scheduler: "Background work",
-    "meeting-intake": "Meeting notes",
-    "meeting-watch": "Meeting notes",
-    "email-triage": "Inbox check",
-    "email-triage-contact-resolution": "Inbox check",
-    "reminder-delivery": "Reminder delivery",
-    "stale-task-watchdog": "Old task check",
-  };
-  return labels[value] ?? value.replace(/[-_]+/g, " ").replace(/\b\w/g, (letter) =>
-    letter.toUpperCase()
-  );
-}
-
 export default function FailureInbox({ receiptsEnabled }: { receiptsEnabled: boolean }) {
   const [items, setItems] = useState<FailureItem[]>([]);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
@@ -94,6 +78,20 @@ export default function FailureInbox({ receiptsEnabled }: { receiptsEnabled: boo
     void load();
   }, [load]);
 
+  // Every Dismiss is disabled while one is in flight, which covers the request
+  // but not what happens the moment it returns: the row goes, the one below it
+  // moves up into the same place, and clearing the guard in the same breath
+  // hands the second half of a double click to a button nobody aimed at.
+  // Measured before this: double-clicking the first of three Dismiss buttons
+  // dismissed the first and the second, and a reload confirmed the second was
+  // gone for good -- this screen has no undo. Holding the guard a moment past
+  // the re-render swallows that second click. A failure clears it at once, so
+  // a real retry is never delayed.
+  const settleTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => {
+    if (settleTimer.current !== undefined) window.clearTimeout(settleTimer.current);
+  }, []);
+
   async function dismiss(id: string) {
     setOperationError("");
     setDismissingId(id);
@@ -109,11 +107,11 @@ export default function FailureInbox({ receiptsEnabled }: { receiptsEnabled: boo
       const payload = await response.json() as FailureResponse;
       if (!response.ok) throw new Error(payload.error ?? "Could not dismiss issue.");
       setItems((current) => current.filter((item) => item.id !== id));
+      settleTimer.current = window.setTimeout(() => setDismissingId(null), 400);
     } catch (dismissError) {
       setOperationError(
         dismissError instanceof Error ? dismissError.message : "Could not dismiss issue.",
       );
-    } finally {
       setDismissingId(null);
     }
   }
@@ -200,13 +198,14 @@ export default function FailureInbox({ receiptsEnabled }: { receiptsEnabled: boo
                   <div className="min-w-0 flex-1">
                     <p className="text-sm leading-6 text-foreground">{item.message}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {readableTime(item.occurredAt)} · {readableSource(item.source)}
+                      {readableTime(item.occurredAt)} · {failureSourceLabel(item.source)}
                     </p>
                   </div>
                   <button
                     type="button"
                     disabled={dismissingId !== null}
                     onClick={() => void dismiss(item.id)}
+                    aria-label={`Dismiss: ${item.message}`}
                     className="self-start rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
                   >
                     {dismissingId === item.id ? "Dismissing..." : "Dismiss"}

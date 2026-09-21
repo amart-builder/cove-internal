@@ -21,6 +21,8 @@ const BASE_MOMENTS = [
 const words = [
   ["Today", "Your main view for the work in front of you."],
   ["The current", "The flow of work on Today. The middle is your main focus."],
+  ["Second Current", "The side panel on Today that holds email and recurring work, so it stays beside your main focus rather than in it. Tap it to open."],
+  ["Rhythms", "Work that comes back on a schedule. Cove keeps them in the Second Current."],
   ["Arrival", "The short morning start."],
   ["The brief", "A morning note about what matters and what changed."],
   ["Still open", "Work or promises that are not done yet."],
@@ -48,7 +50,7 @@ export function guideCopyForRuntime(mode: RuntimeMode) {
   };
 }
 
-export default function GuidePage() {
+export default function GuidePage({ dataFolder }: { dataFolder?: string }) {
   const copy = guideCopyForRuntime(getRuntimeMode());
   return (
     <div className="h-full overflow-y-auto bg-background">
@@ -105,6 +107,26 @@ export default function GuidePage() {
           </div>
 
           <div className="space-y-5">
+            {dataFolder && (
+              <article className="rounded-2xl border border-border bg-card/75 p-5">
+                <h2 className="text-base font-semibold text-foreground">
+                  Where your work is kept
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Your work — tasks, plans, briefs, people — lives in one folder on this Mac:{" "}
+                  <span className="break-all font-mono text-xs text-foreground">{dataFolder}</span>. Cove keeps its own
+                  logs in your Library folder, and any account you connect keeps its sign-in in the Mac&rsquo;s Keychain.
+                  There is no Cove account and no Cove server holding a copy, and Cove is installed to answer only on
+                  this Mac, so nothing else on your network can open it.
+                </p>
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                  Two things do leave the Mac, and only for the features you turn on: the model provider you chose is
+                  sent the text it needs to write your brief and sort your inbox, and Google is sent the requests Cove
+                  makes for your mail and calendar.
+                </p>
+              </article>
+            )}
+
             <article className="rounded-2xl border border-border bg-card/75 p-5">
               <h2 className="text-base font-semibold text-foreground">
                 When your Mac is closed
@@ -123,7 +145,7 @@ export default function GuidePage() {
               </p>
               {copy.showFeedback && (
                 <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                  To share a bug or idea, say: “Send feedback: the text on this card is hard to read.” Buddy makes a Gmail draft. You review and send it yourself.
+                  To share a bug or idea, say: “Send feedback: the text on this card is hard to read.” Buddy makes a Gmail draft when your email is connected and a feedback address is set, and otherwise hands you the message to copy. Either way you send it yourself.
                 </p>
               )}
             </article>
