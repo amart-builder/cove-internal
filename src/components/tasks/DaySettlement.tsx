@@ -506,12 +506,15 @@ export default function DaySettlement({
               Not yet
             </button>
             {!allDecided && unresolved.length > 0 && (
-              <p role="status" className="text-xs text-muted-foreground">Mark each open item complete, or choose Progress, Carry, Defer, or Drop.</p>
+              <p id="day-settlement-close-availability" role="status" className="text-xs text-muted-foreground">Mark each open item complete, or choose Progress, Carry, Defer, or Drop.</p>
             )}
             <button
               type="button"
               data-ritual-primary
               disabled={closing || !allDecided || savingItemIds.size > 0}
+              // The sentence above says why this is dimmed. Naming it here is
+              // what reads it out to someone who arrives on the button itself.
+              aria-describedby={!allDecided && unresolved.length > 0 ? 'day-settlement-close-availability' : undefined}
               className="min-h-11 rounded-xl bg-foreground px-5 text-sm font-semibold text-background hover:opacity-90 disabled:opacity-40 sm:ml-auto"
               onClick={() => void onCloseDay()}
             >
