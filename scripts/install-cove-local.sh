@@ -167,7 +167,18 @@ if [ -z "$CODEX_BIN" ] && [ -x "/usr/local/bin/codex" ]; then
   CODEX_BIN="/usr/local/bin/codex"
 fi
 if [ "$JOB_RUNNER" = "codex-sol-high" ] && { [ -z "$CODEX_BIN" ] || [ ! -x "$CODEX_BIN" ]; }; then
-  echo "COVE_JOB_RUNNER=codex-sol-high requires an executable Codex CLI. Install it or set COVE_CODEX_BIN." >&2
+  if [ -z "$AGENT_PROVIDER" ]; then
+    # No saved selection, so JOB_RUNNER fell back to the legacy Codex default.
+    # On a first install that is not a Codex problem: Step 0 of SETUP.md has not
+    # been finished yet. Naming an environment variable the person never set
+    # sends them to install a CLI they may have deliberately not chosen.
+    echo "Cove has no saved agent selection yet, so it fell back to its legacy Codex runner and could not find the Codex CLI." >&2
+    echo "Choose and verify the agent first, then re-run this installer:" >&2
+    echo "  node scripts/cove-agent-settings.mjs configure --provider claude   # or --provider codex" >&2
+    echo "(For an older install that really does run on Codex, install the Codex CLI or set COVE_CODEX_BIN in .env.local.)" >&2
+  else
+    echo "COVE_JOB_RUNNER=codex-sol-high requires an executable Codex CLI. Install it or set COVE_CODEX_BIN." >&2
+  fi
   exit 1
 fi
 # An explicit opt-in must not silently become a successful install with the
