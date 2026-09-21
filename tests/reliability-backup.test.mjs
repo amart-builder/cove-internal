@@ -4,6 +4,7 @@ import {
   closeSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   openSync,
   readFileSync,
   readdirSync,
@@ -566,4 +567,65 @@ test('restore refuses while any Cove service is still loaded', async (t) => {
     },
   );
   assert.equal(allowed.status, 0, `stdout:\n${allowed.stdout}\nstderr:\n${allowed.stderr}`);
+});
+
+test('a damaged backup is refused in plain words and changes nothing', async (t) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'cove-restore-damaged-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const dbPath = path.join(root, 'cove.db');
+  const backupDir = path.join(root, 'backups');
+  mkdirSync(backupDir, { recursive: true });
+
+  const db = openLocalDatabase(dbPath);
+  db.prepare(
+    `INSERT INTO task_columns
+       (id, name, position, is_default, created_at, updated_at)
+     VALUES ('column-1', 'Not Started', 0, 1, 'now', 'now')`,
+  ).run();
+  db.prepare(
+    `INSERT INTO tasks
+       (id, column_id, title, status, tags, project, position, source_type)
+     VALUES ('keep-me', 'column-1', 'Still here', 'open', '[]', 'Atlas', 0, 'manual')`,
+  ).run();
+  db.close();
+  const before = readFileSync(dbPath);
+
+  // Three ways a snapshot goes bad: not a database at all, truncated, and a
+  // valid SQLite file with none of Cove's tables in it.
+  const damaged = {
+    'not-a-database.db': () => writeFileSync(path.join(backupDir, 'not-a-database.db'), 'this is not a database'),
+    'truncated.db': () => {
+      const file = path.join(backupDir, 'truncated.db');
+      writeFileSync(file, before.subarray(0, 40_000));
+    },
+    'empty.db': () => writeFileSync(path.join(backupDir, 'empty.db'), ''),
+  };
+  for (const make of Object.values(damaged)) make();
+
+  for (const name of Object.keys(damaged)) {
+    const restored = spawnSync(
+      '/bin/bash',
+      ['scripts/cove-restore-backup.sh', '--yes', path.join(backupDir, name)],
+      {
+        cwd: path.resolve('.'),
+        env: {
+          ...process.env,
+          COVE_DB_PATH: dbPath,
+          COVE_BACKUP_DIR: backupDir,
+          COVE_RESTORE_ALLOW_RUNNING: '1',
+        },
+        encoding: 'utf8',
+      },
+    );
+    assert.notEqual(restored.status, 0, `${name} must not restore`);
+    // Someone restoring a backup is already having a bad day. A SqliteError
+    // and a stack is the right detail for a diagnostic and the wrong thing to
+    // leave them reading, so a sentence has to come last.
+    assert.match(
+      `${restored.stdout}${restored.stderr}`,
+      /did not restore it|Nothing was changed/,
+      `${name} must say what happened in words`,
+    );
+    assert.deepEqual(readFileSync(dbPath), before, `${name} must leave the database alone`);
+  }
 });
