@@ -247,6 +247,27 @@ function taskProvenance(task) {
   };
 }
 
+// The scheduled-reminder equivalent of taskProvenance. It reads a JSON entry
+// rather than a row, and it deliberately differs on one case: an entry with no
+// recorded source is treated as outside words, where a task with no inbound
+// event is treated as the owner's. A task row proves the absence -- it joined
+// against inbound_events and found nothing. An entry only fails to carry a
+// field, which older files do, and the safe reading of a missing field is the
+// one that labels rather than the one that vouches. It also matches what the
+// text branch of fireScheduledReminders has always done with the same value.
+function scheduledProvenance(entry) {
+  const source = entry.source;
+  if (DIRECT_AUTHOR_SOURCES.has(source)) return { direct: true, prefix: "from you" };
+  if (source === "email") return { direct: false, prefix: "from email" };
+  if (isMeetingDerivedScheduled(entry)) return { direct: false, prefix: "from meeting" };
+  return { direct: false, prefix: source ? `from ${source}` : "from unknown source" };
+}
+
+function isMeetingDerivedScheduled(entry) {
+  return String(entry.source ?? "").toLowerCase() === "meeting" ||
+    String(entry.source_type ?? "").toLowerCase().startsWith("meeting");
+}
+
 function isMeetingDerivedTask(task) {
   const sourceType = String(task.source_type ?? "").trim().toLowerCase();
   return task.inbound_source === "meeting" ||
@@ -646,11 +667,22 @@ function fireScheduledReminders(db, config, token, now = attentionNow()) {
     // The file is left in place rather than consumed, so the next pass inside
     // the window delivers it. Waiting must not mean discarded.
     if (entry.surface !== "now" && !insideNudgeDeliveryWindow(now)) continue;
-    const title = entry.title || "Task";
+    const provenance = scheduledProvenance(entry);
+    const title = plainAttentionText(entry.title) || "Task";
+    // The rule the due lane and the attention floor both state at their own
+    // notifyNative calls: a title written by someone else is sanitized and
+    // labelled before it borrows Cove's credibility. This lane was the one
+    // that did neither. entry.title is the triage model's wording of a
+    // capture, and under an email capture the words are a stranger's, so an
+    // unlabelled banner reading "Here's your reminder: confirm your account
+    // at pay.example" arrived over Cove's name with nothing to say otherwise.
+    const bannerTitle = provenance.direct
+      ? title
+      : sanitizedNonDirectText(entry.title, provenance.prefix);
     try {
       let nativeFailure = null;
       try {
-        notifyNative(title, entry.task_id ?? entry.id);
+        notifyNative(bannerTitle, entry.task_id ?? entry.id);
       } catch (error) {
         nativeFailure = errorMessage(error);
         console.error(
@@ -662,14 +694,17 @@ function fireScheduledReminders(db, config, token, now = attentionNow()) {
       const meetingDerived = String(entry.source ?? "").toLowerCase() === "meeting" ||
         String(entry.source_type ?? "").toLowerCase().startsWith("meeting");
       if (textExpected && !meetingDerived) {
-        const directAuthor = DIRECT_AUTHOR_SOURCES.has(entry.source);
         deliverTextReminder(db, config, token, {
           kind: "scheduled",
           id: entry.id ?? name,
           taskId: entry.task_id,
           nativeDelivered: nativeFailure === null,
           title,
-          message: directAuthor
+          // notifyTextFailure falls back to input.title when no bannerTitle is
+          // given, so without this the raw title reached a banner by the other
+          // door: the one a failed text opens.
+          bannerTitle,
+          message: provenance.direct
             ? `Cove reminder: ${title}`
             : CONTENT_FREE_REMINDER,
         });
