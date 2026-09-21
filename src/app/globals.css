@@ -1781,12 +1781,15 @@ input, textarea, select {
 .today2-river-shimmer { fill: none; stroke: rgba(255,255,255,.72); stroke-width: 1.4; stroke-linecap: round; stroke-dasharray: 42 38; opacity: .48; animation: today2-river-shimmer 14s linear infinite; }
 @keyframes today2-river-shimmer { to { stroke-dashoffset: -188; } }
 
+/* The press is on the invisible circle, not the painted one -- see the
+   comment beside the bead in TodayRiverStageV2. */
+.today2-bead-target { cursor: pointer; }
+.today2-bead-hit { fill: transparent; stroke: none; pointer-events: all; }
 .today2-bead {
   fill: var(--node-dot);
   stroke: rgba(255,255,255,.78);
   stroke-width: 2;
-  pointer-events: auto;
-  cursor: pointer;
+  pointer-events: none;
   filter: drop-shadow(0 0 6px rgba(119,172,209,.55));
   opacity: .45;
 }
