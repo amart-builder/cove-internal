@@ -133,7 +133,13 @@ export const DAILY_PLANNING_SCHEMA = {
       },
     },
     watches: {
-      type: "array", maxItems: 8,
+      // Five, because the writing mandate printed into the same prompt says
+      // "Five at the very most" and says why: watches render directly under the
+      // brief, so eight is a longer read than the brief itself and the operator
+      // skims the whole section. Handing the model both numbers at once left it
+      // to pick. The two validators stay at 8 so a decision stored under the
+      // old cap is still readable.
+      type: "array", maxItems: 5,
       items: {
         ...reference,
         properties: { ...reference.properties, kind: { enum: ["task", "commitment", "suggestion"] } },
@@ -185,7 +191,7 @@ export function dailyPlanningSchema(context: PlanningContext) {
       questions: { ...schema.properties.questions, ...(keys.length ? {} : { maxItems: 0 }), items: {
         ...schema.properties.questions.items, properties: { ...schema.properties.questions.items.properties, source: selected },
       } },
-      watches: { type: "array", maxItems: watched.length ? 8 : 0, items: { type: "string", enum: watched.length ? watched : ["no-source-available"] } },
+      watches: { type: "array", maxItems: watched.length ? 5 : 0, items: { type: "string", enum: watched.length ? watched : ["no-source-available"] } },
     },
   };
 }
