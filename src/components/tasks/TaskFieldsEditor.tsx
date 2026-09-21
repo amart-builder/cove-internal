@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { ArrivalTask } from '@/lib/quiet-current/arrival-cache';
 import { visibleTags } from '@/lib/tasks/tags';
 import { type TaskEditGuard } from '@/lib/tasks/edit-conflict';
-import { taskEditorDraft, taskEditorPatch, taskEditorExpected } from '@/lib/tasks/editor-patch';
+import { taskEditorDraft, taskEditorPatch, taskEditorExpected, taskSaveUnavailableReason } from '@/lib/tasks/editor-patch';
 
 export type Task = Omit<ArrivalTask, 'dueDate'> & TaskEditGuard & {
   dueDate?: string | null;
@@ -53,6 +53,7 @@ export default function TaskFieldsEditor({
     await onSave({ ...patch, _expected: taskEditorExpected(baseline, patch, task.tags) });
   }
 
+  const saveUnavailableReason = taskSaveUnavailableReason({ title, saving });
   const fieldClass = 'min-h-11 w-full rounded-xl border bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-accent-blue/40 disabled:opacity-50';
 
   return (
@@ -142,6 +143,11 @@ export default function TaskFieldsEditor({
         />
       </div>
       {error && <p role="alert" className="text-xs text-accent-red">{error}</p>}
+      {saveUnavailableReason && (
+        <p id={`${fieldId}-save-availability`} className="text-xs text-muted-foreground">
+          {saveUnavailableReason}
+        </p>
+      )}
       <div className="flex justify-end gap-2 pt-1">
         <button
           type="button"
@@ -153,7 +159,9 @@ export default function TaskFieldsEditor({
         </button>
         <button
           type="button"
-          disabled={saving || !title.trim()}
+          disabled={Boolean(saveUnavailableReason) || saving}
+          title={saveUnavailableReason}
+          aria-describedby={saveUnavailableReason ? `${fieldId}-save-availability` : undefined}
           onClick={() => void save()}
           className="min-h-11 rounded-xl bg-foreground px-4 text-sm font-medium text-background outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:opacity-50"
         >

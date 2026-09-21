@@ -12,7 +12,7 @@ import ModalScrim from './arrival/ModalScrim';
 import { TaskSessionLauncher } from './TaskSessionLauncher';
 import { visibleTags } from '@/lib/tasks/tags';
 import { taskEditError, type TaskEditGuard } from '@/lib/tasks/edit-conflict';
-import { taskEditorDraft, taskEditorPatch, taskEditorExpected } from '@/lib/tasks/editor-patch';
+import { taskEditorDraft, taskEditorPatch, taskEditorExpected, taskSaveUnavailableReason } from '@/lib/tasks/editor-patch';
 
 interface ColumnData {
   _id: string;
@@ -204,6 +204,8 @@ export default function TaskDetail({
       </ModalScrim>
     );
   }
+
+  const saveUnavailableReason = taskSaveUnavailableReason({ title, saving });
 
   return (
     <ModalScrim labelledBy="task-detail-title" returnFocus={returnFocus} onClose={onClose}
@@ -397,13 +399,20 @@ export default function TaskDetail({
             </button>
             <button
               onClick={handleSave}
-              disabled={saving || !title.trim()}
+              disabled={Boolean(saveUnavailableReason) || saving}
+              title={saveUnavailableReason}
+              aria-describedby={saveUnavailableReason ? 'task-detail-save-availability' : undefined}
               className="px-3 py-1.5 text-xs font-medium bg-accent-blue text-white rounded-md hover:opacity-90 transition-opacity duration-150 disabled:opacity-50"
             >
               {saving ? 'Saving...' : 'Save'}
             </button>
           </div>
         </div>
+        {saveUnavailableReason && (
+          <p id="task-detail-save-availability" className="mt-2 text-right text-[12px] text-muted-foreground">
+            {saveUnavailableReason}
+          </p>
+        )}
     </ModalScrim>
   );
 }
