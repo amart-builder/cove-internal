@@ -44,6 +44,39 @@ The Current displays live readiness for email, the brief writer, and the backgro
 
 Failures that need attention are recorded in Cove's Issues surface. A partial receipt means useful work completed but the named remainder needs a later run or operator action.
 
+## When Google says it needs connecting again
+
+The email lane reports `Google Workspace needs to be connected again.` whenever
+the stored refresh token no longer works. Check what Cove thinks it has:
+
+```bash
+./node_modules/.bin/tsx scripts/cove-google-connect.ts status
+```
+
+That prints the connected Gmail address, or says the connection is missing or
+no longer usable. To reconnect, re-run the same `connect` command used during
+setup; `reauthorize` is an alias for it, and the saved inbox-check times,
+timezone and weekday setting are preserved unless those flags are passed again:
+
+```bash
+./node_modules/.bin/tsx scripts/cove-google-connect.ts connect \
+  --client-json /absolute/path/to/client_secret.json
+```
+
+`disconnect` removes the Keychain entries and keeps the old configuration file
+beside its replacement.
+
+**A Google Cloud OAuth client left in Testing publishing status issues refresh
+tokens that expire after seven days.** An install connected with one will report
+exactly this message a week later, on its own, with nothing wrong on the Mac.
+Publish the consent screen, or expect to reconnect weekly. This is the single
+most likely way a working email connection stops working without anyone
+touching it.
+
+These commands read the data directory Cove is configured with, so run them
+from the checkout, with the same `COVE_DATA_DIR` the install uses if it is not
+the default.
+
 ## Morning Brief schedule
 
 The existing Claude worker starts the Morning Brief at 08:00 on weekdays in
