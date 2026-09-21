@@ -32,7 +32,17 @@ fi
 # Saying it is there is the whole job: the sentence above it would otherwise
 # read as "nothing is running", which is what sends someone into a restore.
 report_hand_started_cove() {
-  cove_is_serving || return 0
+  # After a bootout the process takes a moment to let go of its socket, and
+  # announcing a hand-started Cove that is really the one just stopped would
+  # send someone hunting for a terminal that does not exist. Callers that have
+  # just stopped things ask for a few seconds of grace; --status, which changed
+  # nothing, asks once.
+  local tries="${1:-1}"
+  while [ "$tries" -gt 0 ]; do
+    cove_is_serving || return 0
+    tries=$((tries - 1))
+    [ "$tries" -gt 0 ] && sleep 1
+  done
   echo
   echo "A Cove started by hand is still answering on http://127.0.0.1:$COVE_WEB_PORT."
   echo "This script cannot stop that one. Stop it in the terminal that started it"
@@ -194,4 +204,4 @@ else
   echo "To keep them stopped: bash scripts/cove-stop.sh --disable"
   echo "To start Cove again now: bash scripts/install-cove-local.sh"
 fi
-report_hand_started_cove
+report_hand_started_cove 5
