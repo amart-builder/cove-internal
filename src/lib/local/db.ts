@@ -355,6 +355,23 @@ function selectRows(table: string, params: URLSearchParams): RestResult {
   return { status: 200, body: rows.map((r) => decodeRow(table, r)) };
 }
 
+function defaultTaskColumnId(db: Database.Database): string | null {
+  // Prefer the column by name rather than by position, because a board whose
+  // columns have been reordered would otherwise put new work in whatever now
+  // sits first -- Done, in the worst case. The aliases are the names older
+  // installs used for the same column.
+  const names = [TASK_COLUMNS[0].name, ...TASK_COLUMNS[0].aliases];
+  const byName = db.prepare(
+    `SELECT id FROM task_columns WHERE name IN (${names.map(() => "?").join(", ")})
+     ORDER BY position, id LIMIT 1`,
+  ).get(...names) as { id?: string } | undefined;
+  if (byName?.id) return byName.id;
+  const first = db.prepare(
+    "SELECT id FROM task_columns ORDER BY is_default DESC, position, id LIMIT 1",
+  ).get() as { id?: string } | undefined;
+  return first?.id ?? null;
+}
+
 function insertRows(table: string, payload: unknown): RestResult {
   const db = getDb();
   const rows = Array.isArray(payload) ? payload : [payload];
@@ -366,6 +383,15 @@ function insertRows(table: string, payload: unknown): RestResult {
     for (const raw of rows) {
       const row = encodeRow(table, { ...(raw as Record<string, unknown>) });
       if (table === "tasks") validateTaskTiming(row);
+      if (table === "tasks" && row.column_id == null) {
+        // A task with no column is counted by the board's header and drawn in
+        // none of its columns, so it exists and cannot be seen. The cove-task
+        // skill tells the model to choose one and to fall back to Not Started,
+        // but a skill saying so is not the same as the write path requiring it,
+        // and the cost of a model omitting one field here is work that silently
+        // disappears. Land it where the skill would have.
+        row.column_id = defaultTaskColumnId(db);
+      }
       if (!row.id) row.id = randomUUID();
       if (row.created_at == null) row.created_at = now;
       if (row.updated_at == null) row.updated_at = now;

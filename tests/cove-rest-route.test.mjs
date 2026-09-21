@@ -66,6 +66,47 @@ test('cove-rest keeps GET host-only while mutations require route access and CSR
   assert.equal(coveRestMutationAccessFailure(allowedMutation, 'test-token'), undefined);
 });
 
+test('a task created without a column lands where the board can show it', async (t) => {
+  const dir = path.join(os.tmpdir(), `cove-rest-column-${process.pid}-${Date.now()}`);
+  mkdirSync(dir, { recursive: true });
+  const previousDbPath = process.env.COVE_DB_PATH;
+  process.env.COVE_DB_PATH = path.join(dir, 'cove.db');
+  t.after(() => {
+    if (previousDbPath === undefined) delete process.env.COVE_DB_PATH;
+    else process.env.COVE_DB_PATH = previousDbPath;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // The All Work board draws a task in its column and counts it in the header
+  // either way, so a task with no column is counted and shown nowhere. The
+  // cove-task skill tells the model to send one and to fall back to Not
+  // Started; this is the write path holding to the same rule when it does not.
+  const inserted = handleLocalRest(
+    'tasks',
+    'POST',
+    new URLSearchParams(),
+    JSON.stringify({ title: 'Send the welcome note', status: 'open' }),
+  );
+  assert.equal(inserted.status, 201);
+  const created = inserted.body[0];
+  assert.ok(created.column_id, 'a created task must have a column');
+
+  const columns = handleLocalRest('task_columns', 'GET', new URLSearchParams(), undefined);
+  const notStarted = columns.body.find((column) => column.name === 'Not Started');
+  assert.equal(created.column_id, notStarted.id);
+
+  // A column the caller does choose is still the one that is used.
+  const chosen = columns.body.find((column) => column.name === 'Must happen today');
+  const explicit = handleLocalRest(
+    'tasks',
+    'POST',
+    new URLSearchParams(),
+    JSON.stringify({ title: 'Call the accountant', status: 'open', column_id: chosen.id }),
+  );
+  assert.equal(explicit.status, 201);
+  assert.equal(explicit.body[0].column_id, chosen.id);
+});
+
 test('local PATCH returns the rows it updated even when the filter tests an overwritten column', async (t) => {
   const dir = path.join(os.tmpdir(), `cove-rest-cas-${process.pid}-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
