@@ -48,6 +48,26 @@ test('the public setup checks real release commands and keeps judgment shadowed'
   );
 });
 
+test('the release gate runs the suite in the zone its fixtures were written in', () => {
+  const verifyScript = readFileSync(path.join(root, 'scripts/cove-verify.mjs'), 'utf8');
+  // SETUP.md Step 1 runs this gate and tells the setup agent not to start Cove
+  // if it fails. Cove's wall-clock rules are asserted against fixed instants
+  // written with a Pacific offset, so without a pinned zone eight tests in six
+  // files fail on a Mac set to New York and a healthy install is stopped.
+  // Both halves are pinned: the test step has to carry a zone, and the runner
+  // has to pass a step's env through, since either alone does nothing.
+  const testStep = verifyScript.match(
+    /\[\s*process\.execPath,\s*\["--import", "tsx", "--test"[\s\S]*?\],\s*(\{[\s\S]*?\}),\s*\]/,
+  );
+  assert.ok(testStep, 'cove-verify.mjs no longer passes an environment to its test step');
+  assert.match(
+    testStep[1],
+    /TZ: process\.env\.COVE_VERIFY_TZ \?\? "America\/Los_Angeles"/,
+  );
+  assert.match(verifyScript, /for \(const \[command, args, stepEnv\] of steps\)/);
+  assert.match(verifyScript, /env: \{ \.\.\.process\.env, PATH: childPath, \.\.\.stepEnv \}/);
+});
+
 test('the public agent notes keep the client on the supported local runtime', () => {
   const contract = readFileSync(path.join(root, 'AGENT_CONTRACT.md'), 'utf8');
   assert.match(contract, /supported runtime is one local server and one local SQLite database/);
