@@ -761,6 +761,11 @@ export default function ArrivalPlanGrid({
                     }}
                   />
                 ))}
+                {focusViews.length === 0 && (
+                  <li className="flex min-h-24 items-center px-2 text-[13px] leading-relaxed text-muted-foreground">
+                    Drop tasks here to make them an initial priority.
+                  </li>
+                )}
               </ol>
             </ArrivalDropBucket>
           </section>
