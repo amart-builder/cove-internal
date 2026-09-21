@@ -304,8 +304,10 @@ mkdir -p "$LOG_DIR" "$LA_DIR"
 #
 # Enabling only clears a previous refusal; it loads nothing by itself, so a
 # label whose plist this install did not write stays absent either way. That
-# is why the list is every label rather than the ones the current options
-# happen to select.
+# is why the list is every label this script can load rather than the ones the
+# current options happen to select. The retired lanes it only ever removes --
+# com.cove.attention-sweep and com.cove.wake-canary -- are deliberately not
+# here; com.cove.morning-brief is, because --mini loads it.
 for cove_label in \
   com.cove.local \
   com.cove.local.backup \
@@ -318,7 +320,6 @@ for cove_label in \
   com.cove.progress \
   com.cove.voice-review \
   com.cove.morning-brief \
-  com.cove.attention-sweep \
   com.cove.chief-of-staff-drain \
   com.cove.chief-of-staff-sweep \
   com.cove.chief-of-staff-nightly \
