@@ -205,7 +205,11 @@ export default function ResponsibilityOverview() {
                 className="mt-4 border-t border-border pt-3 text-sm"
               >
                 <p className="font-medium">{item.title}</p>
-                <p className="mt-1">{item.next_action}</p>
+                {/* The next action is often just the task restated. Printing it
+                    again under itself reads as a rendering fault. */}
+                {item.next_action.trim().toLowerCase() !== item.title.trim().toLowerCase() && (
+                  <p className="mt-1">{item.next_action}</p>
+                )}
                 <p className="mt-1 text-xs text-muted-foreground">
                   {item.state === "waiting"
                     ? `Waiting on ${item.owner}`
@@ -226,9 +230,12 @@ export default function ResponsibilityOverview() {
                     brief or with Buddy.
                   </p>
                 )}
+                {/* Every item on this page carries this same button, so its
+                    words alone tell a screen reader nothing about which one. */}
                 <button
                   disabled={busy !== null}
                   onClick={() => void acknowledge(item)}
+                  aria-label={`On my radar: ${item.title}. Check back in an hour.`}
                   className="mt-2 text-xs text-accent-blue disabled:opacity-50"
                 >
                   {busy === item.ref_id

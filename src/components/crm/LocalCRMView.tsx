@@ -208,6 +208,7 @@ export default function LocalCRMView() {
             </svg>
             <input
               type="search"
+              aria-label="Search people"
               placeholder="Search name, company, email, tags..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -379,8 +380,9 @@ function AddContactForm({
     <div className="water-form-panel mx-5 mt-3 flex flex-col gap-3 rounded-[20px] px-5 py-4">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <label>Name *</label>
+          <label htmlFor="crm-new-contact-name">Name *</label>
           <input
+            id="crm-new-contact-name"
             type="text"
             value={name}
             onChange={(e) => {
@@ -389,14 +391,17 @@ function AddContactForm({
             }}
             placeholder="Full name"
             autoFocus
+            aria-invalid={formError && !name.trim() ? true : undefined}
+            aria-describedby={formError ? 'crm-new-contact-error' : undefined}
             className={`w-full px-2.5 py-1.5 text-foreground ${
               formError && !name.trim() ? 'border-accent-red' : ''
             }`}
           />
         </div>
         <div>
-          <label>Email</label>
+          <label htmlFor="crm-new-contact-email">Email</label>
           <input
+            id="crm-new-contact-email"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -405,8 +410,9 @@ function AddContactForm({
           />
         </div>
         <div>
-          <label>Role</label>
+          <label htmlFor="crm-new-contact-role">Role</label>
           <input
+            id="crm-new-contact-role"
             type="text"
             value={role}
             onChange={(e) => setRole(e.target.value)}
@@ -415,8 +421,9 @@ function AddContactForm({
           />
         </div>
         <div>
-          <label>Phone</label>
+          <label htmlFor="crm-new-contact-phone">Phone</label>
           <input
+            id="crm-new-contact-phone"
             type="tel"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
@@ -425,8 +432,9 @@ function AddContactForm({
           />
         </div>
         <div>
-          <label>Company</label>
+          <label htmlFor="crm-new-contact-company">Company</label>
           <select
+            id="crm-new-contact-company"
             value={companyId}
             onChange={(e) => setCompanyId(e.target.value)}
             className="w-full px-2.5 py-1.5 text-foreground"
@@ -442,10 +450,11 @@ function AddContactForm({
         </div>
         {creatingNewCompany && (
           <div className="sm:col-span-2">
-            <label>
+            <label htmlFor="crm-new-contact-company-name">
               New company name
             </label>
             <input
+              id="crm-new-contact-company-name"
               type="text"
               value={newCompanyName}
               onChange={(e) => setNewCompanyName(e.target.value)}
@@ -457,7 +466,13 @@ function AddContactForm({
       </div>
 
       {formError && (
-        <div className="text-[12px] font-medium text-accent-red">{formError}</div>
+        <div
+          id="crm-new-contact-error"
+          role="alert"
+          className="text-[12px] font-medium text-accent-red"
+        >
+          {formError}
+        </div>
       )}
 
       <div className="flex gap-1.5">
