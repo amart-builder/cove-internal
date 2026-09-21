@@ -15,6 +15,17 @@ import { getQuietCurrentCsrfToken } from '../src/lib/quiet-current/store.ts';
 import { handleLocalRest } from '../src/lib/local/db.ts';
 import { LocalCRMBackend } from '../src/lib/crm/index.ts';
 
+// Every path that falls back to coveDataDir() must land in a scratch directory,
+// never in <cwd>/data: a fresh checkout's verify run must not mint a database
+// or a token the setup playbook would then treat as an existing install.
+import { mkdtempSync as isolatedMkdtemp, rmSync as isolatedRm } from 'node:fs';
+import isolatedOs from 'node:os';
+import isolatedPath from 'node:path';
+const ISOLATED_DATA_DIR = isolatedMkdtemp(isolatedPath.join(isolatedOs.tmpdir(), 'cove-test-data-'));
+process.env.COVE_DATA_DIR = ISOLATED_DATA_DIR;
+delete process.env.COVE_DB_PATH;
+test.after(() => isolatedRm(ISOLATED_DATA_DIR, { recursive: true, force: true }));
+
 const context = { params: Promise.resolve({ table: 'not_a_cove_table' }) };
 
 test('cove-rest keeps GET host-only while mutations require route access and CSRF', async (t) => {
