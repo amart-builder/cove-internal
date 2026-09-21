@@ -980,7 +980,16 @@ function KanbanBoardContent({
       <div className="water-workspace flex h-full items-center justify-center p-6">
         <div className="water-empty-state max-w-lg p-5 text-sm">
           <p className="font-medium text-foreground">Tasks could not load.</p>
-          <p className="mt-1 text-muted-foreground">{error}</p>
+          <p className="mt-1 text-muted-foreground">
+            Cove could not reach your task list. Nothing has been lost. Try
+            again in a moment.
+          </p>
+          <details className="mt-2">
+            <summary className="cursor-pointer text-xs text-muted-foreground">
+              What went wrong
+            </summary>
+            <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">{error}</p>
+          </details>
           <button
             type="button"
             className="water-text-button mt-3 px-3 py-2"
