@@ -615,13 +615,28 @@ test('a damaged backup is refused in plain words and changes nothing', async (t)
       },
     );
     assert.notEqual(restored.status, 0, `${name} must not restore`);
+    const output = `${restored.stdout}${restored.stderr}`;
     // Someone restoring a backup is already having a bad day. A SqliteError
     // and a stack is the right detail for a diagnostic and the wrong thing to
     // leave them reading, so a sentence has to come last.
     assert.match(
-      `${restored.stdout}${restored.stderr}`,
+      output,
       /did not restore it|Nothing was changed/,
       `${name} must say what happened in words`,
+    );
+    // And the stack has to be gone, not merely followed by a sentence. The
+    // first version of this fix added the sentence and left the verifier's
+    // output alone, so the person still read eight frames and a Node version
+    // banner before reaching it -- which is most of what they saw.
+    assert.doesNotMatch(output, /^\s+at .+$/m, `${name} must not print a stack frame`);
+    assert.doesNotMatch(output, /node:internal/, `${name} must not print Node internals`);
+    assert.doesNotMatch(output, /^Node\.js v/m, `${name} must not print the Node version banner`);
+    // One line of the diagnostic is worth keeping: it is the difference
+    // between "damaged" and knowing which kind of damaged.
+    assert.match(
+      output,
+      /malformed|not a database|recognized Cove table|file is not a database/i,
+      `${name} must say what kind of damage it found`,
     );
     assert.deepEqual(readFileSync(dbPath), before, `${name} must leave the database alone`);
   }
