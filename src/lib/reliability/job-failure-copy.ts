@@ -51,6 +51,17 @@ export function jobFailureDetail(type: string, diagnostic: string, retrying = fa
     cause = " The check reached its time limit.";
   } else if (/background_usage|usage.denied|budget|allowance/i.test(diagnostic)) {
     cause = " The model call allowance was unavailable.";
+  } else if (/invalid_grant|needs to be connected again|Google Workspace is not connected|did not allow the requested Workspace access/i.test(diagnostic)) {
+    // Google's refresh tokens are the connection most likely to lapse, and an
+    // OAuth client still in Testing publishing status expires them after seven
+    // days -- so this is the first failure a new install is likely to file.
+    // Every shape it arrives in (the gateway's own safeMessage, a bare
+    // invalid_grant, a refused scope) carries none of the words the branch
+    // below looks for, so all of them produced no cause at all and ended on
+    // "ask your Cove setup agent to diagnose the failure" -- for something the
+    // person could have named in one sentence. This sits above the sign-in
+    // branch because both describe a lapsed credential and this one says which.
+    cause = " The Google Workspace connection needs renewing.";
   } else if (/unauthorized|authentication|not logged in|sign.in|\/login|could not be refreshed|session expired/i.test(diagnostic)) {
     // These are the strings the CLIs actually print when a sign-in lapses;
     // src/lib/buddy/errors.ts matches the same set for Buddy's sign-in card.
