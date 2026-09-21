@@ -456,6 +456,34 @@ function KanbanBoardContent({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all');
+  const filterRef = useRef<HTMLDetailsElement>(null);
+
+  // The Filter popover floats over the board and covers a task card while it is
+  // open. A native <details> closes only when its own summary is pressed again,
+  // so Escape and a press anywhere else on the board both left it hanging there
+  // over the card. Every other floating panel in Cove closes on both, so this
+  // gives the Filter the same two ways out, and Escape hands the keyboard back
+  // to the Filter button when the keyboard was inside the popover.
+  useEffect(() => {
+    function closeFilter(event: Event) {
+      const details = filterRef.current;
+      if (!details?.open) return;
+      if (event.type === 'pointerdown') {
+        if (details.contains(event.target as Node)) return;
+      } else if ((event as KeyboardEvent).key !== 'Escape') {
+        return;
+      } else if (details.contains(document.activeElement)) {
+        details.querySelector('summary')?.focus();
+      }
+      details.open = false;
+    }
+    document.addEventListener('keydown', closeFilter);
+    document.addEventListener('pointerdown', closeFilter);
+    return () => {
+      document.removeEventListener('keydown', closeFilter);
+      document.removeEventListener('pointerdown', closeFilter);
+    };
+  }, []);
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
   // Completing a task has been guarded against a second click since it was
   // written (see completingTaskId below); adding one was not, so a double
@@ -1036,7 +1064,7 @@ function KanbanBoardContent({
             />
           </div>
 
-          <details className="all-work-filter relative ml-auto">
+          <details ref={filterRef} className="all-work-filter relative ml-auto">
             <summary className="water-secondary-button flex cursor-pointer list-none items-center gap-2 px-4 py-2">
               Filter
               {(statusFilter !== 'all' || priorityFilter !== 'all') && (

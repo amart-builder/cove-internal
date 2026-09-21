@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { componentHarness, findElement, tick } from './helpers/component-hooks.mjs';
-import * as columns from '../src/lib/tasks/columns.ts';
-import * as editorPatch from '../src/lib/tasks/editor-patch.ts';
-import * as origin from '../src/lib/tasks/origin.ts';
+import { BOARD_MOCKS, boardProps } from './helpers/board-harness.mjs';
 
 // One genuine double-click on Add Task made two identical tasks, and two fast
 // Enter presses did the same. Measured in a browser before the guard:
@@ -16,41 +14,11 @@ import * as origin from '../src/lib/tasks/origin.ts';
 // screen-draft-preservation.test.mjs — and so has completing a task, via
 // completingTaskId. Adding one was the form that was not.
 
-// The real modules where the component only reads data from them, stubs where
-// it only needs them not to throw.
-const MOCKS = {
-  '@/lib/runtime/mode': { getRuntimeMode: () => 'local' },
-  '@/lib/data/refresh-bus': { useDataChanged() {} },
-  '@/lib/tasks/columns': columns,
-  '@/lib/tasks/editor-patch': editorPatch,
-  '@/lib/tasks/origin': origin,
-  './useTaskLink': { useTaskLink() {} },
-  './useTaskSessionRuns': { default: () => ({ runs: [], startRun() {}, cancelRun() {} }) },
-  '@dnd-kit/core': {
-    DndContext: 'DndContext', DragOverlay: 'DragOverlay', KeyboardSensor: 'KeyboardSensor',
-    PointerSensor: 'PointerSensor', closestCorners: () => [], pointerWithin: () => [],
-    useSensor: () => ({}), useSensors: (...sensors) => sensors,
-  },
-  '@dnd-kit/sortable': {
-    SortableContext: 'SortableContext', verticalListSortingStrategy: 'vertical',
-    sortableKeyboardCoordinates: () => ({}), arrayMove: (list) => list,
-    useSortable: () => ({ attributes: {}, listeners: {}, setNodeRef() {}, transform: null, transition: null, isDragging: false }),
-  },
-  '@dnd-kit/utilities': { CSS: { Transform: { toString: () => '' }, Translate: { toString: () => '' } } },
-};
-
 function boardHarness(onCreateTask) {
   const harness = componentHarness('src/components/tasks/KanbanBoard.tsx', {
-    exportName: 'KanbanBoardContent', mocks: MOCKS,
+    exportName: 'KanbanBoardContent', mocks: BOARD_MOCKS,
   });
-  const props = {
-    // The handler needs somewhere to put the task, so the board has to have
-    // its Not Started column.
-    columnsData: [{ _id: 'col-not-started', name: 'Not Started', position: 0, _creationTime: 0, createdAt: 0 }],
-    tasksData: [], loading: false, error: undefined, refreshError: undefined,
-    onRetry() {}, onSeed: undefined, onCreateTask, onUpdateTask() {}, onDeleteTask() {},
-    onRestoreTask: undefined, onConfirmRecurrence: undefined,
-  };
+  const props = boardProps({ onCreateTask });
   return { render: () => harness.render(props) };
 }
 
