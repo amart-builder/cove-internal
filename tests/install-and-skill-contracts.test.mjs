@@ -288,6 +288,31 @@ test("installer creates the optional env file safely and requires a healthy work
   assert.doesNotMatch(installer, /launchctl enable[^\n]*com\.cove\.attention-sweep/);
 });
 
+test("stopping Cove covers every service the installer can load", () => {
+  const installer = readFileSync(path.join(ROOT, "scripts", "install-cove-local.sh"), "utf8");
+  const stop = readFileSync(path.join(ROOT, "scripts", "cove-stop.sh"), "utf8");
+  const readme = readFileSync(path.join(ROOT, "README.md"), "utf8");
+
+  // "Stop Cove" has to mean every lane. A label the installer can load but the
+  // stop script does not know about keeps running -- including the chief-of-staff
+  // lanes, which call a model and can notify -- after someone was told Cove was
+  // off. Read the labels out of the installer so a new lane cannot be added
+  // without also being stoppable.
+  const installed = new Set(
+    (installer.match(/com\.cove\.[a-z0-9-]+(?:\.[a-z0-9-]+)*/g) ?? [])
+      .map((label) => label.replace(/\.plist$/, "")),
+  );
+  assert.ok(installed.size >= 10, "expected the installer to name its LaunchAgent labels");
+  const missing = [...installed].filter((label) => !stop.includes(`\n${label}\n`)).sort();
+  assert.deepEqual(missing, [], `scripts/cove-stop.sh is missing: ${missing.join(", ")}`);
+
+  // bootout alone lasts until the next login, so the stop path has to offer the
+  // one that survives a restart and say which is which.
+  assert.match(stop, /launchctl disable "gui\/\$UID_NUM\/\$label"/);
+  assert.match(stop, /--disable/);
+  assert.match(readme, /scripts\/cove-stop\.sh/);
+});
+
 test("task and contact skills authenticate every documented generic mutation", () => {
   const task = readFileSync(path.join(ROOT, "skills", "cove-task", "SKILL.md"), "utf8");
   const contact = readFileSync(path.join(ROOT, "skills", "cove-contact", "SKILL.md"), "utf8");
