@@ -288,6 +288,20 @@ test("installer creates the optional env file safely and requires a healthy work
   assert.doesNotMatch(installer, /launchctl enable[^\n]*com\.cove\.attention-sweep/);
 });
 
+test("a first install without a saved agent is told to choose one, not to install Codex", () => {
+  const installer = readFileSync(path.join(ROOT, "scripts", "install-cove-local.sh"), "utf8");
+  // With no data/agent-settings.json the runner falls back to the legacy Codex
+  // default, so a Claude-only Mac fails this check. Pointing that person at
+  // COVE_CODEX_BIN sends them to install a CLI they may have deliberately not
+  // chosen; the actual missing step is Step 0's verified selection.
+  const block = installer.match(
+    /if \[ "\$JOB_RUNNER" = "codex-sol-high" \][\s\S]*?\nfi/,
+  )?.[0] ?? "";
+  assert.match(block, /if \[ -z "\$AGENT_PROVIDER" \]; then/);
+  assert.match(block, /cove-agent-settings\.mjs configure --provider claude/);
+  assert.match(block, /COVE_CODEX_BIN/);
+});
+
 test("stopping Cove covers every service the installer can load", () => {
   const installer = readFileSync(path.join(ROOT, "scripts", "install-cove-local.sh"), "utf8");
   const stop = readFileSync(path.join(ROOT, "scripts", "cove-stop.sh"), "utf8");
