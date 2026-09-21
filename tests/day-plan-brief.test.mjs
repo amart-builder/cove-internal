@@ -31,12 +31,14 @@ import {
   nextWeekdayLocalDate,
   overlayBriefOnCandidates,
   selectEligibleMorningBrief,
+  morningBriefFailureDetail,
   selectMorningBriefGeneration,
   settlementReconciliationComplete,
   splitNarrativeParagraphs,
   stripMorningBriefDateClaim,
   validateMorningBrief,
   MORNING_BRIEF_FAILED_WINDOW_HOURS,
+  MORNING_BRIEF_QUEUED_STALE_AFTER_MS,
   MORNING_BRIEF_PROMPT_VERSION,
   MORNING_BRIEF_SCHEMA_VERSION,
 } from '../src/lib/day-plan/brief.ts';
@@ -1398,8 +1400,15 @@ test('brief generation state: idle when there is nothing for the date', () => {
 
 test('brief generation state: an active row wins, running over queued, and carries startedAt', () => {
   const now = new Date('2026-07-14T14:00:00.000Z');
+  // Queued rows here carry a recent createdAt on purpose: this test is about
+  // precedence, and only a row young enough to still be claimed is live at all.
+  const justQueued = '2026-07-14T13:57:00.000Z';
   assert.deepEqual(
-    selectMorningBriefGeneration([genArtifact({ status: 'queued' })], '2026-07-14', now),
+    selectMorningBriefGeneration(
+      [genArtifact({ status: 'queued', createdAt: justQueued })],
+      '2026-07-14',
+      now,
+    ),
     { state: 'queued' },
   );
   assert.deepEqual(
@@ -1427,7 +1436,7 @@ test('brief generation state: an active row wins, running over queued, and carri
     selectMorningBriefGeneration(
       [
         genArtifact({ id: 'f', status: 'failed', finishedAt: '2026-07-14T13:50:00.000Z' }),
-        genArtifact({ id: 'q', status: 'queued' }),
+        genArtifact({ id: 'q', status: 'queued', createdAt: justQueued }),
       ],
       '2026-07-14',
       now,
@@ -1451,13 +1460,87 @@ test('brief generation state stops presenting an expired running row as live', (
   );
   assert.deepEqual(
     selectMorningBriefGeneration(
-      [stale, genArtifact({ id: 'retry', status: 'queued' })],
+      [stale, genArtifact({ id: 'retry', status: 'queued', createdAt: '2026-07-14T13:57:00.000Z' })],
       '2026-07-14',
       now,
       { runningStaleAfterMs: 20 * 60 * 1000 },
     ),
     { state: 'queued' },
   );
+});
+
+test('a queued brief nothing ever claimed stops reading as live', () => {
+  // The fresh-install failure this guards: the web app enqueues a brief, no
+  // worker is running to claim it, and the arrival promised "your brief is on
+  // the way" forever while hiding the one control that would start another.
+  const now = new Date('2026-07-14T14:00:00.000Z');
+  const abandoned = genArtifact({
+    id: 'never-claimed',
+    status: 'queued',
+    createdAt: '2026-07-14T13:40:00.000Z',
+  });
+  assert.deepEqual(
+    selectMorningBriefGeneration([abandoned], '2026-07-14', now),
+    { state: 'idle' },
+    'a row queued 20 minutes ago with nothing draining it must not read as live',
+  );
+  // Inside the window it is still a legitimate wait: the worker polls every
+  // five minutes, so a young queued row keeps its progress bar.
+  assert.deepEqual(
+    selectMorningBriefGeneration(
+      [genArtifact({ status: 'queued', createdAt: '2026-07-14T13:56:00.000Z' })],
+      '2026-07-14',
+      now,
+    ),
+    { state: 'queued' },
+  );
+  assert.equal(MORNING_BRIEF_QUEUED_STALE_AFTER_MS, 12 * 60 * 1000);
+  // The bound is injectable, and disabling it restores the old behaviour for
+  // any caller that wants the raw row state.
+  assert.deepEqual(
+    selectMorningBriefGeneration([abandoned], '2026-07-14', now, { queuedStaleAfterMs: 0 }),
+    { state: 'queued' },
+  );
+});
+
+test('an expired queued row still defers, and never outranks real work', () => {
+  const now = new Date('2026-07-14T14:00:00.000Z');
+  // Deferred is a stated wait with its own retry time, so age must not cancel
+  // it: it already answers "what happens next".
+  const deferred = genArtifact({
+    status: 'queued',
+    createdAt: '2026-07-14T12:00:00.000Z',
+    errorCode: 'budget_deferred:2026-07-14T15:00:00.000Z',
+  });
+  assert.deepEqual(
+    selectMorningBriefGeneration([deferred], '2026-07-14', now),
+    { state: 'deferred', retryAt: '2026-07-14T15:00:00.000Z' },
+  );
+  // An expired queued row must not mask a brief that actually got written.
+  const stale = genArtifact({ id: 'stale-queued', status: 'queued', createdAt: '2026-07-14T13:00:00.000Z' });
+  assert.deepEqual(
+    selectMorningBriefGeneration(
+      [stale, genArtifact({ id: 'done', status: 'succeeded', briefJson: '{}', finishedAt: '2026-07-14T13:30:00.000Z' })],
+      '2026-07-14',
+      now,
+    ),
+    { state: 'succeeded' },
+  );
+  // A newer queued row beside the dead one keeps the arrival live: this is the
+  // state right after he presses the retry the fix gives him back.
+  assert.equal(
+    selectMorningBriefGeneration(
+      [stale, genArtifact({ id: 'retry', status: 'queued', createdAt: '2026-07-14T13:58:00.000Z' })],
+      '2026-07-14',
+      now,
+    ).state,
+    'queued',
+  );
+});
+
+test('a brief nothing ever claimed explains itself instead of blaming the writer', () => {
+  assert.match(morningBriefFailureDetail('never_claimed'), /nothing started writing it/);
+  assert.match(morningBriefFailureDetail('never_claimed'), /background helper/);
 });
 
 test('brief generation state surfaces an eligible succeeded artifact instead of idle', () => {

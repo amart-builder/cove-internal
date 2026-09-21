@@ -51,6 +51,10 @@ import TaskCard from './TaskCard';
 import TaskDetail from './TaskDetail';
 import RecentlyDeleted from './RecentlyDeleted';
 import useTaskSessionRuns from './useTaskSessionRuns';
+import {
+  dragOverMovesBetweenColumns,
+  sameColumnDropIndex,
+} from '@/lib/tasks/board-drag';
 
 interface ColumnData {
   _id: string;
@@ -697,8 +701,12 @@ function KanbanBoardContent({
 
     if (!activeCol || !overCol) return;
 
-    const originalCol = findColumnOfTaskIn(dragStartTasksRef.current ?? currentTasks, activeId);
-    if (activeCol === overCol && originalCol !== overCol) return;
+    // Only a move between columns is previewed here. Re-ordering a column
+    // against its own cards would shuffle them out from under the pointer and
+    // fire this handler again on the card that took their place, which is an
+    // infinite loop, not a drag. Within one column the sortable strategy does
+    // the sliding and the drop settles the order.
+    if (!dragOverMovesBetweenColumns(activeCol, overCol)) return;
 
     const destinationTasks = currentTasks
       .filter((task) => task.columnId === overCol && task._id !== activeId)
@@ -759,6 +767,17 @@ function KanbanBoardContent({
         (task) => task._id === overId
       );
       if (overTaskIndex >= 0) destinationIndex = overTaskIndex;
+    }
+
+    if (activeCol === overCol && !isColumnDropTarget(overId)) {
+      // Nothing previewed this, so the drop is the whole story: read the
+      // landing place off the card the pointer finished on.
+      const sameColumnIndex = sameColumnDropIndex(
+        sourceTasks.map((task) => task._id),
+        activeId,
+        overId,
+      );
+      if (sameColumnIndex !== undefined) destinationIndex = sameColumnIndex;
     }
 
     if (destinationIndex < 0) {

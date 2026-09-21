@@ -275,6 +275,47 @@ export function canStartDayPlanSettlement(plan: DayPlan): boolean {
       plan.arrivalState === 'snoozed');
 }
 
+// Why "Close My Day" is unavailable, or undefined when it is available. A
+// dimmed control with no stated reason is the opposite of what this screen
+// promises, so the reason is written for him to read, not for a log.
+export function dayCloseUnavailableReason(input: {
+  plan?: Pick<DayPlan, 'state' | 'arrivalState' | 'settlementState'>;
+  busy?: boolean;
+  weekendWeekday?: string;
+}): string | undefined {
+  if (!input.plan) {
+    return input.weekendWeekday
+      ? `Closing is paused on ${input.weekendWeekday}. Choose Plan today anyway to open it.`
+      : "Closing your day is available once today's plan is ready.";
+  }
+  if (input.busy) return "Cove is updating today's plan.";
+  if (input.plan.state === 'settled') return 'Today is already closed.';
+  if (!canStartDayPlanSettlement(input.plan as DayPlan)) {
+    return 'Start your day in Morning Arrival first, then you can close it.';
+  }
+  return undefined;
+}
+
+/**
+ * Why the Morning Arrival's final button is dimmed, or `undefined` when it is
+ * not. The ritual is modal and its last step is the only way out that keeps the
+ * plan, so a button that does nothing there has to say what would make it work.
+ */
+export function arrivalStartDayUnavailableReason(input: {
+  finalStep: boolean;
+  busy?: boolean;
+  buddyActive?: boolean;
+  plannedCount: number;
+}): string | undefined {
+  if (!input.finalStep) return undefined;
+  if (input.busy) return 'Cove is setting your day.';
+  if (input.buddyActive) return 'Buddy is still working. This is ready in a moment.';
+  if (input.plannedCount === 0) {
+    return "Put at least one task in today's plan first. If you have nothing to plan yet, choose Continue to Today.";
+  }
+  return undefined;
+}
+
 export function reorderDayPlanItems<T extends DayPlanItem>(
   items: readonly T[],
   activeId: string,

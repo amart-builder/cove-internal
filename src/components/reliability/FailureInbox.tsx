@@ -3,6 +3,7 @@
 import AgentUsage from "./AgentUsage";
 import FollowThrough from "./FollowThrough";
 import { useCallback, useEffect, useState } from "react";
+import { failureSourceLabel } from "@/lib/reliability/failure-source-label";
 
 type FailureItem = {
   id: string;
@@ -40,23 +41,6 @@ function readableTime(value: string): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
-}
-
-function readableSource(value: string): string {
-  const labels: Record<string, string> = {
-    receipt: "Recent activity",
-    job: "Background work",
-    scheduler: "Background work",
-    "meeting-intake": "Meeting notes",
-    "meeting-watch": "Meeting notes",
-    "email-triage": "Inbox check",
-    "email-triage-contact-resolution": "Inbox check",
-    "reminder-delivery": "Reminder delivery",
-    "stale-task-watchdog": "Old task check",
-  };
-  return labels[value] ?? value.replace(/[-_]+/g, " ").replace(/\b\w/g, (letter) =>
-    letter.toUpperCase()
-  );
 }
 
 export default function FailureInbox({ receiptsEnabled }: { receiptsEnabled: boolean }) {
@@ -200,13 +184,14 @@ export default function FailureInbox({ receiptsEnabled }: { receiptsEnabled: boo
                   <div className="min-w-0 flex-1">
                     <p className="text-sm leading-6 text-foreground">{item.message}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {readableTime(item.occurredAt)} · {readableSource(item.source)}
+                      {readableTime(item.occurredAt)} · {failureSourceLabel(item.source)}
                     </p>
                   </div>
                   <button
                     type="button"
                     disabled={dismissingId !== null}
                     onClick={() => void dismiss(item.id)}
+                    aria-label={`Dismiss: ${item.message}`}
                     className="self-start rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
                   >
                     {dismissingId === item.id ? "Dismissing..." : "Dismiss"}

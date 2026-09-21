@@ -101,6 +101,7 @@ export type TodayRiverStageV2Model = {
   morningArrivalDisabled?: boolean;
   morningArrivalTitle?: string;
   closeDayDisabled?: boolean;
+  closeDayTitle?: string;
   dayClosed?: boolean;
   weekendGate?: {
     weekday: string;
@@ -243,17 +244,23 @@ function SessionState({
   }
   if (run.status === 'failed') {
     const mode = run.permissionMode === 'plan' ? 'Planning' : 'Auto';
+    // The run records why it stopped and what to do about it, and until now
+    // that only ever reached a title attribute, so "Stopped" sat above a Retry
+    // that fails the same way. The open card has room to print it.
     return (
       <span className={`today2-session-failed ${compact ? 'is-compact' : ''}`}>
         <SessionLink className="press-scale" run={run}>
           {compact ? 'Stopped' : `${mode} stopped`} · Open
         </SessionLink>
-        <button type="button" onClick={(event) => {
+        <button type="button" title={run.hint} onClick={(event) => {
           event.stopPropagation();
           onRetry(run.permissionMode === 'plan' ? 'planning' : 'auto', run.provider);
         }}>
           Retry
         </button>
+        {!compact && run.hint && (
+          <span className="today2-session-hint">{run.hint}</span>
+        )}
       </span>
     );
   }
@@ -1134,13 +1141,26 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
               type="button"
               disabled={model.morningArrivalDisabled}
               title={model.morningArrivalTitle}
+              aria-describedby="today2-morning-arrival-availability"
               onClick={callbacks.onOpenMorningArrival}
             >
               Morning Arrival
             </button>
-            <button type="button" disabled={model.closeDayDisabled} onClick={callbacks.onOpenCloseDay}>
+            <span id="today2-morning-arrival-availability" className="sr-only">
+              {model.morningArrivalTitle ?? 'Open or revisit Morning Arrival.'}
+            </span>
+            <button
+              type="button"
+              disabled={model.closeDayDisabled}
+              title={model.closeDayTitle}
+              aria-describedby="today2-close-day-availability"
+              onClick={callbacks.onOpenCloseDay}
+            >
               Close My Day
             </button>
+            <span id="today2-close-day-availability" className="sr-only">
+              {model.closeDayTitle ?? 'Close today and settle what is still open.'}
+            </span>
           </div>
           {model.weekendGate && (
             <div className="today2-weekend-gate">
@@ -1319,6 +1339,7 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
               <button
                 type="button"
                 disabled={model.closeDayDisabled}
+                title={model.closeDayTitle}
                 onClick={callbacks.onOpenCloseDay}
               >
                 Close My Day
@@ -1350,8 +1371,11 @@ const TodayRiverStageV2 = forwardRef<TodayRiverStageV2MotionHandle, TodayRiverSt
           defaultProvider={model.defaultProvider}
           connectedProviders={model.connectedProviders}
           onClose={() => {
+            // The inline detail card stays open. It holds the More button this
+            // sheet was opened from, and the scrim returns focus there;
+            // collapsing it hides that button, so the focus return lands on
+            // nothing and a keyboard reader is dropped at the top of the page.
             setRichTaskId(undefined);
-            setDetailTaskId(undefined);
           }}
           onEdit={() => {
             const taskId = richTaskId;

@@ -554,6 +554,8 @@ function DealDetailPanel({
   onMove: (contactId: string, stage: PipelineStage) => Promise<void>;
   onWritten: (deal: PipelineDealWithContact) => void;
 }) {
+  // Only one deal panel is mounted at a time, so these ids are stable.
+  const fieldId = 'pipeline-deal';
   const [monthlyValue, setMonthlyValue] = useState(deal.monthly_value?.toString() ?? '');
   const [discoveryPrice, setDiscoveryPrice] = useState(deal.discovery_price?.toString() ?? '');
   const [nextAction, setNextAction] = useState(deal.next_action);
@@ -713,32 +715,32 @@ function DealDetailPanel({
       <div className="space-y-5 p-7">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className={LABEL_CLASS}>Monthly value</label>
-            <input type="number" min="0" step="1" value={monthlyValue} onChange={(event) => setMonthlyValue(event.target.value)} onBlur={() => commitAmount('monthlyValue', monthlyValue, deal.monthly_value)} className={`${FIELD_CLASS} px-3 py-2`} placeholder="0" />
+            <label htmlFor={`${fieldId}-monthly-value`} className={LABEL_CLASS}>Monthly value</label>
+            <input id={`${fieldId}-monthly-value`} type="number" min="0" step="1" value={monthlyValue} onChange={(event) => setMonthlyValue(event.target.value)} onBlur={() => commitAmount('monthlyValue', monthlyValue, deal.monthly_value)} className={`${FIELD_CLASS} px-3 py-2`} placeholder="0" />
           </div>
           <div>
-            <label className={LABEL_CLASS}>Discovery price</label>
-            <input type="number" min="0" step="1" value={discoveryPrice} onChange={(event) => setDiscoveryPrice(event.target.value)} onBlur={() => commitAmount('discoveryPrice', discoveryPrice, deal.discovery_price)} className={`${FIELD_CLASS} px-3 py-2`} placeholder="0" />
+            <label htmlFor={`${fieldId}-discovery-price`} className={LABEL_CLASS}>Discovery price</label>
+            <input id={`${fieldId}-discovery-price`} type="number" min="0" step="1" value={discoveryPrice} onChange={(event) => setDiscoveryPrice(event.target.value)} onBlur={() => commitAmount('discoveryPrice', discoveryPrice, deal.discovery_price)} className={`${FIELD_CLASS} px-3 py-2`} placeholder="0" />
           </div>
         </div>
         <div>
-          <label className={LABEL_CLASS}>Next action</label>
-          <textarea value={nextAction} onChange={(event) => setNextAction(event.target.value)} onBlur={() => commitText('nextAction', nextAction, deal.next_action)} rows={2} maxLength={500} className={`${FIELD_CLASS} resize-y px-3 py-2`} placeholder="What moves this forward?" />
+          <label htmlFor={`${fieldId}-next-action`} className={LABEL_CLASS}>Next action</label>
+          <textarea id={`${fieldId}-next-action`} value={nextAction} onChange={(event) => setNextAction(event.target.value)} onBlur={() => commitText('nextAction', nextAction, deal.next_action)} rows={2} maxLength={500} className={`${FIELD_CLASS} resize-y px-3 py-2`} placeholder="What moves this forward?" />
         </div>
         <div>
-          <label className={LABEL_CLASS}>Follow-up date</label>
-          <input type="date" value={nextFollowUpAt} onChange={(event) => setNextFollowUpAt(event.target.value)} onBlur={() => {
+          <label htmlFor={`${fieldId}-follow-up-date`} className={LABEL_CLASS}>Follow-up date</label>
+          <input id={`${fieldId}-follow-up-date`} type="date" value={nextFollowUpAt} onChange={(event) => setNextFollowUpAt(event.target.value)} onBlur={() => {
             const value = nextFollowUpAt || null;
             if (value !== deal.next_follow_up_at) void saveField('nextFollowUpAt', value);
           }} className={`${FIELD_CLASS} px-3 py-2`} />
         </div>
         <div>
-          <label className={LABEL_CLASS}>Source</label>
-          <input value={source} onChange={(event) => setSource(event.target.value)} onBlur={() => commitText('source', source, deal.source)} maxLength={200} className={`${FIELD_CLASS} px-3 py-2`} placeholder="Who referred them or where they came from" />
+          <label htmlFor={`${fieldId}-source`} className={LABEL_CLASS}>Source</label>
+          <input id={`${fieldId}-source`} value={source} onChange={(event) => setSource(event.target.value)} onBlur={() => commitText('source', source, deal.source)} maxLength={200} className={`${FIELD_CLASS} px-3 py-2`} placeholder="Who referred them or where they came from" />
         </div>
         <div>
-          <label className={LABEL_CLASS}>Notes</label>
-          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} onBlur={() => commitText('notes', notes, deal.notes)} rows={5} maxLength={5000} className={`${FIELD_CLASS} resize-y px-3 py-2`} placeholder="Deal context and useful details" />
+          <label htmlFor={`${fieldId}-notes`} className={LABEL_CLASS}>Notes</label>
+          <textarea id={`${fieldId}-notes`} value={notes} onChange={(event) => setNotes(event.target.value)} onBlur={() => commitText('notes', notes, deal.notes)} rows={5} maxLength={5000} className={`${FIELD_CLASS} resize-y px-3 py-2`} placeholder="Deal context and useful details" />
         </div>
       </div>
 
@@ -915,6 +917,8 @@ function AddLeadPanel({
   onClose: () => void;
   onCreated: (deal: PipelineDealWithContact) => void;
 }) {
+  // Only one add-lead panel is mounted at a time.
+  const fieldId = 'pipeline-add-lead';
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<Contact[]>([]);
   const [ambiguous, setAmbiguous] = useState<ContactCandidate[]>([]);
@@ -1035,8 +1039,8 @@ function AddLeadPanel({
       <div className="space-y-5 p-7">
         {!selected ? (
           <div>
-            <label className={LABEL_CLASS}>Find a contact</label>
-            <input type="search" value={search} onChange={(event) => {
+            <label htmlFor={`${fieldId}-find-a-contact`} className={LABEL_CLASS}>Find a contact</label>
+            <input id={`${fieldId}-find-a-contact`} type="search" value={search} onChange={(event) => {
               setSearch(event.target.value);
               setAmbiguous([]);
               setError(undefined);
@@ -1083,36 +1087,36 @@ function AddLeadPanel({
         {selected && (
           <>
             <div>
-              <label className={LABEL_CLASS}>Stage</label>
-              <select value={stage} onChange={(event) => setStage(event.target.value as PipelineStage)} className={`${FIELD_CLASS} px-3 py-2`}>
+              <label htmlFor={`${fieldId}-stage`} className={LABEL_CLASS}>Stage</label>
+              <select id={`${fieldId}-stage`} value={stage} onChange={(event) => setStage(event.target.value as PipelineStage)} className={`${FIELD_CLASS} px-3 py-2`}>
                 {stages.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
               </select>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className={LABEL_CLASS}>Monthly value</label>
-                <input type="number" min="0" step="1" value={monthlyValue} onChange={(event) => setMonthlyValue(event.target.value)} className={`${FIELD_CLASS} px-3 py-2`} placeholder="0" />
+                <label htmlFor={`${fieldId}-monthly-value-2`} className={LABEL_CLASS}>Monthly value</label>
+                <input id={`${fieldId}-monthly-value-2`} type="number" min="0" step="1" value={monthlyValue} onChange={(event) => setMonthlyValue(event.target.value)} className={`${FIELD_CLASS} px-3 py-2`} placeholder="0" />
               </div>
               <div>
-                <label className={LABEL_CLASS}>Discovery price</label>
-                <input type="number" min="0" step="1" value={discoveryPrice} onChange={(event) => setDiscoveryPrice(event.target.value)} className={`${FIELD_CLASS} px-3 py-2`} placeholder="0" />
+                <label htmlFor={`${fieldId}-discovery-price-2`} className={LABEL_CLASS}>Discovery price</label>
+                <input id={`${fieldId}-discovery-price-2`} type="number" min="0" step="1" value={discoveryPrice} onChange={(event) => setDiscoveryPrice(event.target.value)} className={`${FIELD_CLASS} px-3 py-2`} placeholder="0" />
               </div>
             </div>
             <div>
-              <label className={LABEL_CLASS}>Next action</label>
-              <textarea value={nextAction} onChange={(event) => setNextAction(event.target.value)} rows={2} maxLength={500} className={`${FIELD_CLASS} resize-y px-3 py-2`} />
+              <label htmlFor={`${fieldId}-next-action-2`} className={LABEL_CLASS}>Next action</label>
+              <textarea id={`${fieldId}-next-action-2`} value={nextAction} onChange={(event) => setNextAction(event.target.value)} rows={2} maxLength={500} className={`${FIELD_CLASS} resize-y px-3 py-2`} />
             </div>
             <div>
-              <label className={LABEL_CLASS}>Follow-up date</label>
-              <input type="date" value={nextFollowUpAt} onChange={(event) => setNextFollowUpAt(event.target.value)} className={`${FIELD_CLASS} px-3 py-2`} />
+              <label htmlFor={`${fieldId}-follow-up-date-2`} className={LABEL_CLASS}>Follow-up date</label>
+              <input id={`${fieldId}-follow-up-date-2`} type="date" value={nextFollowUpAt} onChange={(event) => setNextFollowUpAt(event.target.value)} className={`${FIELD_CLASS} px-3 py-2`} />
             </div>
             <div>
-              <label className={LABEL_CLASS}>Source</label>
-              <input value={source} onChange={(event) => setSource(event.target.value)} maxLength={200} className={`${FIELD_CLASS} px-3 py-2`} />
+              <label htmlFor={`${fieldId}-source-2`} className={LABEL_CLASS}>Source</label>
+              <input id={`${fieldId}-source-2`} value={source} onChange={(event) => setSource(event.target.value)} maxLength={200} className={`${FIELD_CLASS} px-3 py-2`} />
             </div>
             <div>
-              <label className={LABEL_CLASS}>Notes</label>
-              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={4} maxLength={5000} className={`${FIELD_CLASS} resize-y px-3 py-2`} />
+              <label htmlFor={`${fieldId}-notes-2`} className={LABEL_CLASS}>Notes</label>
+              <textarea id={`${fieldId}-notes-2`} value={notes} onChange={(event) => setNotes(event.target.value)} rows={4} maxLength={5000} className={`${FIELD_CLASS} resize-y px-3 py-2`} />
             </div>
             <button onClick={() => void createDeal()} disabled={saving} className={`${PRIMARY_BUTTON_CLASS} w-full px-5 py-2.5 text-[13px]`}>
               {saving ? 'Adding...' : 'Add to pipeline'}
