@@ -1321,6 +1321,31 @@ export async function runMeetingWatch(options = {}) {
   }
 }
 
+// What the person reads on the Issues screen when a pass does not finish.
+//
+// recordReceipt stores `failureMessage ?? summary`, so whatever this returns
+// replaces the sentence written above it. It used to return every entry's
+// boundedError joined with "; " -- the thrown message, verbatim -- so a
+// Granola outage or a locked database was printed to the person on the screen
+// Cove uses to tell them something needs them. The diagnostics are already
+// kept in the receipt's actions.errorMessages, which is where whoever has to
+// fix it looks.
+//
+// One string is forwarded rather than replaced. reliability/failures.ts
+// recognises "Meeting analysis jobs failed=N dead=M." and turns it into a
+// sentence about reviews that did not finish. Restating that sentence here
+// would be a second copy of it, and two copies is how copy drifts.
+const MEETING_JOB_SWEEP = /^Meeting analysis jobs failed=\d+ dead=\d+\.$/;
+
+function meetingWatchFailureMessage(entries) {
+  const errors = (entries ?? []).map((entry) => entry.error).filter(Boolean);
+  if (errors.length === 0) return "Meeting watcher run failed.";
+  if (errors.every((error) => MEETING_JOB_SWEEP.test(error))) return errors[0];
+  return "Cove could not finish reading some of your meeting notes on this pass. " +
+    "It keeps checking, and anything it already read is saved. If this keeps " +
+    "appearing, ask your Cove setup agent to look at the details on this item.";
+}
+
 export function shouldRecordMeetingWatchReceipt(summary) {
   return summary.processed !== 0 || summary.errors !== 0;
 }
@@ -1380,11 +1405,7 @@ export async function main(args = process.argv.slice(2), options = {}) {
         },
         outcome,
         failureKey: "meeting-watch-run",
-        failureMessage: result.summary.error_messages
-          .map((entry) => entry.error)
-          .filter(Boolean)
-          .join("; ") ||
-          "Meeting watcher run failed.",
+        failureMessage: meetingWatchFailureMessage(result.summary.error_messages),
       });
     } catch (error) {
       result.summary.error_messages.push({
