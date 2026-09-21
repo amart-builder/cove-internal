@@ -775,3 +775,43 @@ export function shouldAttemptLateBriefAttach(input: {
   if (!input.hasConsumedBrief && input.generationState === 'succeeded') return true;
   return input.candidatesReady && input.candidateCount > 0;
 }
+
+/** Where a task was picked up from and which column it was dropped on. */
+export type ArrivalDropZone = 'priority' | 'also-today' | 'not-today';
+
+/**
+ * What a drop on the arrival plan grid actually does.
+ *
+ * The spoken announcement and the visible note used to be worked out
+ * separately, so a refused drop was announced as "Dropped X in Initial
+ * priorities." and then contradicted by the note beside it. Both now read this.
+ */
+export function arrivalDropOutcome(input: {
+  origin: 'today' | 'not-today';
+  startedInFocus: boolean;
+  over: ArrivalDropZone | undefined;
+  focusCount: number;
+}): { kind: 'moved'; zone: ArrivalDropZone } | { kind: 'unchanged' } | { kind: 'refused'; note: string } {
+  const { origin, startedInFocus, over, focusCount } = input;
+  if (!over) return { kind: 'unchanged' };
+
+  if (origin === 'not-today') {
+    if (over === 'not-today') return { kind: 'unchanged' };
+    if (over === 'priority' && focusCount >= 3) {
+      return { kind: 'refused', note: 'Initial priorities are full at three. Move one down first.' };
+    }
+    return { kind: 'moved', zone: over };
+  }
+
+  if (over === 'not-today') return { kind: 'moved', zone: over };
+  if (over === 'priority') {
+    if (startedInFocus) return { kind: 'unchanged' };
+    if (focusCount >= 3) {
+      return { kind: 'refused', note: 'Initial priorities are full at three. Move one down first.' };
+    }
+    return { kind: 'moved', zone: over };
+  }
+  if (!startedInFocus) return { kind: 'unchanged' };
+  if (focusCount <= 1) return { kind: 'refused', note: 'Keep at least one initial priority.' };
+  return { kind: 'moved', zone: over };
+}

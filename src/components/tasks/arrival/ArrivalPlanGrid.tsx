@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -28,6 +29,7 @@ import { CSS } from '@dnd-kit/utilities';
 import type { MorningArrivalBoardTask, MorningArrivalItem, MorningArrivalProps } from '../MorningArrival';
 import type { Task } from '../TaskFieldsEditor';
 import TaskSheet, { type TaskSheetDetail } from './TaskSheet';
+import { arrivalDropOutcome, type ArrivalDropZone } from '@/lib/day-plan/presentation';
 
 export const INITIAL_PRIORITY_ZONE_ID = 'arrival-initial-priorities-zone';
 export const ALSO_TODAY_ZONE_ID = 'arrival-also-today-zone';
@@ -35,6 +37,16 @@ export const NOT_TODAY_ZONE_ID = 'arrival-not-today-zone';
 // Kept as an alias for older callers that treated all of Today as one zone.
 export const TODAY_ZONE_ID = ALSO_TODAY_ZONE_ID;
 const BOARD_TASK_LIMIT = 7;
+const DROP_ZONES: Record<string, ArrivalDropZone> = {
+  [INITIAL_PRIORITY_ZONE_ID]: 'priority',
+  [ALSO_TODAY_ZONE_ID]: 'also-today',
+  [NOT_TODAY_ZONE_ID]: 'not-today',
+};
+const ZONE_LABELS: Record<ArrivalDropZone, string> = {
+  priority: 'Initial priorities',
+  'also-today': 'Also today',
+  'not-today': 'Not today',
+};
 const TODAY_TAG_CLASS = 'mb-2 inline-block rounded-full bg-muted px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground';
 const EXPANSION_KEY_PREFIX = 'cove.arrival.not-today-expanded.';
 
@@ -572,14 +584,18 @@ export default function ArrivalPlanGrid({
     onInteract?.();
     setDropNote(undefined);
 
+    // What this drop does is decided in one place, so the note here and the
+    // announcement a screen reader hears cannot disagree.
+    const outcome = arrivalDropOutcome(readDrop(activeId, overId));
+    if (outcome.kind === 'refused') {
+      setDropNote(outcome.note);
+      return;
+    }
+    if (outcome.kind === 'unchanged') return;
+
     if (activeId.startsWith('not-today:')) {
       const task = notTodayTasks.find((candidate) => candidate.id === activeId.slice(10));
-      if (!task || overId === NOT_TODAY_ZONE_ID) return;
-      if (overId !== INITIAL_PRIORITY_ZONE_ID && overId !== ALSO_TODAY_ZONE_ID) return;
-      if (overId === INITIAL_PRIORITY_ZONE_ID && focusCount >= 3) {
-        setDropNote('Initial priorities are full at three. Move one down first.');
-        return;
-      }
+      if (!task) return;
       const result = await addTask(task);
       if (!result || overId !== INITIAL_PRIORITY_ZONE_ID || typeof result === 'boolean') return;
       const addedItem = result.plan.items.find((item) => item.taskId === task.id);
@@ -639,11 +655,6 @@ export default function ArrivalPlanGrid({
     }
 
     if (overId === INITIAL_PRIORITY_ZONE_ID) {
-      if (startedInFocus) return;
-      if (focusCount >= 3) {
-        setDropNote('Initial priorities are full at three. Move one down first.');
-        return;
-      }
       await persistArrivalPriorityDrag({
         itemId: activeItemId,
         title: activeView.title,
@@ -657,11 +668,7 @@ export default function ArrivalPlanGrid({
       return;
     }
 
-    if (overId !== ALSO_TODAY_ZONE_ID || !startedInFocus) return;
-    if (focusCount <= 1) {
-      setDropNote('Keep at least one initial priority.');
-      return;
-    }
+    if (overId !== ALSO_TODAY_ZONE_ID) return;
 
     await persistArrivalPriorityDrag({
       itemId: activeItemId,
@@ -679,6 +686,21 @@ export default function ArrivalPlanGrid({
     setActiveDragId(undefined);
     void applyDragEnd(event).catch(() => undefined);
   }
+
+  // The one description of a drop, read by the spoken announcement and by the
+  // handler that carries it out, so the two can never tell different stories.
+  const readDrop = useCallback((activeId: string, overId: string | undefined) => {
+    const origin = activeId.startsWith('not-today:') ? 'not-today' as const : 'today' as const;
+    const position = origin === 'today'
+      ? orderedToday.findIndex((view) => view.item.id === activeId.slice(6))
+      : -1;
+    return {
+      origin,
+      startedInFocus: position >= 0 && position < focusCount,
+      over: overId ? DROP_ZONES[overId] : undefined,
+      focusCount,
+    };
+  }, [orderedToday, focusCount]);
 
   const dragAccessibility = useMemo(() => {
     const itemLabel = (id: string | number) => {
@@ -705,10 +727,10 @@ export default function ArrivalPlanGrid({
         return bucket ? `${itemLabel(active.id)} is over ${bucket}.` : undefined;
       },
       onDragEnd: ({ active, over }) => {
-        const bucket = bucketLabel(over?.id);
-        return bucket
-          ? `Dropped ${itemLabel(active.id)} in ${bucket}.`
-          : `${itemLabel(active.id)} was not moved.`;
+        const outcome = arrivalDropOutcome(readDrop(String(active.id), over ? String(over.id) : undefined));
+        if (outcome.kind === 'moved') return `Dropped ${itemLabel(active.id)} in ${ZONE_LABELS[outcome.zone]}.`;
+        if (outcome.kind === 'refused') return outcome.note;
+        return `${itemLabel(active.id)} was not moved.`;
       },
       onDragCancel: ({ active }) => `Stopped moving ${itemLabel(active.id)}.`,
     };
@@ -716,7 +738,7 @@ export default function ArrivalPlanGrid({
       draggable: 'Press Space to pick up a task. Use the arrow keys to choose a section, then press Space again to drop it. Press Escape to cancel.',
     };
     return { announcements, screenReaderInstructions };
-  }, [notTodayTasks, orderedToday]);
+  }, [notTodayTasks, orderedToday, readDrop]);
 
   return (
     <section className="w-full px-6 pb-2 pt-10 sm:px-10 lg:px-16 lg:pt-11" aria-label="Plan your day">
