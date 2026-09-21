@@ -426,6 +426,33 @@ function updateRows(
           ))
           .map((matched) => matched.id);
       }
+      // The due reminder is a one-shot: fireDueReminders only looks at rows
+      // whose notified_at is still null, and stamps it as it claims each one.
+      // The stamp means "the person has been told about this task's deadline",
+      // so a deadline the person moves makes it false -- nobody has been told
+      // about the new one. Without this, dragging an overdue card to a later
+      // date silently retired its reminder: the card stayed on the board, the
+      // new date arrived, and nothing rang. The sibling rule for remind_at and
+      // nudged_at, immediately below, is the same re-arm for the pre-deadline
+      // nudge and was written first.
+      //
+      // Instants, not strings: due_at has no canonical form. The board writes a
+      // calendar date at UTC midnight while intake and the cove-task skill
+      // write local ISO datetimes, so the same moment arrives spelled two ways.
+      // remind_at can compare as a string only because validateTaskTiming
+      // forces it into one exact shape.
+      if (requestedKeys.includes("due_at") && typeof row.due_at === "string") {
+        const moved = Date.parse(row.due_at);
+        if (
+          Number.isFinite(moved) &&
+          matchedRows.some((matched) =>
+            typeof matched.due_at !== "string" ||
+            Date.parse(matched.due_at) !== moved
+          )
+        ) {
+          row.notified_at = null;
+        }
+      }
       if (
         requestedKeys.includes("remind_at") &&
         typeof row.remind_at === "string" &&
