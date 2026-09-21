@@ -42,3 +42,42 @@ test("product copy never carries provider diagnostics onto the screen", () => {
     assert.doesNotMatch(detail, /sk-ant|Users\/|exited 1/, `${type} leaked the diagnostic`);
   }
 });
+
+test("a network drop is named, rather than sent to the setup agent", () => {
+  // Observed against the real Claude CLI: with no reachable API it exits 1 and
+  // prints to stderr, which is what reaches this function verbatim. None of
+  // these shapes matched a cause before, so a closed lid or a dropped wifi
+  // read as "ask your Cove setup agent to diagnose the failure" — the one
+  // cause the person can fix alone, described as one only someone else can.
+  for (const diagnostic of [
+    "fetch failed",
+    "getaddrinfo ENOTFOUND api.anthropic.com",
+    "Connection error.",
+    "connect ECONNREFUSED 160.79.104.10:443",
+    "request to https://api.anthropic.com/v1/messages failed, reason: socket hang up",
+    "getaddrinfo EAI_AGAIN api.anthropic.com",
+  ]) {
+    assert.match(
+      jobFailureDetail("morning-brief", diagnostic),
+      /could not reach the internet/,
+      `no network cause for: ${diagnostic}`,
+    );
+  }
+});
+
+test("the network cause sits above the worker branch, because 'Please' contains 'lease'", () => {
+  // The provider's own retry advice is the trap: "Connection error. Please try
+  // again later." carries both signals, and the worker wording would send the
+  // person to look at a worker that is fine.
+  const detail = jobFailureDetail("morning-brief", "Connection error. Please try again later.");
+  assert.match(detail, /could not reach the internet/);
+  assert.doesNotMatch(detail, /background worker stopped/);
+});
+
+test("a lapsed sign-in still wins over the network wording", () => {
+  // Both families can appear in one message. A sign-in is the more specific
+  // and more actionable of the two, so it must stay ahead of the network case.
+  const detail = jobFailureDetail("morning-brief", "Invalid API key · Please run /login");
+  assert.match(detail, /sign-in checked/);
+  assert.doesNotMatch(detail, /could not reach the internet/);
+});
