@@ -24,7 +24,7 @@
 
 ---
 
-## 2026-09-20 Client release prepared for the 2026-09-21 install (NOT PUSHED)
+## 2026-09-20 Client release pushed for the 2026-09-21 install (PR OPEN, NOT MERGED)
 
 - Decisions from Alex: publish from this branch (his call was "whatever you
   suggest"); `amart-builder/cove` stays PRIVATE, client-only; the inert
@@ -38,9 +38,10 @@
   and `data/` still holds only the three example files afterwards.
 - Client branch `release/2026-09-20-readiness` at `1e7e8dd` is committed in a
   local clone at `/private/tmp/cove-client-release-20260920` (based on client
-  `main` c8c9c94, which was 9 commits behind the last release branch). Not
-  pushed. Plan: push through safe-push, open a PR to `main`, merge, so Gary's
-  setup agent clones the default branch. SETUP.md no longer names a branch and
+  `main` c8c9c94, which was 9 commits behind the last release branch). Alex
+  ran safe-push himself; the branch is on `amart-builder/cove` at `1e7e8dd`
+  and PR https://github.com/amart-builder/cove/pull/5 to `main` is open.
+  Merge it before the install so Gary's setup agent clones the default branch. SETUP.md no longer names a branch and
   README says a private repo needs a working signed-in clone first.
 - Still unverified: installer end to end on a fresh Mac, LaunchAgent restart
   persistence, live account steps. Evidence:
