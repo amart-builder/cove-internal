@@ -128,7 +128,17 @@ export default function TaskCard({
         </button>
       )}
 
-      <p className="water-card-title text-[15.5px] leading-snug text-foreground">{task.title}</p>
+      {/* The complete button is absolutely positioned over this line, so the
+          title has to keep clear of it. It mattered less while long words
+          simply overflowed the card; now that they wrap, the first line fills
+          the full width and would run under the button. */}
+      <p
+        className={`water-card-title text-[15.5px] leading-snug text-foreground ${
+          showCompleteButton ? 'pr-7' : ''
+        }`}
+      >
+        {task.title}
+      </p>
 
       {contextLine && (
         <p className="mt-1 line-clamp-1 text-[13.5px] leading-[1.55] text-muted-foreground">
