@@ -98,11 +98,36 @@ function boundedString(
   return cleaned;
 }
 
+const ISO_TIMESTAMP =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?)?(?:Z|([+-])(\d{2}):(\d{2}))$/;
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+// Date.parse takes a date the calendar does not have and rolls it forward, so
+// "2026-02-30" becomes March 2 and "T24:00" becomes the next day. This is the
+// one free-form value in the contract that decides which column a card lands
+// in and when its reminder fires, so a rolled-over date is a deadline nobody
+// chose. Check the fields the calendar actually allows.
 function isoTimestamp(value: unknown, name: string): string {
   const text = boundedString(value, name, 64);
+  const parts = ISO_TIMESTAMP.exec(text);
+  if (!parts || Number.isNaN(Date.parse(text))) {
+    throw new Error(`triage_${name}_invalid`);
+  }
+  const [, year, month, day, hour, minute, second, , offsetHour, offsetMinute] = parts;
+  const monthNumber = Number(month);
+  if (monthNumber < 1 || monthNumber > 12) throw new Error(`triage_${name}_invalid`);
+  const dayNumber = Number(day);
+  if (dayNumber < 1 || dayNumber > daysInMonth(Number(year), monthNumber)) {
+    throw new Error(`triage_${name}_invalid`);
+  }
   if (
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(text) ||
-    Number.isNaN(Date.parse(text))
+    Number(hour) > 23 ||
+    Number(minute) > 59 ||
+    (second !== undefined && Number(second) > 59) ||
+    (offsetHour !== undefined && (Number(offsetHour) > 14 || Number(offsetMinute) > 59))
   ) {
     throw new Error(`triage_${name}_invalid`);
   }
