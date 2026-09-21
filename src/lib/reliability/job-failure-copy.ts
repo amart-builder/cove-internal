@@ -68,6 +68,12 @@ export function diagnosticCause(diagnostic: string): { cause: string; remedy: st
   } else if (/EACCES|EPERM|EROFS|SQLITE_READONLY|readonly database|read-only file system/i.test(diagnostic)) {
     cause = " Cove could not write to its own files.";
     remedy = " Check the permissions on Cove's data folder; Cove cannot finish this until then.";
+  // No remedy on this one on purpose. SQLite says this when the folder is
+  // read-only, when it has moved, and when an external volume is asleep -- and
+  // the last of those does clear on its own, so the retry sentence stays.
+  // Measured: a read-only data folder gives this, not EROFS.
+  } else if (/SQLITE_CANTOPEN|unable to open database file/i.test(diagnostic)) {
+    cause = " Cove could not open its database file.";
   } else if (/timed? out|timeout|time limit/i.test(diagnostic)) {
     cause = " The check reached its time limit.";
   } else if (/background_usage|usage.denied|budget|allowance/i.test(diagnostic)) {
@@ -103,23 +109,6 @@ export function diagnosticCause(diagnostic: string): { cause: string; remedy: st
     cause = " The background worker stopped before finishing.";
   }
   return { cause, remedy };
-}
-
-// A 500 with an empty body is the one answer a screen cannot use: the client
-// parses before it checks the status, so the person reads "Unexpected end of
-// JSON input" where the page should be. Routes whose body a screen renders
-// build it here -- product copy in `error`, the raw text in `detail` for
-// whoever is helping, which is the shape /api/health already uses.
-export function routeFailureBody(
-  impact: string,
-  error: unknown,
-): { error: string; detail?: string } {
-  const diagnostic = error instanceof Error ? error.message : String(error);
-  const { cause, remedy } = diagnosticCause(diagnostic);
-  return {
-    error: impact + cause + remedy,
-    ...(diagnostic ? { detail: diagnostic } : {}),
-  };
 }
 
 // Issues supplies a safe cause and recovery step. Keep raw diagnostics in the

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getQuietCurrentCsrfToken } from "@/lib/quiet-current/store";
-import { routeFailureBody } from "@/lib/reliability/job-failure-copy";
+import { routeFailureBody } from "@/lib/reliability/route-failure";
 import {
   currentDayPlanAccessMode,
   hasDayPlanRouteAccess,

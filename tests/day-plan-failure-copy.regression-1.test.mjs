@@ -47,6 +47,7 @@ test('an unreadable database does not put SQLite on the first screen of the day'
     'the screen shows this string to the person');
   // The diagnosis still has to survive for whoever is helping from a distance.
   assert.match(body.detail, /not a database/);
+  assert.equal(body.dbPath, path.join(dir, 'cove.db'));
 });
 
 test('a cause a person can act on is said in words, and reaches the same screen', () => {
