@@ -2164,11 +2164,11 @@ input, textarea, select {
 .dark .today2-session-footer { border-color: rgba(255,255,255,.1); }
 .dark .today2-session-footer-actions > button { border-color: rgba(255,255,255,.11); color: rgba(238,246,248,.68); background: rgba(255,255,255,.07); }
 .dark .today2-session-footer-actions > button:hover:not(:disabled) { background: rgba(255,255,255,.13); }
-.dark .today2-session-footer-actions > button.is-planning { border-color: #4c9bd2; color: #fff; background: #397fae; }
+.dark .today2-session-footer-actions > button.is-planning { border-color: #4c9bd2; color: #fff; background: #33739e; }
 .dark .today2-session-footer-actions > button.is-planning:hover:not(:disabled) { background: #438dbc; }
 .dark .today2-rich-sheet { border-color: rgba(255,255,255,.12); color: #eef6f8; background: #202c31; box-shadow: 0 36px 110px rgba(0,0,0,.5); }
 .dark .today2-rich-sheet > h2 { color: #eef6f8; }
-.dark .today2-rich-meta { color: rgba(238,246,248,.5); }
+.dark .today2-rich-meta { color: rgba(238,246,248,.58); }
 .dark .today2-rich-description { color: rgba(238,246,248,.78); }
 .dark .today2-rich-footer { border-color: rgba(255,255,255,.1); background: rgba(19,30,35,.58); }
 .dark .today2-rich-edit { color: rgba(238,246,248,.58); }
@@ -3179,3 +3179,30 @@ input, textarea, select {
 .notification-buddy-access button { display:flex; align-items:center; gap:10px; min-height:44px; font-weight:600; color:var(--accent-blue); }
 .notification-buddy-access p { margin-top:6px; font-size:13px; color:var(--muted-foreground); }
 @media(max-width:600px) { .notification-buddy-access { padding:0 20px 24px; } }
+
+/* Dark mode, where a light-theme colour was left behind.
+
+   Each of these reads under 4.5:1 against what it actually sits on in dark
+   mode, measured in the browser rather than guessed at. */
+
+/* The Second Current's own name, and each item's eyebrow, hard-code the light
+   theme's blue. On the dark card that is 3.1:1, and 2.4:1 once the panel is
+   open and the card takes its gradient. The dark theme already has a blue for
+   this, it just never reached here. */
+.dark .today2-second-current-card > span:first-child { color: rgba(130,200,242,.92); }
+.dark .today2-second-current-item span { color: rgba(130,200,242,.86); }
+
+/* The Rhythms pill keeps a white 45% fill in dark mode, which lands grey text
+   on a light grey pill at 1.2:1 — very nearly invisible. */
+.dark .today2-rhythm-entry > div > button {
+  border-color: rgba(255,255,255,.14);
+  background: rgba(255,255,255,.06);
+  color: rgba(238,246,248,.76);
+}
+
+/* Solid accent-blue buttons carry white text. The dark theme lightens
+   --accent-blue so it can be read as text on a dark background, which leaves
+   white on it at 2.8:1 — the primary action in every dialog. Only the solid
+   fill is moved; the tints (bg-accent-blue/10 and friends) sit behind dark
+   text and are already fine, and text-accent-blue is untouched. */
+.dark .bg-accent-blue { background-color: #2F6FD0; }
