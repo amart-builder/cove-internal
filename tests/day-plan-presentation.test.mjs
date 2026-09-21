@@ -6,6 +6,7 @@ import {
   allSettlementDecisionsMade,
   claudeResumeUrl,
   canStartDayPlanSettlement,
+  dayCloseUnavailableReason,
   combineSurfaceErrors,
   firstContinuingItem,
   focusBandItems,
@@ -343,6 +344,43 @@ test('settlement availability includes snoozed proposed plans and matches active
     state: 'settling',
     settlementState: 'in_progress',
   }), true);
+});
+
+test('a dimmed Close My Day always says why, and says nothing when it is available', () => {
+  const base = { state: 'proposed', arrivalState: 'opened', settlementState: 'not_due' };
+  // No plan yet, on a weekday and on a weekend.
+  assert.match(dayCloseUnavailableReason({}), /once today's plan is ready/);
+  assert.match(
+    dayCloseUnavailableReason({ weekendWeekday: 'Saturday' }),
+    /paused on Saturday/,
+  );
+  // The state the demo day actually sits in: planned, but he has not been
+  // through Morning Arrival, so closing has nothing to settle yet.
+  assert.match(
+    dayCloseUnavailableReason({ plan: base }),
+    /Morning Arrival first/,
+  );
+  assert.equal(dayCloseUnavailableReason({ plan: base, busy: true }), "Cove is updating today's plan.");
+  assert.equal(
+    dayCloseUnavailableReason({ plan: { ...base, state: 'settled' } }),
+    'Today is already closed.',
+  );
+  // Available: no reason to show, which is what leaves the button enabled.
+  assert.equal(dayCloseUnavailableReason({ plan: { ...base, state: 'active' } }), undefined);
+  assert.equal(
+    dayCloseUnavailableReason({ plan: { ...base, arrivalState: 'snoozed' } }),
+    undefined,
+  );
+  // Whenever closing is unavailable there is a sentence for it, and whenever it
+  // is available there is not: the button and the explanation cannot disagree.
+  for (const plan of [
+    undefined, base, { ...base, state: 'active' }, { ...base, state: 'settled' },
+    { ...base, arrivalState: 'bypassed' }, { ...base, state: 'settling', settlementState: 'in_progress' },
+  ]) {
+    const reason = dayCloseUnavailableReason({ plan });
+    const available = plan ? canStartDayPlanSettlement(plan) : false;
+    assert.equal(Boolean(reason), !available, JSON.stringify(plan));
+  }
 });
 
 test('resume command quotes both workspace and session for the copy fallback', () => {
