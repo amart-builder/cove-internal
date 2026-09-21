@@ -5,6 +5,7 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -586,4 +587,35 @@ test('hard-failure banners explain affected work and never echo raw diagnostics'
   assert.match(text, /Check Today/);
   assert.match(text, /http:\/\/127.0.0.1:3200\/failures/);
   assert.doesNotMatch(text, /sk-secret|work.txt|exhausted|attempts/);
+});
+
+test('cove-notify reads the channel config from the configured data directory', () => {
+  // The library path (attentionReminderConfigPath) resolves
+  // REMINDER_CONFIG_PATH, then COVE_DATA_DIR, then <repo>/data. The script used
+  // to skip the middle step, so on an install with a private data directory it
+  // found no channel config -- and loadReminderConfig turns that into silence
+  // rather than an error, so Telegram and iMessage reminders stopped without
+  // anything being reported.
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'cove-notify-datadir-'));
+  try {
+    writeFileSync(
+      path.join(dataDir, 'cove-reminders.json'),
+      JSON.stringify({ channel: 'telegram', telegram_chat_id: '12345', always_on: false }),
+    );
+    const result = spawnSync(
+      process.execPath,
+      [path.join(process.cwd(), 'scripts', 'cove-notify.mjs'), 'readiness probe'],
+      { cwd: process.cwd(), env: { ...process.env, COVE_DATA_DIR: dataDir }, encoding: 'utf8' },
+    );
+    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+    // "not_configured" means it never saw the file sitting in that directory.
+    assert.doesNotMatch(
+      output,
+      /"reason":"not_configured"/,
+      `cove-notify ignored COVE_DATA_DIR: ${output.trim()}`,
+    );
+    assert.match(output, /COVE_NOTIFY /, `expected a delivery receipt line: ${output.trim()}`);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
 });

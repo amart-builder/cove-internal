@@ -8,6 +8,7 @@ import { signatureHtmlToText } from "../src/lib/email/draft-format";
 import { loadSignature } from "../src/lib/email/signature";
 import { createSqliteBackup, sqliteBackupPath, verifySqliteBackup } from "../src/lib/reliability/backup";
 import { JobScheduler } from "../src/lib/reliability/jobs";
+import { diagnosticCause } from "../src/lib/reliability/job-failure-copy";
 import {
   enqueueDailyTaskMaintenance,
   registerTaskMaintenanceHandlers,
@@ -223,6 +224,19 @@ void main()
     process.exitCode = code;
   })
   .catch((error) => {
-    console.error(error);
+    // A person runs this from SETUP.md and from the recovery steps in
+    // OPERATIONS.md, so what they read when it fails has to be a sentence. On
+    // a full disk this printed an eleven-line stack with `SQLITE_FULL` and
+    // internal file paths, and the one fact they could act on was inside it.
+    // The stack still prints for anything Cove cannot name, because that is
+    // exactly when whoever is helping needs it.
+    const diagnostic = error instanceof Error ? error.message : String(error);
+    const { cause, remedy } = diagnosticCause(diagnostic);
+    if (cause) {
+      process.stderr.write(`Cove could not finish this run.${cause}${remedy}\n`);
+      if (process.env.COVE_DEBUG) console.error(error);
+    } else {
+      console.error(error);
+    }
     process.exitCode = 1;
   });

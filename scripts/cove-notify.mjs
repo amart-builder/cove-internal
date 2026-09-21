@@ -24,9 +24,12 @@ import {
   remoteIMessageArgs,
   REMOTE_IMESSAGE_TIMEOUT_MS,
 } from "../src/lib/intake/notification-transport.mjs";
-import { coveConfigPath, coveEnv } from "../src/lib/env-runtime.mjs";
+import { coveEnv } from "../src/lib/env-runtime.mjs";
+import { attentionReminderConfigPath } from "../src/lib/attention/transport.mjs";
+import { loadLocalEnv } from "./lib/load-local-env.mjs";
 
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+loadLocalEnv(repoDir);
 
 const message = process.argv.slice(2).join(" ").trim();
 if (!message) {
@@ -36,12 +39,14 @@ if (!message) {
 
 function loadReminderConfig() {
   try {
+    // Resolve through the same helper Cove's own attention path uses. This
+    // script used to skip the COVE_DATA_DIR step that helper applies, so on an
+    // install with a private data directory the library found the channel
+    // config and this script did not -- and the catch below turns that into
+    // silence, not an error: native banners kept working while Telegram and
+    // iMessage reminders quietly stopped.
     return JSON.parse(
-      readFileSync(
-        coveEnv("REMINDER_CONFIG_PATH") ??
-          coveConfigPath(path.join(repoDir, "data"), "reminders.json"),
-        "utf8",
-      ),
+      readFileSync(attentionReminderConfigPath({ repoDir }), "utf8"),
     );
   } catch {
     return null; // No text channel configured; nothing to send.

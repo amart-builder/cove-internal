@@ -133,13 +133,18 @@ Everything runs only while the Mac is awake. On an always-on Mac (a desktop or a
 Handy commands:
 
 ```bash
-bash scripts/cove-backup.sh                            # back up the database right now
-launchctl bootout gui/$(id -u)/com.cove.local          # stop Cove (and its auto-start)
-launchctl bootout gui/$(id -u)/com.cove.reminders      # stop reminder notifications
-launchctl bootout gui/$(id -u)/com.cove.email-triage   # stop scheduled email triage
+bash scripts/cove-backup.sh             # back up the database right now
+bash scripts/cove-stop.sh --status      # what is running right now
+bash scripts/cove-stop.sh               # stop everything until the next login
+bash scripts/cove-stop.sh --disable     # stop everything and keep it stopped
+bash scripts/install-cove-local.sh      # start Cove again
 ```
 
-To restore, stop Cove and its database-using workers, then run `bash scripts/cove-restore-backup.sh --yes <backup-file>`. The guarded script validates the backup and preserves the database it replaces.
+A full install runs more than a dozen background services, not only the website, so stopping Cove means stopping all of them. `scripts/cove-stop.sh` does that in one command: the website, the worker, the reliability scheduler, reminders, email triage, the meeting watcher, the chief-of-staff lanes and the daily backup. Stopping does not delete anything. Your database, backups, profile, goals and settings stay exactly where they are, and the installer brings the same installation back.
+
+Plain `cove-stop.sh` lasts until your next login, because macOS starts anything still installed in `~/Library/LaunchAgents` when you log in again. `--disable` is the one that survives a restart.
+
+To restore, stop Cove and its database-using workers (`bash scripts/cove-stop.sh`), then run `bash scripts/cove-restore-backup.sh --yes <backup-file>`. The guarded script validates the backup and preserves the database it replaces.
 
 ## Tech stack
 

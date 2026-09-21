@@ -79,6 +79,14 @@ import {
 } from '../scripts/brief-backtest.mjs';
 import { checkLatestBriefWriter } from '../scripts/cove-check-brief-writer.mjs';
 
+// Every path that falls back to coveDataDir() must land in a scratch directory,
+// never in <cwd>/data: a fresh checkout's verify run must not mint a database,
+// a CSRF token or relay files the setup playbook would then treat as existing.
+const ISOLATED_DATA_DIR = mkdtempSync(path.join(os.tmpdir(), 'cove-test-data-'));
+process.env.COVE_DATA_DIR = ISOLATED_DATA_DIR;
+delete process.env.COVE_DB_PATH;
+test.after(() => rmSync(ISOLATED_DATA_DIR, { recursive: true, force: true }));
+
 const CLOCK = '2026-07-14T13:00:00.000Z';
 const ArrivalStepBriefComponent = ArrivalStepBrief.default ?? ArrivalStepBrief;
 const PREVIOUS_OPERATOR_NAME = process.env.COVE_OPERATOR_NAME;

@@ -93,9 +93,17 @@ case "$NODE_REAL" in
     echo "Note: Node is managed by a version manager. If Cove stops starting after you switch Node versions, re-run this script." ;;
 esac
 
+# SECURITY_AND_INTEGRATIONS.md promises a "mode-0600 .env.local" and sends
+# people there to put a Granola API key. That was only true of a file this
+# script created: one written by hand first -- which the setup playbook asks
+# for, to set COVE_CHIEF_OF_STAFF or COVE_BRIEF_WEB_BASE before the install --
+# kept its author's umask, normally 0644, and nothing here narrowed it. This
+# only ever tightens, and only a file Cove already owns.
 if [ ! -e "$REPO_DIR/.env.local" ]; then
   install -m 600 /dev/null "$REPO_DIR/.env.local"
   echo "Created a private empty .env.local. Add optional Cove settings there when needed."
+else
+  chmod 600 "$REPO_DIR/.env.local"
 fi
 local_env_value() {
   "$NODE_REAL" --input-type=module -e '
@@ -115,6 +123,16 @@ COVE_BRIEF_WEB_BASE="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" webBase)"
 WEB_HOST="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" host)"
 WEB_PORT="$("$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" port)"
 export COVE_DATA_DIR COVE_DB_PATH COVE_BRIEF_WEB_BASE
+
+# Every JSON store under here is written 0600 into a directory its writer
+# creates 0700 -- but data/ ships in the checkout with three example files, so
+# it already exists at whatever the clone gave it, normally 0755, and none of
+# those writers ever narrows it. cove.db is the other half: SQLite creates it
+# under the umask, 0644, and it holds the tasks, commitments, contacts and
+# triage records that the 0600 files around it are being careful about.
+# Narrowing the directory covers both, and every Cove lane runs as this user.
+mkdir -p "$COVE_DATA_DIR"
+chmod 700 "$COVE_DATA_DIR"
 BUDDY_APP_URL="$(local_env_value COVE_BUDDY_APP_URL)"
 BUDDY_APP_URL="${BUDDY_APP_URL:-$COVE_BRIEF_WEB_BASE}"
 AGENT_PROVIDER="$("$NODE_REAL" --input-type=module -e '
@@ -167,7 +185,18 @@ if [ -z "$CODEX_BIN" ] && [ -x "/usr/local/bin/codex" ]; then
   CODEX_BIN="/usr/local/bin/codex"
 fi
 if [ "$JOB_RUNNER" = "codex-sol-high" ] && { [ -z "$CODEX_BIN" ] || [ ! -x "$CODEX_BIN" ]; }; then
-  echo "COVE_JOB_RUNNER=codex-sol-high requires an executable Codex CLI. Install it or set COVE_CODEX_BIN." >&2
+  if [ -z "$AGENT_PROVIDER" ]; then
+    # No saved selection, so JOB_RUNNER fell back to the legacy Codex default.
+    # On a first install that is not a Codex problem: Step 0 of SETUP.md has not
+    # been finished yet. Naming an environment variable the person never set
+    # sends them to install a CLI they may have deliberately not chosen.
+    echo "Cove has no saved agent selection yet, so it fell back to its legacy Codex runner and could not find the Codex CLI." >&2
+    echo "Choose and verify the agent first, then re-run this installer:" >&2
+    echo "  node scripts/cove-agent-settings.mjs configure --provider claude   # or --provider codex" >&2
+    echo "(For an older install that really does run on Codex, install the Codex CLI or set COVE_CODEX_BIN in .env.local.)" >&2
+  else
+    echo "COVE_JOB_RUNNER=codex-sol-high requires an executable Codex CLI. Install it or set COVE_CODEX_BIN." >&2
+  fi
   exit 1
 fi
 # An explicit opt-in must not silently become a successful install with the
@@ -191,6 +220,24 @@ if [ -n "$CODEX_BIN" ]; then
   printf -v CODEX_PLIST_ENTRY \
     '    <key>COVE_CODEX_BIN</key>\n    <string>%s</string>' \
     "$CODEX_XML_BIN"
+fi
+
+# Buddy, replan, spawn-session and /login all run inside the web app, and they
+# resolve the CLI as COVE_CLAUDE_BIN or, failing that, the literal path
+# $HOME/.local/bin/claude. Neither spelling consults PATH. The worker plist
+# carries the resolved path; without the same entry here, a Claude installed
+# anywhere else (Homebrew, an npm global bin, which is what the `command -v`
+# above expects) leaves the worker able to run Claude and Buddy not, failing
+# with "Buddy was interrupted." and a Retry that fails identically.
+CLAUDE_PLIST_ENTRY=""
+if [ -n "$CLAUDE_BIN" ]; then
+  CLAUDE_XML_BIN="$(printf '%s' "$CLAUDE_BIN" | sed \
+    -e 's/&/\&amp;/g' \
+    -e 's/</\&lt;/g' \
+    -e 's/>/\&gt;/g')"
+  printf -v CLAUDE_PLIST_ENTRY \
+    '    <key>COVE_CLAUDE_BIN</key>\n    <string>%s</string>' \
+    "$CLAUDE_XML_BIN"
 fi
 
 # Build Cove's tiny local notification sender. macOS chooses a notification's
@@ -263,6 +310,42 @@ printf -v RUNTIME_PLIST_ENTRY '    <key>COVE_DATA_DIR</key>\n    <string>%s</str
   "$(xml_escape "$COVE_DATA_DIR")" "$(xml_escape "$COVE_DB_PATH")" "$(xml_escape "$COVE_BRIEF_WEB_BASE")"
 
 mkdir -p "$LOG_DIR" "$LA_DIR"
+
+# `launchctl disable` survives a restart and outlives the plist, so a label
+# disabled once stays refused until something enables it again. Three of the
+# labels below used to be bootstrapped without ever being enabled, so anyone
+# who stopped Cove for good and later re-ran this installer got the website
+# and the worker back while the daily backup, the reminders lane and email
+# triage stayed off, with nothing on screen saying so. Enabling is also done
+# before bootstrapping rather than after, because launchd refuses to load a
+# disabled service and the enable that followed came too late to help it.
+#
+# Enabling only clears a previous refusal; it loads nothing by itself, so a
+# label whose plist this install did not write stays absent either way. That
+# is why the list is every label this script can load rather than the ones the
+# current options happen to select. The retired lanes it only ever removes --
+# com.cove.attention-sweep and com.cove.wake-canary -- are deliberately not
+# here; com.cove.morning-brief is, because --mini loads it.
+for cove_label in \
+  com.cove.local \
+  com.cove.local.backup \
+  com.cove.jobs \
+  com.cove.reminders \
+  com.cove.claude-worker \
+  com.cove.email-triage \
+  com.cove.meeting-watch \
+  com.cove.meeting-drain \
+  com.cove.progress \
+  com.cove.voice-review \
+  com.cove.morning-brief \
+  com.cove.chief-of-staff-drain \
+  com.cove.chief-of-staff-sweep \
+  com.cove.chief-of-staff-nightly \
+  com.cove.chief-of-staff-review
+do
+  launchctl enable "gui/$UID_NUM/$cove_label" 2>/dev/null || true
+done
+
 LANE_DATA_DIR="${COVE_DATA_DIR:-$REPO_DIR/data}"
 mkdir -p "$LANE_DATA_DIR"
 ATTENTION_CONFIG="$LANE_DATA_DIR/attention-sweep.json"
@@ -697,6 +780,11 @@ $RUNTIME_PLIST_ENTRY
     <string>$NODE_BIN:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
     <key>NODE_ENV</key>
     <string>production</string>
+    <!-- Next.js phones home anonymously on every start unless this is set.
+         Cove is local-first and names what leaves the machine; this was not
+         on that list, so it does not leave. -->
+    <key>NEXT_TELEMETRY_DISABLED</key>
+    <string>1</string>
     <key>COVE_DAY_PLAN_ACCESS_MODE</key>
     <string>loopback</string>
     <key>COVE_BUDDY_DEEPLINKS</key>
@@ -710,6 +798,7 @@ $RUNTIME_PLIST_ENTRY
     <key>COVE_JOB_RUNNER</key>
     <string>$JOB_RUNNER</string>
 $CODEX_PLIST_ENTRY
+$CLAUDE_PLIST_ENTRY
     <key>COVE_PROGRESS_RELAY_CONSUMER</key>
     <string>1</string>
 $NOTIFICATION_PLIST_ENTRY
@@ -1068,34 +1157,28 @@ if [ "$INSTALL_CHIEF_OF_STAFF_LANE" = "1" ]; then
   mark_lane_installed chief_of_staff
 fi
 if [ -f "$TRIAGE_PLIST" ]; then launchctl bootstrap "gui/$UID_NUM" "$TRIAGE_PLIST"; fi
-launchctl enable "gui/$UID_NUM/com.cove.local" 2>/dev/null || true
-launchctl enable "gui/$UID_NUM/com.cove.claude-worker" 2>/dev/null || true
-launchctl enable "gui/$UID_NUM/com.cove.jobs" 2>/dev/null || true
-if [ "$INSTALL_MEETING_LANE" = "1" ]; then
-  launchctl enable "gui/$UID_NUM/com.cove.meeting-watch" 2>/dev/null || true
-  launchctl enable "gui/$UID_NUM/com.cove.meeting-drain" 2>/dev/null || true
-fi
-if [ "$INSTALL_PROGRESS_LANE" = "1" ]; then
-  launchctl enable "gui/$UID_NUM/com.cove.progress" 2>/dev/null || true
-fi
-if [ "$INSTALL_VOICE_REVIEW_LANE" = "1" ]; then
-  launchctl enable "gui/$UID_NUM/com.cove.voice-review" 2>/dev/null || true
-fi
-if [ "$INSTALL_CHIEF_OF_STAFF_LANE" = "1" ]; then
-  launchctl enable "gui/$UID_NUM/com.cove.chief-of-staff-drain" 2>/dev/null || true
-  launchctl enable "gui/$UID_NUM/com.cove.chief-of-staff-sweep" 2>/dev/null || true
-  launchctl enable "gui/$UID_NUM/com.cove.chief-of-staff-nightly" 2>/dev/null || true
-  launchctl enable "gui/$UID_NUM/com.cove.chief-of-staff-review" 2>/dev/null || true
-fi
 
 # Confirm the server actually came up. This catches the most common failure:
 # launchd not being able to find/run Node on the client's machine.
 echo "Starting Cove..."
 UP=""
+FOREIGN_SERVER=""
 for _ in $(seq 1 20); do
   CODE="$(curl -s -o /dev/null -w '%{http_code}' "$COVE_BRIEF_WEB_BASE/tasks" 2>/dev/null || true)"
   case "$CODE" in
-    200|307|308) UP="yes"; break ;;
+    200|307|308)
+      # Something answering is not the same as Cove answering. When another
+      # program already holds this port, `next start` exits with EADDRINUSE and
+      # KeepAlive restarts it every ten seconds forever, while this probe reads
+      # 200 from the other program and the install reports success. /api/health
+      # is Cove's own endpoint, needs no CSRF token on a GET, and is refused
+      # off loopback, so it is a safe way to ask "is this actually Cove".
+      if curl -fsS "$COVE_BRIEF_WEB_BASE/api/health" 2>/dev/null | grep -q '"readiness"'; then
+        UP="yes"
+        break
+      fi
+      FOREIGN_SERVER="yes"
+      ;;
   esac
   sleep 1
 done
@@ -1123,7 +1206,21 @@ if [ -n "$UP" ]; then
   echo "Server logs: $LOG_DIR/cove.log"
   echo "Daily database backups: $COVE_BACKUP_DIR"
   echo "Reliability jobs: bounded scheduler supervised by com.cove.jobs"
-  echo "Attention sweep: shadow mode at 11:30 and 16:00"
+  # AGENTS.md makes "the user has been told exactly which background lanes are
+  # active" a condition of a finished setup, so this summary has to be true.
+  # It used to print "Attention sweep: shadow mode at 11:30 and 16:00"
+  # unconditionally. com.cove.attention-sweep is a retired lane this same
+  # script boots out and deletes; the 11:30 and 16:00 sweep is
+  # com.cove.chief-of-staff-sweep, which is not installed when the chief of
+  # staff is off. So with COVE_CHIEF_OF_STAFF=0 the install reported a sweep
+  # that nothing runs, and the four chief-of-staff lanes it does install were
+  # named nowhere.
+  if [ "$INSTALL_CHIEF_OF_STAFF_LANE" = "1" ]; then
+    echo "Chief of staff: sweeps at 11:30 and 16:00, a nightly pass at 21:30, a weekly review Sundays at 18:00, and a drain every 5 minutes"
+    echo "Attention and urgent-email models: shadow mode, recording only"
+  else
+    echo "Chief of staff: not installed, so nothing sweeps at 11:30 or 16:00"
+  fi
   echo "Claude worker: supervised by com.cove.claude-worker"
   echo "Claude worker status: ok"
   if [ "$INSTALL_MEETING_LANE" = "1" ]; then
@@ -1146,10 +1243,25 @@ if [ -n "$UP" ]; then
   echo "Morning Brief: 08:00 weekdays in the brief timezone, after the prior day closes; missed runs catch up while this Mac is awake"
   echo "Day-plan batch execution remains off until COVE_CLAUDE_EXECUTION_ENABLED=1 and an allowlisted workspace config are explicitly added."
   echo "Task controls use your selected agent: Auto works the task; Planning prepares a plan. Codex retains on-request approvals. Sending, publishing, or purchasing still requires your approval."
+elif [ -n "$FOREIGN_SERVER" ]; then
+  echo "Something other than Cove is already using port $WEB_PORT on this Mac." >&2
+  echo "Cove could not take that port, so Cove is not running." >&2
+  echo "See which program has it: lsof -nP -iTCP:$WEB_PORT -sTCP:LISTEN" >&2
+  echo "Then quit that program and re-run: bash scripts/install-cove-local.sh" >&2
+  echo "Or give Cove a different port by putting a line like" >&2
+  echo "COVE_BRIEF_WEB_BASE=http://127.0.0.1:3201 in $REPO_DIR/.env.local and re-running." >&2
+  exit 1
 else
   echo "Cove did not respond on $COVE_BRIEF_WEB_BASE within 20 seconds." >&2
   echo "See the log for why: $LOG_DIR/cove.error.log" >&2
-  echo "Most common cause: Node is installed via nvm/fnm/Volta and launchd can't use it." >&2
-  echo "Fix: install Node with Homebrew (brew install node), then re-run: bash scripts/install-cove-local.sh" >&2
+  if grep -q 'EADDRINUSE' "$LOG_DIR/cove.error.log" 2>/dev/null; then
+    echo "That log says port $WEB_PORT is already in use by another program." >&2
+    echo "See which one: lsof -nP -iTCP:$WEB_PORT -sTCP:LISTEN" >&2
+    echo "Then quit it, or set COVE_BRIEF_WEB_BASE to a free loopback port in" >&2
+    echo "$REPO_DIR/.env.local, and re-run: bash scripts/install-cove-local.sh" >&2
+  else
+    echo "Most common cause: Node is installed via nvm/fnm/Volta and launchd can't use it." >&2
+    echo "Fix: install Node with Homebrew (brew install node), then re-run: bash scripts/install-cove-local.sh" >&2
+  fi
   exit 1
 fi
