@@ -128,8 +128,8 @@ if [ "$MODE" = "status" ]; then
   done <<< "$(labels)"
   echo
   if [ "$any_blocked" = "1" ]; then
-    echo "A disabled service stays stopped through a restart and through a"
-    echo "reinstall, and files no failure anywhere because it never runs."
+    echo "A disabled service stays stopped through a restart, outlives its"
+    echo "own file, and files no failure anywhere because it never runs."
     echo "To clear that: bash scripts/install-cove-local.sh"
   fi
   if [ "$shown" = "0" ]; then
