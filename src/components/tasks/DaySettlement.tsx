@@ -8,6 +8,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { DayPlan, DayPlanItem } from '@/lib/day-plan/types';
 import {
   allSettlementDecisionsMade,
+  SETTLEMENT_ITEM_GONE_NOTE,
   ownerDescription,
   ownerLabel,
   shouldAutoPostProgress,
@@ -161,6 +162,9 @@ export default function DaySettlement({
     observer.observe(textarea);
     return () => observer.disconnect();
   }, [note]);
+  // Every unfinished accepted item needs an outcome, deleted ones included:
+  // the store refuses the commit without one, so the client cannot decide to
+  // ask for less than the server will accept.
   const allDecided = allSettlementDecisionsMade(
     unresolved.map((view) => view.item),
     decisions,
@@ -336,6 +340,9 @@ export default function DaySettlement({
                   {unresolved.map((view, index) => {
                     const saving = savingItemIds.has(view.item.id);
                     const sessionNote = taskSessionSettlementNote(view.sessionStatus);
+                    // Deleted during the day: the commitment still belongs in
+                    // the record, but there is nothing left to decide about it.
+                    const taskGone = !tasksById.has(view.item.taskId);
                     return (
                       <li key={view.item.id}>
                         <article className="rounded-2xl border bg-card p-4 sm:p-5">
@@ -343,10 +350,14 @@ export default function DaySettlement({
                             <div className="min-w-0">
                               <p className="text-xs text-muted-foreground">Priority {index + 1} · Owner {ownerLabel(view.item.owner)}</p>
                               <h3 className="mt-1 text-base font-semibold text-foreground">
+                                {/* There is nothing to open once the task is
+                                    gone, so the title stops being a control
+                                    rather than becoming a dead one. */}
+                                {taskGone ? view.title : (
                                 <button
                                   type="button"
                                   aria-label={`Edit ${view.title}`}
-                                  disabled={closing || !tasksById.has(view.item.taskId)}
+                                  disabled={closing}
                                   className="text-left outline-none hover:underline focus-visible:rounded focus-visible:ring-2 focus-visible:ring-accent-blue/40 disabled:no-underline"
                                   onClick={(event) => {
                                     const task = tasksById.get(view.item.taskId);
@@ -355,12 +366,13 @@ export default function DaySettlement({
                                 >
                                   {view.title}
                                 </button>
+                                )}
                               </h3>
                               {view.outcome && <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{view.outcome}</p>}
                             </div>
                             <div className="flex shrink-0 items-center gap-2">
                               {saving && <span role="status" className="text-xs text-muted-foreground">Saving…</span>}
-                              <button
+                              {!taskGone && <button
                                 type="button"
                                 aria-label={`Mark ${view.title} complete`}
                                 disabled={saving || closing || completingIds.has(view.item.id)}
@@ -368,7 +380,7 @@ export default function DaySettlement({
                                 onClick={() => void completeItem(view.item.id, view.title)}
                               >
                                 Mark complete
-                              </button>
+                              </button>}
                             </div>
                           </div>
                           {view.item.owner === 'claude' && (
@@ -383,6 +395,9 @@ export default function DaySettlement({
                             </p>
                           )}
 
+                          {taskGone && (
+                            <p className="mt-3 text-sm text-muted-foreground">{SETTLEMENT_ITEM_GONE_NOTE}</p>
+                          )}
                           <fieldset className="mt-4" disabled={closing}>
                             <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">What happens next?</legend>
                             <div className="mt-2 grid gap-2 sm:grid-cols-2">
