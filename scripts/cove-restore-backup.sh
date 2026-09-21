@@ -53,11 +53,48 @@ loaded_cove_services() {
     grep -E '^com\.(cove|forge)\.' || true
 }
 
+# The launchctl gate above only sees Cove started the way the installer starts
+# it. During setup, and any time someone is debugging, the app is a hand-started
+# `npm start` that no LaunchAgent knows about -- and an idle moment still reads
+# as "nobody has the database open", so neither existing check refuses. Asking
+# Cove's own health route is the cheap way to know a server is live right now.
+# The body test keeps an unrelated program on the same port from blocking a
+# restore.
+COVE_WEB_PORT=""
+# Only an installed Cove has recorded where it serves -- the installer writes
+# COVE_BRIEF_WEB_BASE into .env.local. A checkout that was never installed has
+# not, and the resolver would fall back to the documented default, so probing it
+# would mean this script's behaviour depended on whatever else happens to answer
+# on that port. Ask only when the install itself said where to ask.
+cove_web_base_configured() {
+  [ -n "${COVE_BRIEF_WEB_BASE:-}" ] && return 0
+  [ -f "$REPO_DIR/.env.local" ] &&
+    grep -qE '^[[:space:]]*COVE_BRIEF_WEB_BASE[[:space:]]*=' "$REPO_DIR/.env.local"
+}
+
+cove_is_serving() {
+  command -v curl >/dev/null 2>&1 || return 1
+  cove_web_base_configured || return 1
+  if [ -z "$COVE_WEB_PORT" ]; then
+    COVE_WEB_PORT="$("$NODE_REAL" "$REPO_DIR/scripts/lib/cove-install-runtime.mjs" "$REPO_DIR" port 2>/dev/null || true)"
+  fi
+  [ -n "$COVE_WEB_PORT" ] || return 1
+  curl -fsS -m 3 "http://127.0.0.1:$COVE_WEB_PORT/api/health" 2>/dev/null |
+    grep -q '"readiness"'
+}
+
 if [ "${COVE_RESTORE_ALLOW_RUNNING:-0}" != "1" ]; then
   RUNNING="$(loaded_cove_services | tr '\n' ' ')"
   if [ -n "${RUNNING// /}" ]; then
     echo "Cove is still running, so a restore could be overwritten by a live writer." >&2
     echo "Loaded: $RUNNING" >&2
+    echo "Stop everything first, then retry:" >&2
+    echo "  bash scripts/cove-stop.sh" >&2
+    echo "(Set COVE_RESTORE_ALLOW_RUNNING=1 only if you have already stopped every Cove writer another way.)" >&2
+    exit 1
+  fi
+  if cove_is_serving; then
+    echo "Cove is answering on http://127.0.0.1:$COVE_WEB_PORT, so it is running and would overwrite a restore." >&2
     echo "Stop everything first, then retry:" >&2
     echo "  bash scripts/cove-stop.sh" >&2
     echo "(Set COVE_RESTORE_ALLOW_RUNNING=1 only if you have already stopped every Cove writer another way.)" >&2
