@@ -145,6 +145,11 @@ test('the reminders tick fires and removes a due scheduled intake entry', (t) =>
     env: {
       ...process.env,
       PATH: `${bin}:${process.env.PATH}`,
+      // The runner holds a scheduled reminder outside 08:00-20:00 operator
+      // time, so a spawn that reads the wall clock passes by day and fails
+      // by night. These cases are about delivery, not the window.
+      COVE_ATTENTION_NOW: '2026-09-22T19:30:00Z',
+      COVE_TIMEZONE: 'America/Los_Angeles',
       COVE_DB_PATH: dbPath,
       COVE_REMINDER_CONFIG_PATH: config,
       COVE_TEST_CALLS: calls,
@@ -177,6 +182,11 @@ test('a native-only scheduled failure is recorded and the due file is still dele
     env: {
       ...process.env,
       PATH: `${bin}:${process.env.PATH}`,
+      // The runner holds a scheduled reminder outside 08:00-20:00 operator
+      // time, so a spawn that reads the wall clock passes by day and fails
+      // by night. These cases are about delivery, not the window.
+      COVE_ATTENTION_NOW: '2026-09-22T19:30:00Z',
+      COVE_TIMEZONE: 'America/Los_Angeles',
       COVE_DB_PATH: dbPath,
       COVE_REMINDER_CONFIG_PATH: config,
     },
@@ -219,6 +229,11 @@ test('a failed scheduled text is finalized, surfaced natively, and recorded', (t
     env: {
       ...process.env,
       PATH: `${bin}:${process.env.PATH}`,
+      // The runner holds a scheduled reminder outside 08:00-20:00 operator
+      // time, so a spawn that reads the wall clock passes by day and fails
+      // by night. These cases are about delivery, not the window.
+      COVE_ATTENTION_NOW: '2026-09-22T19:30:00Z',
+      COVE_TIMEZONE: 'America/Los_Angeles',
       COVE_DB_PATH: dbPath,
       COVE_REMINDER_CONFIG_PATH: config,
       COVE_TEST_CALLS: calls,
@@ -470,6 +485,11 @@ test('scheduled text includes titles only for direct-author sources', (t) => {
     env: {
       ...process.env,
       PATH: `${bin}:${process.env.PATH}`,
+      // The runner holds a scheduled reminder outside 08:00-20:00 operator
+      // time, so a spawn that reads the wall clock passes by day and fails
+      // by night. These cases are about delivery, not the window.
+      COVE_ATTENTION_NOW: '2026-09-22T19:30:00Z',
+      COVE_TIMEZONE: 'America/Los_Angeles',
       COVE_DB_PATH: dbPath,
       COVE_REMINDER_CONFIG_PATH: config,
       COVE_TEST_CALLS: calls,

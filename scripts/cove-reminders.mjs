@@ -619,7 +619,7 @@ function dueTime(raw) {
   return new Date(normalized);
 }
 
-function fireScheduledReminders(db, config, token) {
+function fireScheduledReminders(db, config, token, now = attentionNow()) {
   // These files are written by the intake lane, which resolves its directory
   // as COVE_DATA_DIR first and the database's directory only as a fallback.
   // Reading from the database's directory meant that on an install where the
@@ -640,7 +640,22 @@ function fireScheduledReminders(db, config, token) {
       continue;
     }
     const when = dueTime(entry.surface_at);
-    if (Number.isNaN(when.getTime()) || when.getTime() > Date.now()) continue;
+    if (Number.isNaN(when.getTime()) || when.getTime() > now.getTime()) continue;
+    // Cove holds its own automatic notifications to daytime everywhere else:
+    // firePredeadlineNudges below, the Apple Reminders bridge, and the meeting
+    // analyst's remind_at rule. This path had no window, and com.cove.reminders
+    // runs every 60 seconds around the clock, so a scheduled reminder that came
+    // due at 3am rang at 3am -- a Mac banner and a phone text.
+    //
+    // surface_at is not a time the operator chose. The triage prompt asks the
+    // model when the card should surface and its only timestamp is NOW in UTC,
+    // so a late hour is a reasonable answer and 3am is what a misread offset
+    // costs. surface: "now" is exempt: it is written at the moment of capture,
+    // so the person is already at the machine.
+    //
+    // The file is left in place rather than consumed, so the next pass inside
+    // the window delivers it. Waiting must not mean discarded.
+    if (entry.surface !== "now" && !insideNudgeDeliveryWindow(now)) continue;
     const title = entry.title || "Task";
     try {
       let nativeFailure = null;
@@ -847,9 +862,9 @@ async function main() {
     // Scheduled native notifications can still fire before Cove has a database.
   }
   if (db) db.pragma("busy_timeout = 5000");
-  fireScheduledReminders(db, config, token);
-  if (!db) return;
   const now = attentionNow();
+  fireScheduledReminders(db, config, token, now);
+  if (!db) return;
   // Deliberately the database's directory, not dataDir: the "remind me later"
   // button writes these through /api/notifications, which resolves the same
   // way (dirname of the local database). Both sides agree; changing one alone
