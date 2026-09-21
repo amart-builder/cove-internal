@@ -174,9 +174,15 @@ function handleCRMCompatibility(
           ),
         });
         if (resolution.status === "ambiguous") {
+          // Ambiguity with nothing to choose between reads as a contradiction.
+          // It means the name was not a plausible full one -- missing, or a
+          // single word -- and the caller is usually a model filling a row, so
+          // say what to send instead.
           return NextResponse.json(
             {
-              error: "Contact identity is ambiguous.",
+              error: resolution.candidates.length > 0
+                ? "Contact identity is ambiguous."
+                : "A contact needs a first and last name. Send one, or use the crm explicit_create action for a single-name contact.",
               candidates: resolution.candidates,
             },
             { status: 409 },
