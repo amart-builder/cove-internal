@@ -125,3 +125,46 @@ test('a river bead is pressed through something big enough to press', () => {
   assert.match(css, /\.today2-bead-hit\s*\{[^}]*pointer-events:\s*all/,
     'the invisible target takes no presses, so nothing is clickable at all');
 });
+
+// A second target-size sweep, this time with the modals open. The first sweep
+// only ever saw the six screens, so the sheet a person opens to edit any task
+// -- and the screen they reach a deleted one through -- were never measured.
+// Sizes below are from a browser at 1440x900 before the padding.
+
+test('the task editor can be closed without taking aim', () => {
+  // 15x18, the smallest target in Cove, on its most-opened sheet. The two
+  // newer task sheets already put this same X in a 36px circle.
+  const source = readFileSync(
+    new URL('../src/components/tasks/TaskDetail.tsx', import.meta.url), 'utf8');
+  const at = source.indexOf('aria-label="Close task"');
+  assert.notEqual(at, -1, 'the task editor no longer has a labelled close button');
+  const button = source.slice(source.lastIndexOf('<button', at), source.indexOf('</button>', at));
+  assert.match(button, /\bsize-9\b/, 'the close button is back to the size of its glyph');
+  assert.match(button, /-m[ry]-/,
+    'without a negative margin the bigger button moves the X away from the panel edge');
+});
+
+test('deleting a task is not a 18px target', () => {
+  const source = readFileSync(
+    new URL('../src/components/tasks/TaskDetail.tsx', import.meta.url), 'utf8');
+  const at = source.indexOf('Delete task');
+  assert.notEqual(at, -1, 'the task editor no longer offers a delete');
+  const button = source.slice(source.lastIndexOf('<button', at), at);
+  assert.match(button, /\bpy-\d/, 'the delete button has no vertical padding, so it is 18px tall');
+});
+
+test('Recently deleted can be left and its rows pressed', () => {
+  // 63x16 to get back to the board, and 86x18 for the one irreversible
+  // action in Cove. Restore beside it was already 72x30.
+  const source = readFileSync(
+    new URL('../src/components/tasks/RecentlyDeleted.tsx', import.meta.url), 'utf8');
+  for (const [label, note] of [
+    ['← All Work', 'the way back out of Recently deleted is 16px tall again'],
+    ['Delete forever', 'the permanent delete is 18px tall again'],
+  ]) {
+    const at = source.indexOf(label);
+    assert.notEqual(at, -1, `Recently deleted no longer offers "${label}"`);
+    const button = source.slice(source.lastIndexOf('<button', at), at);
+    assert.match(button, /\bpy-\d/, note);
+  }
+});
