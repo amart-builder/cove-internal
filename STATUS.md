@@ -24,6 +24,25 @@
 
 ---
 
+## 2026-09-21 Gary's two bugs and client release 2a7d913
+
+- Gary Gersh (email "two cove bugs claude found", 10:59 AM PT) installed from
+  `cove-internal` main, which is stuck at 338233f (Sep 5) and 226 commits
+  behind `fable/jev-w0-w1`. Two of his three reports (notify tests failing
+  after mid-September, SETUP.md cloning `amart-builder/cove`) were already
+  fixed on the branch. He needs to re-clone from `amart-builder/cove`.
+- Real bug: `prompts/chief-of-staff-output.schema.json` carried a `$schema`
+  draft 2020-12 line and `claude --json-schema` rejects it (reproduced on
+  claude 2.1.268). Removed in `e40cff7`. The brief and dump schemas never had it.
+- Client release: export of `e40cff7` (750 files, secret/setup scans passed)
+  committed as `2a7d913` on `amart-builder/cove` main via safe-push. Export
+  passed tsc and 88/88 chief-of-staff, public-handoff and worker tests.
+- Pre-existing, not a blocker: `chief-of-staff.test.mjs` "claim keys dedupe
+  unresolved suggestions" fails in the internal checkout but passes on the
+  clean export, so it is local-state noise, not a code bug.
+- Internal `main` on cove-internal is stale; decide whether to fast-forward it
+  to the branch so nobody clones a Sep 5 tree again.
+
 ## 2026-09-21 Morning brief stuck: worker zombie fixed
 
 - Symptom: today's brief sat `queued` from 9:49 AM PT with no worker pickup.
