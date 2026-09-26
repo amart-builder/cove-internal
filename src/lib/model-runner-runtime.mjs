@@ -74,10 +74,45 @@ export function resolveCodexBinary(options = {}) {
   return undefined;
 }
 
-export function codexPasswordManagerOverrides({ executable, cwd, env, probe = spawnSync }) {
-  // Ask Codex to resolve its own config layers without starting any connector.
-  // A dotted enabled=false override creates an invalid server when it is absent.
-  const result = probe(executable, ["mcp", "get", "1password", "--json"], {
+const PASSWORD_MANAGER = "1password";
+const DISABLE_PASSWORD_MANAGER = ["-c", `mcp_servers.${PASSWORD_MANAGER}.enabled=false`];
+
+/**
+ * Codex says "I have no such server" in its own words, and those words change
+ * between versions.
+ *
+ * This used to be one anchored English sentence, so a Codex that worded it any
+ * other way failed the check -- and the check gates createCodexJobAttempt, so
+ * that is every Codex job on the machine: the brief, intake, the wake, all of
+ * it, stopped by a string comparison. The family below is deliberately about
+ * shape rather than phrasing, and it is only ever consulted for a non-zero
+ * exit, where the only two readings are "not configured" and "something else
+ * went wrong".
+ */
+const NO_SUCH_SERVER = /\bno\b[^\n]{0,40}\bserver\b|not found|no such|unknown server|does not exist/i;
+
+/** The CLI itself not understanding the question, which is not an answer. */
+const COMMAND_NOT_UNDERSTOOD = /unrecognized|unknown (?:sub)?command|invalid subcommand|unexpected argument|^usage:/im;
+
+/** True when a parsed `mcp get`/`mcp list` payload names the password manager. */
+function namesPasswordManager(parsed) {
+  if (!parsed || typeof parsed !== "object") return false;
+  if (parsed.name === PASSWORD_MANAGER) return true;
+  if (parsed.server && typeof parsed.server === "object" && parsed.server.name === PASSWORD_MANAGER) return true;
+  for (const key of ["mcp_servers", "mcpServers", "servers"]) {
+    const group = parsed[key];
+    if (Array.isArray(group)) {
+      if (group.some((entry) => entry === PASSWORD_MANAGER
+        || (entry && typeof entry === "object" && entry.name === PASSWORD_MANAGER))) return true;
+    } else if (group && typeof group === "object" && PASSWORD_MANAGER in group) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function probeCodexConfig(args, { executable, cwd, env, probe }) {
+  return probe(executable, args, {
     cwd,
     env: minimalJobEnvironment(env ?? process.env),
     encoding: "utf8",
@@ -85,14 +120,45 @@ export function codexPasswordManagerOverrides({ executable, cwd, env, probe = sp
     maxBuffer: MAX_DIAGNOSTIC_BYTES,
     stdio: ["ignore", "pipe", "pipe"],
   });
-  if (!result.error && result.status === 1 &&
-      /(?:^|\n)Error: No MCP server named '1password' found\.\s*$/.test(String(result.stderr))) return [];
-  if (!result.error && result.status === 0) {
-    try {
-      if (JSON.parse(result.stdout).name === "1password") {
-        return ["-c", "mcp_servers.1password.enabled=false"];
+}
+
+/**
+ * Whether this Codex job must carry an override disabling the password-manager
+ * connector, and a refusal to run when that cannot be established.
+ *
+ * Failing closed is the right direction and stays: a background agent that can
+ * reach the operator's password manager is a worse outcome than a job that does
+ * not run. What changes is how much it takes to establish the answer, and how
+ * loudly the refusal arrives -- runJob turns the throw below into a named
+ * failure with a cause the Issues screen can print, instead of an exception
+ * whose text nobody sees.
+ */
+export function codexPasswordManagerOverrides({ executable, cwd, env, probe = spawnSync }) {
+  // Ask Codex to resolve its own config layers without starting any connector.
+  // A dotted enabled=false override creates an invalid server when it is absent.
+  const context = { executable, cwd, env, probe };
+  const result = probeCodexConfig(["mcp", "get", PASSWORD_MANAGER, "--json"], context);
+
+  // A spawn failure or a timeout is not an answer, whatever else came back.
+  if (!result.error) {
+    if (result.status === 0) {
+      try {
+        if (namesPasswordManager(JSON.parse(result.stdout))) return DISABLE_PASSWORD_MANAGER;
+      } catch { /* Fall through and refuse, without exposing configuration or secrets. */ }
+    } else {
+      const stderr = String(result.stderr ?? "");
+      if (NO_SUCH_SERVER.test(stderr)) return [];
+      // A Codex without this subcommand answered nothing, so ask the question
+      // the other way rather than refusing every job on this Mac over it.
+      if (COMMAND_NOT_UNDERSTOOD.test(stderr)) {
+        const listed = probeCodexConfig(["mcp", "list", "--json"], context);
+        if (!listed.error && listed.status === 0) {
+          try {
+            return namesPasswordManager(JSON.parse(listed.stdout)) ? DISABLE_PASSWORD_MANAGER : [];
+          } catch { /* Refuse below. */ }
+        }
       }
-    } catch { /* Fail closed below without exposing configuration or secrets. */ }
+    }
   }
   throw new Error("Cove could not verify that the background password-manager connector is disabled.");
 }
@@ -451,15 +517,28 @@ export async function runJob(input) {
     let attemptStatus = "failed";
     try {
       if (backend === "codex-sol-high") {
-        const attempt = createCodexJobAttempt({
-          prompt,
-          selection,
-          executable: input.codexPath,
-          env,
-          codexConfigProbe: input.codexConfigProbe,
-          webSearch: input.webSearch === true,
-          tempPrefix: `cove-${String(input.lane).replace(/[^a-z0-9_-]/gi, "-")}-`,
-        });
+        // The password-manager check refuses by throwing, and every Codex job
+        // on the machine goes through it. Thrown, it left the scheduler with an
+        // exception and the person with a lane that stopped for no stated
+        // reason; named, it reaches Issues with a cause and something to do.
+        let attempt;
+        try {
+          attempt = createCodexJobAttempt({
+            prompt,
+            selection,
+            executable: input.codexPath,
+            env,
+            codexConfigProbe: input.codexConfigProbe,
+            webSearch: input.webSearch === true,
+            tempPrefix: `cove-${String(input.lane).replace(/[^a-z0-9_-]/gi, "-")}-`,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return failure("codex_unavailable", input.lane,
+            /could not verify that the background password-manager connector/.test(message)
+              ? "Codex password-manager check did not answer."
+              : message);
+        }
         if (!attempt) return failure("codex_unavailable", input.lane, "Codex executable is unavailable.");
         try {
           const result = await runCommand(attempt.command, {

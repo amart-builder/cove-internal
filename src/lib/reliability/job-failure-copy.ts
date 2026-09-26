@@ -97,6 +97,14 @@ export function diagnosticCause(diagnostic: string): { cause: string; remedy: st
     // which. It needs no anchoring: every alternative here is a phrase or an
     // underscored provider code, not a word that hides inside other words.
     cause = " The Google Workspace connection needs renewing.";
+  // Cove refuses to start a Codex job until it can confirm the inherited
+  // password-manager connector is off, and that refusal gates every Codex lane
+  // on the Mac. Unnamed it read as "some background work did not finish" while
+  // the brief, intake and the wake all stopped, so the one thing the person
+  // could not guess was the one thing the screen did not say.
+  } else if (/^Codex password-manager check did not answer\.$/.test(diagnostic.trim())) {
+    cause = " Cove could not confirm that Codex's password-manager connector is switched off.";
+    remedy = " Cove will not run Codex jobs until it can; ask your Cove setup agent to check Codex's connector settings.";
   // Named before the general sign-in branch below, because this one knows
   // which program and the general one does not. The runner writes this exact
   // sentence when a provider's own output says it is signed out; on 2026-09-25
