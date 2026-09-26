@@ -42,6 +42,7 @@ test("client export is clean by default and explicit about dirty exports", (t) =
   writeFileSync(path.join(repo, "package.json"), `${JSON.stringify({
     name: "cove-test",
     version: "1.0.0",
+    engines: { node: ">=24" },
   }, null, 2)}\n`);
   writeFileSync(path.join(repo, "AGENTS.md"), "# Client agent instructions\n");
   writeFileSync(
@@ -104,9 +105,10 @@ test("client export is clean by default and explicit about dirty exports", (t) =
     "utf8",
   ));
   assert.equal(clientPackage.license, "SEE LICENSE IN LICENSE");
-  assert.deepEqual(clientPackage.engines, {
-    node: "^20.19.0 || ^22.13.0 || >=24",
-  });
+  // Carried from the repository being exported, not restated by the exporter:
+  // a literal here kept telling people Node 20 and 22 were fine after
+  // package.json required 24.
+  assert.deepEqual(clientPackage.engines, { node: ">=24" });
 
   writeFileSync(path.join(repo, "dirty.txt"), "untracked\n");
   const refusedOutput = path.join(dir, "refused-export");
