@@ -47,10 +47,15 @@ export function componentHarness(path, { mocks = {}, globals = {}, exportName = 
   };
 }
 export async function tick() { await new Promise(resolve => setTimeout(resolve, 5)); for (let n = 0; n < 8; n++) await new Promise(resolve => setImmediate(resolve)); }
-export function findElement(node, type) {
+/**
+ * First node of `type` in the tree, depth first. Pass `match` when a screen has
+ * several of the same element and you want a particular one, e.g. the submit
+ * button rather than whichever button the walk reaches first.
+ */
+export function findElement(node, type, match = () => true) {
   if (!node || typeof node !== 'object') return undefined;
-  if (node.type === type) return node;
+  if (node.type === type && match(node)) return node;
   for (const child of [node.props?.children].flat(Infinity)) {
-    const found = findElement(child, type); if (found) return found;
+    const found = findElement(child, type, match); if (found) return found;
   }
 }

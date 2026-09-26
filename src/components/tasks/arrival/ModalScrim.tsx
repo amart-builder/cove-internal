@@ -17,6 +17,30 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
+/**
+ * Whether a dialog should take the keyboard back.
+ *
+ * A control that disappears when it is used — "Mark handled" on an email, a
+ * row that removes itself — takes focus with it, and the browser drops focus
+ * on the document body. The body sits outside this portal, so the Escape and
+ * Tab handling below never sees another key and the dialog cannot be closed
+ * from the keyboard at all.
+ */
+export function shouldReclaimFocus(state: {
+  dialogConnected: boolean;
+  focusInsideDialog: boolean;
+  focusInsideAnotherModal: boolean;
+  isTopmostModal: boolean;
+}): boolean {
+  // Unmounting, or already gone: the dialog is on its way out either way.
+  if (!state.dialogConnected) return false;
+  // Focus only moved from one control to another inside the dialog.
+  if (state.focusInsideDialog) return false;
+  // A dialog opened on top of this one owns the keyboard now.
+  if (state.focusInsideAnotherModal) return false;
+  return state.isTopmostModal;
+}
+
 export default function ModalScrim({
   labelledBy,
   describedBy,
@@ -98,6 +122,28 @@ export default function ModalScrim({
       first.focus();
     }
   }, [allowBuddy, onClose]);
+
+  useEffect(() => {
+    // Buddy surfaces live outside this portal on purpose, and that path
+    // already listens on the document, so it keeps the keyboard either way.
+    if (allowBuddy) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const reclaim = () => window.requestAnimationFrame(() => {
+      const current = dialogRef.current;
+      const active = document.activeElement;
+      const modals = document.querySelectorAll('[data-cove-modal]');
+      if (!shouldReclaimFocus({
+        dialogConnected: Boolean(current?.isConnected),
+        focusInsideDialog: Boolean(active && current?.contains(active)),
+        focusInsideAnotherModal: Boolean(active instanceof Element && active.closest('[data-cove-modal]')),
+        isTopmostModal: modals[modals.length - 1] === current,
+      })) return;
+      current?.focus();
+    });
+    dialog.addEventListener('focusout', reclaim);
+    return () => dialog.removeEventListener('focusout', reclaim);
+  }, [allowBuddy]);
 
   useEffect(() => {
     if (!allowBuddy) return;

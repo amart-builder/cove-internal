@@ -3,6 +3,12 @@ import test from 'node:test';
 import { componentHarness, tick } from './helpers/component-hooks.mjs';
 
 const elements = (node, type) => !node || typeof node !== 'object' ? [] : [...(node.type === type ? [node] : []), ...[node.props?.children].flat(Infinity).flatMap(child => elements(child, type))];
+// The field alerts build their sentence out of several JSX children, so the
+// serialised tree splits "Could not save" from the field's name. Read the
+// alerts as the sentences a person sees instead.
+const fieldAlerts = node => elements(node, 'p')
+  .filter(n => n.props?.role === 'alert')
+  .map(n => [n.props.children].flat(Infinity).filter(c => typeof c === 'string').join(''));
 const contact = { id: 'person-a', name: 'Person A', tier: 'C', tags: [], notes: '', location: '', how_we_met: '' };
 const deal = { contact_id: 'person-a', name: 'Person A', stage: 'reach_out', notes: '', next_action: '', source: '', monthly_value: null, discovery_price: null, next_follow_up_at: null };
 const globals = { window: { setTimeout: (fn, delay) => { const timer = setTimeout(fn, delay); timer.unref(); return timer; }, clearTimeout } };
@@ -35,12 +41,16 @@ for (const kind of ['people', 'pipeline']) {
     h.edit('other', 'Santa Monica');
     await tick();
     rejectNotes(new Error('Notes were not saved')); await tick();
-    assert.match(JSON.stringify(h.render()), /Notes were not saved/);
+    assert.ok(fieldAlerts(h.render()).some(t => t.startsWith('Could not save notes')),
+      `no alert about notes; saw ${JSON.stringify(fieldAlerts(h.render()))}`);
+    assert.doesNotMatch(JSON.stringify(h.render()), /Notes were not saved/,
+      'the thrown message belongs in the console, not on the screen');
     h.edit('other', 'Los Angeles'); await tick();
-    assert.match(JSON.stringify(h.render()), /Notes were not saved/, 'unrelated save must not hide failed notes');
+    assert.ok(fieldAlerts(h.render()).some(t => t.startsWith('Could not save notes')),
+      'unrelated save must not hide failed notes');
     assert.ok(elements(h.render(), 'textarea').some(n => n.props.value === 'Important notes'));
     failNotes = false; h.edit('notes', 'Important notes corrected'); await tick();
-    assert.doesNotMatch(JSON.stringify(h.render()), /Notes were not saved/);
+    assert.ok(!fieldAlerts(h.render()).some(t => t.startsWith('Could not save notes')));
   });
   test(`${kind}: obsolete same-field failure cannot replace a newer successful save`, async () => {
     let rejectOld;
@@ -49,7 +59,7 @@ for (const kind of ['people', 'pipeline']) {
       : Promise.resolve(kind === 'pipeline' ? deal : contact));
     h.edit('notes', 'Old draft'); h.edit('notes', 'New draft'); await tick();
     rejectOld(new Error('Obsolete request failed')); await tick();
-    assert.doesNotMatch(JSON.stringify(h.render()), /Obsolete request failed/);
+    assert.ok(!fieldAlerts(h.render()).some(t => t.startsWith('Could not save notes')));
     assert.ok(elements(h.render(), 'textarea').some(n => n.props.value === 'New draft'));
     const otherContact = setup(kind, async () => contact, 'person-b');
     assert.ok(elements(otherContact.render(), 'textarea').some(n => n.props.value === ''));

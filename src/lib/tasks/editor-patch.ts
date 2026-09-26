@@ -78,3 +78,14 @@ export function taskEditorExpected(baseline: TaskEditorDraft, patch: Partial<Edi
   }
   return expected;
 }
+
+/**
+ * Why Save cannot be pressed right now, as a sentence to put beside it.
+ * A dimmed Save with nothing next to it leaves the reader guessing, and the
+ * only thing that stops a save is a title with nothing in it.
+ */
+export function taskSaveUnavailableReason(input: { title: string; saving?: boolean }): string | undefined {
+  if (input.saving) return undefined;
+  if (input.title.trim()) return undefined;
+  return 'Give this task a title first.';
+}

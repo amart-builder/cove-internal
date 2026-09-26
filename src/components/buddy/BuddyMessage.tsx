@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ThinkingOrb } from 'thinking-orbs';
 import type { BuddyTurnView } from './BuddyProvider';
-import { isClaudeNotSignedIn } from '@/lib/buddy/errors';
+import { buddyFailureMessage, isClaudeNotSignedIn } from '@/lib/buddy/errors';
 import PendingDeleteCard from './PendingDeleteCard';
 import ReceiptChips from './ReceiptChips';
 import SessionLinkCard from './SessionLinkCard';
@@ -165,7 +165,9 @@ export default function BuddyMessage({ turn, thinking, hostname, deepLinksEnable
             <span>Thinking…</span>
           </div>
         ) : (
-          <p className="text-muted-foreground">Buddy was interrupted.</p>
+          <p className="text-muted-foreground">
+            {buddyFailureMessage(turn.error_code, turn.provider === 'codex' ? 'codex' : 'claude')}
+          </p>
         )}
         {partialOverflow && (
           <p className="mt-2 text-xs text-muted-foreground">
