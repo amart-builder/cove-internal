@@ -97,6 +97,17 @@ export function diagnosticCause(diagnostic: string): { cause: string; remedy: st
     // which. It needs no anchoring: every alternative here is a phrase or an
     // underscored provider code, not a word that hides inside other words.
     cause = " The Google Workspace connection needs renewing.";
+  // Named before the general sign-in branch below, because this one knows
+  // which program and the general one does not. The runner writes this exact
+  // sentence when a provider's own output says it is signed out; on 2026-09-25
+  // a signed-out Codex stopped the brief, email sorting, meeting notes and the
+  // chief-of-staff review for forty-two minutes, and the screen said only that
+  // some background work did not finish. It carries a remedy because retrying
+  // cannot clear it: every lane fails the same way until somebody signs in.
+  } else if (/^(Codex|Claude) is signed out\.$/.test(diagnostic.trim())) {
+    const agent = diagnostic.trim().startsWith("Codex") ? "Codex" : "Claude";
+    cause = ` ${agent} is signed out.`;
+    remedy = ` Sign back in to ${agent} on this Mac; Cove's background work cannot run until then.`;
   // The alternation carries the strings the Claude and Codex CLIs actually
   // print when a sign-in lapses; src/lib/buddy/errors.ts matches the same set
   // for Buddy's sign-in card. An expired sign-in is the likeliest reason a
