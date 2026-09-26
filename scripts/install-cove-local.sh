@@ -305,6 +305,16 @@ printf -v NOTIFICATION_PLIST_ENTRY \
 
 # Persist the explicitly installed DB/server pairing for direct CLI use too.
 "$NODE_REAL" "$INSTALL_RUNTIME" "$REPO_DIR" --save
+
+# --- Install the operator policy ---
+# Six lanes open readOperatorPolicy and put the result at the top of their
+# prompt, and prompts/operator-policy.template.md holds the only statement
+# anywhere in the tree of the rule against creating work already on the board.
+# Nothing ever wrote the file, so on every install that rule reached no model
+# and a commitment arriving twice got two cards. An operator's own policy is
+# left alone, under either spelling of the name; this only fills an absence,
+# and it runs before any lane is loaded so the first job already reads it.
+"$NODE_REAL" "$REPO_DIR/scripts/lib/seed-operator-policy.mjs" "$COVE_DATA_DIR" "$REPO_DIR"
 xml_escape() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
 printf -v RUNTIME_PLIST_ENTRY '    <key>COVE_DATA_DIR</key>\n    <string>%s</string>\n    <key>COVE_DB_PATH</key>\n    <string>%s</string>\n    <key>COVE_BRIEF_WEB_BASE</key>\n    <string>%s</string>' \
   "$(xml_escape "$COVE_DATA_DIR")" "$(xml_escape "$COVE_DB_PATH")" "$(xml_escape "$COVE_BRIEF_WEB_BASE")"
