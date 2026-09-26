@@ -224,6 +224,11 @@ export function persistDecisionLinks(
       }),
       stamp,
     );
+    // The responsibility above is current either way. Only an action the
+    // planner marked for today becomes a card on today's board: a Monday
+    // follow-up carrying a Monday check used to land on Friday's list because
+    // the date attached to the action was never read here.
+    if (!action.today) continue;
     candidates.push({
       candidateId: `${kind}:${id}`,
       taskId: kind === "task" ? id : `${kind}:${id}`,

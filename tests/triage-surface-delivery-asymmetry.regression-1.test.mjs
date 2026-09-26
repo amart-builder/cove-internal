@@ -171,6 +171,7 @@ function triage(overrides) {
     groundwork_notes: null,
     urgency_reason: "The supplier is blocked today.",
     offer: "Want the invoice pulled up?",
+    existing_task_id: null,
     ...overrides,
   };
 }

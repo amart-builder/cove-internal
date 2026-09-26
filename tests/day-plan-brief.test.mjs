@@ -217,6 +217,7 @@ function currentPlanningFixture(output, input) {
           owner: candidate.suggested_owner,
           state: "ready",
           plannedFor: null,
+          today: true,
           nextCheckAt: new Date(Date.parse(view.now) + 3600000).toISOString(),
         },
       ];
@@ -1836,7 +1837,7 @@ test('ensure keeps at most three items from a larger deterministic pool', (t) =>
 // ---------------------------------------------------------------------------
 
 test('the brief command is the exact bounded toolless invocation', () => {
-  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 29);
+  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 30);
   const repoCwd = process.cwd();
   const ownerPrompt = readFileSync(path.join(repoCwd, 'prompts', 'chief-of-staff.md'), 'utf8').trimEnd();
   assert.ok(ownerPrompt.includes(

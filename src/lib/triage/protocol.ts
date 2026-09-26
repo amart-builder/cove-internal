@@ -14,6 +14,9 @@ export type TriageOutput = {
   surface_at: string | null;
   urgency_reason: string;
   offer: string;
+  // The open board card that already covers this capture. When set, Cove adds
+  // the capture to that card instead of creating a second one.
+  existing_task_id: string | null;
 };
 
 export const TRIAGE_JSON_SCHEMA = JSON.stringify({
@@ -31,6 +34,7 @@ export const TRIAGE_JSON_SCHEMA = JSON.stringify({
     "surface_at",
     "urgency_reason",
     "offer",
+    "existing_task_id",
   ],
   properties: {
     // minLength is not decoration. validateTriageOutput rejects an empty or
@@ -57,6 +61,13 @@ export const TRIAGE_JSON_SCHEMA = JSON.stringify({
     },
     urgency_reason: { type: "string", minLength: 1, maxLength: 600 },
     offer: { type: "string", minLength: 1, maxLength: 600 },
+    existing_task_id: {
+      anyOf: [
+        { type: "string", minLength: 1, maxLength: 200 },
+        { type: "null" },
+      ],
+      description: "The id of the OPEN_BOARD_TASKS row that already covers this outcome, so Cove adds the capture to that card as an update instead of creating another. Null only for distinct new work.",
+    },
   },
 });
 
@@ -145,8 +156,14 @@ function isoTimestamp(value: unknown, name: string): string {
 export function validateTriageOutput(
   value: unknown,
   projectNames: readonly string[],
+  // The open board ids the model was shown. Undefined skips the check, for
+  // callers that validate shape alone.
+  openTaskIds?: ReadonlySet<string>,
 ): TriageOutput {
   const input = record(value);
+  // Optional on the way in so a stored or fixture triage written before the
+  // field existed still reads; the wire schema itself requires it.
+  if (!Object.hasOwn(input, "existing_task_id")) input.existing_task_id = null;
   const expected = new Set([
     "title",
     "description",
@@ -159,6 +176,7 @@ export function validateTriageOutput(
     "surface_at",
     "urgency_reason",
     "offer",
+    "existing_task_id",
   ]);
   if (
     Object.keys(input).length !== expected.size ||
@@ -194,6 +212,12 @@ export function validateTriageOutput(
   if ((surface === "scheduled") !== Boolean(surfaceAt)) {
     throw new Error("triage_surface_at_mismatch");
   }
+  const existingTaskId = input.existing_task_id === null
+    ? null
+    : boundedString(input.existing_task_id, "existing_task_id", 200);
+  if (existingTaskId && openTaskIds && !openTaskIds.has(existingTaskId)) {
+    throw new Error("triage_existing_task_unknown");
+  }
   return {
     title: boundedString(input.title, "title", 240),
     description: boundedString(input.description, "description", 4000),
@@ -206,5 +230,6 @@ export function validateTriageOutput(
     surface_at: surfaceAt,
     urgency_reason: boundedString(input.urgency_reason, "urgency_reason", 600),
     offer: boundedString(input.offer, "offer", 600),
+    existing_task_id: existingTaskId,
   };
 }

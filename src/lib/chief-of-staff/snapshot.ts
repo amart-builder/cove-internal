@@ -501,7 +501,9 @@ export async function buildChiefOfStaffSnapshot(input: {
         800,
       ),
       boundedSection("Responsibilities", [desk.text], 6000),
-      boundedSection("Open tasks", taskSection(db, now), 700),
+      // 700 characters held about eight task lines, so the wake loop routinely
+      // could not see the card it was about to duplicate.
+      boundedSection("Open tasks", taskSection(db, now), 2400),
       ...(salesPipelineEnabled(input.env) ? [
         boundedSection("Pipeline", pipelineSection({
           dbPath: input.dbPath,

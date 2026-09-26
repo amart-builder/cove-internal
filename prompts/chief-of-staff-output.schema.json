@@ -97,7 +97,8 @@
           },
           "title": {
             "type": ["string", "null"],
-            "maxLength": 500
+            "maxLength": 500,
+            "description": "For create_task and update_task: the card title the operator reads on the board. One plain sentence in their words naming the concrete next move, never Cove's own bookkeeping about reminders or checks, and never a second card for work an open task already covers: update that task instead."
           },
           "details": {
             "type": ["string", "null"],

@@ -649,10 +649,12 @@ export type InboundWorkerOptions = {
   now?: () => Date;
   webBaseUrl?: string;
   fetchTimeoutMs?: number;
+  // Resolves to the id of the card that carries the event (a string), or a
+  // boolean for older callers that always wrote the card under the event id.
   triageEvent?: (
     event: InboundEvent,
     input: { taskId: string },
-  ) => Promise<boolean | undefined>;
+  ) => Promise<boolean | string | undefined>;
 };
 
 export function configuredDayDumpWriter(
@@ -1643,12 +1645,13 @@ export async function processOneInboundEvent(
       return true;
     }
     let smartTriaged = false;
+    let smartTriagedTaskId: string | undefined;
     let smartTriageError: string | undefined;
     if (options.triageEvent) {
       try {
-        smartTriaged = Boolean(
-          await options.triageEvent(event, { taskId: event.id }),
-        );
+        const triaged = await options.triageEvent(event, { taskId: event.id });
+        smartTriaged = Boolean(triaged);
+        if (typeof triaged === "string") smartTriagedTaskId = triaged;
       } catch (error) {
         smartTriageError = (
           error instanceof Error ? error.message : "inbound_smart_triage_failed"
@@ -1657,7 +1660,7 @@ export async function processOneInboundEvent(
       }
     }
     const taskId = smartTriaged
-      ? event.id
+      ? smartTriagedTaskId ?? event.id
       : await createFallbackInboundTask(event, options);
     await resolveEvent(
       event.id,

@@ -16,6 +16,7 @@ import {
   syncRollingEmailCard,
 } from "../src/lib/email/state-machine";
 import { reconcileGmailToCard, type GmailThreadObservation } from "../src/lib/email/automation";
+import { hasOpenPromises, reconcileSentMailWithCommitments } from "../src/lib/intake/sent-mail-reconciliation";
 import { openLocalDatabase } from "../src/lib/local/database";
 import { resolveEmailRuntimePaths } from "../src/lib/email/runtime-paths";
 import { signatureHtmlToText } from "../src/lib/email/draft-format";
@@ -55,6 +56,8 @@ type EmailTriageResult = {
   observed: number;
   classified: number;
   reconciled: number;
+  /** Open promises a recently sent email looks to have fulfilled; proposed, never closed. */
+  commitmentsLookingDone: number;
   jobsDone: number;
   jobsFailed: number;
   jobsDead: number;
@@ -220,6 +223,17 @@ async function runEmailTriageUnchecked(
     dataDir,
     now,
   });
+  // The operator's own promises, read against what they actually sent. Runs
+  // only when there is a promise to check, and a provider miss here cannot
+  // stop the triage: the proposal simply waits for the next run.
+  let commitmentsLookingDone = 0;
+  if (hasOpenPromises(dbPath)) {
+    try {
+      commitmentsLookingDone = (await reconcileSentMailWithCommitments({ mail: gateway, dbPath, now })).proposed;
+    } catch (error) {
+      warn(`Cove could not read sent mail against open promises: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 
   const scheduler = new JobScheduler({ dbPath, now });
   scheduler.register("email-classify", createEmailClassificationHandler({
@@ -325,6 +339,7 @@ async function runEmailTriageUnchecked(
     observed,
     classified,
     reconciled: reconciled.autoChecked,
+    commitmentsLookingDone,
     jobsDone,
     jobsFailed,
     jobsDead,

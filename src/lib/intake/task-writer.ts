@@ -235,7 +235,7 @@ export async function getTaskThroughCoveRest(
     webBase(options),
     "tasks",
     options.fetchTimeoutMs ?? 10_000,
-    "select=id,title,description,project,tags,status,created_at,updated_at" +
+    "select=id,title,description,project,tags,status,due_at,created_at,updated_at" +
       `&id=eq.${encodeURIComponent(id)}&limit=1`,
   );
   return groundworkTaskRow(values[0]);
@@ -290,6 +290,68 @@ export async function updateTaskThroughCoveRest(
   } catch {
     throw new Error("cove-rest tasks patch shape");
   }
+}
+
+/** Lines of a description that already carry a checklist item or a body line,
+ * normalized so a replayed append sees its own earlier write. */
+function descriptionLines(text: string): Set<string> {
+  return new Set(
+    text.split("\n").map((line) => line.replace(/^\s*-\s*\[[ xX]\]\s*/, "").trim().toLowerCase()).filter(Boolean),
+  );
+}
+
+export function checklistLines(items: readonly string[] | undefined): string[] {
+  return (items ?? []).map((item) => item.trim()).filter(Boolean).map((item) => `- [ ] ${item}`);
+}
+
+export type ExistingTaskUpdate = {
+  /** One line naming where the update came from, e.g. the meeting and date. */
+  heading: string;
+  /** New context, in the operator's words. Empty when only the checklist grows. */
+  body?: string;
+  checklist?: readonly string[];
+  tags?: readonly string[];
+  /** Used only when the card has no date yet: an append never moves a date the operator can see. */
+  dueAt?: string | null;
+};
+
+/** Add what a lane learned to a card that already covers the work, instead of
+ * opening a second card for it. Additive and idempotent: lines the card already
+ * has are not repeated, the title and any existing date are left alone, and the
+ * write is guarded on the description and tags it read, so a person editing the
+ * card at the same moment wins. Returns undefined when the card is gone or no
+ * longer open, so the caller can fall back to creating one. */
+export async function appendToExistingTask(
+  id: string,
+  update: ExistingTaskUpdate,
+  options: InboundTaskWriterOptions = {},
+): Promise<Task | undefined> {
+  const existing = await getTaskThroughCoveRest(id, options);
+  if (!existing || existing.status !== "open") return undefined;
+  const have = descriptionLines(existing.description);
+  const fresh = [
+    ...(update.body ?? "").split("\n").map((line) => line.trim()).filter(Boolean),
+    ...checklistLines(update.checklist),
+  ].filter((line) => !have.has(line.replace(/^-\s*\[ \]\s*/, "").toLowerCase()));
+  const tags = Array.from(new Set([...existing.tags, ...(update.tags ?? [])]));
+  const sameTags = tags.length === existing.tags.length;
+  const dueAt = !existing.due_at && update.dueAt ? update.dueAt : undefined;
+  if (fresh.length === 0 && sameTags && !dueAt) return existing;
+  const description = fresh.length === 0
+    ? existing.description
+    : [existing.description.trimEnd(), `${update.heading.trim()}\n${fresh.join("\n")}`].filter(Boolean).join("\n\n");
+  const updated = await updateTaskThroughCoveRest(id, {
+    description,
+    tags,
+    ...(dueAt ? { due_at: dueAt } : {}),
+  }, options, {
+    expectedTask: {
+      description: existing.description,
+      tags: existing.tags,
+      updated_at: existing.updated_at,
+    },
+  });
+  return updated ?? { ...existing, description, tags, ...(dueAt ? { due_at: dueAt } : {}) };
 }
 
 export async function createAnalystInboundTask(
