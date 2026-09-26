@@ -1,17 +1,9 @@
-const NOT_SIGNED_IN_MARKERS = [
-  "not logged in",
-  "please run /login",
-  "failed to authenticate",
-  "oauth session expired",
-  "could not be refreshed",
-  "authentication_error",
-];
-
-export function isClaudeNotSignedIn(text: string | null | undefined): boolean {
-  if (!text) return false;
-  const normalized = text.toLowerCase();
-  return NOT_SIGNED_IN_MARKERS.some((marker) => normalized.includes(marker));
-}
+// The markers live in provider-signin-runtime.mjs because the scheduler reads
+// them too and model-runner-runtime.mjs is plain node, which cannot import a
+// .ts module. Re-exported rather than copied: a second list would drift, and a
+// sanitizer or matcher with a twin in this repository is how findings 47 and 49
+// happened.
+export { isClaudeNotSignedIn, isProviderNotSignedIn } from "../provider-signin-runtime.mjs";
 
 /**
  * What to show when a Buddy turn fails with nothing written.
@@ -48,20 +40,6 @@ export function buddyFailureMessage(
     default:
       return "Buddy could not finish this answer.";
   }
-}
-
-const CODEX_NOT_SIGNED_IN = /sign in|login|authentication|unauthorized/i;
-
-/**
- * True when a provider's own output says its sign-in has lapsed. The CLIs word
- * this differently, and the caller knows which one it ran.
- */
-export function isProviderNotSignedIn(
-  provider: string | null | undefined,
-  text: string | null | undefined,
-): boolean {
-  if (!text) return false;
-  return provider === "codex" ? CODEX_NOT_SIGNED_IN.test(text) : isClaudeNotSignedIn(text);
 }
 
 /**

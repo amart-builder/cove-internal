@@ -29,6 +29,21 @@ export function reconcileRecoveredFailures(db: Database.Database, now = new Date
         WHERE newer.type=old.type AND newer.status='done' AND newer.id<>old.id
         AND newer.finished_at>cove_failure_inbox.occurred_at))`)
     .run(now.toISOString());
+  // A signed-out provider is a fact about the Mac, not about the piece of work
+  // that happened to hit it: every lane fails the same way until somebody signs
+  // in, and the moment one succeeds the sign-in is back. That is why any later
+  // success clears these, where the email job types just above are deliberately
+  // left out -- there, another message succeeding says nothing about this one.
+  // Without this the row would outlive the condition and have to be dismissed
+  // by hand, which is the same defect as the backup warning that used to sit in
+  // Issues after the backup started working again.
+  db.prepare(`UPDATE cove_failure_inbox SET dismissed_at=?
+    WHERE dismissed_at IS NULL AND source='job'
+      AND CASE WHEN json_valid(details_json)
+        THEN json_extract(details_json,'$.error') END IN ('Codex is signed out.','Claude is signed out.')
+      AND EXISTS (SELECT 1 FROM cove_jobs newer
+        WHERE newer.status='done' AND newer.finished_at>cove_failure_inbox.occurred_at)`)
+    .run(now.toISOString());
   db.prepare(`UPDATE cove_failure_inbox SET dismissed_at=?
     WHERE dismissed_at IS NULL AND source='meeting-analysis-degraded'
       AND source_id IN (SELECT id FROM meeting_analysis_jobs WHERE status='succeeded')`)

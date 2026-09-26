@@ -5,6 +5,30 @@ import path from "node:path";
 import { coveEnv } from "./env-runtime.mjs";
 import { readAgentSettings, validateAgentSettings } from "./agent-settings.mjs";
 import { reserveBackgroundAttempt, finishBackgroundAttempt, isPlanningLane } from "./background-usage.mjs";
+import { jobOutputSaysSignedOut, signedOutDiagnostic } from "./provider-signin-runtime.mjs";
+
+/**
+ * The diagnostic a failed provider run should be filed under.
+ *
+ * A signed-out CLI exits non-zero and says so in its own words, but nothing
+ * read those words: the diagnostic was `result.stderr || result.error ||
+ * "Codex exited 1."`, and when the CLI printed its refusal on stdout that left
+ * the literal sentence "Codex exited 1." -- which names no cause, so Issues
+ * showed "Some background work did not finish" and every lane stayed dead
+ * until somebody signed in by hand. Measured on 2026-09-25: the brief, email
+ * sorting, meeting notes and the chief-of-staff review all stopped for
+ * forty-two minutes with nothing on screen saying why.
+ *
+ * stdout is read only when stderr carries nothing, and only against the strict
+ * pattern, so a brief that happens to mention a login cannot become a sign-in
+ * row on the Issues screen.
+ */
+export function providerFailureDiagnostic(provider, result, fallback) {
+  const stderr = result.stderr || "";
+  if (jobOutputSaysSignedOut(stderr)) return signedOutDiagnostic(provider);
+  if (!stderr && jobOutputSaysSignedOut(result.stdout)) return signedOutDiagnostic(provider);
+  return stderr || result.error || fallback;
+}
 
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const MAX_DIAGNOSTIC_BYTES = 64 * 1024;
@@ -457,7 +481,8 @@ export async function runJob(input) {
           if (result.aborted) return failure("runner_interrupted", input.lane, "Codex job was interrupted.");
           if (result.timedOut) return failure("codex_timeout", input.lane, "Codex job timed out.");
           if (!result.ok) {
-            return failure("runner_failed", input.lane, result.stderr || result.error || `Codex exited ${result.code}.`);
+            return failure("runner_failed", input.lane,
+              providerFailureDiagnostic("codex", result, `Codex exited ${result.code}.`));
           }
           try {
             raw = readCodexJobOutput(attempt);
@@ -488,7 +513,10 @@ export async function runJob(input) {
         }
         if (result.aborted) return failure("runner_interrupted", input.lane, "Claude job was interrupted.");
         if (result.timedOut) return failure("runner_timeout", input.lane, "Claude job timed out.");
-        if (!result.ok) return failure("runner_failed", input.lane, result.stderr || result.error || `Claude exited ${result.code}.`);
+        if (!result.ok) {
+          return failure("runner_failed", input.lane,
+            providerFailureDiagnostic("claude", result, `Claude exited ${result.code}.`));
+        }
         raw = input.kind === "structured" || selection ? unwrapClaudeStructured(result.stdout) : result.stdout;
       }
       if (outputLimit && Buffer.byteLength(raw) > outputLimit) {
