@@ -7,13 +7,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 const ROOT = process.cwd();
 
-test("the exported package.json carries this repository's Node requirement", (t) => {
+// The exporter reads git to refuse a dirty worktree, so it only runs in a
+// checkout. This same suite ships to the people who install Cove, where there
+// is no .git and nobody will ever run an export; the claim below is about a
+// repository, so it is skipped rather than failed there. The source assertion
+// after it is the half that holds everywhere, and it is the half that catches
+// a literal creeping back in.
+const inCheckout = existsSync(path.join(ROOT, ".git"));
+
+test("the exported package.json carries this repository's Node requirement", {
+  skip: inCheckout ? false : "not a git checkout, so the exporter cannot run here",
+}, (t) => {
   const out = path.join(mkdtempSync(path.join(os.tmpdir(), "cove-export-engines-")), "client");
   t.after(() => rmSync(path.dirname(out), { recursive: true, force: true }));
 
