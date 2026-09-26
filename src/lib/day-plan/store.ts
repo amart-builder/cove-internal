@@ -3067,10 +3067,12 @@ export function createDayPlanStore(options: {
         const proposal = morningBriefFromArtifact(latest)?.dailyDecision;
         if (proposal) {
           brief.proposalId = latest.id;
-          brief.proposedActions = proposal.actions.map((a) => ({
-            title: a.nextAction,
-            reason: a.rationale,
-          }));
+          brief.proposedActions = proposal.actions
+            .filter((a) => a.today)
+            .map((a) => ({
+              title: a.nextAction,
+              reason: a.rationale,
+            }));
           const proposedItems = JSON.parse(latest.briefJson!)
             .proposalCandidates as RecommendationCandidate[] | undefined;
           if (proposedItems?.length) {

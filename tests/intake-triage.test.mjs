@@ -114,6 +114,7 @@ function validTriage(overrides = {}) {
     surface_at: null,
     urgency_reason: 'The client is blocked today.',
     offer: 'Want me to draft the revised scope?',
+    existing_task_id: null,
     ...overrides,
   };
 }

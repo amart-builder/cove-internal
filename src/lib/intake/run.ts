@@ -28,6 +28,7 @@ import { listAtlasProjectFolderNames } from "../atlas-projects";
 import type { InboundEvent } from "../data/types";
 import { localDateInTimezone } from "../day-plan/brief";
 import { coveDataDir, operatorTimezone, workspaceRoot } from "../operator";
+import { originDate } from "../tasks/origin";
 import { formatOperatorPolicy, readOperatorPolicy } from "../operator-policy";
 import {
   readTriageProtocol,
@@ -43,6 +44,7 @@ import {
 } from "./inbox";
 import {
   createFallbackInboundTask,
+  appendToExistingTask,
   createTriagedInboundTask,
   inboundTaskExists,
   type InboundTaskWriterOptions,
@@ -203,6 +205,7 @@ function runTriageCommand(
   prompt: string,
   projects: readonly string[],
   options: CoveIntakeOptions,
+  openTaskIds?: ReadonlySet<string>,
 ): Promise<TriageOutput> {
   return runJob<TriageOutput>({
     lane: "intake-triage",
@@ -217,7 +220,7 @@ function runTriageCommand(
     cwd: options.repoDir ?? MODULE_REPO_DIR,
     claudeMcpConfigPath: options.emptyMcpConfigPath,
     claudeMaxBudgetUsd: "1.50",
-    validate: (_text, value) => validateTriageOutput(value, projects),
+    validate: (_text, value) => validateTriageOutput(value, projects, openTaskIds),
   }).then((result) => {
     if (!result.ok) throw new Error(`${result.error.code}:${result.error.message}`);
     // The runner types `value` as optional because a text job has none. A
@@ -584,11 +587,14 @@ async function resumePendingSurface(
   }
 }
 
+/** Resolves to the id of the card that now carries the capture: the event's
+ * own id for a new card, or the existing card's id when the triage said one
+ * already covered it. */
 export async function triageRecordedEvent(
   event: InboundEvent,
   input: { taskId: string },
   options: CoveIntakeOptions = {},
-): Promise<boolean> {
+): Promise<string> {
   const runtimeOptions = resolvedOptions({
     ...options,
     proposedRecurrenceCadence:
@@ -598,10 +604,17 @@ export async function triageRecordedEvent(
   if (input.taskId !== event.id) throw new Error("triage_task_id_mismatch");
   if (await inboundTaskExists(event.id, runtimeOptions)) {
     await resumePendingSurface(event.id, runtimeOptions);
-    return true;
+    return event.id;
   }
   const now = (runtimeOptions.now ?? (() => new Date()))();
   const projects = listAtlasProjectFolderNames();
+  const board = await boardContext(runtimeOptions);
+  const openTaskIds = new Set(
+    board.tasks.flatMap((task) => {
+      const id = (task as { id?: unknown })?.id;
+      return typeof id === "string" ? [id] : [];
+    }),
+  );
   const prompt = buildTriagePrompt({
     policy: (() => {
       const value = readOperatorPolicy({ dataDir: coveDataDir(runtimeOptions.dataDir) });
@@ -612,13 +625,25 @@ export async function triageRecordedEvent(
     source: event.source as IntakeSource,
     goals: goalsText(runtimeOptions.dataDir),
     projects,
-    board: await boardContext(runtimeOptions),
+    board,
     now,
   });
   const policy = enforceSurfacePolicy(
-    await runTriageCommand(prompt, projects, runtimeOptions),
+    await runTriageCommand(prompt, projects, runtimeOptions, openTaskIds),
     event.source,
   );
+  if (policy.triage.existing_task_id) {
+    // The triage found the card this capture belongs to. Add to it rather
+    // than opening a second card; a card that closed in the meantime falls
+    // through to the ordinary create below.
+    const appended = await appendToExistingTask(policy.triage.existing_task_id, {
+      heading: `Update from ${event.source} capture on ${originDate(event.created_at, operatorTimezone())}:`,
+      body: policy.triage.description,
+      tags: ["triaged"],
+      dueAt: policy.triage.due_at,
+    }, runtimeOptions);
+    if (appended) return appended.id;
+  }
   writeScheduledReminder(
     runtimeOptions.dataDir,
     event.id,
@@ -635,7 +660,7 @@ export async function triageRecordedEvent(
   if (policy.nativeOnly) {
     await notifyNativeOnly(policy.triage.title, event.source, runtimeOptions, taskId);
   }
-  return true;
+  return taskId;
 }
 
 export async function runCoveIntake(
@@ -727,14 +752,14 @@ export async function runCoveIntake(
   }
 
   try {
-    await triageRecordedEvent(
+    const triagedTaskId = await triageRecordedEvent(
       capture.event,
       { taskId: capture.event.id },
       runtimeOptions,
     );
     const resolved = await resolveEvent(capture.event.id, {
       state: "triaged",
-      taskId: capture.event.id,
+      taskId: triagedTaskId,
     }, { now: runtimeOptions.now });
     write(`TASK ${JSON.stringify({ id: resolved.task_id, existing: false })}`);
     return {

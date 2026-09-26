@@ -1936,7 +1936,7 @@ test('brief board actions stage once, activate atomically, preserve human edits,
   assert.equal(store.activateBriefBoardActions('2026-07-10').activated, false);
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM cove_receipts WHERE source = 'morning-brief-management'").get().count, 1);
   db.close();
-  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 29);
+  assert.equal(MORNING_BRIEF_PROMPT_VERSION, 30);
   assert.equal(MORNING_BRIEF_SCHEMA_VERSION, 8);
 });
 

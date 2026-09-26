@@ -262,6 +262,7 @@ function adversarialTriage() {
     surface_at: null,
     urgency_reason: "None.",
     offer: "None.",
+    existing_task_id: null,
   };
 }
 

@@ -131,6 +131,46 @@ rendered into stored prose", "a stored decision written under the authored bound
 stays readable". Pre-fix reproduction and post-fix run:
 `/tmp/cove-planning-opus-evidence/repro-flaw2-before.txt`, `repro-flaw2-after.txt`.
 
+### 6. Every planner action became a card for today, whatever date it carried
+
+**Incident.** On Friday 2026-09-25 four of the six cards on the board were
+Monday items, and one opening line read "Use Monday's existing reminder to
+review Kia's booking status and the discovery-link text for your own send."
+The planner had attached a Monday `nextCheckAt` to each of them. The meeting
+analyst, run on the same week, had produced four separate Petrit cards and one
+Asher card per meeting.
+
+**Cause (class).** One part of Cove knew something the next part could not be
+told. `persistDecisionLinks` turned every action into a preselected card and
+never read the date the planner attached; `nextAction` had no description, so
+the writer used it for bookkeeping about its own checks; the analyst was
+handed CRM, commitments and three emails per attendee but never the board, and
+its output could only say "create a task". Nothing read sent mail against the
+operator's own promises.
+
+**Safeguard.** Each planner action carries an explicit `today` boolean,
+described in the schema; only actions marked for today become cards, every
+action still updates its responsibility, and the opening line is the first
+action marked for today (`src/lib/chief-of-staff/daily-planning.ts`,
+`src/lib/day-plan/planning.ts`). Decisions stored before the field read as
+today. `nextAction` and the wake loop's `title` are described as the card
+title in the operator's words. The meeting analyst and intake triage are shown
+every open card by id, with the full text of the cards that mention an
+attendee, and may name `existing_task_id` (narrowed at runtime to the ids
+shown); Cove appends to that card through a guarded, idempotent update instead
+of creating a second one (`src/lib/intake/task-writer.ts`
+`appendToExistingTask`). The "default to overdelivering" deadline rule is gone.
+Sent mail is read against open promises and writes a "looks done"
+`proposed_resolution`, never a status change
+(`src/lib/intake/sent-mail-reconciliation.ts`).
+
+**Regression evidence.** `tests/planner-today-selection.regression-1.test.mjs`
+rebuilds the saved Sep 25 decision: two cards remain, four leave, six
+responsibilities stay current. `tests/analyst-appends-to-existing-card.regression-1.test.mjs`,
+`tests/intake-appends-to-existing-card.regression-1.test.mjs`,
+`tests/sent-mail-proposes-done.regression-1.test.mjs`. All fail on the code
+before this change.
+
 ## Verification status
 
 | Layer | Status |
