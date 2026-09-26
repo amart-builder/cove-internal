@@ -3799,6 +3799,21 @@ export function createDayPlanStore(options: {
       .run(now().toISOString(), now().toISOString(), staleBefore).changes;
   }
 
+  // Only the "brief me anyway" path calls this. A queued row nothing ever
+  // claimed would otherwise make enqueueMorningBrief hand back that same dead
+  // row, so the button would render and do nothing. The worker's own sweep
+  // deliberately leaves queued rows alone, because a worker starting late still
+  // owes him that brief; this runs only when he has asked again himself.
+  function abandonStaleQueuedMorningBriefs(staleBefore: string): number {
+    return db
+      .prepare(
+        `UPDATE day_plan_briefs
+         SET status = 'failed', error_code = 'never_claimed', finished_at = ?, updated_at = ?
+         WHERE status = 'queued' AND created_at < ?`,
+      )
+      .run(now().toISOString(), now().toISOString(), staleBefore).changes;
+  }
+
   function listRecentSnapshots(limit = 3): DaySnapshot[] {
     return (db
       .prepare(
@@ -5524,6 +5539,7 @@ export function createDayPlanStore(options: {
     deferMorningBrief,
     importMorningBrief,
     interruptStaleMorningBriefs,
+    abandonStaleQueuedMorningBriefs,
     close: () => {
       if (db.open) db.close();
     },
