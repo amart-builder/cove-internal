@@ -13,6 +13,7 @@ import type { InboundEvent, Task } from "../data/types";
 import { localDateInTimezone } from "../day-plan/brief";
 import { operatorTimezone } from "../operator";
 import { taskColumnKeyForName, type TaskColumnKey } from "../tasks/columns";
+import { cardTitle } from "../tasks/card-title";
 import { inboundOrigin, originDate } from "../tasks/origin";
 import type { TriageOutput } from "../triage/protocol";
 import { coveEnv } from "../env";
@@ -398,6 +399,9 @@ async function createTask(
   if (await existingTask(event.id, { fetchImpl, baseUrl, timeoutMs })) {
     return event.id;
   }
+  // Every inbound lane writes through here, so this is where a model's or a
+  // pipeline's title is held to the board's convention (see card-title.ts).
+  if (typeof body.title === "string") body = { ...body, title: cardTitle(body.title) };
   const token = await csrfToken(fetchImpl, baseUrl, timeoutMs);
   const send = async (payload: Record<string, unknown>) => {
     const response = await fetchImpl(`${baseUrl}/api/cove-rest/tasks`, {
@@ -550,7 +554,7 @@ export async function createFallbackInboundTask(
     id: event.id,
     column_id: targetColumn,
     title: bundle?.title ??
-      (event.raw_text.slice(0, 80) || `Inbound item from ${event.source}`),
+      (event.raw_text.split(/\r?\n/)[0].slice(0, 240).trim() || `Inbound item from ${event.source}`),
     description: `${bundle?.description ?? event.raw_text}\n\nArrived via ${event.source} and needs triage.`,
     priority: "medium",
     due_at: recurrenceLocalDate ?? fallbackInboundDueAt(clock()),

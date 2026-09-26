@@ -20,6 +20,7 @@ import {
 } from "../responsibility/store";
 import type { DayPlan, DayPlanItem, RecommendationCandidate } from "./types";
 import { coveEnv } from "../env";
+import { cardTitle } from "../tasks/card-title";
 const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex").slice(0, 24);
 function quiet<T>(
@@ -233,7 +234,7 @@ export function persistDecisionLinks(
       candidateId: `${kind}:${id}`,
       taskId: kind === "task" ? id : `${kind}:${id}`,
       outcomeKey: `${kind}:${id}`,
-      title: action.nextAction,
+      title: cardTitle(action.nextAction),
       outcome: source.title,
       definitionOfDone: action.proposal?.description,
       owner: kind === "suggestion" ? "me" : action.owner,
@@ -351,7 +352,7 @@ export function acceptPlanningProposal(
       ).run(
         taskId,
         today.id,
-        item.title,
+        cardTitle(item.title),
         s.description,
         s.priority,
         now.toISOString(),

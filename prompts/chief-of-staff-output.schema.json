@@ -98,7 +98,7 @@
           "title": {
             "type": ["string", "null"],
             "maxLength": 500,
-            "description": "For create_task and update_task: the card title the operator reads on the board. One plain sentence in their words naming the concrete next move, never Cove's own bookkeeping about reminders or checks, and never a second card for work an open task already covers: update that task instead."
+            "description": "For create_task and update_task: the card title the operator reads on the board. The concrete next move in their words. Verb first, with the object and the person by first name (\"Text Kia to book the discovery call\", \"Approve Porter's proposal\", \"Reply to Ryan about Edge AI pricing\"), under ten words where it can be. No date or time (the card shows it), no trailing period, never the operator's own name, never Cove's bookkeeping about reminders, checks or approvals (\"use the existing reminder\", \"for approval\"): when Cove drafts and the operator signs off, the title is \"Approve ...\". Never write a second card for work an open task already covers: update that task instead."
           },
           "details": {
             "type": ["string", "null"],
