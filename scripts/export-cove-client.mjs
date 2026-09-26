@@ -185,7 +185,11 @@ for (const file of listed) {
     bytes = Buffer.from(`${JSON.stringify({
       ...sourcePackage,
       license: "SEE LICENSE IN LICENSE",
-      engines: { node: "^20.19.0 || ^22.13.0 || >=24" },
+      // Carried from the repository, never restated. Written out as a literal
+      // here, it kept saying Node 20 and 22 were fine for a fortnight after
+      // package.json required 24 -- the export is the only package.json a
+      // person installing Cove ever sees.
+      engines: sourcePackage.engines,
     }, null, 2)}\n`, "utf8");
   }
   const isBinary = !isUtf8(bytes);
