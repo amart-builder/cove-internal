@@ -30,7 +30,8 @@ export function notifyHardFailure(input: {
     const child = spawnNativeNotification({
       title: copy.title,
       body: copy.body,
-      openUrl: "http://127.0.0.1:3200/failures",
+      // Follows the port this install actually runs on, as every other link does.
+      openUrl: `${(coveEnv("BRIEF_WEB_BASE", dependencies.env ?? process.env) ?? "http://127.0.0.1:3200").replace(/\/$/, "")}/failures`,
       group: `cove-hard-failure-${source}`.slice(0, 120),
     }, dependencies);
     child.once("error", (error) => {

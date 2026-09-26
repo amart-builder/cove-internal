@@ -133,7 +133,13 @@ export const DAILY_PLANNING_SCHEMA = {
       },
     },
     watches: {
-      type: "array", maxItems: 8,
+      // Five, because the writing mandate printed into the same prompt says
+      // "Five at the very most" and says why: watches render directly under the
+      // brief, so eight is a longer read than the brief itself and the operator
+      // skims the whole section. Handing the model both numbers at once left it
+      // to pick. The two validators stay at 8 so a decision stored under the
+      // old cap is still readable.
+      type: "array", maxItems: 5,
       items: {
         ...reference,
         properties: { ...reference.properties, kind: { enum: ["task", "commitment", "suggestion"] } },
@@ -185,7 +191,7 @@ export function dailyPlanningSchema(context: PlanningContext) {
       questions: { ...schema.properties.questions, ...(keys.length ? {} : { maxItems: 0 }), items: {
         ...schema.properties.questions.items, properties: { ...schema.properties.questions.items.properties, source: selected },
       } },
-      watches: { type: "array", maxItems: watched.length ? 8 : 0, items: { type: "string", enum: watched.length ? watched : ["no-source-available"] } },
+      watches: { type: "array", maxItems: watched.length ? 5 : 0, items: { type: "string", enum: watched.length ? watched : ["no-source-available"] } },
     },
   };
 }
@@ -382,8 +388,13 @@ export function readStoredDailyDecision(value: unknown): DailyDecision {
 }
 
 export function decisionAsBrief(decision: DailyDecision): MorningBrief {
+  // An empty board makes the schema force maxItems:0 on actions, so a decision
+  // with nothing in it is not an edge case: it is the first morning of a new
+  // install, before anything has been captured. Cove prints this line on its
+  // own, in large type, above the body. It is addressed to the person and says
+  // where they stand; the narrative below it explains why.
   const headline =
-    decision.actions[0]?.nextAction ?? "No new focus is proposed.";
+    decision.actions[0]?.nextAction ?? "Nothing is waiting on your decision this morning.";
   return {
     headline,
     narrativeParagraphs: decision.narrativeParagraphs ?? decision.actions.map((a) => a.rationale),

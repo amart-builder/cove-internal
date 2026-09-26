@@ -582,7 +582,10 @@ export async function createAutomationTask(
     column_id: await columnId("not-started", options),
     title: input.title,
     description: input.description,
-    project: input.project ?? "Cove",
+    // When triage named a project, use it. Otherwise leave the column to its
+    // default: a capture from someone else's email belongs to no project of
+    // the person's, and "Cove" is the app, not one of their projects.
+    project: input.project,
     priority: input.priority ?? "medium",
     tags: input.tags ?? ["automation"],
     position: 0,

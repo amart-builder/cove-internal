@@ -327,7 +327,10 @@ export function acceptPlanningProposal(
       if (!today)
         throw new Error("Cove needs a Today list before accepting work.");
       db.prepare(
-        `INSERT INTO tasks(id,column_id,title,description,priority,project,status,source_type,remind_native,remind_text,created_at,updated_at,origin) VALUES(?,?,?,?,?,'Cove','open','manual',1,0,?,?,?)`,
+        // The project column is left to its default, which is the stored
+        // "nobody chose a project" sentinel. Writing 'Cove' put the app's own
+        // name in the slot the first screen uses for the person's project.
+        `INSERT INTO tasks(id,column_id,title,description,priority,status,source_type,remind_native,remind_text,created_at,updated_at,origin) VALUES(?,?,?,?,?,'open','manual',1,0,?,?,?)`,
       ).run(
         taskId,
         today.id,

@@ -413,7 +413,11 @@ export class JobScheduler {
         recordFailureInDatabase(this.db, {
           source: "scheduler",
           sourceId: job?.id ?? "claim",
-          message: `Scheduler runner failed: ${message}`,
+          // Reached only when the failure-recording path itself throws, so it
+          // is rare, but it lands on the same Issues screen as every other
+          // row and must read the same way. The diagnostic stays in details.
+          message:
+            "Cove's background work could not be started. Ask your Cove setup agent to look into it.",
           details: { jobId: job?.id, type: job?.type, error: message },
           occurredAt,
         });

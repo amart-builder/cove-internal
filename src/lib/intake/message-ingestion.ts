@@ -358,7 +358,12 @@ export function failMessageIngestion(input: {
           retryCount: Math.max(0, input.attempts - 1),
           outcome: "failed",
           failureKey: input.messageId,
-          failureMessage: message,
+          // The Issues row is product surface. Without this the receipt's
+          // failureMessage was the thrown error, so a provider fault put its
+          // own URL and error code on the person's screen. The diagnostic
+          // stays in actions, which the row carries in its details.
+          failureMessage:
+            "Cove could not read your meeting notes and has stopped trying. Ask your Cove setup agent to look into it.",
         }).id;
         db.prepare(
           `UPDATE cove_failure_inbox
@@ -371,7 +376,8 @@ export function failMessageIngestion(input: {
         recordFailureInDatabase(db, {
           source: "meeting-intake",
           sourceId: input.messageId,
-          message: `Meeting notes will retry: ${message}`,
+          message:
+            "Cove could not read your meeting notes this time. It will try again automatically.",
           details: {
             messageId: input.messageId,
             attempts: input.attempts,

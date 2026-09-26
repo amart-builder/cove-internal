@@ -14,7 +14,7 @@ import { taskEditMatches, TASK_EDIT_CONFLICT } from "../tasks/edit-conflict";
 import { randomUUID } from "node:crypto";
 import { COVE_REST_TABLES } from "../data/cove-tables";
 import { operatorTimezone } from "../operator";
-import { TASK_COLUMNS } from "../tasks/columns";
+import { TASK_COLUMNS, taskColumnKeyForName } from "../tasks/columns";
 import { syncRecurringOccurrenceForTask } from "../tasks/recurrence";
 import { recordFailureInDatabase } from "../reliability/failures";
 import { localDatabasePath, openLocalDatabase } from "./database";
@@ -213,16 +213,30 @@ export function resolveLocalInboundEvent(input: {
       input.id,
     ) as Record<string, unknown> | undefined;
     if (!row) return undefined;
-    if (input.state === "failed") {
+    // "triaged" with an error is the degraded capture: triage threw, so the raw
+    // text became a plain card and the reason was recorded on the event. That
+    // used to take the branch below and dismiss failures instead of raising
+    // one, so a person who was told Cove would work out what their note was got
+    // the note back verbatim with nothing anywhere saying why. A still-retrying
+    // "pending" is not a failure yet, and "dismissed" is a decision, not one.
+    const degraded = input.state === "triaged" && Boolean(input.error);
+    if (input.state === "failed" || degraded) {
       recordFailureInDatabase(db, {
         source: "inbound-event",
         sourceId: input.id,
-        message: `Could not process ${String(row.source ?? "inbound")} item: ${input.error ?? "unknown error"}`,
+        // Neither message carries the thrown diagnostic. A parse error from a
+        // model that answered in prose put its own reply on the person's
+        // screen, and none of these strings tells them what happened to their
+        // note. The raw error stays in details for whoever has to fix it.
+        message: degraded
+          ? `Cove saved your ${String(row.source ?? "inbound")} item but could not sort it out, so it is on your board as you wrote it. Open it to set the deadline and where it belongs.`
+          : "Cove could not turn something you captured into a card, and has stopped trying. It is not on your board. Send it again, or ask your Cove setup agent to look into it.",
         details: {
           eventId: input.id,
           eventSource: row.source,
           attempts: row.attempts,
           error: input.error,
+          ...(degraded ? { degraded: true, taskId: input.taskId } : {}),
         },
         occurredAt: input.updatedAt,
       });
@@ -411,6 +425,56 @@ function updateRows(
             (field) => known.has(field) && requestedKeys.includes(field) && matched[field] !== row[field],
           ))
           .map((matched) => matched.id);
+      }
+      // The due reminder is a one-shot: fireDueReminders only looks at rows
+      // whose notified_at is still null, and stamps it as it claims each one.
+      // The stamp means "the person has been told about this task's deadline",
+      // so a deadline the person moves makes it false -- nobody has been told
+      // about the new one. Without this, dragging an overdue card to a later
+      // date silently retired its reminder: the card stayed on the board, the
+      // new date arrived, and nothing rang. The sibling rule for remind_at and
+      // nudged_at, immediately below, is the same re-arm for the pre-deadline
+      // nudge and was written first.
+      //
+      // Instants, not strings: due_at has no canonical form. The board writes a
+      // calendar date at UTC midnight while intake and the cove-task skill
+      // write local ISO datetimes, so the same moment arrives spelled two ways.
+      // remind_at can compare as a string only because validateTaskTiming
+      // forces it into one exact shape.
+      if (requestedKeys.includes("due_at") && typeof row.due_at === "string") {
+        const moved = Date.parse(row.due_at);
+        if (
+          Number.isFinite(moved) &&
+          matchedRows.some((matched) =>
+            typeof matched.due_at !== "string" ||
+            Date.parse(matched.due_at) !== moved
+          )
+        ) {
+          row.notified_at = null;
+        }
+      }
+      // Every reminder lane selects status = 'open'; the board reads column_id.
+      // KanbanBoard adds the derived status to any patch that moves a column
+      // (KanbanBoard.tsx:531), so a person dragging a card keeps the two in
+      // step. Anyone sending "only the fields that need changing" -- which is
+      // what skills/cove-task/SKILL.md tells the agent to do, and what the
+      // Apple Reminders bridge does -- did not, and a card parked in Done went
+      // on ringing its deadline at someone who had already finished it.
+      //
+      // An explicit status in the same patch always wins: a caller that says
+      // what it means is not guessing. And an archived card stays archived,
+      // because a column move is not a restore; the restore paths set status
+      // themselves.
+      if (
+        requestedKeys.includes("column_id") &&
+        !requestedKeys.includes("status") &&
+        typeof row.column_id === "string" &&
+        matchedRows.every((matched) => matched.status === "open" || matched.status === "done")
+      ) {
+        const columnName = db.prepare("SELECT name FROM task_columns WHERE id = ?")
+          .pluck().get(row.column_id) as string | undefined;
+        const key = taskColumnKeyForName(columnName);
+        if (key) row.status = key === "done" ? "done" : "open";
       }
       if (
         requestedKeys.includes("remind_at") &&

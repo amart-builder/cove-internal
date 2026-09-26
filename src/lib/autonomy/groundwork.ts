@@ -341,6 +341,25 @@ export function buildGroundworkPrompt(input: {
   ].join("\n");
 }
 
+/**
+ * Only `cwd` and `timeoutMs` of what this returns are ever run.
+ *
+ * The live groundwork pass is runGroundworkCommand below, which hands runJob a
+ * lane and its own restrictions and never touches `executable` or `args`. Every
+ * other flag built here is re-specified there, or set by the runner itself:
+ * claudeCommand in ../model-runner-runtime.mjs hardcodes --permission-mode
+ * plan, and resolves --model from the operator's configured selection rather
+ * than from the "claude-opus-5" written below. The containment is real on that
+ * path -- plan mode, the same GROUNDWORK_TOOLS allowlist, an empty settings
+ * file and an empty strict MCP config, so a groundwork run cannot write, send,
+ * or reach a connector -- but none of it comes from here.
+ *
+ * So an edit to the args below changes nothing that runs, while
+ * tests/groundwork-autonomy.test.mjs asserts on them and goes green. That is
+ * the same trap buildMorningBriefPrompt set in ../claude-execution/
+ * brief-commands.ts, and the reason for this comment rather than a deletion:
+ * removing it is a decision about the test, not a repair.
+ */
 export function buildGroundworkCommand(input: {
   claudePath: string;
   cwd: string;

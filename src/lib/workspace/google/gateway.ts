@@ -7,6 +7,7 @@
  * delete, forward, or settings method. Responses are size-bounded and parsed as
  * untrusted provider data before they reach product logic.
  */
+import { decodeHtmlEntities } from "../../email/draft-format";
 import type {
   CalendarEvent,
   MailHeader,
@@ -83,10 +84,18 @@ function bodyText(payload: unknown, depth = 0): string {
   const plain = parts.map((part) => bodyText(part, depth + 1)).filter(Boolean).join("\n");
   if (plain) return plain.slice(0, 200_000);
   if (typeof body.data === "string" && mimeType === "text/html") {
-    return decodeBase64Url(body.data)
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<[^>]+>/g, " ")
+    // Entities are decoded after the tags come off, so a decoded < cannot
+    // reintroduce one. Leaving them encoded is not cosmetic: this text is both
+    // what the classifier model reads and the evidence a quoted commitment is
+    // checked against, so `I&#39;ll send the deck Friday` in the mail and
+    // `I'll send the deck Friday` in the model's quote do not match, and the
+    // commitment is dropped.
+    return decodeHtmlEntities(
+      decodeBase64Url(body.data)
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<[^>]+>/g, " "),
+    )
       .replace(/\s+/g, " ")
       .trim()
       .slice(0, 200_000);

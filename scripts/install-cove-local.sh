@@ -652,6 +652,12 @@ if [ -d "$SKILLS_SRC" ]; then
     if [ -d "$SKILLS_SRC/humanizer" ] && [ ! -d "$agent_skills/humanizer" ]; then
       cp -R "$SKILLS_SRC/humanizer" "$agent_skills/"
     fi
+    # The skills name the URL the agent curls, and the repository copy names the
+    # default port. This install may have taken another one, in which case every
+    # curl in every skill would be refused and the agent would report Cove as
+    # down. Only the cove-* copies are touched; the humanizer and the person's
+    # own skills are left exactly as they are.
+    "$NODE_REAL" "$REPO_DIR/scripts/lib/retarget-skill-base.mjs" "$agent_skills" "$COVE_BRIEF_WEB_BASE"
     echo "Installed the Cove skills into $agent_skills"
   done
 fi
