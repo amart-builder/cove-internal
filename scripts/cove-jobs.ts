@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import os from "node:os";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadCoveRuntimePaths } from "./lib/cove-runtime-paths.mjs";
 import { signatureHtmlToText } from "../src/lib/email/draft-format";
 import { loadSignature } from "../src/lib/email/signature";
+import { readEmailVoiceGuide } from "../src/lib/email/voice-guide";
 import { createSqliteBackup, sqliteBackupPath, verifySqliteBackup } from "../src/lib/reliability/backup";
 import { JobScheduler } from "../src/lib/reliability/jobs";
 import { diagnosticCause } from "../src/lib/reliability/job-failure-copy";
@@ -37,14 +37,10 @@ function localDateKey(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function voiceGuide(): string {
-  const file = path.join(os.homedir(), ".claude", "voice.md");
-  return existsSync(file) ? readFileSync(file, "utf8").slice(0, 12_000) : "";
-}
+const REPO_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function paths(): { dataDir: string; dbPath: string; backupDir: string } {
-  const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  return loadCoveRuntimePaths(repoDir);
+  return loadCoveRuntimePaths(REPO_DIR);
 }
 
 function schedulerWithHandlers(dbPath: string, backupDir: string, dataDir: string, backupOnly = false): JobScheduler {
@@ -68,12 +64,21 @@ function schedulerWithHandlers(dbPath: string, backupDir: string, dataDir: strin
       dataDir,
       cachedSignature,
     }));
+    // This runner drains every queue every five minutes, so in practice it is
+    // the one that classifies mail; cove-email-triage runs a few times a day.
+    // It registered the handler without dataDir or repoDir and with its own
+    // reader of ~/.claude/voice.md, so the measured voice fingerprint never
+    // reached the model and the voice judge -- which is guarded on dataDir --
+    // never ran at all. Both are shipped features that did nothing on the lane
+    // that does the work. The arguments now match cove-email-runner.ts.
     scheduler.register("email-classify", createEmailClassificationHandler({
       gateway: gateway.mail,
       accountEmail: workspace.accountEmail,
       dbPath,
+      repoDir: REPO_DIR,
+      dataDir,
       signatureText,
-      voice: voiceGuide,
+      voice: () => readEmailVoiceGuide({ dataDir }),
     }));
     scheduler.register("email-artifacts", createEmailArtifactHandler({
       dbPath,
