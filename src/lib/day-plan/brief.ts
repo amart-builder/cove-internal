@@ -39,7 +39,9 @@ import type {
 // Version 27 selects frozen sources by key and renders check times from saved values.
 // 30: each action says whether it is for today; only those become cards, and
 //     nextAction is described as the card title in the operator's words.
-export const MORNING_BRIEF_PROMPT_VERSION = 30;
+// 31: card titles are verb first, short, dateless, with no approval or reminder
+//     bookkeeping; src/lib/tasks/card-title.ts holds the same line in code.
+export const MORNING_BRIEF_PROMPT_VERSION = 31;
 export const MORNING_BRIEF_SCHEMA_VERSION = 8;
 
 export type MorningBriefStatus = "queued" | "running" | "succeeded" | "failed";

@@ -280,7 +280,7 @@ test("triaged bundle tasks keep the captured title and checklist despite triage 
     },
   );
   assert.equal(posts.length, 1);
-  assert.equal(posts[0].title, "Follow ups: Dan call");
+  assert.equal(posts[0].title, "Work through follow-ups from Dan call");
   assert.equal(
     posts[0].description,
     "- [ ] Send the recap: Cover pricing.\n- [ ] Book the venue\nMeeting: Dan call",
@@ -341,7 +341,7 @@ test("fallback bundle tasks also keep the captured title and checklist", async (
       now: () => new Date("2026-08-01T16:00:00.000Z"),
     },
   );
-  assert.equal(posts[0].title, "Follow ups: Dan call");
+  assert.equal(posts[0].title, "Work through follow-ups from Dan call");
   assert.equal(
     posts[0].description,
     "- [ ] Send the recap: Cover pricing.\n- [ ] Book the venue\nMeeting: Dan call" +

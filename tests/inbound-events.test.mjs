@@ -250,7 +250,8 @@ test('fallback processing uses deterministic tasks and backs retries off before 
   }), true);
   assert.equal(posts.length, 1);
   assert.equal(posts[0].id, captured.event.id);
-  assert.equal(posts[0].title.length, 80);
+  // Bounded at a word boundary (card-title.ts), never cut mid-word at 80.
+  assert.equal(posts[0].title, 'Review the client proposal…');
   assert.equal(posts[0].column_id, 'not-started');
   assert.equal(posts[0].priority, 'medium');
   assert.deepEqual(posts[0].tags, ['needs-triage']);

@@ -18,6 +18,7 @@ import { nextLocalMorning } from "../local-time.mjs";
 import { coveEnv } from "../env";
 import { localDatabasePath } from "../local/database";
 import { transactQuietCurrent } from "./persistence";
+import { cardTitle } from "../tasks/card-title";
 
 export type SuggestionKind =
   | "create_task"
@@ -533,7 +534,7 @@ export function acceptWorkSuggestion(id: string, input: { source: "explicit_acce
       // working on, not to Cove. The tasks table's own default is the stored
       // "nobody chose a project" sentinel, which the first screen hides.
       db.prepare("INSERT INTO tasks(id,column_id,title,description,priority,due_at,due_date,tags,status,source_type,remind_native,remind_text,created_at,updated_at,origin) VALUES(?,?,?,?,?,?,?,'[]','open','manual',1,0,?,?,?)")
-        .run(taskId,today.id,suggestion.title,suggestion.description,suggestion.priority,suggestion.dueDate??null,suggestion.dueDate??null,stamp,stamp,`Accepted Quiet Current suggestion. Source: ${suggestion.source}. Evidence: ${suggestion.reason}`);
+        .run(taskId,today.id,cardTitle(suggestion.title),suggestion.description,suggestion.priority,suggestion.dueDate??null,suggestion.dueDate??null,stamp,stamp,`Accepted Quiet Current suggestion. Source: ${suggestion.source}. Evidence: ${suggestion.reason}`);
     } else if (suggestion.kind === "returned_work") {
       const tags = JSON.parse(String(taskBefore!.tags ?? "[]"));
       db.prepare("UPDATE tasks SET tags=?,updated_at=?,engaged_at=? WHERE id=?").run(JSON.stringify(tags.filter((tag:string)=>tag!=="jarvis-held")),stamp,stamp,taskId);
