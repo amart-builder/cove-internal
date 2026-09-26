@@ -88,6 +88,18 @@ if [ -z "$NODE_REAL" ]; then
   exit 1
 fi
 NODE_BIN="$(dirname "$NODE_REAL")"
+# SETUP.md names Node 24 LTS as the supported release, and the installer used
+# whatever `node` happened to be on PATH. The two ways a wrong version fails
+# both look like something else: on Node 22 the test gate fails in bulk on
+# plain assertions, and a native module built under another version throws
+# "Module did not self-register" from better-sqlite3. Neither message says
+# "Node", so a person reads them as Cove being broken.
+NODE_MAJOR="$("$NODE_REAL" -e 'process.stdout.write(String(process.versions.node.split(".")[0]))')"
+if [ "$NODE_MAJOR" -lt 24 ]; then
+  echo "Cove needs Node 24 or newer. This Mac is running Node $("$NODE_REAL" -v)." >&2
+  echo "Install Node 24 (brew install node@24), make it the version on PATH, then re-run this script." >&2
+  exit 1
+fi
 case "$NODE_REAL" in
   *nvm*|*fnm*|*volta*|*/.asdf/*)
     echo "Note: Node is managed by a version manager. If Cove stops starting after you switch Node versions, re-run this script." ;;

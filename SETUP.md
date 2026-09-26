@@ -272,7 +272,7 @@ that needs your decision."
 Check the Mac before cloning. Run every command you can for the user. The user should only need to click a macOS dialog or type a password when macOS asks. Explain those moments first.
 
 1. Run `xcode-select -p`. If it fails, run `xcode-select --install`. Tell the user to click Install and that an administrator account is needed. Wait, then run the check again.
-2. Run `node --version`. Node 24 LTS is the supported release. (`package.json` engines also accepts 20.19+ and 22.13+, but install Node 24.) The installer does not check the version itself; it uses whichever `node` is on PATH. If Node is missing or old:
+2. Run `node --version`. Node 24 LTS is the supported release, and `package.json` engines requires it. The installer checks the version of whichever `node` is on PATH and stops with a plain message if it is older, rather than failing later in ways that do not mention Node. If Node is missing or old:
    - If `brew --version` works, run `brew install node`.
    - Otherwise, find the current LTS package with `curl -s https://nodejs.org/dist/index.json`, download the correct macOS package to a temporary folder, and run `sudo installer -pkg <file> -target /`. Apple Silicon needs arm64. Warn the user before the password prompt. Do not install Homebrew just for Node.
    - Check Node again in a fresh shell.
