@@ -1,4 +1,4 @@
-import { OPERATOR_NAME_FALLBACK, operatorName } from "../operator-runtime.mjs";
+import { OPERATOR_NAME_FALLBACK, operatorName, operatorNameAliases } from "../operator-runtime.mjs";
 import { runJob } from "../model-runner-runtime.mjs";
 
 export const MEETING_FOLLOWUPS_JSON_SCHEMA = {
@@ -218,31 +218,52 @@ export function isOperatorConfigured(name = operatorName()) {
 /**
  * Does this follow-up belong to the operator rather than someone else in the
  * meeting? Meeting notes label owners with whatever display name the calendar
- * had, so "Dan", "Dan Rivera", "Daniel" and "Dan R." all have to land on
- * the same person. We compare first tokens and accept a prefix either way
- * round, which covers both the short-for-long and long-for-short cases.
+ * had, so "Dan", "Dan Rivera", "Daniel" and "Dan R." all have to land on the
+ * same person.
+ *
+ * The prefix rule used to run both ways round, which made an operator called
+ * Sam the owner of everything Samantha committed to in the meeting: her work
+ * became his task, with her name nowhere on it. The two directions are not
+ * equally safe, and that is the whole fix.
+ *
+ *   Notes shorter than the configured name ("Dan" for Daniel Rivera) is the
+ *   nickname case. Notes routinely shorten a name, so this stays.
+ *
+ *   Notes longer than the configured name ("Samantha" for Sam) is not. Notes
+ *   do not lengthen a nickname into a formal name the operator does not use,
+ *   so the likelier reading is a different person, and this is refused.
+ *
+ * Neither direction can be settled from the letters alone, which is what
+ * operatorNameAliases is for: an operator whose notes call them something the
+ * rule refuses can say so once and be matched exactly thereafter.
  *
  * On an install with no operator configured, an unmatched owner is treated as
  * operator-owned on purpose. A task that should not have been created is
  * visible and one click to dismiss; an own commitment silently parked in the
  * waiting-on lane is invisible until it is late.
  */
-export function isOperatorOwned(owner, name = operatorName()) {
+export function isOperatorOwned(owner, name = operatorName(), aliases = operatorNameAliases()) {
   const normalized = normalizeOwner(owner);
   if (normalized === "me" || normalized === "self") return true;
   if (!isOperatorConfigured(name)) return true;
   if (!normalized) return false;
 
-  const operator = normalizeOwner(name);
-  if (normalized === operator) return true;
-
   const ownerFirst = normalized.split(" ")[0];
-  const operatorFirst = operator.split(" ")[0];
-  if (ownerFirst === operatorFirst) return true;
-  return (
-    Math.min(ownerFirst.length, operatorFirst.length) >= 3 &&
-    (ownerFirst.startsWith(operatorFirst) || operatorFirst.startsWith(ownerFirst))
-  );
+  for (const candidate of [name, ...aliases]) {
+    const known = normalizeOwner(candidate);
+    if (!known) continue;
+    if (normalized === known) return true;
+    if (ownerFirst === known.split(" ")[0]) return true;
+  }
+
+  // Only the shortening direction, and only against the configured name. An
+  // alias is read the same way the configured name is, first token included,
+  // but it does not get the prefix guess layered on top: it was written down
+  // precisely so the guessing is not needed.
+  const operatorFirst = normalizeOwner(name).split(" ")[0];
+  return ownerFirst.length >= 3 &&
+    ownerFirst.length < operatorFirst.length &&
+    operatorFirst.startsWith(ownerFirst);
 }
 
 export function meetingFollowUpText(item, meetingTitle) {

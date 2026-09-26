@@ -62,6 +62,25 @@ export function operatorName(dataDir, env = process.env) {
     : OPERATOR_NAME_FALLBACK;
 }
 
+/**
+ * Other names the operator's meeting notes call them by.
+ *
+ * Owner matching cannot tell a nickname from a different person by looking at
+ * the letters -- "Sam" is short for "Samantha" and is also somebody else's
+ * whole name -- so this is the one place the answer can be stated rather than
+ * guessed. Absent on every install until somebody writes it, which is why the
+ * matcher still has to be careful without it.
+ */
+export function operatorNameAliases(dataDir, env = process.env) {
+  const configured = coveEnvTrimmed("OPERATOR_ALIASES", env);
+  const fromEnv = configured ? configured.split(",") : [];
+  const profile = loadOperatorProfile(dataDir, env)?.aliases;
+  const fromProfile = Array.isArray(profile) ? profile : [];
+  return [...fromEnv, ...fromProfile]
+    .filter((value) => typeof value === "string" && value.trim())
+    .map((value) => value.trim());
+}
+
 function usableTimezone(value) {
   const candidate = value?.trim();
   if (!candidate) return undefined;
